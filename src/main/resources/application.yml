@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: pally-backend
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/pally}
+    username: ${DB_USER:pally}
+    password: ${DB_PASSWORD:pally}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+  threads:
+    virtual:
+      enabled: true
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+claude:
+  api:
+    key: ${CLAUDE_API_KEY}
+    base-url: https://api.anthropic.com
+    model: claude-sonnet-4-6
+    relevance-max-tokens: 128
+    chat-max-tokens: 1024
+    version: "2023-06-01"
+
+storage:
+  type: ${STORAGE_TYPE:local}
+  local:
+    base-path: ${STORAGE_LOCAL_PATH:/tmp/pally}
+  s3:
+    bucket: ${S3_BUCKET:pally-files}
+    region: ${S3_REGION:ap-southeast-1}
+    endpoint: ${S3_ENDPOINT:}
+
+logging:
+  level:
+    root: INFO
+    com.pally: DEBUG
+    com.pally.infrastructure.ai: DEBUG
+    com.pally.shared.logging: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.deprecation: WARN
+    org.flywaydb: INFO
+    io.netty.resolver.dns: ERROR
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{30} - %msg%n"
