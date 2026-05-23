@@ -1,0 +1,77 @@
+package com.pally.infrastructure.persistence.progress;
+
+import com.pally.domain.progress.UserStats;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.Instant;
+import java.time.LocalDate;
+
+@Entity
+@Table(name = "users")
+@Getter
+@Setter
+@NoArgsConstructor
+public class UserJpaEntity {
+
+    @Id
+    @Column(length = 36)
+    private String id;
+
+    @Column(unique = true)
+    private String email;
+
+    @Column(name = "display_name", length = 100)
+    private String displayName;
+
+    @Column(name = "parent_pin_hash", length = 100)
+    private String parentPinHash;
+
+    @Column(nullable = false)
+    private int stars;
+
+    @Column(nullable = false)
+    private int xp;
+
+    @Column(nullable = false)
+    private int level;
+
+    @Column(name = "streak_days", nullable = false)
+    private int streakDays;
+
+    @Column(name = "last_active_date")
+    private LocalDate lastActiveDate;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    public static UserJpaEntity newUser(String id) {
+        UserJpaEntity e = new UserJpaEntity();
+        e.id = id;
+        e.displayName = "Player";
+        e.stars = 0;
+        e.xp = 0;
+        e.level = 1;
+        e.streakDays = 0;
+        e.createdAt = Instant.now();
+        return e;
+    }
+
+    public static UserJpaEntity fromDomain(UserStats stats) {
+        UserJpaEntity e = new UserJpaEntity();
+        e.id = stats.id();
+        e.displayName = stats.displayName();
+        e.xp = stats.xp();
+        e.level = stats.level();
+        e.streakDays = stats.streakDays();
+        e.stars = stats.stars();
+        e.createdAt = Instant.now();
+        return e;
+    }
+
+    public UserStats toDomain() {
+        return new UserStats(id, displayName != null ? displayName : "Player", xp, level, streakDays, stars);
+    }
+}
