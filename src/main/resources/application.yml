@@ -54,9 +54,9 @@ management:
 
 claude:
   api:
-    key: ${CLAUDE_API_KEY}
+    key: ${CLAUDE_API_KEY:}
     base-url: https://api.anthropic.com
-    model: claude-sonnet-4-6
+    model: claude-haiku-4-5-20251001
     relevance-max-tokens: 128
     chat-max-tokens: 1024
     version: "2023-06-01"

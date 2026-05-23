@@ -5,10 +5,18 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ── 0. Load .env if present (never commit .env to git) ───────────────────────
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  set -a; source "$SCRIPT_DIR/.env"; set +a
+fi
+
 # ── 1. Validate required env vars ────────────────────────────────────────────
 if [[ -z "${CLAUDE_API_KEY:-}" ]]; then
   echo "ERROR: CLAUDE_API_KEY is not set."
-  echo "  Export it first:  export CLAUDE_API_KEY=sk-ant-..."
+  echo "  Either: export CLAUDE_API_KEY=sk-ant-..."
+  echo "  Or add it to pally-backend/.env (already gitignored)"
   exit 1
 fi
 
@@ -37,7 +45,6 @@ if [[ -n "$PIDS" ]]; then
 fi
 
 # ── 4. Find JAR ───────────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 JAR=$(ls "$SCRIPT_DIR"/build/libs/pally-backend*.jar 2>/dev/null | head -1)
 if [[ -z "$JAR" ]]; then
   echo "No JAR found — building now..."
