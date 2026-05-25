@@ -2,6 +2,7 @@ package com.pally.domain.knowledge.usecase;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.chat.HintTreeGenerator;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
@@ -33,6 +34,7 @@ public class CompileWikiUseCase {
     private final WikiCompilerPort wikiCompiler;
     private final CacheInvalidationService cacheInvalidationService;
     private final CacheKeepAliveService cacheKeepAliveService;
+    private final HintTreeGenerator hintTreeGenerator;
 
     public record CompileResult(int pagesCreated, int pagesUpdated) {}
 
@@ -67,11 +69,13 @@ public class CompileWikiUseCase {
             var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, draft.slug());
             if (existing.isPresent()) {
                 existing.get().updateContent(draft.title(), draft.content(), WikiPage.Certainty.INFERRED);
-                wikiRepository.save(existing.get());
+                WikiPage savedPage = wikiRepository.save(existing.get());
+                hintTreeGenerator.generateForPage(avatarId, savedPage);
                 updated++;
             } else {
                 WikiPage newPage = WikiPage.create(avatarId, draft.slug(), draft.title(), draft.content());
-                wikiRepository.save(newPage);
+                WikiPage savedPage = wikiRepository.save(newPage);
+                hintTreeGenerator.generateForPage(avatarId, savedPage);
                 created++;
             }
         }

@@ -22,6 +22,7 @@ public final class Avatar {
     private String gradeLevel;
     private String curriculumType;
     private PedagogyMode pedagogyMode;
+    private TeachingMode teachingMode;
     private java.time.LocalDate testDate;
 
     private Avatar(
@@ -35,6 +36,7 @@ public final class Avatar {
             String gradeLevel,
             String curriculumType,
             PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
             java.time.LocalDate testDate
     ) {
         this.id = id;
@@ -47,6 +49,7 @@ public final class Avatar {
         this.gradeLevel = gradeLevel;
         this.curriculumType = curriculumType;
         this.pedagogyMode = pedagogyMode != null ? pedagogyMode : PedagogyMode.SOCRATIC;
+        this.teachingMode = teachingMode != null ? teachingMode : TeachingMode.TEACHING;
         this.testDate = testDate;
     }
 
@@ -66,7 +69,7 @@ public final class Avatar {
         if (subject == null) throw new IllegalArgumentException("Subject is required");
         if (characterType == null) throw new IllegalArgumentException("CharacterType is required");
         return new Avatar(IdGenerator.newId(), userId, name, subject, characterType, 0, Instant.now(),
-                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, null);
+                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null);
     }
 
     /**
@@ -82,7 +85,7 @@ public final class Avatar {
             Instant createdAt
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                null, null, PedagogyMode.SOCRATIC, null);
+                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null);
     }
 
     public static Avatar reconstitute(
@@ -96,10 +99,11 @@ public final class Avatar {
             String gradeLevel,
             String curriculumType,
             PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
             java.time.LocalDate testDate
     ) {
         return new Avatar(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, testDate);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate);
     }
 
     // Domain behaviour
@@ -120,6 +124,11 @@ public final class Avatar {
     public void setPedagogyMode(PedagogyMode mode) {
         if (mode == null) throw new IllegalArgumentException("PedagogyMode cannot be null");
         this.pedagogyMode = mode;
+    }
+
+    public void setTeachingMode(TeachingMode mode) {
+        if (mode == null) throw new IllegalArgumentException("TeachingMode cannot be null");
+        this.teachingMode = mode;
     }
 
     public void setGradeLevel(String gradeLevel) {
@@ -145,5 +154,6 @@ public final class Avatar {
     public String getGradeLevel()               { return gradeLevel; }
     public String getCurriculumType()           { return curriculumType; }
     public PedagogyMode getPedagogyMode()       { return pedagogyMode; }
+    public TeachingMode getTeachingMode()       { return teachingMode; }
     public java.time.LocalDate getTestDate()    { return testDate; }
 }

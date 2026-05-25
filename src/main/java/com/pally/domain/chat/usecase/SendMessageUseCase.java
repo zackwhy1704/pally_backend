@@ -2,10 +2,17 @@ package com.pally.domain.chat.usecase;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.avatar.TeachingMode;
 import com.pally.domain.chat.AssembledContext;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
+import com.pally.domain.chat.ChatSession;
+import com.pally.domain.chat.ChatSessionRepository;
 import com.pally.domain.chat.ChatStreamEvent;
+import com.pally.domain.chat.HintTreeRepository;
+import com.pally.domain.chat.SocraticHintTree;
+import com.pally.domain.chat.SocraticPromptBuilder;
+import com.pally.domain.chat.TopicClassifier;
 import com.pally.domain.chat.port.ChatPort;
 import com.pally.infrastructure.ai.CacheMetrics;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
@@ -16,14 +23,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Use case: send a message to an avatar and receive a streaming response.
  *
- * <p>Uses {@link ClaudeContextAssembler} to build structured cache blocks.
- * Cache metrics are saved asynchronously after the stream completes.
+ * <p>Merges prompt caching (Blocks 1-4) with Socratic dialogue logic.
+ * Block 4 is dynamically modified based on teaching mode, hint trees, and attempt count.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,6 +47,10 @@ public class SendMessageUseCase {
     private final ChatRepository chatRepository;
     private final ChatPort chatProxy;
     private final ClaudeContextAssembler contextAssembler;
+    private final HintTreeRepository hintTreeRepository;
+    private final ChatSessionRepository chatSessionRepository;
+    private final TopicClassifier topicClassifier;
+    private final SocraticPromptBuilder socraticPromptBuilder;
 
     public record StreamEvent(String type, String payload) {}
 
@@ -47,17 +62,55 @@ public class SendMessageUseCase {
         ChatMessage userMsg = ChatMessage.create(avatarId, userId, ChatMessage.Role.USER, userMessage, null);
         chatRepository.save(userMsg);
 
+        // Build prompt cache blocks 1-3 (stable)
         AssembledContext context = contextAssembler.assemble(avatar, userMessage);
         List<ChatMessage> history = chatRepository.findByAvatarId(avatarId, HISTORY_LIMIT);
 
-        log.debug("[Chat] Streaming avatarId={} historySize={} blocks={}",
-                avatarId, history.size(), context.systemBlocks().size());
+        // Socratic: classify topic and get/update session
+        List<SocraticHintTree> allTrees = hintTreeRepository.findByAvatarId(avatarId);
+        Optional<String> topicSlug = topicClassifier.classify(userMessage, allTrees);
+        Optional<SocraticHintTree> hintTree = topicSlug
+                .flatMap(slug -> hintTreeRepository.findByAvatarIdAndSlug(avatarId, slug));
+
+        ChatSession session = chatSessionRepository
+                .findByAvatarIdAndDate(avatarId, LocalDate.now())
+                .orElseGet(() -> ChatSession.createToday(avatarId));
+
+        // Record attempt and check escape hatch
+        topicSlug.ifPresent(session::recordAttempt);
+        if (topicSlug.isEmpty()) session.recordAttempt(null);
+
+        TeachingMode mode = avatar.getTeachingMode();
+        boolean shouldEscape = session.shouldEscape(mode);
+        boolean deflecting = topicClassifier.detectsDeflection(userMessage);
+
+        if (deflecting) {
+            log.debug("[Socratic] Deflection detected for avatar={} — forcing escape hatch", avatarId);
+        }
+
+        if (shouldEscape || deflecting) {
+            session.markEscapeFired();
+        }
+
+        chatSessionRepository.save(session);
+
+        // Build Block 4 (dynamic tail — no cache) based on Socratic state
+        Map<String, Object> block4 = socraticPromptBuilder.buildBlock4(
+                mode, hintTree, session.getAttemptCount(), shouldEscape || deflecting);
+
+        // Replace Block 4 in the system blocks list
+        List<Map<String, Object>> systemBlocks = buildBlocksWithSocraticTail(
+                context.systemBlocks(), block4);
+
+        log.debug("[Chat] avatarId={} historySize={} mode={} attempts={} escape={} topic={}",
+                avatarId, history.size(), mode, session.getAttemptCount(),
+                shouldEscape || deflecting, topicSlug.orElse("none"));
 
         StringBuilder replyBuffer = new StringBuilder();
         AtomicReference<String> assistantMessageId = new AtomicReference<>();
         AtomicReference<CacheMetrics> capturedMetrics = new AtomicReference<>();
 
-        return chatProxy.streamChat(context.systemBlocks(), history, userMessage, capturedMetrics::set)
+        return chatProxy.streamChat(systemBlocks, history, userMessage, capturedMetrics::set)
                 .doOnNext(event -> {
                     if (event instanceof ChatStreamEvent.Token token) {
                         replyBuffer.append(token.text());
@@ -73,7 +126,6 @@ public class SendMessageUseCase {
                         ChatMessage saved = chatRepository.save(assistantMsg);
                         assistantMessageId.set(saved.getId());
 
-                        // Persist cache metrics asynchronously
                         CacheMetrics metrics = capturedMetrics.get();
                         if (metrics != null) {
                             try {
@@ -88,7 +140,8 @@ public class SendMessageUseCase {
                                 log.info("[Cache] Turn saved ~${} in input cost",
                                         String.format("%.4f", metrics.estimateSavingUsd(3.00)));
                             } catch (Exception e) {
-                                log.warn("[Cache] Failed to save metrics for message={}: {}", saved.getId(), e.getMessage());
+                                log.warn("[Cache] Failed to save metrics for message={}: {}",
+                                        saved.getId(), e.getMessage());
                             }
                         }
 
@@ -97,8 +150,23 @@ public class SendMessageUseCase {
                 })
                 .map(event -> switch (event) {
                     case ChatStreamEvent.Token t -> new StreamEvent("delta", t.text());
-                    case ChatStreamEvent.Done d  -> new StreamEvent("done", d.sourceFile() != null ? d.sourceFile() : "");
+                    case ChatStreamEvent.Done d  -> new StreamEvent("done",
+                            d.sourceFile() != null ? d.sourceFile() : "");
                     case ChatStreamEvent.Error e -> new StreamEvent("error", e.message());
                 });
+    }
+
+    /**
+     * Replaces the last block (Block 4) with the dynamically-built Socratic tail.
+     * If no blocks exist yet (empty context), just returns [block4].
+     */
+    private List<Map<String, Object>> buildBlocksWithSocraticTail(
+            List<Map<String, Object>> existing, Map<String, Object> block4) {
+        if (existing.isEmpty()) {
+            return List.of(block4);
+        }
+        List<Map<String, Object>> result = new ArrayList<>(existing.subList(0, existing.size() - 1));
+        result.add(block4);
+        return result;
     }
 }

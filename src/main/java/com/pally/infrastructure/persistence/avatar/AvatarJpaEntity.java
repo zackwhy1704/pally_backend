@@ -3,6 +3,7 @@ package com.pally.infrastructure.persistence.avatar;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.avatar.TeachingMode;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -52,6 +53,10 @@ public class AvatarJpaEntity {
     @Column(name = "pedagogy_mode", nullable = false, length = 20)
     private Avatar.PedagogyMode pedagogyMode = Avatar.PedagogyMode.SOCRATIC;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "teaching_mode", nullable = false, length = 20)
+    private TeachingMode teachingMode = TeachingMode.TEACHING;
+
     @Column(name = "test_date")
     private LocalDate testDate;
 
@@ -67,12 +72,13 @@ public class AvatarJpaEntity {
         entity.gradeLevel = avatar.getGradeLevel();
         entity.curriculumType = avatar.getCurriculumType();
         entity.pedagogyMode = avatar.getPedagogyMode();
+        entity.teachingMode = avatar.getTeachingMode();
         entity.testDate = avatar.getTestDate();
         return entity;
     }
 
     public Avatar toDomain() {
         return Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, testDate);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate);
     }
 }
