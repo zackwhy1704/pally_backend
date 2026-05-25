@@ -18,12 +18,13 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Low-level WebClient wrapper for the Anthropic Messages API.
  *
  * <p>Supports both synchronous single-turn completion and asynchronous SSE streaming.
- * All requests include the required {@code anthropic-version: 2023-06-01} header.
+ * The streaming variant supports prompt caching via structured system blocks.
  */
 @Component
 @RequiredArgsConstructor
@@ -47,11 +48,8 @@ public class ClaudeApiClient {
 
     /**
      * Sends a single-turn completion request and returns the assistant's text response.
-     *
-     * @param model     model identifier (e.g. "claude-3-5-sonnet-20241022")
-     * @param maxTokens maximum tokens in the response
-     * @param prompt    user-turn text prompt
-     * @return the assistant's full text response
+     * Used by harness micro-calls (relevance check, quiz generation, etc.).
+     * Not cached — these calls are already cheap on Haiku.
      */
     public String complete(String model, int maxTokens, String prompt) {
         String callId = UUID.randomUUID().toString().substring(0, 8);
@@ -101,19 +99,85 @@ public class ClaudeApiClient {
     }
 
     /**
-     * Streams a response from Claude using server-sent events.
+     * Streams a cached chat response using the Anthropic prompt caching API.
      *
-     * @param systemPrompt the system prompt for the assistant's persona
-     * @param messages     ordered list of message maps with "role" and "content" keys
+     * <p>The {@code systemBlocks} parameter is a structured array where each block
+     * is a {@code Map<String, Object>} with {@code type}, {@code text}, and optionally
+     * {@code cache_control} fields. See {@link ClaudeContextAssembler} for block structure.
+     *
+     * <p>The {@code anthropic-beta: extended-cache-ttl-2025-04-11} header is required
+     * for 1-hour TTL support. Without it, blocks with {@code "ttl":"1h"} fall back to 5 minutes.
+     *
+     * @param systemBlocks structured system content blocks with optional cache_control
+     * @param messages     conversation turns — [{role, content}, ...]
      * @param maxTokens    maximum tokens in the response
-     * @return a {@link Flux} emitting raw SSE data lines from the API
+     * @return Flux emitting raw SSE data lines; caller parses events
+     */
+    public Flux<String> streamResponseWithCache(
+            List<Map<String, Object>> systemBlocks,
+            List<Map<String, String>> messages,
+            int maxTokens) {
+        return streamResponseWithCacheAndModel(model, maxTokens, systemBlocks, messages);
+    }
+
+    /**
+     * Same as {@link #streamResponseWithCache} but with an explicit model override.
+     * Used by {@link CacheKeepAliveService} which uses Haiku for cheap keepalive pings.
+     */
+    public Flux<String> streamResponseWithCacheAndModel(
+            String modelOverride,
+            int maxTokens,
+            List<Map<String, Object>> systemBlocks,
+            List<Map<String, String>> messages) {
+
+        String callId = UUID.randomUUID().toString().substring(0, 8);
+        AtomicLong start = new AtomicLong(System.currentTimeMillis());
+        AtomicInteger chunkCount = new AtomicInteger(0);
+
+        log.info("[Claude-{}] STREAM REQUEST model={} maxTokens={} systemBlocks={} msgs={}",
+                callId, modelOverride, maxTokens, systemBlocks.size(), messages.size());
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", modelOverride);
+        body.put("max_tokens", maxTokens);
+        body.put("stream", true);
+        body.set("system", objectMapper.valueToTree(systemBlocks));
+
+        ArrayNode messagesNode = body.putArray("messages");
+        for (Map<String, String> msg : messages) {
+            ObjectNode msgNode = messagesNode.addObject();
+            msgNode.put("role", msg.get("role"));
+            msgNode.put("content", msg.get("content"));
+        }
+
+        return webClient.post()
+                .uri(baseUrl + MESSAGES_PATH)
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-beta", ClaudeContextAssembler.BETA_HEADER_VALUE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .bodyValue(body.toString())
+                .retrieve()
+                .bodyToFlux(String.class)
+                .doOnNext(chunk -> chunkCount.incrementAndGet())
+                .doOnComplete(() -> log.info("[Claude-{}] STREAM COMPLETE {}ms ~{}chunks",
+                        callId, System.currentTimeMillis() - start.get(), chunkCount.get()))
+                .doOnError(e -> log.error("[Claude-{}] STREAM ERROR after {}ms: {} — {}",
+                        callId, System.currentTimeMillis() - start.get(),
+                        e.getClass().getSimpleName(), e.getMessage()));
+    }
+
+    /**
+     * Legacy streaming method (string system prompt, no caching).
+     * Kept for backward compatibility — prefer {@link #streamResponseWithCache}.
      */
     public Flux<String> streamResponse(String systemPrompt, List<Map<String, String>> messages, int maxTokens) {
         String callId = UUID.randomUUID().toString().substring(0, 8);
         AtomicLong start = new AtomicLong(System.currentTimeMillis());
         AtomicInteger chunkCount = new AtomicInteger(0);
 
-        log.info("[Claude-{}] STREAM REQUEST model={} maxTokens={} messageCount={}", callId, model, maxTokens, messages.size());
+        log.info("[Claude-{}] STREAM REQUEST (legacy) model={} maxTokens={} messageCount={}", callId, model, maxTokens, messages.size());
 
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", model);

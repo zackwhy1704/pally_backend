@@ -7,6 +7,7 @@ import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatStreamEvent;
 import com.pally.domain.chat.port.ChatPort;
+import com.pally.infrastructure.ai.CacheMetrics;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -16,12 +17,13 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Use case: send a message to an avatar and receive a streaming response.
  *
- * <p>Uses ClaudeContextAssembler to build a tiered, topic-gated system prompt
- * instead of dumping all wiki pages into every request.</p>
+ * <p>Uses {@link ClaudeContextAssembler} to build structured cache blocks.
+ * Cache metrics are saved asynchronously after the stream completes.
  */
 @Service
 @RequiredArgsConstructor
@@ -42,22 +44,20 @@ public class SendMessageUseCase {
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
-        // Persist user message before streaming
         ChatMessage userMsg = ChatMessage.create(avatarId, userId, ChatMessage.Role.USER, userMessage, null);
         chatRepository.save(userMsg);
 
-        // Assemble tiered context — replaces flat wiki dump
         AssembledContext context = contextAssembler.assemble(avatar, userMessage);
-
-        // Fetch recent history for conversational continuity
         List<ChatMessage> history = chatRepository.findByAvatarId(avatarId, HISTORY_LIMIT);
 
-        log.debug("[Chat] Streaming avatarId={} historySize={} tier1-4 assembled",
-                avatarId, history.size());
+        log.debug("[Chat] Streaming avatarId={} historySize={} blocks={}",
+                avatarId, history.size(), context.systemBlocks().size());
 
         StringBuilder replyBuffer = new StringBuilder();
+        AtomicReference<String> assistantMessageId = new AtomicReference<>();
+        AtomicReference<CacheMetrics> capturedMetrics = new AtomicReference<>();
 
-        return chatProxy.streamChat(context.systemPrompt(), history, userMessage)
+        return chatProxy.streamChat(context.systemBlocks(), history, userMessage, capturedMetrics::set)
                 .doOnNext(event -> {
                     if (event instanceof ChatStreamEvent.Token token) {
                         replyBuffer.append(token.text());
@@ -70,7 +70,28 @@ public class SendMessageUseCase {
                                 replyBuffer.toString(), null,
                                 context.harnessTrace()
                         );
-                        chatRepository.save(assistantMsg);
+                        ChatMessage saved = chatRepository.save(assistantMsg);
+                        assistantMessageId.set(saved.getId());
+
+                        // Persist cache metrics asynchronously
+                        CacheMetrics metrics = capturedMetrics.get();
+                        if (metrics != null) {
+                            try {
+                                chatRepository.updateCacheMetrics(
+                                        saved.getId(),
+                                        metrics.wasCacheHit(),
+                                        metrics.cacheReadInputTokens(),
+                                        metrics.cacheCreationInputTokens(),
+                                        metrics.inputTokens(),
+                                        metrics.outputTokens()
+                                );
+                                log.info("[Cache] Turn saved ~${} in input cost",
+                                        String.format("%.4f", metrics.estimateSavingUsd(3.00)));
+                            } catch (Exception e) {
+                                log.warn("[Cache] Failed to save metrics for message={}: {}", saved.getId(), e.getMessage());
+                            }
+                        }
+
                         log.debug("[Chat] Saved reply avatarId={} chars={}", avatarId, replyBuffer.length());
                     }
                 })

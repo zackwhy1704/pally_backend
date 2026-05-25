@@ -14,6 +14,7 @@ import com.pally.domain.chat.usecase.ChatHistoryService;
 import com.pally.domain.chat.usecase.ChatSyncService;
 import com.pally.domain.chat.usecase.SendMessageUseCase;
 import com.pally.domain.chat.usecase.SolvePhotoQuestionsUseCase;
+import com.pally.infrastructure.ai.CacheKeepAliveService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -53,6 +54,7 @@ public class ChatController {
     private final ChatSyncService chatSyncService;
     private final ChatHistoryService chatHistoryService;
     private final ChatFeedbackService chatFeedbackService;
+    private final CacheKeepAliveService cacheKeepAliveService;
 
     /**
      * Streams a chat response from the avatar via Server-Sent Events.
@@ -136,5 +138,21 @@ public class ChatController {
             @RequestBody FeedbackRequest request
     ) {
         chatFeedbackService.submitFeedback(messageId, request.feedbackType());
+    }
+
+    @PostMapping("/chat/session-start")
+    @ResponseStatus(HttpStatus.OK)
+    public void sessionStart(
+            @RequestHeader("X-User-Id") String userId,
+            @PathVariable String avatarId) {
+        cacheKeepAliveService.startKeepalive(avatarId);
+    }
+
+    @PostMapping("/chat/session-end")
+    @ResponseStatus(HttpStatus.OK)
+    public void sessionEnd(
+            @RequestHeader("X-User-Id") String userId,
+            @PathVariable String avatarId) {
+        cacheKeepAliveService.stopKeepalive(avatarId);
     }
 }

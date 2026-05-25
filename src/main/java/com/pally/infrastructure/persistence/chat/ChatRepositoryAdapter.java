@@ -30,4 +30,14 @@ public class ChatRepositoryAdapter implements ChatRepository {
                 .map(ChatMessageJpaEntity::toDomain)
                 .toList();
     }
+
+    @Override
+    @Transactional
+    public void updateCacheMetrics(String messageId, boolean cacheHit,
+                                   int cacheReadTokens, int cacheWriteTokens,
+                                   int totalInputTokens, int totalOutputTokens) {
+        jpaRepository.updateCacheMetrics(messageId, cacheHit,
+                cacheReadTokens, cacheWriteTokens,
+                totalInputTokens, totalOutputTokens);
+    }
 }

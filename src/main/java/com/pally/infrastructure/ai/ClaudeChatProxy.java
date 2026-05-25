@@ -14,13 +14,15 @@ import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
  * Claude-backed implementation of {@link ChatPort}.
  *
- * <p>Builds a message array from chat history and the current user message,
- * then streams the response from Claude via SSE, mapping each delta event
- * to a {@link ChatStreamEvent}.
+ * <p>Uses structured system blocks for prompt caching (Blocks 1–3 cached,
+ * Block 4 uncached). Extracts cache metrics from the SSE stream's usage events
+ * and forwards them via the {@code onMetrics} callback.
  */
 @Component
 @RequiredArgsConstructor
@@ -33,13 +35,19 @@ public class ClaudeChatProxy implements ChatPort {
     private final ObjectMapper objectMapper;
 
     @Override
-    public Flux<ChatStreamEvent> streamChat(String systemPrompt, List<ChatMessage> history, String userMessage) {
+    public Flux<ChatStreamEvent> streamChat(
+            List<Map<String, Object>> systemBlocks,
+            List<ChatMessage> history,
+            String userMessage,
+            Consumer<CacheMetrics> onMetrics) {
+
         List<Map<String, String>> messages = buildMessages(history, userMessage);
+        AtomicBoolean metricsEmitted = new AtomicBoolean(false);
 
-        log.debug("Starting chat stream messageCount={}", messages.size());
+        log.debug("Starting cached chat stream messageCount={} systemBlocks={}", messages.size(), systemBlocks.size());
 
-        return apiClient.streamResponse(systemPrompt, messages, MAX_TOKENS)
-                .flatMap(this::parseEvent)
+        return apiClient.streamResponseWithCache(systemBlocks, messages, MAX_TOKENS)
+                .flatMap(line -> parseEventWithMetrics(line, onMetrics, metricsEmitted))
                 .onErrorResume(e -> {
                     log.error("Chat stream error", e);
                     return Flux.just(new ChatStreamEvent.Error(e.getMessage()));
@@ -58,13 +66,27 @@ public class ClaudeChatProxy implements ChatPort {
         return messages;
     }
 
-    private Flux<ChatStreamEvent> parseEvent(String line) {
-        if (line == null || line.isBlank()) {
-            return Flux.empty();
-        }
+    private Flux<ChatStreamEvent> parseEventWithMetrics(
+            String line,
+            Consumer<CacheMetrics> onMetrics,
+            AtomicBoolean metricsEmitted) {
+
+        if (line == null || line.isBlank()) return Flux.empty();
         try {
             JsonNode node = objectMapper.readTree(line);
             String type = node.path("type").asText();
+
+            // Extract cache metrics from message_delta usage (final usage block)
+            if (onMetrics != null && !metricsEmitted.get() &&
+                    ("message_delta".equals(type) || "message_stop".equals(type))) {
+                JsonNode usage = node.path("usage");
+                if (!usage.isMissingNode()) {
+                    CacheMetrics metrics = CacheMetrics.fromUsageJson(usage);
+                    log.info("[CacheMetrics] {}", metrics.toLogLine());
+                    metricsEmitted.set(true);
+                    onMetrics.accept(metrics);
+                }
+            }
 
             return switch (type) {
                 case "content_block_delta" -> {

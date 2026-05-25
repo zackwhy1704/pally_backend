@@ -50,6 +50,21 @@ public class ChatMessageJpaEntity {
     @Column(name = "is_photo_message")
     private boolean isPhotoMessage = false;
 
+    @Column(name = "cache_hit")
+    private Boolean cacheHit;
+
+    @Column(name = "cache_read_tokens")
+    private Integer cacheReadTokens;
+
+    @Column(name = "cache_write_tokens")
+    private Integer cacheWriteTokens;
+
+    @Column(name = "total_input_tokens")
+    private Integer totalInputTokens;
+
+    @Column(name = "total_output_tokens")
+    private Integer totalOutputTokens;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

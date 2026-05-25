@@ -7,6 +7,8 @@ import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
+import com.pally.infrastructure.ai.CacheInvalidationService;
+import com.pally.infrastructure.ai.CacheKeepAliveService;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.WikiCompileException;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,8 @@ public class CompileWikiUseCase {
     private final KnowledgeRepository knowledgeRepository;
     private final WikiRepository wikiRepository;
     private final WikiCompilerPort wikiCompiler;
+    private final CacheInvalidationService cacheInvalidationService;
+    private final CacheKeepAliveService cacheKeepAliveService;
 
     public record CompileResult(int pagesCreated, int pagesUpdated) {}
 
@@ -77,6 +81,10 @@ public class CompileWikiUseCase {
         avatarRepository.save(avatar);
 
         log.info("Wiki compiled for avatarId={} created={} updated={}", avatarId, created, updated);
+
+        // Invalidate Block 3 cache so next request picks up the new content
+        cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
+
         return new CompileResult(created, updated);
     }
 }
