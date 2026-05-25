@@ -4,7 +4,6 @@ import com.pally.api.avatar.dto.AvatarListResponse;
 import com.pally.api.avatar.dto.AvatarResponse;
 import com.pally.api.avatar.dto.CreateAvatarRequest;
 import com.pally.api.avatar.dto.UpdateGradeCurriculumRequest;
-import com.pally.api.avatar.dto.UpdatePedagogyRequest;
 import com.pally.api.avatar.dto.UpdateTestDateRequest;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.usecase.CreateAvatarUseCase;
@@ -111,16 +110,6 @@ public class AvatarController {
     ) {
         deleteAvatarUseCase.execute(avatarId, userId);
         return ResponseEntity.noContent().build();
-    }
-
-    @PatchMapping("/{avatarId}/pedagogy")
-    public ResponseEntity<ApiResponse<AvatarResponse>> updatePedagogy(
-            @RequestHeader("X-User-Id") String userId,
-            @PathVariable String avatarId,
-            @Valid @RequestBody UpdatePedagogyRequest request
-    ) {
-        Avatar avatar = updateAvatarSettingsUseCase.updatePedagogy(avatarId, userId, request.mode());
-        return ResponseEntity.ok(ApiResponse.success(avatarMapper.toResponse(avatar)));
     }
 
     @PatchMapping("/{avatarId}/grade")

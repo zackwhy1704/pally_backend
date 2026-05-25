@@ -18,14 +18,6 @@ public class UpdateAvatarSettingsUseCase {
     private final AvatarRepository avatarRepository;
     private final GetAvatarUseCase getAvatarUseCase;
 
-    public Avatar updatePedagogy(String avatarId, String userId, Avatar.PedagogyMode mode) {
-        Avatar avatar = getAvatarUseCase.getById(avatarId, userId);
-        avatar.setPedagogyMode(mode);
-        Avatar saved = avatarRepository.save(avatar);
-        log.info("Updated pedagogy avatarId={} mode={}", avatarId, mode);
-        return saved;
-    }
-
     public Avatar updateGradeCurriculum(String avatarId, String userId,
                                         String gradeLevel, String curriculumType) {
         Avatar avatar = getAvatarUseCase.getById(avatarId, userId);

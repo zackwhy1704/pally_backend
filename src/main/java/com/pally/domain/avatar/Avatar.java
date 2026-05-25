@@ -10,7 +10,7 @@ import java.time.Instant;
  */
 public final class Avatar {
 
-    public enum PedagogyMode { SOCRATIC, DIRECT }
+    public enum PedagogyMode { SOCRATIC }
 
     private final String id;
     private String name;

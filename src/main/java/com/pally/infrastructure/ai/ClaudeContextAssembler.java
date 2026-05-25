@@ -92,10 +92,7 @@ public class ClaudeContextAssembler {
                 ? "Grade: " + avatar.getGradeLevel() + ". " : "";
         String curriculumCtx = avatar.getCurriculumType() != null
                 ? "Curriculum: " + avatar.getCurriculumType() + ". " : "";
-        String pedagogyStyle = switch (avatar.getPedagogyMode()) {
-            case SOCRATIC -> "Use the Socratic method — guide with questions before explaining.";
-            case DIRECT -> "Teach directly with clear step-by-step explanations.";
-        };
+        String pedagogyStyle = "Use the Socratic method — guide with questions before explaining.";
 
         return """
                 You are %s, a friendly AI tutor specialising in %s for children aged 8–14.
