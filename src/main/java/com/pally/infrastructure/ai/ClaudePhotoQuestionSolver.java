@@ -22,9 +22,11 @@ import java.util.stream.Collectors;
 public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudePhotoQuestionSolver.class);
-    private static final String MODEL = "claude-3-5-sonnet-20241022";
-    private static final int MAX_TOKENS = 2048;
+    private static final int MAX_TOKENS = 6000;
     private static final int MAX_WIKI_CHARS = 6000;
+
+    @org.springframework.beans.factory.annotation.Value("${claude.api.model}")
+    private String model;
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
@@ -37,45 +39,48 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
         log.debug("Solving {} questions for avatar={}", questions.size(), avatar.getId());
 
         try {
-            String raw = apiClient.complete(MODEL, MAX_TOKENS, prompt);
+            String raw = apiClient.complete(model, MAX_TOKENS, prompt);
+            log.debug("[PhotoSolver] Raw response ({} chars): {}", raw.length(),
+                    raw.substring(0, Math.min(200, raw.length())));
             return parseAnswers(questions, raw);
         } catch (Exception e) {
-            log.error("Claude photo question solver failed, returning stubs", e);
+            log.error("[PhotoSolver] Claude call failed: {} — {}", e.getClass().getSimpleName(), e.getMessage(), e);
             return buildStubAnswers(questions);
         }
     }
 
     private String buildPrompt(Avatar avatar, String wikiContext, List<String> questions) {
-        String numberedQuestions = questions.stream()
-                .map(q -> "- " + q)
+        String numberedQuestions = java.util.stream.IntStream.range(0, questions.size())
+                .mapToObj(i -> (i + 1) + ". " + questions.get(i))
                 .collect(Collectors.joining("\n"));
 
         return """
-                You are %s, a friendly AI tutor specialising in %s for children aged 8-14.
-                A student has scanned their homework and needs help solving these questions.
-                Use age-appropriate language, short sentences, and encouraging tone.
+                You are %s, a friendly AI tutor for children studying %s (ages 8-14).
+                Solve every question below. Use simple language and short sentences.
+                Show clear working steps. Be encouraging.
 
-                Knowledge base:
+                Knowledge base (use if relevant):
                 %s
 
-                Questions to solve:
+                Questions:
                 %s
 
-                Reply ONLY with a JSON array (no markdown, no explanation outside JSON):
-                [
-                  {
-                    "questionIndex": 1,
-                    "questionText": "the exact question text",
-                    "answer": "the final answer",
-                    "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ..."],
-                    "explanation": "brief encouraging explanation"
-                  }
-                ]
+                IMPORTANT: Reply with ONLY a valid JSON array. No markdown. No text before or after the JSON.
+                Each object must have exactly these fields:
+                {
+                  "questionIndex": <number starting at 1>,
+                  "questionText": "<copy the question text here>",
+                  "answer": "<the final answer as a short string>",
+                  "steps": ["<step 1>", "<step 2>", "<step 3 if needed>"],
+                  "explanation": "<one encouraging sentence>"
+                }
+                Output exactly %d objects in the array, one per question.
                 """.formatted(
                 avatar.getName(),
                 avatar.getSubject().name(),
                 wikiContext,
-                numberedQuestions
+                numberedQuestions,
+                questions.size()
         );
     }
 
@@ -125,9 +130,9 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
             stubs.add(new QuestionAnswerDto(
                     UUID.randomUUID().toString(),
                     questions.get(i),
-                    "Great question! Let me think…",
-                    List.of("Step 1: Read the question carefully", "Step 2: Identify the key information"),
-                    "I'll need more context to give you the full answer — try asking me in the chat!"
+                    "Unable to solve right now",
+                    List.of("Something went wrong connecting to the AI tutor."),
+                    "Sorry! There was a problem solving this question. Please try again in a moment."
             ));
         }
         return stubs;
