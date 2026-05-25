@@ -18,10 +18,12 @@ public final class ChatMessage {
     private final String content;
     private final String sourceFile;
     private final Instant createdAt;
+    private final String harnessTrace;
 
     private ChatMessage(
             String id, String avatarId, String userId,
-            Role role, String content, String sourceFile, Instant createdAt
+            Role role, String content, String sourceFile, Instant createdAt,
+            String harnessTrace
     ) {
         this.id = id;
         this.avatarId = avatarId;
@@ -30,26 +32,43 @@ public final class ChatMessage {
         this.content = content;
         this.sourceFile = sourceFile;
         this.createdAt = createdAt;
+        this.harnessTrace = harnessTrace;
     }
 
     public static ChatMessage create(
             String avatarId, String userId, Role role, String content, String sourceFile
     ) {
-        return new ChatMessage(IdGenerator.newId(), avatarId, userId, role, content, sourceFile, Instant.now());
+        return new ChatMessage(IdGenerator.newId(), avatarId, userId, role, content, sourceFile, Instant.now(), null);
+    }
+
+    public static ChatMessage createWithTrace(
+            String avatarId, String userId, Role role, String content,
+            String sourceFile, String harnessTrace
+    ) {
+        return new ChatMessage(IdGenerator.newId(), avatarId, userId, role, content, sourceFile, Instant.now(), harnessTrace);
     }
 
     public static ChatMessage reconstitute(
             String id, String avatarId, String userId,
             Role role, String content, String sourceFile, Instant createdAt
     ) {
-        return new ChatMessage(id, avatarId, userId, role, content, sourceFile, createdAt);
+        return new ChatMessage(id, avatarId, userId, role, content, sourceFile, createdAt, null);
     }
 
-    public String getId()         { return id; }
-    public String getAvatarId()   { return avatarId; }
-    public String getUserId()     { return userId; }
-    public Role getRole()         { return role; }
-    public String getContent()    { return content; }
-    public String getSourceFile() { return sourceFile; }
-    public Instant getCreatedAt() { return createdAt; }
+    public static ChatMessage reconstitute(
+            String id, String avatarId, String userId,
+            Role role, String content, String sourceFile, Instant createdAt,
+            String harnessTrace
+    ) {
+        return new ChatMessage(id, avatarId, userId, role, content, sourceFile, createdAt, harnessTrace);
+    }
+
+    public String getId()            { return id; }
+    public String getAvatarId()      { return avatarId; }
+    public String getUserId()        { return userId; }
+    public Role getRole()            { return role; }
+    public String getContent()       { return content; }
+    public String getSourceFile()    { return sourceFile; }
+    public Instant getCreatedAt()    { return createdAt; }
+    public String getHarnessTrace()  { return harnessTrace; }
 }

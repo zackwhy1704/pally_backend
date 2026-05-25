@@ -53,6 +53,25 @@ public class WikiPageJpaEntity {
     @Column(name = "is_human_verified", nullable = false)
     private boolean humanVerified = false;
 
+    @Column(name = "last_retrieved_at")
+    private java.time.Instant lastRetrievedAt;
+
+    @Column(name = "quiz_use_count", nullable = false)
+    private int quizUseCount = 0;
+
+    @Column(name = "certainty_score", nullable = false)
+    private double certaintyScore = 0.5;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private WikiPage.Status status = WikiPage.Status.ACTIVE;
+
+    @Column(name = "review_required", nullable = false)
+    private boolean reviewRequired = false;
+
+    @Column(name = "prerequisite_slugs", columnDefinition = "TEXT")
+    private String prerequisiteSlugs;
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();
@@ -66,11 +85,20 @@ public class WikiPageJpaEntity {
         e.humanCorrection = wp.getHumanCorrection();
         e.correctionAt = wp.getCorrectionAt();
         e.humanVerified = wp.isHumanVerified();
+        e.lastRetrievedAt = wp.getLastRetrievedAt();
+        e.quizUseCount = wp.getQuizUseCount();
+        e.certaintyScore = wp.getCertaintyScore();
+        e.status = wp.getStatus() != null ? wp.getStatus() : WikiPage.Status.ACTIVE;
+        e.reviewRequired = wp.isReviewRequired();
+        e.prerequisiteSlugs = wp.getPrerequisiteSlugs();
         return e;
     }
 
     public WikiPage toDomain() {
         return WikiPage.reconstitute(id, avatarId, slug, title, content, certainty, updatedAt,
-                qualityScore, humanCorrection, correctionAt, humanVerified);
+                qualityScore, humanCorrection, correctionAt, humanVerified,
+                lastRetrievedAt, quizUseCount, certaintyScore,
+                status != null ? status : WikiPage.Status.ACTIVE,
+                reviewRequired, prerequisiteSlugs);
     }
 }

@@ -38,6 +38,9 @@ public class ChatMessageJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "harness_trace", columnDefinition = "TEXT")
+    private String harnessTrace;
+
     public static ChatMessageJpaEntity fromDomain(ChatMessage msg) {
         ChatMessageJpaEntity e = new ChatMessageJpaEntity();
         e.id = msg.getId();
@@ -47,10 +50,11 @@ public class ChatMessageJpaEntity {
         e.content = msg.getContent();
         e.sourceFile = msg.getSourceFile();
         e.createdAt = msg.getCreatedAt();
+        e.harnessTrace = msg.getHarnessTrace();
         return e;
     }
 
     public ChatMessage toDomain() {
-        return ChatMessage.reconstitute(id, avatarId, userId, role, content, sourceFile, createdAt);
+        return ChatMessage.reconstitute(id, avatarId, userId, role, content, sourceFile, createdAt, harnessTrace);
     }
 }
