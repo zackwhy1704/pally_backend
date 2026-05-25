@@ -35,6 +35,21 @@ public class ChatMessageJpaEntity {
     @Column(name = "source_file")
     private String sourceFile;
 
+    @Column(name = "message_type", length = 20)
+    private String messageType = "text";
+
+    @Column(name = "source_wiki_slug", length = 200)
+    private String sourceWikiSlug;
+
+    @Column(name = "feedback_type", length = 20)
+    private String feedbackType;
+
+    @Column(name = "saved_to_brain")
+    private boolean savedToBrain = false;
+
+    @Column(name = "is_photo_message")
+    private boolean isPhotoMessage = false;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -49,12 +64,20 @@ public class ChatMessageJpaEntity {
         e.role = msg.getRole();
         e.content = msg.getContent();
         e.sourceFile = msg.getSourceFile();
+        e.messageType = msg.getMessageType() != null ? msg.getMessageType() : "text";
+        e.sourceWikiSlug = msg.getSourceWikiSlug();
+        e.feedbackType = msg.getFeedbackType();
+        e.savedToBrain = msg.isSavedToBrain();
+        e.isPhotoMessage = msg.isPhotoMessage();
         e.createdAt = msg.getCreatedAt();
         e.harnessTrace = msg.getHarnessTrace();
         return e;
     }
 
     public ChatMessage toDomain() {
-        return ChatMessage.reconstitute(id, avatarId, userId, role, content, sourceFile, createdAt, harnessTrace);
+        return ChatMessage.reconstitute(
+                id, avatarId, userId, role, content, sourceFile,
+                messageType, sourceWikiSlug, feedbackType, savedToBrain, isPhotoMessage,
+                createdAt, harnessTrace);
     }
 }
