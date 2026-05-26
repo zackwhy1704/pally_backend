@@ -1,0 +1,5 @@
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS setup_complete  BOOLEAN      NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS child_name      VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS year_level      INT,
+    ADD COLUMN IF NOT EXISTS curriculum      VARCHAR(30);

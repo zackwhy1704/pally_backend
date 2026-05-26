@@ -52,6 +52,9 @@ management:
     health:
       show-details: when-authorized
 
+jwt:
+  secret: ${JWT_SECRET:dev-secret-min-32-chars-long-here-!!}
+
 claude:
   api:
     key: ${CLAUDE_API_KEY:}

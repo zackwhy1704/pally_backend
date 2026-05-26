@@ -47,6 +47,21 @@ public class UserJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "setup_complete", nullable = false)
+    private boolean setupComplete;
+
+    @Column(name = "child_name", length = 100)
+    private String childName;
+
+    @Column(name = "year_level")
+    private Integer yearLevel;
+
+    @Column(name = "curriculum", length = 30)
+    private String curriculum;
+
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
