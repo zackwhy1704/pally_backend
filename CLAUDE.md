@@ -384,8 +384,8 @@ class ShopViewModel extends _$ShopViewModel {
 
 ```dart
 // Inject at build time:
-// flutter run --dart-define=API_BASE_URL=http://localhost:8080
-const baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue:'http://localhost:8080');
+// flutter run --dart-define=API_BASE_URL=https://pallybackend-production.up.railway.app
+const baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue:'https://pallybackend-production.up.railway.app');
 ```
 
 ## All endpoints Flutter must call

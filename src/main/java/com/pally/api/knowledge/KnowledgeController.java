@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -64,7 +64,7 @@ public class KnowledgeController {
      */
     @PostMapping("/files")
     public ResponseEntity<ApiResponse<Object>> uploadFile(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @RequestParam("file") MultipartFile file
     ) {
@@ -91,7 +91,7 @@ public class KnowledgeController {
      */
     @GetMapping("/files")
     public ResponseEntity<ApiResponse<List<KnowledgeFileResponse>>> listFiles(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         List<KnowledgeFile> files = knowledgeRepository.findByAvatarId(avatarId);
@@ -108,7 +108,7 @@ public class KnowledgeController {
      */
     @DeleteMapping("/files/{fileId}")
     public ResponseEntity<Void> deleteFile(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @PathVariable String fileId
     ) {
@@ -126,7 +126,7 @@ public class KnowledgeController {
      */
     @PostMapping("/relevance")
     public ResponseEntity<ApiResponse<RelevanceCheckResponse>> checkRelevance(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @Valid @RequestBody RelevanceCheckRequest request
     ) {
@@ -147,7 +147,7 @@ public class KnowledgeController {
      */
     @PostMapping("/wiki/compile")
     public ResponseEntity<ApiResponse<WikiCompileResponse>> compileWiki(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         CompileWikiUseCase.CompileResult result = compileWikiUseCase.execute(avatarId);

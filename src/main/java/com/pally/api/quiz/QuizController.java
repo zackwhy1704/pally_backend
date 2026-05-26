@@ -17,6 +17,7 @@ import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -36,7 +37,7 @@ public class QuizController {
 
     @GetMapping("/quiz/daily")
     public ResponseEntity<ApiResponse<List<QuizQuestionResponse>>> getDailyQuiz(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         List<QuizQuestion> questions = getDailyQuizUseCase.execute(avatarId, userId);
@@ -48,7 +49,7 @@ public class QuizController {
 
     @PostMapping("/quiz/answers")
     public ResponseEntity<ApiResponse<QuizResult>> submitAnswers(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @Valid @RequestBody SubmitAnswersRequest request
     ) {
@@ -60,7 +61,7 @@ public class QuizController {
 
     @GetMapping("/flashcards")
     public ResponseEntity<ApiResponse<List<FlashcardResponse>>> getFlashcards(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         List<FlashCard> cards = getFlashcardsUseCase.execute(avatarId, userId);

@@ -6,6 +6,7 @@ import com.pally.domain.progress.usecase.GetProgressUseCase;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,7 +21,7 @@ public class ProgressController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<ProgressResponse>> getProgress(
-            @RequestHeader("X-User-Id") String userId
+            @AuthenticationPrincipal String userId
     ) {
         ProgressSummary summary = getProgressUseCase.execute(userId);
         return ResponseEntity.ok(ApiResponse.success(ProgressResponse.from(summary)));
@@ -28,7 +29,7 @@ public class ProgressController {
 
     @GetMapping("/study-plan")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getStudyPlan(
-            @RequestHeader("X-User-Id") String userId
+            @AuthenticationPrincipal String userId
     ) {
         // Stub — returns a static study plan until StudyPlanGenerator is wired
         var plan = Map.<String, Object>of(

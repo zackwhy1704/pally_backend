@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -78,7 +78,7 @@ public class ChatController {
      */
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> chat(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @Valid @RequestBody ChatRequest request
     ) {
@@ -98,7 +98,7 @@ public class ChatController {
      */
     @GetMapping("/chat/history")
     public List<ChatMessageResponse> getChatHistory(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         List<ChatMessage> messages = chatRepository.findByAvatarId(avatarId, HISTORY_PAGE_SIZE);
@@ -107,7 +107,7 @@ public class ChatController {
 
     @PostMapping("/photo-question")
     public PhotoQuestionResponse solvePhotoQuestion(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @Valid @RequestBody PhotoQuestionRequest request
     ) {
@@ -117,7 +117,7 @@ public class ChatController {
     @PostMapping("/chat/sync")
     @ResponseStatus(HttpStatus.OK)
     public Map<String, Integer> syncMessages(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @RequestBody ChatSyncRequest request
     ) {
@@ -127,7 +127,7 @@ public class ChatController {
 
     @GetMapping("/chat/history/full")
     public ChatHistoryResponse getFullHistory(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @RequestParam(defaultValue = "50") int limit
     ) {
@@ -137,7 +137,7 @@ public class ChatController {
     @PostMapping("/chat/{messageId}/feedback")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void submitFeedback(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @PathVariable String messageId,
             @RequestBody FeedbackRequest request
@@ -148,7 +148,7 @@ public class ChatController {
     @PostMapping("/chat/session-start")
     @ResponseStatus(HttpStatus.OK)
     public void sessionStart(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
         cacheKeepAliveService.startKeepalive(avatarId);
     }
@@ -156,7 +156,7 @@ public class ChatController {
     @PostMapping("/chat/session-end")
     @ResponseStatus(HttpStatus.OK)
     public void sessionEnd(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
         cacheKeepAliveService.stopKeepalive(avatarId);
     }
@@ -164,7 +164,7 @@ public class ChatController {
     @PatchMapping("/teaching-mode")
     @ResponseStatus(HttpStatus.OK)
     public Map<String, String> setTeachingMode(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @RequestBody Map<String, String> body
     ) {

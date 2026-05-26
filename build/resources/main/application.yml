@@ -1,12 +1,8 @@
 spring:
   application:
     name: pally-backend
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
-      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5434/pally}
+    url: ${DB_URL}
     username: ${DB_USER:pally}
     password: ${DB_PASSWORD:pally}
     hikari:
@@ -40,7 +36,7 @@ spring:
       write-dates-as-timestamps: false
 
 server:
-  port: ${PORT:8080}
+  port: ${PORT:8080}  # Railway injects PORT; local dev must set it explicitly
   shutdown: graceful
 
 management:
@@ -51,6 +47,9 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+
+jwt:
+  secret: ${JWT_SECRET:dev-secret-min-32-chars-long-here-!!}
 
 claude:
   api:

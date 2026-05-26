@@ -7,6 +7,7 @@ import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -24,7 +25,7 @@ public class HomeController {
 
     @GetMapping("/nudges")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getNudges(
-            @RequestHeader("X-User-Id") String userId
+            @AuthenticationPrincipal String userId
     ) {
         userRepository.ensureUserExists(userId);
         UserStats stats = userRepository.findById(userId).orElse(null);

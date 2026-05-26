@@ -8,6 +8,7 @@ import com.pally.domain.progress.usecase.OpenMysteryBoxUseCase;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -20,7 +21,7 @@ public class ShopController {
 
     @GetMapping("/stars")
     public ResponseEntity<ApiResponse<StarsResponse>> getStars(
-            @RequestHeader("X-User-Id") String userId
+            @AuthenticationPrincipal String userId
     ) {
         userRepository.ensureUserExists(userId);
         int stars = userRepository.findById(userId)
@@ -31,7 +32,7 @@ public class ShopController {
 
     @PostMapping("/open-box")
     public ResponseEntity<ApiResponse<OpenBoxResponse>> openBox(
-            @RequestHeader("X-User-Id") String userId
+            @AuthenticationPrincipal String userId
     ) {
         String character = openMysteryBoxUseCase.execute(userId);
         return ResponseEntity.ok(ApiResponse.success(

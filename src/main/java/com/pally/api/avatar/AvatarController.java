@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -52,7 +52,7 @@ public class AvatarController {
      */
     @PostMapping
     public ResponseEntity<ApiResponse<AvatarResponse>> createAvatar(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @Valid @RequestBody CreateAvatarRequest request
     ) {
         Avatar avatar = createAvatarUseCase.execute(
@@ -73,7 +73,7 @@ public class AvatarController {
      */
     @GetMapping
     public ResponseEntity<ApiResponse<AvatarListResponse>> listAvatars(
-            @RequestHeader("X-User-Id") String userId
+            @AuthenticationPrincipal String userId
     ) {
         List<Avatar> avatars = getAvatarUseCase.getAllForUser(userId);
         AvatarListResponse response = new AvatarListResponse(avatarMapper.toResponseList(avatars));
@@ -89,7 +89,7 @@ public class AvatarController {
      */
     @GetMapping("/{avatarId}")
     public ResponseEntity<ApiResponse<AvatarResponse>> getAvatar(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         Avatar avatar = getAvatarUseCase.getById(avatarId, userId);
@@ -105,7 +105,7 @@ public class AvatarController {
      */
     @DeleteMapping("/{avatarId}")
     public ResponseEntity<Void> deleteAvatar(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
         deleteAvatarUseCase.execute(avatarId, userId);
@@ -114,7 +114,7 @@ public class AvatarController {
 
     @PatchMapping("/{avatarId}/grade")
     public ResponseEntity<ApiResponse<AvatarResponse>> updateGradeCurriculum(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @Valid @RequestBody UpdateGradeCurriculumRequest request
     ) {
@@ -125,7 +125,7 @@ public class AvatarController {
 
     @PatchMapping("/{avatarId}/test-date")
     public ResponseEntity<ApiResponse<AvatarResponse>> updateTestDate(
-            @RequestHeader("X-User-Id") String userId,
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @Valid @RequestBody UpdateTestDateRequest request
     ) {
