@@ -18,6 +18,7 @@ import com.pally.domain.chat.usecase.SendMessageUseCase;
 import com.pally.domain.chat.usecase.SolvePhotoQuestionsUseCase;
 import com.pally.infrastructure.ai.CacheKeepAliveService;
 import com.pally.shared.exception.AvatarNotFoundException;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,7 +33,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -76,25 +76,27 @@ public class ChatController {
      * @return SSE stream of chat events
      */
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chat(
+    public void chat(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
-            @Valid @RequestBody ChatRequest request
-    ) {
-        SseEmitter emitter = new SseEmitter(30_000L);
+            @Valid @RequestBody ChatRequest request,
+            HttpServletResponse response
+    ) throws java.io.IOException {
+        response.setContentType("text/event-stream");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setHeader("Connection", "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
+
+        java.io.PrintWriter writer = response.getWriter();
+
         sendMessageUseCase.executeStream(avatarId, userId, request.message())
-                .subscribe(
-                    event -> {
-                        try {
-                            emitter.send(SseEmitter.event().name(event.type()).data(event.payload()));
-                        } catch (Exception e) {
-                            emitter.completeWithError(e);
-                        }
-                    },
-                    emitter::completeWithError,
-                    emitter::complete
-                );
-        return emitter;
+                .toIterable()
+                .forEach(event -> {
+                    writer.write("event: " + event.type() + "\n");
+                    writer.write("data: " + event.payload() + "\n\n");
+                    writer.flush();
+                });
     }
 
     /**
