@@ -7,6 +7,8 @@ import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.Map;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,6 +82,19 @@ public class AuthService {
         log.info("[Auth] Social sign-in id={} email={} new={}", user.getId(), email, isNew);
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete());
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getUser(String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        return Map.of(
+                "userId", user.getId(),
+                "email", user.getEmail() != null ? user.getEmail() : "",
+                "displayName", user.getDisplayName() != null ? user.getDisplayName() : "",
+                "setupComplete", user.isSetupComplete(),
+                "childName", user.getChildName() != null ? user.getChildName() : ""
+        );
     }
 
     @Transactional

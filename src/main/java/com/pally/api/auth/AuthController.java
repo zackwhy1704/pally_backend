@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -91,6 +92,14 @@ public class AuthController {
         AuthResponse result = authService.completeSetup(
                 userId, request.childName(), request.yearLevel(), request.curriculum());
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> me(
+            @AuthenticationPrincipal String userId
+    ) {
+        var user = authService.getUser(userId);
+        return ResponseEntity.ok(ApiResponse.success(user));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
