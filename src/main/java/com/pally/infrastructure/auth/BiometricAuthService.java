@@ -67,41 +67,23 @@ public class BiometricAuthService {
     }
 
     @Transactional
-    public Map<String, Object> verifyChallenge(String userId, String challenge, String deviceId) {
-        if (userId == null || challenge == null || deviceId == null) {
-            throw new BusinessException("userId, challenge, and deviceId are required", 400);
+    public Map<String, Object> verifyBiometric(String userId, String deviceId) {
+        if (userId == null || deviceId == null) {
+            throw new BusinessException("userId and deviceId are required", 400);
         }
 
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
 
         if (user.getBiometricLockedUntil() != null && Instant.now().isBefore(user.getBiometricLockedUntil())) {
-            log.warn("[Biometric] Account locked for user={} until={}", userId, user.getBiometricLockedUntil());
             throw new BusinessException("Account temporarily locked due to too many failed attempts", 423);
-        }
-
-        String hash = sha256Hex(challenge);
-        BiometricChallengeJpaEntity challengeEntity = challengeRepo
-                .findByChallengeHashAndUsedFalse(hash)
-                .orElse(null);
-
-        if (challengeEntity == null
-                || !challengeEntity.getUserId().equals(userId)
-                || Instant.now().isAfter(challengeEntity.getExpiresAt())) {
-            incrementFailedAttempts(user);
-            log.warn("[Biometric] Verification failed for user={} device={}", userId, deviceId);
-            throw new BusinessException("Invalid or expired challenge", 401);
         }
 
         registrationRepo.findByUserIdAndDeviceIdAndActiveTrue(userId, deviceId)
                 .orElseThrow(() -> {
                     incrementFailedAttempts(user);
-                    log.warn("[Biometric] Unregistered device={} for user={}", deviceId, userId);
                     return new BusinessException("Device not registered for biometric auth", 401);
                 });
-
-        challengeEntity.setUsed(true);
-        challengeRepo.save(challengeEntity);
 
         user.setBiometricFailedAttempts(0);
         user.setBiometricLockedUntil(null);
@@ -111,7 +93,8 @@ public class BiometricAuthService {
         log.info("[Biometric] Verification success for user={} device={}", userId, deviceId);
         return Map.of(
                 "token", token,
-                "userId", userId
+                "userId", userId,
+                "setupComplete", user.isSetupComplete()
         );
     }
 

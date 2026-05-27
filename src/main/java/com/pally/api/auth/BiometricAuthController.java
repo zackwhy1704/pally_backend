@@ -26,8 +26,8 @@ public class BiometricAuthController {
     @PostMapping("/verify")
     public ResponseEntity<ApiResponse<Map<String, Object>>> verify(
             @RequestBody Map<String, String> request) {
-        var result = biometricAuthService.verifyChallenge(
-                request.get("userId"), request.get("challenge"), request.get("deviceId"));
+        var result = biometricAuthService.verifyBiometric(
+                request.get("userId"), request.get("deviceId"));
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
