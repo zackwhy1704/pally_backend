@@ -98,6 +98,14 @@ public class AuthService {
     }
 
     @Transactional
+    public void deleteAccount(String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        userRepo.deleteById(userId);
+        log.info("[Auth] Deleted account id={} email={}", user.getId(), user.getEmail());
+    }
+
+    @Transactional
     public AuthResponse completeSetup(String userId, String childName, Integer yearLevel, String curriculum) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));

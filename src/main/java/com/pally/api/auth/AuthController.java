@@ -1,6 +1,7 @@
 package com.pally.api.auth;
 
 import com.pally.api.auth.dto.AuthResponse;
+import com.pally.api.auth.dto.ForgotPasswordRequest;
 import com.pally.api.auth.dto.LoginRequest;
 import com.pally.api.auth.dto.RegisterRequest;
 import com.pally.api.auth.dto.SetupRequest;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -92,6 +94,23 @@ public class AuthController {
         AuthResponse result = authService.completeSetup(
                 userId, request.childName(), request.yearLevel(), request.curriculum());
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<Map<String, String>>> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request
+    ) {
+        log.info("[Auth] Forgot password requested for email={}", request.email());
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("message", "If an account exists, a reset link has been sent")));
+    }
+
+    @DeleteMapping("/account")
+    public ResponseEntity<Void> deleteAccount(
+            @AuthenticationPrincipal String userId
+    ) {
+        authService.deleteAccount(userId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me")
