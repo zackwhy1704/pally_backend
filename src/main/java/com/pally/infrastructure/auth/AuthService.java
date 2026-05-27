@@ -1,6 +1,7 @@
 package com.pally.infrastructure.auth;
 
 import com.pally.api.auth.dto.AuthResponse;
+import com.pally.domain.shop.CharacterShopService;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -23,6 +24,7 @@ public class AuthService {
     private final UserJpaRepository userRepo;
     private final JwtService jwtService;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final CharacterShopService characterShopService;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -44,6 +46,7 @@ public class AuthService {
         userRepo.save(user);
 
         log.info("[Auth] Registered new user id={} email={}", user.getId(), email);
+        characterShopService.seedDefaultUnlocks(user.getId());
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(user.getId(), token, true, false);
     }
@@ -79,6 +82,9 @@ public class AuthService {
         });
 
         boolean isNew = user.getCreatedAt().isAfter(Instant.now().minusSeconds(5));
+        if (isNew) {
+            characterShopService.seedDefaultUnlocks(user.getId());
+        }
         log.info("[Auth] Social sign-in id={} email={} new={}", user.getId(), email, isNew);
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete());
