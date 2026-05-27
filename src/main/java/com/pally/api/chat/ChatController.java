@@ -94,7 +94,15 @@ public class ChatController {
                 .toIterable()
                 .forEach(event -> {
                     writer.write("event: " + event.type() + "\n");
-                    writer.write("data: " + event.payload() + "\n\n");
+                    String payload = event.payload();
+                    if (payload.contains("\n")) {
+                        for (String line : payload.split("\n", -1)) {
+                            writer.write("data: " + line + "\n");
+                        }
+                    } else {
+                        writer.write("data: " + payload + "\n");
+                    }
+                    writer.write("\n");
                     writer.flush();
                 });
     }
