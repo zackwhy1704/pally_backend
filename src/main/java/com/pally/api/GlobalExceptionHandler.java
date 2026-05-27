@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -42,6 +43,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(ex.getHttpStatus())
                 .body(ApiResponse.error(ex.getMessage(), ex.getHttpStatus()));
+    }
+
+    /**
+     * Handles malformed request bodies (e.g. invalid enum values).
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBadRequestBody(
+            HttpMessageNotReadableException ex) {
+        log.warn("Bad request body: {}", ex.getMostSpecificCause().getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(
+                        "Invalid request body: " + ex.getMostSpecificCause().getMessage(), 400));
     }
 
     /**
