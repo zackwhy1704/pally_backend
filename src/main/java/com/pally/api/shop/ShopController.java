@@ -39,6 +39,15 @@ public class ShopController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    @PostMapping("/stars/credit")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> creditStars(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, Integer> request
+    ) {
+        var result = characterShopService.creditStars(userId, request.getOrDefault("amount", 0));
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
     @PostMapping("/open-box")
     public ResponseEntity<ApiResponse<Map<String, Object>>> openBox(
             @AuthenticationPrincipal String userId

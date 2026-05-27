@@ -95,6 +95,16 @@ public class CharacterShopService {
                 "newStarBalance", user.getStars(), "isNew", true);
     }
 
+    @Transactional
+    public Map<String, Object> creditStars(String userId, int amount) {
+        var user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        user.setStars(user.getStars() + amount);
+        userRepo.save(user);
+        log.info("[Shop] Credited {} stars to user={}, new balance={}", amount, userId, user.getStars());
+        return Map.of("stars", user.getStars());
+    }
+
     private String getRarity(String character) {
         return switch (character) {
             case "GOLDSTAR" -> "SECRET";
