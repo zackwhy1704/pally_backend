@@ -30,11 +30,11 @@ public class AvatarJpaEntity {
     private String name;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     private Subject subject;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "character_type", nullable = false, length = 20)
+    @Column(name = "character_type", nullable = false, length = 30)
     private CharacterType characterType;
 
     @Column(name = "wiki_page_count", nullable = false)

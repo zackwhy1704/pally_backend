@@ -12,5 +12,13 @@ public enum CharacterType {
     BYTE,
     NORI,
     CHIMI,
-    LUMIS
+    LUMIS,
+    PENCIL,
+    SCIENCE,
+    PE,
+    ART,
+    LUNCHBOX,
+    LIBRARY,
+    HEADMASTER,
+    GOLDSTAR
 }
