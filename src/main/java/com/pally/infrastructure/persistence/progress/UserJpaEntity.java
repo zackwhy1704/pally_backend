@@ -62,6 +62,12 @@ public class UserJpaEntity {
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
+    @Column(name = "biometric_failed_attempts", nullable = false)
+    private int biometricFailedAttempts;
+
+    @Column(name = "biometric_locked_until")
+    private Instant biometricLockedUntil;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
