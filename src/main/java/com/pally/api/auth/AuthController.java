@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -94,6 +95,16 @@ public class AuthController {
         AuthResponse result = authService.completeSetup(
                 userId, request.childName(), request.yearLevel(), request.curriculum());
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @PatchMapping("/setup")
+    public ResponseEntity<ApiResponse<Map<String, String>>> updateSetup(
+            @AuthenticationPrincipal String userId,
+            @RequestBody SetupRequest request
+    ) {
+        authService.updateChildName(userId, request.childName());
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("childName", request.childName() != null ? request.childName() : "")));
     }
 
     @PostMapping("/forgot-password")

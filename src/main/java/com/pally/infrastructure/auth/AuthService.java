@@ -106,6 +106,17 @@ public class AuthService {
     }
 
     @Transactional
+    public void updateChildName(String userId, String childName) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        if (childName != null && !childName.isBlank()) {
+            user.setChildName(childName);
+            userRepo.save(user);
+            log.info("[Auth] Updated child name id={} name={}", userId, childName);
+        }
+    }
+
+    @Transactional
     public AuthResponse completeSetup(String userId, String childName, Integer yearLevel, String curriculum) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
