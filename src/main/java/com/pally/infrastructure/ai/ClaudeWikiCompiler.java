@@ -9,7 +9,6 @@ import com.pally.domain.knowledge.port.WikiCompilerPort;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -31,16 +30,14 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
-
-    @Value("${claude.api.model}")
-    private String model;
+    private final ModelRouter modelRouter;
 
     @Override
     public List<WikiPageDraft> compile(Avatar avatar, List<KnowledgeFile> files, List<WikiPage> existingPages) {
         String prompt = buildPrompt(avatar, files, existingPages);
         log.debug("Compiling wiki for avatarId={} fileCount={}", avatar.getId(), files.size());
 
-        String raw = apiClient.complete(model, MAX_TOKENS, prompt);
+        String raw = apiClient.complete(modelRouter.forWikiCompile(), MAX_TOKENS, prompt);
         return parseResponse(raw);
     }
 

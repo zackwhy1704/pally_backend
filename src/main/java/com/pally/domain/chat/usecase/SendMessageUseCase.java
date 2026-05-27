@@ -16,6 +16,7 @@ import com.pally.domain.chat.TopicClassifier;
 import com.pally.domain.chat.port.ChatPort;
 import com.pally.infrastructure.ai.CacheMetrics;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
+import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -51,6 +52,7 @@ public class SendMessageUseCase {
     private final ChatSessionRepository chatSessionRepository;
     private final TopicClassifier topicClassifier;
     private final SocraticPromptBuilder socraticPromptBuilder;
+    private final ModelRouter modelRouter;
 
     public record StreamEvent(String type, String payload) {}
 
@@ -125,6 +127,13 @@ public class SendMessageUseCase {
                         );
                         ChatMessage saved = chatRepository.save(assistantMsg);
                         assistantMessageId.set(saved.getId());
+
+                        try {
+                            chatRepository.updateModelUsed(
+                                    saved.getId(), modelRouter.forChat(userMessage));
+                        } catch (Exception e) {
+                            log.warn("[Chat] Failed to save model_used for message={}", saved.getId());
+                        }
 
                         CacheMetrics metrics = capturedMetrics.get();
                         if (metrics != null) {

@@ -29,13 +29,13 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class CacheKeepAliveService {
 
-    private static final String HAIKU_MODEL = "claude-haiku-4-5-20251001";
     private static final int KEEPALIVE_INTERVAL_MINUTES = 4;
 
     private final ClaudeApiClient claudeClient;
     private final ClaudeContextAssembler assembler;
     private final AvatarRepository avatarRepo;
     private final WikiRepository wikiRepo;
+    private final ModelRouter modelRouter;
 
     private final Map<String, ScheduledFuture<?>> activeTasks = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler =
@@ -84,7 +84,7 @@ public class CacheKeepAliveService {
 
             List<Map<String, String>> messages = List.of(Map.of("role", "user", "content", "ping"));
 
-            claudeClient.streamResponseWithCacheAndModel(HAIKU_MODEL, 1, systemBlocks, messages)
+            claudeClient.streamResponseWithCacheAndModel(modelRouter.forCacheKeepalive(), 1, systemBlocks, messages)
                     .blockLast(Duration.ofSeconds(10));
 
             log.debug("[CacheKeepalive] Ping sent for avatar={}", avatarId);

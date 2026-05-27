@@ -25,11 +25,9 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
     private static final int MAX_TOKENS = 6000;
     private static final int MAX_WIKI_CHARS = 6000;
 
-    @org.springframework.beans.factory.annotation.Value("${claude.api.model}")
-    private String model;
-
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
+    private final ModelRouter modelRouter;
 
     @Override
     public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages, List<String> questions) {
@@ -39,7 +37,7 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
         log.debug("Solving {} questions for avatar={}", questions.size(), avatar.getId());
 
         try {
-            String raw = apiClient.complete(model, MAX_TOKENS, prompt);
+            String raw = apiClient.complete(modelRouter.forPhotoQuestion(), MAX_TOKENS, prompt);
             log.debug("[PhotoSolver] Raw response ({} chars): {}", raw.length(),
                     raw.substring(0, Math.min(200, raw.length())));
             return parseAnswers(questions, raw);

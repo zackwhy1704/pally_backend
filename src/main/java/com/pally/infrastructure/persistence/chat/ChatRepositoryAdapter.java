@@ -40,4 +40,10 @@ public class ChatRepositoryAdapter implements ChatRepository {
                 cacheReadTokens, cacheWriteTokens,
                 totalInputTokens, totalOutputTokens);
     }
+
+    @Override
+    @Transactional
+    public void updateModelUsed(String messageId, String modelUsed) {
+        jpaRepository.updateModelUsed(messageId, modelUsed);
+    }
 }

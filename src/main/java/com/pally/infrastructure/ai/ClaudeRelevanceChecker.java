@@ -7,7 +7,6 @@ import com.pally.domain.knowledge.port.RelevancePort;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,16 +24,14 @@ public class ClaudeRelevanceChecker implements RelevancePort {
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
-
-    @Value("${claude.api.model}")
-    private String model;
+    private final ModelRouter modelRouter;
 
     @Override
     public RelevanceScore check(String subject, String wikiSummary, String contentSample) {
         String prompt = buildPrompt(subject, wikiSummary, contentSample);
         log.debug("Sending relevance check for subject={}", subject);
 
-        String raw = apiClient.complete(model, MAX_TOKENS, prompt);
+        String raw = apiClient.complete(modelRouter.forRelevanceCheck(), MAX_TOKENS, prompt);
         return parseResponse(raw);
     }
 

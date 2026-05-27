@@ -65,6 +65,9 @@ public class ChatMessageJpaEntity {
     @Column(name = "total_output_tokens")
     private Integer totalOutputTokens;
 
+    @Column(name = "model_used", length = 50)
+    private String modelUsed;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

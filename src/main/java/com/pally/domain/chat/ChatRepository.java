@@ -21,4 +21,6 @@ public interface ChatRepository {
     void updateCacheMetrics(String messageId, boolean cacheHit,
                             int cacheReadTokens, int cacheWriteTokens,
                             int totalInputTokens, int totalOutputTokens);
+
+    void updateModelUsed(String messageId, String modelUsed);
 }

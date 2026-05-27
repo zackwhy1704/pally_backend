@@ -18,6 +18,12 @@ public interface ChatMessageJpaRepository extends JpaRepository<ChatMessageJpaEn
 
     long countByAvatarId(String avatarId);
 
+    long countByModelUsedAndCreatedAtAfter(String modelUsed, Instant since);
+
+    @Modifying
+    @Query("UPDATE ChatMessageJpaEntity m SET m.modelUsed = :modelUsed WHERE m.id = :id")
+    void updateModelUsed(@Param("id") String id, @Param("modelUsed") String modelUsed);
+
     @Modifying
     @Query("UPDATE ChatMessageJpaEntity m SET m.feedbackType = :feedbackType WHERE m.id = :id")
     void updateFeedbackType(@Param("id") String id, @Param("feedbackType") String feedbackType);

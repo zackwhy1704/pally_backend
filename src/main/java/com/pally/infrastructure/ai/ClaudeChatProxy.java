@@ -33,6 +33,7 @@ public class ClaudeChatProxy implements ChatPort {
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
+    private final ModelRouter modelRouter;
 
     @Override
     public Flux<ChatStreamEvent> streamChat(
@@ -41,12 +42,14 @@ public class ClaudeChatProxy implements ChatPort {
             String userMessage,
             Consumer<CacheMetrics> onMetrics) {
 
+        String model = modelRouter.forChat(userMessage);
         List<Map<String, String>> messages = buildMessages(history, userMessage);
         AtomicBoolean metricsEmitted = new AtomicBoolean(false);
 
-        log.debug("Starting cached chat stream messageCount={} systemBlocks={}", messages.size(), systemBlocks.size());
+        log.debug("Starting cached chat stream model={} messageCount={} systemBlocks={}",
+                model, messages.size(), systemBlocks.size());
 
-        return apiClient.streamResponseWithCache(systemBlocks, messages, MAX_TOKENS)
+        return apiClient.streamResponseWithCacheAndModel(model, MAX_TOKENS, systemBlocks, messages)
                 .flatMap(line -> parseEventWithMetrics(line, onMetrics, metricsEmitted))
                 .onErrorResume(e -> {
                     log.error("Chat stream error", e);

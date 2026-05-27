@@ -9,7 +9,6 @@ import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -25,9 +24,7 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
 
     private final ClaudeApiClient claudeApiClient;
     private final ObjectMapper objectMapper;
-
-    @Value("${claude.api.model}")
-    private String model;
+    private final ModelRouter modelRouter;
 
     @Override
     public List<QuizQuestion> generate(String avatarId, List<WikiPage> pages) {
@@ -48,7 +45,7 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                 """.formatted(material);
 
         try {
-            String raw = claudeApiClient.complete(model, 2000, prompt);
+            String raw = claudeApiClient.complete(modelRouter.forQuizGeneration(), 2000, prompt);
             // Strip markdown code fences if present
             raw = raw.strip();
             if (raw.startsWith("```")) {
