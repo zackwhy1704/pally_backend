@@ -25,9 +25,8 @@ public class ChatMessageJpaEntity {
     @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
-    private ChatMessage.Role role;
+    private String role;
 
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
@@ -79,7 +78,7 @@ public class ChatMessageJpaEntity {
         e.id = msg.getId();
         e.avatarId = msg.getAvatarId();
         e.userId = msg.getUserId();
-        e.role = msg.getRole();
+        e.role = msg.getRole().name();
         e.content = msg.getContent();
         e.sourceFile = msg.getSourceFile();
         e.messageType = msg.getMessageType() != null ? msg.getMessageType() : "text";
@@ -94,8 +93,16 @@ public class ChatMessageJpaEntity {
 
     public ChatMessage toDomain() {
         return ChatMessage.reconstitute(
-                id, avatarId, userId, role, content, sourceFile,
+                id, avatarId, userId, parseRole(role), content, sourceFile,
                 messageType, sourceWikiSlug, feedbackType, savedToBrain, isPhotoMessage,
                 createdAt, harnessTrace);
+    }
+
+    private static ChatMessage.Role parseRole(String s) {
+        if (s == null) return ChatMessage.Role.USER;
+        return switch (s.toUpperCase()) {
+            case "ASSISTANT", "TUTOR" -> ChatMessage.Role.ASSISTANT;
+            default -> ChatMessage.Role.USER;
+        };
     }
 }

@@ -34,7 +34,7 @@ public class ChatSyncService {
                 e.setId(dto.id());
                 e.setAvatarId(avatarId);
                 e.setUserId(userId);
-                e.setRole(dto.role());
+                e.setRole(dto.role().name());
                 e.setContent(dto.content());
                 e.setMessageType(dto.messageType() != null ? dto.messageType() : "text");
                 e.setSourceWikiSlug(dto.sourceWikiSlug());
