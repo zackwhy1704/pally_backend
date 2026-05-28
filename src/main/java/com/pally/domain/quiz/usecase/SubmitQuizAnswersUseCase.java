@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -45,27 +46,62 @@ public class SubmitQuizAnswersUseCase {
      * @param correctMap questionId → correctIndex (passed from controller which held quiz state)
      */
     public QuizResult execute(AnswerSubmission submission, Map<String, Integer> correctMap) {
-        return execute(submission, correctMap, Map.of());
+        return execute(submission, correctMap, Map.of(), Map.of());
     }
 
-    /**
-     * Same as {@link #execute(AnswerSubmission, Map)} but also records the
-     * topic slug per question so the weak-topics report can group results.
-     *
-     * @param topicMap questionId → topic slug (may be empty/missing entries)
-     */
     public QuizResult execute(AnswerSubmission submission,
                               Map<String, Integer> correctMap,
                               Map<String, String> topicMap) {
+        return execute(submission, correctMap, topicMap, Map.of());
+    }
+
+    /**
+     * Same as {@link #execute(AnswerSubmission, Map)} but also records topic
+     * slugs and (optionally) self-reported confidence per question. When any
+     * confidence value is supplied, the result carries a mastery matrix
+     * (mastered / misconception / luckyGuess / knownGap).
+     *
+     * @param topicMap      questionId → topic slug (may be empty/missing entries)
+     * @param confidenceMap questionId → "LOW" | "MEDIUM" | "HIGH"; empty when
+     *                       the client is on legacy quiz mode
+     */
+    public QuizResult execute(AnswerSubmission submission,
+                              Map<String, Integer> correctMap,
+                              Map<String, String> topicMap,
+                              Map<String, String> confidenceMap) {
         if (!avatarRepository.existsByIdAndUserId(submission.avatarId(), submission.userId())) {
             throw new AvatarNotFoundException(submission.avatarId());
         }
 
         int correct = 0;
+        List<String> mastered = new ArrayList<>();
+        List<String> misconception = new ArrayList<>();
+        List<String> luckyGuess = new ArrayList<>();
+        List<String> knownGap = new ArrayList<>();
+
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
-            Integer correctIndex = correctMap.get(entry.getKey());
+            String questionId = entry.getKey();
+            Integer correctIndex = correctMap.get(questionId);
             boolean wasCorrect = correctIndex != null && correctIndex.equals(entry.getValue());
             if (wasCorrect) correct++;
+
+            String topic = topicMap.get(questionId);
+            String label = topic != null ? topic : questionId;
+            String confidence = confidenceMap.get(questionId);
+
+            // Classify into the 2x2 matrix when we have a confidence reading.
+            if (confidence != null) {
+                boolean isConfident = "HIGH".equalsIgnoreCase(confidence);
+                if (wasCorrect && isConfident) {
+                    mastered.add(label);
+                } else if (!wasCorrect && isConfident) {
+                    misconception.add(label);
+                } else if (wasCorrect) {
+                    luckyGuess.add(label);
+                } else {
+                    knownGap.add(label);
+                }
+            }
 
             // Persist per-question result for error pattern analysis. Best-effort.
             try {
@@ -73,9 +109,10 @@ public class SubmitQuizAnswersUseCase {
                 r.setId(IdGenerator.newId());
                 r.setUserId(submission.userId());
                 r.setAvatarId(submission.avatarId());
-                r.setQuestionId(entry.getKey());
-                r.setTopicSlug(topicMap.get(entry.getKey())); // may be null
+                r.setQuestionId(questionId);
+                r.setTopicSlug(topic); // may be null
                 r.setWasCorrect(wasCorrect);
+                r.setConfidence(confidence);
                 r.setCreatedAt(Instant.now());
                 quizResultRepo.save(r);
             } catch (Exception ignored) {
@@ -108,9 +145,21 @@ public class SubmitQuizAnswersUseCase {
         badgeService.grantPerfectQuiz(submission.userId(), correct, total);
         badgeService.checkAndGrantMilestones(submission.userId());
 
+        QuizResult.MasteryMatrix matrix = null;
+        if (!confidenceMap.isEmpty()) {
+            // Misconceptions are the highest-priority remediation target — they
+            // are the hidden wrong-knowledge that compounds; bias the priority
+            // pointer toward them, fall back to known gaps if none.
+            String priority = misconception.isEmpty()
+                    ? (knownGap.isEmpty() ? null : knownGap.get(0))
+                    : misconception.get(0);
+            matrix = new QuizResult.MasteryMatrix(
+                    mastered, misconception, luckyGuess, knownGap, priority);
+        }
+
         return new QuizResult(
                 IdGenerator.newId(), correct, total, xpEarned, starsEarned,
-                levelledUp, newLevel);
+                levelledUp, newLevel, matrix);
     }
 
     private void updateFlashcardSchedules(String avatarId, int correct, int total) {

@@ -36,6 +36,10 @@ public class QuizQuestionResultJpaEntity {
     @Column(name = "was_correct", nullable = false)
     private boolean wasCorrect;
 
+    /** Self-reported confidence: LOW / MEDIUM / HIGH. Null for legacy answers. */
+    @Column(length = 10)
+    private String confidence;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 }
