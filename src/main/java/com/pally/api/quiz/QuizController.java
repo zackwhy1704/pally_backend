@@ -55,7 +55,8 @@ public class QuizController {
     ) {
         AnswerSubmission submission = new AnswerSubmission(avatarId, userId, request.answers());
         Map<String, Integer> correctMap = request.correctMap() != null ? request.correctMap() : Map.of();
-        QuizResult result = submitQuizAnswersUseCase.execute(submission, correctMap);
+        Map<String, String> topicMap = request.topicMap() != null ? request.topicMap() : Map.of();
+        QuizResult result = submitQuizAnswersUseCase.execute(submission, correctMap, topicMap);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

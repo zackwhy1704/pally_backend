@@ -45,6 +45,18 @@ public class SubmitQuizAnswersUseCase {
      * @param correctMap questionId → correctIndex (passed from controller which held quiz state)
      */
     public QuizResult execute(AnswerSubmission submission, Map<String, Integer> correctMap) {
+        return execute(submission, correctMap, Map.of());
+    }
+
+    /**
+     * Same as {@link #execute(AnswerSubmission, Map)} but also records the
+     * topic slug per question so the weak-topics report can group results.
+     *
+     * @param topicMap questionId → topic slug (may be empty/missing entries)
+     */
+    public QuizResult execute(AnswerSubmission submission,
+                              Map<String, Integer> correctMap,
+                              Map<String, String> topicMap) {
         if (!avatarRepository.existsByIdAndUserId(submission.avatarId(), submission.userId())) {
             throw new AvatarNotFoundException(submission.avatarId());
         }
@@ -62,7 +74,7 @@ public class SubmitQuizAnswersUseCase {
                 r.setUserId(submission.userId());
                 r.setAvatarId(submission.avatarId());
                 r.setQuestionId(entry.getKey());
-                r.setTopicSlug(null); // topic resolution wired separately
+                r.setTopicSlug(topicMap.get(entry.getKey())); // may be null
                 r.setWasCorrect(wasCorrect);
                 r.setCreatedAt(Instant.now());
                 quizResultRepo.save(r);
