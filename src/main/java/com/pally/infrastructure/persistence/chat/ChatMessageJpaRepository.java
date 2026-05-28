@@ -11,9 +11,9 @@ import java.util.List;
 
 public interface ChatMessageJpaRepository extends JpaRepository<ChatMessageJpaEntity, String> {
 
-    List<ChatMessageJpaEntity> findByAvatarIdOrderByCreatedAtDesc(String avatarId, Pageable pageable);
+    List<ChatMessageJpaEntity> findByAvatarIdOrderByCreatedAtDescRoleAsc(String avatarId, Pageable pageable);
 
-    List<ChatMessageJpaEntity> findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAsc(
+    List<ChatMessageJpaEntity> findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAscRoleDesc(
             String avatarId, Instant since);
 
     long countByAvatarId(String avatarId);

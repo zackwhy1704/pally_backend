@@ -1,6 +1,7 @@
 package com.pally.domain.chat.usecase;
 
 import com.pally.api.chat.dto.SyncMessageDto;
+import com.pally.domain.chat.ChatMessage;
 import com.pally.infrastructure.persistence.chat.ChatMessageJpaEntity;
 import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,14 +21,14 @@ public class ChatHistoryService {
 
     @Transactional(readOnly = true)
     public List<SyncMessageDto> getHistory(String avatarId, int limit) {
-        List<ChatMessageJpaEntity> rows = repo.findByAvatarIdOrderByCreatedAtDesc(
+        List<ChatMessageJpaEntity> rows = repo.findByAvatarIdOrderByCreatedAtDescRoleAsc(
                 avatarId, PageRequest.of(0, limit));
 
         // Return in chronological order (oldest first) for the client
         List<SyncMessageDto> messages = rows.reversed().stream()
                 .map(e -> new SyncMessageDto(
                         e.getId(),
-                        e.getRole(),
+                        parseRole(e.getRole()),
                         e.getContent(),
                         e.getMessageType(),
                         e.getSourceWikiSlug(),
@@ -39,5 +40,13 @@ public class ChatHistoryService {
 
         log.info("[ChatHistory] avatar={} returned={}", avatarId, messages.size());
         return messages;
+    }
+
+    private static ChatMessage.Role parseRole(String s) {
+        if (s == null) return ChatMessage.Role.USER;
+        return switch (s.toUpperCase()) {
+            case "ASSISTANT", "TUTOR" -> ChatMessage.Role.ASSISTANT;
+            default -> ChatMessage.Role.USER;
+        };
     }
 }

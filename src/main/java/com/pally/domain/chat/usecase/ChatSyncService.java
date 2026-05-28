@@ -30,6 +30,24 @@ public class ChatSyncService {
                     repo.markSavedToBrain(dto.id());
                 }
             } else {
+                boolean isDuplicate = repo.findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAscRoleDesc(
+                                avatarId, dto.createdAt().minusSeconds(30))
+                        .stream()
+                        .anyMatch(existing ->
+                                existing.getRole() != null &&
+                                existing.getRole().equalsIgnoreCase(dto.role().name()) &&
+                                existing.getContent() != null &&
+                                existing.getContent().equals(dto.content()));
+
+                if (isDuplicate) {
+                    String preview = dto.content() == null
+                            ? ""
+                            : dto.content().substring(0, Math.min(40, dto.content().length()));
+                    log.debug("[ChatSync] Skipping duplicate: role={} content='{}'",
+                            dto.role(), preview);
+                    continue;
+                }
+
                 ChatMessageJpaEntity e = new ChatMessageJpaEntity();
                 e.setId(dto.id());
                 e.setAvatarId(avatarId);

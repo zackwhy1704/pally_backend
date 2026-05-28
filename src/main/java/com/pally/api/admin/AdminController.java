@@ -49,7 +49,7 @@ public class AdminController {
             @org.springframework.web.bind.annotation.PathVariable String avatarId
     ) {
         try {
-            var entities = chatRepo.findByAvatarIdOrderByCreatedAtDesc(
+            var entities = chatRepo.findByAvatarIdOrderByCreatedAtDescRoleAsc(
                     avatarId, org.springframework.data.domain.PageRequest.of(0, 5));
             var rows = entities.stream().map(e -> Map.of(
                     "id", e.getId(),

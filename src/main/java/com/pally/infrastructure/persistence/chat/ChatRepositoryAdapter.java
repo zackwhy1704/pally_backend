@@ -24,7 +24,7 @@ public class ChatRepositoryAdapter implements ChatRepository {
     @Override
     @Transactional(readOnly = true)
     public List<ChatMessage> findByAvatarId(String avatarId, int limit) {
-        return jpaRepository.findByAvatarIdOrderByCreatedAtDesc(
+        return jpaRepository.findByAvatarIdOrderByCreatedAtDescRoleAsc(
                         avatarId, PageRequest.of(0, limit))
                 .stream()
                 .map(ChatMessageJpaEntity::toDomain)
