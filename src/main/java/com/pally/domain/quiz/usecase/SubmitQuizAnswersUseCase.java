@@ -1,6 +1,7 @@
 package com.pally.domain.quiz.usecase;
 
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.progress.UserRepository;
 import com.pally.domain.quiz.AnswerSubmission;
 import com.pally.domain.quiz.CardRating;
 import com.pally.domain.quiz.FlashCard;
@@ -10,6 +11,7 @@ import com.pally.domain.quiz.Sm2Scheduler;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -18,6 +20,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SubmitQuizAnswersUseCase {
 
     private static final int XP_PER_CORRECT = 4;
@@ -25,6 +28,7 @@ public class SubmitQuizAnswersUseCase {
 
     private final AvatarRepository avatarRepository;
     private final FlashcardRepository flashcardRepository;
+    private final UserRepository userRepository;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -49,6 +53,10 @@ public class SubmitQuizAnswersUseCase {
         int total = submission.answers().size();
         int xpEarned = BASE_XP + (correct * XP_PER_CORRECT);
         int starsEarned = Math.round(xpEarned * 0.5f);
+
+        // Persist XP + stars on the user — this is what makes the home screen
+        // counter actually move. Without this call XP is local-only.
+        userRepository.addXpAndStars(submission.userId(), xpEarned, starsEarned);
 
         // Update SM-2 for due flashcards based on performance
         updateFlashcardSchedules(submission.avatarId(), correct, total);
