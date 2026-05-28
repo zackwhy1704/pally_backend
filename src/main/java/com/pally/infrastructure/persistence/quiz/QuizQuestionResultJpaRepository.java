@@ -45,6 +45,23 @@ public interface QuizQuestionResultJpaRepository
                                              @Param("avatarId") String avatarId,
                                              @Param("limit") int limit);
 
+    /// Returns [topicSlug, correctRatio, attempts] for every topic the user
+    /// has any history with under [avatarId]. No HAVING filter — even single
+    /// attempts surface so the brain map can colour them as low-confidence.
+    @Query(value = """
+            SELECT topic_slug,
+                   AVG(CASE WHEN was_correct THEN 1.0 ELSE 0.0 END) AS ratio,
+                   COUNT(*) AS attempts
+            FROM quiz_question_results
+            WHERE user_id = :userId
+              AND avatar_id = :avatarId
+              AND topic_slug IS NOT NULL
+            GROUP BY topic_slug
+            """, nativeQuery = true)
+    List<Object[]> findAllTopicMasteryByAvatar(
+            @Param("userId") String userId,
+            @Param("avatarId") String avatarId);
+
     /// Did the user already take a quiz for this avatar today (UTC)?
     @Query(value = """
             SELECT EXISTS (

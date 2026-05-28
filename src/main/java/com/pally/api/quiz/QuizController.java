@@ -13,6 +13,7 @@ import com.pally.domain.quiz.usecase.GetFlashcardsUseCase;
 import com.pally.domain.quiz.usecase.RateFlashcardUseCase;
 import com.pally.domain.quiz.usecase.SubmitQuizAnswersUseCase;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ public class QuizController {
     private final GetFlashcardsUseCase getFlashcardsUseCase;
     private final RateFlashcardUseCase rateFlashcardUseCase;
     private final QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
+    private final QuizQuestionResultJpaRepository quizQuestionResultRepository;
 
     @GetMapping("/quiz/daily")
     public ResponseEntity<ApiResponse<List<QuizQuestionResponse>>> getDailyQuiz(
@@ -96,5 +98,23 @@ public class QuizController {
             result.put((String) row[0], (Long) row[1]);
         }
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /// Per-topic mastery (correct-ratio) for this avatar. Used by the
+    /// brain-map screen to colour topic nodes; missing topics = untouched.
+    @GetMapping("/topic-mastery")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getTopicMastery(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId
+    ) {
+        List<Object[]> rows = quizQuestionResultRepository
+                .findAllTopicMasteryByAvatar(userId, avatarId);
+        List<Map<String, Object>> body = rows.stream()
+                .map(r -> Map.<String, Object>of(
+                        "topicSlug", (String) r[0],
+                        "mastery", ((Number) r[1]).doubleValue(),
+                        "attempts", ((Number) r[2]).intValue()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(body));
     }
 }
