@@ -28,7 +28,7 @@ public class AdminController {
         long haikuCount = chatRepo.countByModelUsedAndCreatedAtAfter(
                 "claude-haiku-4-5-20251001", since);
         long sonnetCount = chatRepo.countByModelUsedAndCreatedAtAfter(
-                "claude-sonnet-4-6-20250514", since);
+                "claude-sonnet-4-5-20241022", since);
         long total = haikuCount + sonnetCount;
         double sonnetPct = total > 0 ? (double) sonnetCount / total * 100 : 0;
 
