@@ -77,7 +77,7 @@ public class ChatController {
      * @param request  chat request containing the user's message
      * @return SSE stream of chat events
      */
-    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping("/chat")
     public void chat(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
