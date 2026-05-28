@@ -68,6 +68,12 @@ public class UserJpaEntity {
     @Column(name = "biometric_locked_until")
     private Instant biometricLockedUntil;
 
+    @Column(name = "screen_time_enabled", nullable = false)
+    private boolean screenTimeEnabled;
+
+    @Column(name = "screen_time_minutes", nullable = false)
+    private int screenTimeMinutes = 60;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
