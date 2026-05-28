@@ -52,6 +52,15 @@ public class ClaudeChatProxy implements ChatPort {
         return apiClient.streamResponseWithCacheAndModel(model, MAX_TOKENS, systemBlocks, messages)
                 .flatMap(line -> parseEventWithMetrics(line, onMetrics, metricsEmitted))
                 .onErrorResume(e -> {
+                    if (!model.equals(modelRouter.getHaikuModel())) {
+                        log.warn("[Chat] Sonnet failed ({}), retrying with Haiku: {}",
+                                model, e.getMessage());
+                        return apiClient.streamResponseWithCacheAndModel(
+                                        modelRouter.getHaikuModel(), MAX_TOKENS,
+                                        systemBlocks, messages)
+                                .flatMap(line -> parseEventWithMetrics(
+                                        line, onMetrics, metricsEmitted));
+                    }
                     log.error("Chat stream error", e);
                     return Flux.just(new ChatStreamEvent.Error(e.getMessage()));
                 });

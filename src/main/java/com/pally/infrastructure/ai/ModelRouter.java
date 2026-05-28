@@ -11,8 +11,18 @@ public class ModelRouter {
     @Value("${claude.api.model}")
     private String haiku;
 
-    @Value("${claude.api.sonnet-model}")
+    @Value("${claude.api.sonnet-model:claude-sonnet-4-6}")
     private String sonnet;
+
+    @jakarta.annotation.PostConstruct
+    void validate() {
+        log.info("[ModelRouter] Haiku model: {}", haiku);
+        log.info("[ModelRouter] Sonnet model: {}", sonnet);
+        if (sonnet == null || sonnet.isBlank()) {
+            log.warn("[ModelRouter] sonnet-model is blank — falling back to Haiku for all tasks");
+            sonnet = haiku;
+        }
+    }
 
     public String forChat(String userMessage) {
         if (isComplexQuestion(userMessage)) {

@@ -21,6 +21,7 @@ import com.pally.shared.exception.AvatarNotFoundException;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -46,6 +47,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/avatars/{avatarId}")
 @RequiredArgsConstructor
+@Slf4j
 public class ChatController {
 
     private static final int HISTORY_PAGE_SIZE = 50;
@@ -90,21 +92,29 @@ public class ChatController {
 
         java.io.PrintWriter writer = response.getWriter();
 
-        sendMessageUseCase.executeStream(avatarId, userId, request.message())
-                .toIterable()
-                .forEach(event -> {
-                    writer.write("event: " + event.type() + "\n");
-                    String payload = event.payload();
-                    if (payload.contains("\n")) {
-                        for (String line : payload.split("\n", -1)) {
-                            writer.write("data: " + line + "\n");
+        try {
+            sendMessageUseCase.executeStream(avatarId, userId, request.message())
+                    .toIterable()
+                    .forEach(event -> {
+                        writer.write("event: " + event.type() + "\n");
+                        String payload = event.payload();
+                        if (payload.contains("\n")) {
+                            for (String line : payload.split("\n", -1)) {
+                                writer.write("data: " + line + "\n");
+                            }
+                        } else {
+                            writer.write("data: " + payload + "\n");
                         }
-                    } else {
-                        writer.write("data: " + payload + "\n");
-                    }
-                    writer.write("\n");
-                    writer.flush();
-                });
+                        writer.write("\n");
+                        writer.flush();
+                    });
+        } catch (Exception e) {
+            log.error("[Chat] SSE stream failed for avatar={}: {}", avatarId, e.getMessage(), e);
+            writer.write("event: error\n");
+            writer.write("data: Sorry, something went wrong. Please try again.\n");
+            writer.write("\n");
+            writer.flush();
+        }
     }
 
     /**
