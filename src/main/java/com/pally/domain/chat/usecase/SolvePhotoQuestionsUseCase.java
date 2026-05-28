@@ -6,6 +6,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
+import com.pally.domain.progress.UserRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -24,6 +25,7 @@ public class SolvePhotoQuestionsUseCase {
     private final AvatarRepository avatarRepository;
     private final WikiRepository wikiRepository;
     private final PhotoQuestionPort photoQuestionPort;
+    private final UserRepository userRepository;
 
     public PhotoQuestionResponse execute(String avatarId, String userId, List<String> questions) {
         Avatar avatar = avatarRepository.findById(avatarId)
@@ -39,6 +41,11 @@ public class SolvePhotoQuestionsUseCase {
         );
 
         int xpEarned = questions.size() * XP_PER_QUESTION;
+        int starsEarned = Math.round(xpEarned * 0.5f);
+
+        // Persist XP — without this the home counter never moves.
+        userRepository.addXpAndStars(userId, xpEarned, starsEarned);
+
         String sourceWikiPage = wikiPages.isEmpty() ? null : wikiPages.getFirst().getSlug();
 
         return new PhotoQuestionResponse(answers, xpEarned, sourceWikiPage);

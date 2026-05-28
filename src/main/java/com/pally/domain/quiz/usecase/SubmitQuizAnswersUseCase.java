@@ -54,14 +54,23 @@ public class SubmitQuizAnswersUseCase {
         int xpEarned = BASE_XP + (correct * XP_PER_CORRECT);
         int starsEarned = Math.round(xpEarned * 0.5f);
 
-        // Persist XP + stars on the user — this is what makes the home screen
-        // counter actually move. Without this call XP is local-only.
+        // Snapshot level before, persist XP+stars, then read the new level
+        // so we can emit levelledUp = true exactly once per crossing.
+        int oldLevel = userRepository.findById(submission.userId())
+                .map(s -> s.level())
+                .orElse(1);
         userRepository.addXpAndStars(submission.userId(), xpEarned, starsEarned);
+        int newLevel = userRepository.findById(submission.userId())
+                .map(s -> s.level())
+                .orElse(oldLevel);
+        boolean levelledUp = newLevel > oldLevel;
 
         // Update SM-2 for due flashcards based on performance
         updateFlashcardSchedules(submission.avatarId(), correct, total);
 
-        return new QuizResult(IdGenerator.newId(), correct, total, xpEarned, starsEarned);
+        return new QuizResult(
+                IdGenerator.newId(), correct, total, xpEarned, starsEarned,
+                levelledUp, newLevel);
     }
 
     private void updateFlashcardSchedules(String avatarId, int correct, int total) {

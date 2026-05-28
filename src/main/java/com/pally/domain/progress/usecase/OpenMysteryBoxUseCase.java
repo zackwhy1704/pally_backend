@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 public class OpenMysteryBoxUseCase {
 
     private static final int BOX_COST = 600;
+    private static final int BOX_XP_BONUS = 10;
 
     private final UserRepository userRepository;
 
@@ -27,7 +28,10 @@ public class OpenMysteryBoxUseCase {
             );
         }
 
-        userRepository.save(stats.withStars(stats.stars() - BOX_COST));
+        // Deduct stars, also award a small XP bonus per opening so the box
+        // contributes to leveling, not just collection.
+        userRepository.save(
+                stats.withStars(stats.stars() - BOX_COST).withXp(stats.xp() + BOX_XP_BONUS));
 
         // Return a random character type as the reward
         com.pally.domain.avatar.CharacterType[] characters = com.pally.domain.avatar.CharacterType.values();

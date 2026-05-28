@@ -51,7 +51,7 @@ public class AuthService {
         return new AuthResponse(user.getId(), token, true, false);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(String email, String password) {
         UserJpaEntity user = userRepo.findByEmail(email)
                 .orElseThrow(() -> new BusinessException("Invalid email or password", 401));
@@ -60,9 +60,38 @@ public class AuthService {
             throw new BusinessException("Invalid email or password", 401);
         }
 
-        log.info("[Auth] Login success id={} email={}", user.getId(), email);
+        // Daily login streak update (idempotent for same-day logins).
+        updateLoginStreak(user);
+
+        log.info("[Auth] Login success id={} email={} streak={}",
+                user.getId(), email, user.getStreakDays());
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(user.getId(), token, false, user.isSetupComplete());
+    }
+
+    /// Increments streakDays if the user logs in on consecutive days; resets
+    /// to 1 on a broken streak; no-op on same-day logins. Awards bonus XP for
+    /// the first login of a new day (up to 50 XP cap).
+    private void updateLoginStreak(UserJpaEntity user) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        java.time.LocalDate last = user.getLastActiveDate();
+        if (last != null && last.equals(today)) {
+            return; // already counted today
+        }
+        int newStreak;
+        if (last != null && last.equals(today.minusDays(1))) {
+            newStreak = user.getStreakDays() + 1;
+        } else {
+            newStreak = 1;
+        }
+        user.setStreakDays(newStreak);
+        user.setLastActiveDate(today);
+        // Streak bonus XP — 5 per day, capped at 50
+        int bonus = Math.min(newStreak * 5, 50);
+        user.setXp(user.getXp() + bonus);
+        user.setLevel(com.pally.domain.progress.ProgressSummary.computeLevel(user.getXp()));
+        userRepo.save(user);
+        log.info("[Auth] Streak day {} → +{} XP", newStreak, bonus);
     }
 
     @Transactional

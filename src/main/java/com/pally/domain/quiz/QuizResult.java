@@ -5,5 +5,7 @@ public record QuizResult(
         int score,
         int total,
         int xpEarned,
-        int starsEarned
+        int starsEarned,
+        boolean levelledUp,
+        int newLevel
 ) {}
