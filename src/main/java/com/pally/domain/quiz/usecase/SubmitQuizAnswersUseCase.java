@@ -1,6 +1,8 @@
 package com.pally.domain.quiz.usecase;
 
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.progress.ActivityLogService;
+import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.quiz.AnswerSubmission;
 import com.pally.domain.quiz.CardRating;
@@ -8,6 +10,8 @@ import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.domain.quiz.QuizResult;
 import com.pally.domain.quiz.Sm2Scheduler;
+import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaEntity;
+import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +33,9 @@ public class SubmitQuizAnswersUseCase {
     private final AvatarRepository avatarRepository;
     private final FlashcardRepository flashcardRepository;
     private final UserRepository userRepository;
+    private final ActivityLogService activityLogService;
+    private final BadgeService badgeService;
+    private final QuizQuestionResultJpaRepository quizResultRepo;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -45,8 +52,22 @@ public class SubmitQuizAnswersUseCase {
         int correct = 0;
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
             Integer correctIndex = correctMap.get(entry.getKey());
-            if (correctIndex != null && correctIndex.equals(entry.getValue())) {
-                correct++;
+            boolean wasCorrect = correctIndex != null && correctIndex.equals(entry.getValue());
+            if (wasCorrect) correct++;
+
+            // Persist per-question result for error pattern analysis. Best-effort.
+            try {
+                QuizQuestionResultJpaEntity r = new QuizQuestionResultJpaEntity();
+                r.setId(IdGenerator.newId());
+                r.setUserId(submission.userId());
+                r.setAvatarId(submission.avatarId());
+                r.setQuestionId(entry.getKey());
+                r.setTopicSlug(null); // topic resolution wired separately
+                r.setWasCorrect(wasCorrect);
+                r.setCreatedAt(Instant.now());
+                quizResultRepo.save(r);
+            } catch (Exception ignored) {
+                // never block scoring on result persistence
             }
         }
 
@@ -67,6 +88,13 @@ public class SubmitQuizAnswersUseCase {
 
         // Update SM-2 for due flashcards based on performance
         updateFlashcardSchedules(submission.avatarId(), correct, total);
+
+        // Activity + badges
+        activityLogService.log(submission.userId(), submission.avatarId(),
+                ActivityLogService.TYPE_QUIZ, 0, xpEarned);
+        badgeService.grantFirstAction(submission.userId(), BadgeService.BadgeType.FIRST_QUIZ);
+        badgeService.grantPerfectQuiz(submission.userId(), correct, total);
+        badgeService.checkAndGrantMilestones(submission.userId());
 
         return new QuizResult(
                 IdGenerator.newId(), correct, total, xpEarned, starsEarned,

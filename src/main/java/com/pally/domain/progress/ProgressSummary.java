@@ -10,7 +10,9 @@ public record ProgressSummary(
         int totalFlashcards,
         int dueFlashcards,
         int totalQuizzesTaken,
-        int averageScore
+        int averageScore,
+        java.util.List<Integer> weekMinutes,
+        java.util.List<String> badges
 ) {
     public static int computeLevel(int xp) {
         int[] thresholds = {0, 100, 250, 500, 900, 1400, 2000, 2800, 3800, 5000};

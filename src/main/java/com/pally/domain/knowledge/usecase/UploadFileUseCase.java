@@ -7,6 +7,8 @@ import com.pally.domain.knowledge.RelevanceScore;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.RelevancePort;
+import com.pally.domain.progress.ActivityLogService;
+import com.pally.domain.progress.BadgeService;
 import com.pally.infrastructure.ocr.PdfTextExtractor;
 import com.pally.infrastructure.ocr.TesseractOcrService;
 import com.pally.infrastructure.storage.StorageService;
@@ -40,6 +42,8 @@ public class UploadFileUseCase {
     private final PdfTextExtractor pdfTextExtractor;
     private final RelevancePort relevancePort;
     private final CompileWikiUseCase compileWikiUseCase;
+    private final ActivityLogService activityLogService;
+    private final BadgeService badgeService;
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
         return execute(avatarId, userId, file, false);
@@ -121,6 +125,10 @@ public class UploadFileUseCase {
 
         // Trigger async wiki compilation
         compileWikiUseCase.execute(avatarId);
+
+        // Activity + first-upload badge
+        activityLogService.log(userId, avatarId, ActivityLogService.TYPE_UPLOAD, 0, 0);
+        badgeService.grantFirstAction(userId, BadgeService.BadgeType.FIRST_UPLOAD);
 
         log.info("File uploaded and ingested fileId={} pages={}", fileId, pageCount);
         return new UploadResult.Success(fileId, pageCount);

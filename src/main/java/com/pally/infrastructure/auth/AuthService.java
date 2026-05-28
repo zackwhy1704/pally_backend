@@ -25,6 +25,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final BCryptPasswordEncoder passwordEncoder;
     private final CharacterShopService characterShopService;
+    private final com.pally.domain.progress.BadgeService badgeService;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -62,6 +63,11 @@ public class AuthService {
 
         // Daily login streak update (idempotent for same-day logins).
         updateLoginStreak(user);
+
+        // Award streak badges if applicable
+        try {
+            badgeService.checkAndGrantMilestones(user.getId());
+        } catch (Exception ignored) {}
 
         log.info("[Auth] Login success id={} email={} streak={}",
                 user.getId(), email, user.getStreakDays());
