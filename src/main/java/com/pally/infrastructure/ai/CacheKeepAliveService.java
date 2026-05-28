@@ -48,6 +48,17 @@ public class CacheKeepAliveService {
     public void startKeepalive(String avatarId) {
         stopKeepalive(avatarId);
 
+        // Pre-warm cache immediately (non-blocking) so first user message has warm cache.
+        // Anthropic reports 50-85% TTFT reduction when cache is hit on first turn.
+        scheduler.submit(() -> {
+            try {
+                pingCache(avatarId);
+                log.info("[CachePrewarm] Warmed cache for avatar={}", avatarId);
+            } catch (Exception e) {
+                log.warn("[CachePrewarm] Failed for avatar={}: {}", avatarId, e.getMessage());
+            }
+        });
+
         ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(
                 () -> pingCache(avatarId),
                 KEEPALIVE_INTERVAL_MINUTES, KEEPALIVE_INTERVAL_MINUTES, TimeUnit.MINUTES);
