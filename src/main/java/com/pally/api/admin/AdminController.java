@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -40,6 +41,26 @@ public class AdminController {
                 "sonnet_percentage", Math.round(sonnetPct * 10) / 10.0,
                 "estimated_cost_usd", estimateCost(haikuCount, sonnetCount)
         );
+    }
+
+    @GetMapping("/chat-debug/{avatarId}")
+    public Map<String, Object> debugChat(
+            @AuthenticationPrincipal String userId,
+            @org.springframework.web.bind.annotation.PathVariable String avatarId
+    ) {
+        try {
+            var entities = chatRepo.findByAvatarIdOrderByCreatedAtDesc(
+                    avatarId, org.springframework.data.domain.PageRequest.of(0, 5));
+            var rows = entities.stream().map(e -> Map.of(
+                    "id", e.getId(),
+                    "role", e.getRole() != null ? e.getRole() : "NULL",
+                    "contentLen", String.valueOf(e.getContent() != null ? e.getContent().length() : 0),
+                    "createdAt", e.getCreatedAt() != null ? e.getCreatedAt().toString() : "NULL"
+            )).toList();
+            return Map.of("status", "ok", "messages", rows);
+        } catch (Exception e) {
+            return Map.of("status", "error", "error", e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     private double estimateCost(long haiku, long sonnet) {
