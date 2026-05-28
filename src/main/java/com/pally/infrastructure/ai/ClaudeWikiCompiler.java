@@ -26,7 +26,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeWikiCompiler.class);
     private static final int MAX_TOKENS = 4096;
-    private static final int MAX_FILE_CHARS = 2000;
+    private static final int MAX_FILE_CHARS = 4000;
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
@@ -51,43 +51,65 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
     private String buildPrompt(Avatar avatar, List<KnowledgeFile> files, List<WikiPage> existingPages) {
         StringBuilder sb = new StringBuilder();
         sb.append("""
-                You are a knowledge organiser for a children's educational tutoring app.
+                You are a knowledge organiser for a children's educational tutoring app (ages 8-14).
 
                 Avatar name: %s
                 Subject: %s
 
-                Compile the following extracted text into structured wiki pages suitable for a child-friendly tutor.
-                Each page should cover a single topic. Use simple, clear language.
+                ## YOUR TASK
+                Convert the extracted text below into structured wiki pages.
+
+                ## CRITICAL RULES
+                1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, lists, step-by-step
+                   processes, experiment procedures, and definitions MUST appear in the
+                   wiki page exactly as stated in the source material. Do NOT generalise
+                   or paraphrase specific facts.
+                2. Each wiki page covers ONE topic (e.g., "Photosynthesis",
+                   "Electrical Circuits").
+                3. Use markdown formatting: ## for headings, - for bullet points,
+                   **bold** for key terms.
+                4. Use simple, clear language suitable for children aged 8-14.
+                5. If the content mentions an equation, write it out in full.
+                6. If the content contains an experiment, include ALL steps.
+                7. Each page should be 200-500 words — comprehensive but not overwhelming.
 
                 """.formatted(avatar.getName(), avatar.getSubject().name()));
 
-        sb.append("## Extracted Content\n\n");
+        sb.append("## EXTRACTED CONTENT TO COMPILE\n\n");
         for (KnowledgeFile file : files) {
-            sb.append("### File: ").append(file.getFileName()).append("\n");
-            sb.append("(content extracted from file ID: ").append(file.getId()).append(")\n\n");
+            sb.append("### Source: ").append(file.getFileName()).append("\n");
+            String text = file.getExtractedText();
+            if (text != null && !text.isBlank()) {
+                String truncated = text.length() > MAX_FILE_CHARS
+                        ? text.substring(0, MAX_FILE_CHARS) + "\n[... truncated ...]"
+                        : text;
+                sb.append(truncated).append("\n\n");
+            } else {
+                sb.append("(no text content available)\n\n");
+            }
         }
 
         if (!existingPages.isEmpty()) {
-            sb.append("\n## Existing Wiki Pages (for context / merging)\n\n");
+            sb.append("\n## EXISTING WIKI PAGES (merge new content into these if topics overlap)\n\n");
             for (WikiPage page : existingPages) {
-                String preview = page.getContent().length() > 300
-                        ? page.getContent().substring(0, 300) + "..."
+                String preview = page.getContent().length() > 500
+                        ? page.getContent().substring(0, 500) + "..."
                         : page.getContent();
-                sb.append("### ").append(page.getTitle()).append(" (slug: ").append(page.getSlug()).append(")\n");
+                sb.append("### ").append(page.getTitle())
+                  .append(" (slug: ").append(page.getSlug()).append(")\n");
                 sb.append(preview).append("\n\n");
             }
         }
 
         sb.append("""
 
-                Respond ONLY with a JSON array of wiki page objects — no markdown fences, no extra text.
-                Each object must have exactly these fields:
-                  "slug": a lowercase hyphenated URL-safe identifier (e.g. "photosynthesis")
-                  "title": a human-readable page title
-                  "content": full markdown content for the page
+                ## OUTPUT FORMAT
+                Respond ONLY with a JSON array — no markdown fences, no extra text.
+                Each object: {"slug": "lowercase-hyphenated", "title": "Human Title", "content": "full markdown content"}
 
-                Example format:
-                [{"slug":"topic-one","title":"Topic One","content":"## Topic One\\n..."},...]
+                IMPORTANT: The "content" field must contain ALL the specific facts,
+                equations, and details from the source material. Do not summarise —
+                preserve the information.
                 """);
 
         return sb.toString();

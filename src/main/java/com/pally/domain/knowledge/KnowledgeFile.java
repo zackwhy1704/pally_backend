@@ -22,11 +22,12 @@ public final class KnowledgeFile {
     private final UploadType uploadType;
     private Status status;
     private final Instant createdAt;
+    private String extractedText;
 
     private KnowledgeFile(
             String id, String avatarId, String userId, String fileName,
             String storageKey, int pageCount, UploadType uploadType,
-            Status status, Instant createdAt
+            Status status, Instant createdAt, String extractedText
     ) {
         this.id = id;
         this.avatarId = avatarId;
@@ -37,6 +38,7 @@ public final class KnowledgeFile {
         this.uploadType = uploadType;
         this.status = status;
         this.createdAt = createdAt;
+        this.extractedText = extractedText;
     }
 
     public static KnowledgeFile create(
@@ -45,7 +47,7 @@ public final class KnowledgeFile {
     ) {
         return new KnowledgeFile(
                 IdGenerator.newId(), avatarId, userId, fileName,
-                storageKey, 0, uploadType, Status.PROCESSING, Instant.now()
+                storageKey, 0, uploadType, Status.PROCESSING, Instant.now(), null
         );
     }
 
@@ -55,7 +57,16 @@ public final class KnowledgeFile {
             Status status, Instant createdAt
     ) {
         return new KnowledgeFile(id, avatarId, userId, fileName,
-                storageKey, pageCount, uploadType, status, createdAt);
+                storageKey, pageCount, uploadType, status, createdAt, null);
+    }
+
+    public static KnowledgeFile reconstitute(
+            String id, String avatarId, String userId, String fileName,
+            String storageKey, int pageCount, UploadType uploadType,
+            Status status, Instant createdAt, String extractedText
+    ) {
+        return new KnowledgeFile(id, avatarId, userId, fileName,
+                storageKey, pageCount, uploadType, status, createdAt, extractedText);
     }
 
     public void markReady(int pageCount) {
@@ -71,13 +82,16 @@ public final class KnowledgeFile {
         this.status = Status.IRRELEVANT;
     }
 
-    public String getId()            { return id; }
-    public String getAvatarId()      { return avatarId; }
-    public String getUserId()        { return userId; }
-    public String getFileName()      { return fileName; }
-    public String getStorageKey()    { return storageKey; }
-    public int getPageCount()        { return pageCount; }
-    public UploadType getUploadType(){ return uploadType; }
-    public Status getStatus()        { return status; }
-    public Instant getCreatedAt()    { return createdAt; }
+    public String getId()                { return id; }
+    public String getAvatarId()          { return avatarId; }
+    public String getUserId()            { return userId; }
+    public String getFileName()          { return fileName; }
+    public String getStorageKey()        { return storageKey; }
+    public int getPageCount()            { return pageCount; }
+    public UploadType getUploadType()    { return uploadType; }
+    public Status getStatus()            { return status; }
+    public Instant getCreatedAt()        { return createdAt; }
+    public String getExtractedText()     { return extractedText; }
+
+    public void setExtractedText(String text) { this.extractedText = text; }
 }

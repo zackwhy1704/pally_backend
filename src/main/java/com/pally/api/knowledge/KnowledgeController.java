@@ -66,9 +66,10 @@ public class KnowledgeController {
     public ResponseEntity<ApiResponse<Object>> uploadFile(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
-            @RequestParam("file") MultipartFile file
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "skipRelevance", defaultValue = "false") boolean skipRelevance
     ) {
-        UploadResult result = uploadFileUseCase.execute(avatarId, userId, file);
+        UploadResult result = uploadFileUseCase.execute(avatarId, userId, file, skipRelevance);
 
         return switch (result) {
             case UploadResult.Success s -> ResponseEntity

@@ -45,6 +45,9 @@ public class KnowledgeFileJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "extracted_text", columnDefinition = "TEXT")
+    private String extractedText;
+
     public static KnowledgeFileJpaEntity fromDomain(KnowledgeFile kf) {
         KnowledgeFileJpaEntity e = new KnowledgeFileJpaEntity();
         e.id = kf.getId();
@@ -56,12 +59,14 @@ public class KnowledgeFileJpaEntity {
         e.uploadType = kf.getUploadType();
         e.status = kf.getStatus();
         e.createdAt = kf.getCreatedAt();
+        e.extractedText = kf.getExtractedText();
         return e;
     }
 
     public KnowledgeFile toDomain() {
         return KnowledgeFile.reconstitute(
-                id, avatarId, userId, fileName, storageKey, pageCount, uploadType, status, createdAt
+                id, avatarId, userId, fileName, storageKey, pageCount, uploadType,
+                status, createdAt, extractedText
         );
     }
 }

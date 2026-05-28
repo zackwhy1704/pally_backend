@@ -48,18 +48,35 @@ public class ClaudeRelevanceChecker implements RelevancePort {
         return """
                 You are a content relevance evaluator for a children's educational tutoring app.
 
-                The avatar specialises in: %s
+                The avatar tutors the subject: %s
+                ANY sub-topic within %s is considered relevant. For example:
+                - A "Science" tutor should accept: photosynthesis, electrical circuits,
+                  forces, the water cycle, the human body, ecosystems, etc.
+                - A "Maths" tutor should accept: fractions, algebra, geometry,
+                  statistics, multiplication, etc.
+                - A "History" tutor should accept any historical period or event.
+                - An "English" tutor should accept grammar, comprehension, poetry, etc.
 
-                Existing wiki summary:
+                Existing knowledge summary:
                 %s
 
-                New content sample:
+                New content to evaluate:
                 %s
 
-                Rate how relevant the new content is to the avatar's subject domain.
-                Respond ONLY with a JSON object in this exact format (no markdown, no extra text):
+                Rate how relevant the new content is to the subject "%s".
+                Scoring guide:
+                - 0.7 or higher: clearly on-topic, an obvious sub-topic of %s
+                - 0.5 to 0.69: belongs to the subject domain, accept it
+                - 0.3 to 0.49: ambiguous, lean towards accepting
+                - Below 0.3: clearly a different subject (e.g., music notes for a Maths tutor)
+
+                Respond ONLY with a JSON object (no markdown, no extra text):
                 {"score": <0.0 to 1.0>, "reason": "<one sentence explanation>"}
-                """.formatted(subject, wikiSummary.isBlank() ? "(none yet)" : wikiSummary, contentSample);
+                """.formatted(
+                    subject, subject,
+                    wikiSummary.isBlank() ? "(no existing notes yet)" : wikiSummary,
+                    contentSample,
+                    subject, subject);
     }
 
     private RelevanceScore parseResponse(String raw) {
