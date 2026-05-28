@@ -61,6 +61,9 @@ public class ChatController {
     private final ChatFeedbackService chatFeedbackService;
     private final CacheKeepAliveService cacheKeepAliveService;
     private final AvatarRepository avatarRepository;
+    private final com.pally.domain.progress.UserRepository userRepository;
+    private final com.pally.domain.progress.ActivityLogService activityLogService;
+    private final com.pally.domain.progress.BadgeService badgeService;
 
     /**
      * Streams a chat response from the avatar via Server-Sent Events.
@@ -187,6 +190,18 @@ public class ChatController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
         cacheKeepAliveService.stopKeepalive(avatarId);
+
+        // Credit 5 XP per chat session. Idempotency: not strict — the client
+        // typically fires session-end exactly once on screen close. Failures
+        // are best-effort so they never block the response.
+        try {
+            userRepository.addXpAndStars(userId, 5, 2);
+            activityLogService.log(userId, avatarId,
+                    com.pally.domain.progress.ActivityLogService.TYPE_CHAT, 0, 5);
+            badgeService.grantFirstAction(userId,
+                    com.pally.domain.progress.BadgeService.BadgeType.FIRST_CHAT);
+            badgeService.checkAndGrantMilestones(userId);
+        } catch (Exception ignored) {}
     }
 
     @PatchMapping("/teaching-mode")

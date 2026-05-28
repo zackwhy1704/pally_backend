@@ -1,14 +1,22 @@
 package com.pally.api.progress;
 
 import com.pally.api.progress.dto.ProgressResponse;
+import com.pally.domain.avatar.Avatar;
+import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.ProgressSummary;
 import com.pally.domain.progress.usecase.GetProgressUseCase;
+import com.pally.domain.quiz.FlashCard;
+import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +26,9 @@ import java.util.Map;
 public class ProgressController {
 
     private final GetProgressUseCase getProgressUseCase;
+    private final AvatarRepository avatarRepository;
+    private final FlashcardRepository flashcardRepository;
+    private final QuizQuestionResultJpaRepository quizResultRepo;
 
     @GetMapping
     public ResponseEntity<ApiResponse<ProgressResponse>> getProgress(
@@ -27,26 +38,73 @@ public class ProgressController {
         return ResponseEntity.ok(ApiResponse.success(ProgressResponse.from(summary)));
     }
 
+    /// Adaptive study plan: today's tasks come from real signals — due
+    /// flashcards per avatar, untaken daily quizzes, weakest topics.
+    /// Replaces the previous hardcoded stub.
     @GetMapping("/study-plan")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getStudyPlan(
             @AuthenticationPrincipal String userId
     ) {
-        // Stub — returns a static study plan until StudyPlanGenerator is wired
+        List<Map<String, Object>> todayTasks = new ArrayList<>();
+
+        List<Avatar> avatars = avatarRepository.findByUserId(userId);
+        for (Avatar avatar : avatars) {
+            // Due flashcards
+            List<FlashCard> due = flashcardRepository.findDueByAvatarId(avatar.getId());
+            if (!due.isEmpty()) {
+                todayTasks.add(Map.of(
+                        "title", "Review " + due.size() + " flashcard"
+                                + (due.size() == 1 ? "" : "s") + " — " + avatar.getName(),
+                        "type", "flashcard",
+                        "avatarId", avatar.getId(),
+                        "done", false
+                ));
+            }
+
+            // Daily quiz if not taken today (best-effort — query may fail on empty table)
+            boolean takenToday;
+            try {
+                Boolean b = quizResultRepo.takenToday(userId, avatar.getId());
+                takenToday = b != null && b;
+            } catch (Exception ignored) {
+                takenToday = false;
+            }
+            if (!takenToday) {
+                todayTasks.add(Map.of(
+                        "title", "Daily quiz — " + avatar.getName(),
+                        "type", "quiz",
+                        "avatarId", avatar.getId(),
+                        "done", false
+                ));
+            }
+        }
+
+        // Weak-topic practice — top 3 weakest topics across user
+        List<Map<String, Object>> upcomingTasks = new ArrayList<>();
+        try {
+            List<Object[]> weakTopics = quizResultRepo.findWeakestTopics(userId, 3);
+            for (Object[] row : weakTopics) {
+                String topic = (String) row[0];
+                int pct = (int) Math.round(((Number) row[1]).doubleValue() * 100);
+                upcomingTasks.add(Map.of(
+                        "day", "Soon",
+                        "title", "Practice " + topic + " (" + pct + "% mastery)"
+                ));
+            }
+        } catch (Exception ignored) {}
+
+        if (todayTasks.isEmpty()) {
+            todayTasks.add(Map.of(
+                    "title", "Create your first tutor to get started",
+                    "type", "info",
+                    "done", false
+            ));
+        }
+
         var plan = Map.<String, Object>of(
-            "todayTasks", List.of(
-                Map.of("title", "Review Photosynthesis flashcards", "done", false),
-                Map.of("title", "Complete daily quiz", "done", false),
-                Map.of("title", "Read Chapter 3 notes", "done", true)
-            ),
-            "upcomingTasks", List.of(
-                Map.of("day", "Tomorrow", "title", "Practice cell structure questions"),
-                Map.of("day", "Wed", "title", "Upload new Science notes"),
-                Map.of("day", "Thu", "title", "Revision quiz — ecosystems")
-            ),
-            "testCountdown", Map.of(
-                "label", "Science Test",
-                "daysLeft", 14
-            )
+                "todayTasks", todayTasks,
+                "upcomingTasks", upcomingTasks,
+                "testCountdown", Map.of()
         );
         return ResponseEntity.ok(ApiResponse.success(plan));
     }
