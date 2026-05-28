@@ -69,6 +69,7 @@ public class ClaudeChatProxy implements ChatPort {
     private List<Map<String, String>> buildMessages(List<ChatMessage> history, String userMessage) {
         List<Map<String, String>> messages = new ArrayList<>();
         for (ChatMessage msg : history) {
+            if (msg.getContent() == null || msg.getContent().isBlank()) continue;
             messages.add(Map.of(
                     "role", msg.getRole() == ChatMessage.Role.USER ? "user" : "assistant",
                     "content", msg.getContent()
