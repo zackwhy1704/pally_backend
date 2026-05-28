@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.chat.AssembledContext;
+import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.knowledge.DetectedTopic;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiPageIndex;
@@ -56,6 +57,7 @@ public class ClaudeContextAssembler {
     private final TopicRouter topicRouter;
     private final WikiRepository wikiRepository;
     private final ObjectMapper objectMapper;
+    private final ChatSessionSummariser sessionSummariser;
 
     // ── String-based assembly (existing, kept for harness + tests) ────────────
 
@@ -149,6 +151,20 @@ public class ClaudeContextAssembler {
         b3.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
         blocks.add(b3);
         log.debug("[Cache] Block3 WikiPages: ~{}t, 5m TTL, pages={}", estimateTokens(block3), allPages.size());
+
+        // ── Block 3.5: Rolling session memory — NO cache, may be empty ───────
+        // Sits before Block 4 so SendMessageUseCase's "replace last block" still
+        // targets the dynamic tail. Lets the tutor compound knowledge of the
+        // student across sessions without bloating chat history.
+        String memoryBlock = buildSessionMemoryBlock(avatar.getId());
+        if (!memoryBlock.isEmpty()) {
+            Map<String, Object> bMem = new HashMap<>();
+            bMem.put("type", "text");
+            bMem.put("text", memoryBlock);
+            blocks.add(bMem);
+            log.debug("[Cache] BlockMemory: ~{}t, no cache",
+                    estimateTokens(memoryBlock));
+        }
 
         // ── Block 4: Dynamic tail — NO cache ──────────────────────────────────
         String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages);
@@ -255,6 +271,23 @@ public class ClaudeContextAssembler {
               .append(content).append("\n\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * Returns the "what you remember about this student" block, or empty
+     * string when no summary has been recorded yet.
+     */
+    private String buildSessionMemoryBlock(String avatarId) {
+        return sessionSummariser.findSummary(avatarId)
+                .filter(s -> !s.isBlank())
+                .map(s -> """
+                        ## WHAT YOU REMEMBER ABOUT THIS STUDENT
+                        (rolling summary — use it to pick up where you left off;
+                        do not read it aloud verbatim)
+
+                        %s
+                        """.formatted(s.trim()))
+                .orElse("");
     }
 
     private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages) {

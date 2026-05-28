@@ -31,13 +31,15 @@ public final class WikiPage {
     private Status status;
     private boolean reviewRequired;
     private String prerequisiteSlugs;
+    private boolean hasConflict;
 
     private WikiPage(
             String id, String avatarId, String slug,
             String title, String content, Certainty certainty, Instant updatedAt,
             int qualityScore, String humanCorrection, Instant correctionAt, boolean humanVerified,
             Instant lastRetrievedAt, int quizUseCount, double certaintyScore,
-            Status status, boolean reviewRequired, String prerequisiteSlugs
+            Status status, boolean reviewRequired, String prerequisiteSlugs,
+            boolean hasConflict
     ) {
         this.id = id;
         this.avatarId = avatarId;
@@ -56,6 +58,20 @@ public final class WikiPage {
         this.status = status;
         this.reviewRequired = reviewRequired;
         this.prerequisiteSlugs = prerequisiteSlugs;
+        this.hasConflict = false;
+    }
+
+    private WikiPage(
+            String id, String avatarId, String slug,
+            String title, String content, Certainty certainty, Instant updatedAt,
+            int qualityScore, String humanCorrection, Instant correctionAt, boolean humanVerified,
+            Instant lastRetrievedAt, int quizUseCount, double certaintyScore,
+            Status status, boolean reviewRequired, String prerequisiteSlugs
+    ) {
+        this(id, avatarId, slug, title, content, certainty, updatedAt,
+                qualityScore, humanCorrection, correctionAt, humanVerified,
+                lastRetrievedAt, quizUseCount, certaintyScore, status, reviewRequired,
+                prerequisiteSlugs, false);
     }
 
     public static WikiPage create(String avatarId, String slug, String title, String content) {
@@ -92,7 +108,22 @@ public final class WikiPage {
     ) {
         return new WikiPage(id, avatarId, slug, title, content, certainty, updatedAt,
                 qualityScore, humanCorrection, correctionAt, humanVerified,
-                lastRetrievedAt, quizUseCount, certaintyScore, status, reviewRequired, prerequisiteSlugs);
+                lastRetrievedAt, quizUseCount, certaintyScore, status, reviewRequired,
+                prerequisiteSlugs, false);
+    }
+
+    public static WikiPage reconstitute(
+            String id, String avatarId, String slug,
+            String title, String content, Certainty certainty, Instant updatedAt,
+            int qualityScore, String humanCorrection, Instant correctionAt, boolean humanVerified,
+            Instant lastRetrievedAt, int quizUseCount, double certaintyScore,
+            Status status, boolean reviewRequired, String prerequisiteSlugs,
+            boolean hasConflict
+    ) {
+        return new WikiPage(id, avatarId, slug, title, content, certainty, updatedAt,
+                qualityScore, humanCorrection, correctionAt, humanVerified,
+                lastRetrievedAt, quizUseCount, certaintyScore, status, reviewRequired,
+                prerequisiteSlugs, hasConflict);
     }
 
     public void updateContent(String newTitle, String newContent, Certainty newCertainty) {
@@ -113,6 +144,16 @@ public final class WikiPage {
 
     public void setQualityScore(int score) {
         this.qualityScore = Math.max(0, Math.min(100, score));
+    }
+
+    /** Flags this page as having a content conflict with a previous version. */
+    public void markConflict() {
+        this.hasConflict = true;
+    }
+
+    /** Clears the conflict flag (e.g. after a human correction). */
+    public void clearConflict() {
+        this.hasConflict = false;
     }
 
     public String getSummary() {
@@ -139,4 +180,5 @@ public final class WikiPage {
     public Status getStatus()              { return status; }
     public boolean isReviewRequired()      { return reviewRequired; }
     public String getPrerequisiteSlugs()   { return prerequisiteSlugs; }
+    public boolean isHasConflict()         { return hasConflict; }
 }

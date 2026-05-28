@@ -8,6 +8,7 @@ import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSession;
 import com.pally.domain.chat.ChatSessionRepository;
+import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.chat.ChatStreamEvent;
 import com.pally.domain.chat.HintTreeRepository;
 import com.pally.domain.chat.SocraticHintTree;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 /**
  * Use case: send a message to an avatar and receive a streaming response.
@@ -43,6 +45,11 @@ public class SendMessageUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(SendMessageUseCase.class);
     private static final int HISTORY_LIMIT = 20;
+    // Strips the trailing "SOURCE: <slug>" line Claude appends so the
+    // persisted message contains only the visible body. The slug is captured
+    // separately and stored as ChatMessage.sourceFile.
+    private static final Pattern SOURCE_TRAILER = Pattern.compile(
+            "\\s*\\n*SOURCE\\s*:?\\s*\\[?[a-zA-Z0-9_\\-/]+\\]?\\s*$");
 
     private final AvatarRepository avatarRepository;
     private final ChatRepository chatRepository;
@@ -53,6 +60,7 @@ public class SendMessageUseCase {
     private final TopicClassifier topicClassifier;
     private final SocraticPromptBuilder socraticPromptBuilder;
     private final ModelRouter modelRouter;
+    private final ChatSessionSummariser sessionSummariser;
 
     public record StreamEvent(String type, String payload) {}
 
@@ -111,18 +119,26 @@ public class SendMessageUseCase {
         StringBuilder replyBuffer = new StringBuilder();
         AtomicReference<String> assistantMessageId = new AtomicReference<>();
         AtomicReference<CacheMetrics> capturedMetrics = new AtomicReference<>();
+        AtomicReference<String> capturedSourceFile = new AtomicReference<>();
 
         return chatProxy.streamChat(systemBlocks, history, userMessage, capturedMetrics::set)
                 .doOnNext(event -> {
                     if (event instanceof ChatStreamEvent.Token token) {
                         replyBuffer.append(token.text());
+                    } else if (event instanceof ChatStreamEvent.Done done) {
+                        capturedSourceFile.set(done.sourceFile());
                     }
                 })
                 .doOnComplete(() -> {
                     if (!replyBuffer.isEmpty()) {
+                        // Strip the "SOURCE: <slug>" trailer the model appends
+                        // per system prompt — we already carry the slug as a
+                        // dedicated field, so the bubble text must not leak it.
+                        String cleanReply = SOURCE_TRAILER.matcher(
+                                replyBuffer.toString()).replaceFirst("").trim();
                         ChatMessage assistantMsg = ChatMessage.createWithTrace(
                                 avatarId, userId, ChatMessage.Role.ASSISTANT,
-                                replyBuffer.toString(), null,
+                                cleanReply, capturedSourceFile.get(),
                                 context.harnessTrace()
                         );
                         ChatMessage saved = chatRepository.save(assistantMsg);
@@ -155,6 +171,11 @@ public class SendMessageUseCase {
                         }
 
                         log.debug("[Chat] Saved reply avatarId={} chars={}", avatarId, replyBuffer.length());
+
+                        // Fire-and-forget rolling-summary update so the
+                        // tutor remembers this exchange on the next turn.
+                        sessionSummariser.updateSummary(
+                                avatarId, userMessage, cleanReply);
                     }
                 })
                 .map(event -> switch (event) {

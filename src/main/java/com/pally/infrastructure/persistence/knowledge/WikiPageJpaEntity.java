@@ -72,6 +72,9 @@ public class WikiPageJpaEntity {
     @Column(name = "prerequisite_slugs", columnDefinition = "TEXT")
     private String prerequisiteSlugs;
 
+    @Column(name = "has_conflict", nullable = false)
+    private boolean hasConflict = false;
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();
@@ -91,6 +94,7 @@ public class WikiPageJpaEntity {
         e.status = wp.getStatus() != null ? wp.getStatus() : WikiPage.Status.ACTIVE;
         e.reviewRequired = wp.isReviewRequired();
         e.prerequisiteSlugs = wp.getPrerequisiteSlugs();
+        e.hasConflict = wp.isHasConflict();
         return e;
     }
 
@@ -99,6 +103,6 @@ public class WikiPageJpaEntity {
                 qualityScore, humanCorrection, correctionAt, humanVerified,
                 lastRetrievedAt, quizUseCount, certaintyScore,
                 status != null ? status : WikiPage.Status.ACTIVE,
-                reviewRequired, prerequisiteSlugs);
+                reviewRequired, prerequisiteSlugs, hasConflict);
     }
 }

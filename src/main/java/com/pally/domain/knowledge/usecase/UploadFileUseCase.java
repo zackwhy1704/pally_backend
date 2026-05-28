@@ -123,15 +123,18 @@ public class UploadFileUseCase {
         kf.markReady(pageCount);
         knowledgeRepository.save(kf);
 
-        // Trigger async wiki compilation
-        compileWikiUseCase.execute(avatarId);
+        // Trigger wiki compilation and capture the new page titles so the
+        // upload response can drive the post-upload "you learned X" screen.
+        CompileWikiUseCase.CompileResult compileResult =
+                compileWikiUseCase.execute(avatarId);
 
         // Activity + first-upload badge
         activityLogService.log(userId, avatarId, ActivityLogService.TYPE_UPLOAD, 0, 0);
         badgeService.grantFirstAction(userId, BadgeService.BadgeType.FIRST_UPLOAD);
 
-        log.info("File uploaded and ingested fileId={} pages={}", fileId, pageCount);
-        return new UploadResult.Success(fileId, pageCount);
+        log.info("File uploaded and ingested fileId={} pages={} compiledPages={}",
+                fileId, pageCount, compileResult.pageTitles().size());
+        return new UploadResult.Success(fileId, pageCount, compileResult.pageTitles());
     }
 
     private KnowledgeFile.UploadType resolveUploadType(String contentType) {

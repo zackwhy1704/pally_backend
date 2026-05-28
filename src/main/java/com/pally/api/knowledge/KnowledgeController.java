@@ -155,6 +155,7 @@ public class KnowledgeController {
         int total = result.pagesCreated() + result.pagesUpdated();
         WikiCompileResponse response = new WikiCompileResponse(
                 total,
+                result.pageTitles(),
                 "Wiki compiled: %d page(s) created, %d page(s) updated"
                         .formatted(result.pagesCreated(), result.pagesUpdated())
         );

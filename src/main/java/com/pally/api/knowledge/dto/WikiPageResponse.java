@@ -24,7 +24,7 @@ public record WikiPageResponse(
                 page.getTitle(),
                 page.getContent(),
                 page.getCertainty().name().toLowerCase(),
-                false,
+                page.isHasConflict(),
                 page.getUpdatedAt(),
                 page.getQualityScore(),
                 page.isHumanVerified(),
