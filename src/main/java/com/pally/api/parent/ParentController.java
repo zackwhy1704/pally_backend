@@ -3,6 +3,8 @@ package com.pally.api.parent;
 import com.pally.api.parent.dto.ParentDashboardResponse;
 import com.pally.api.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
 import com.pally.api.parent.dto.ParentDashboardResponse.WeakAreaDto;
+import com.pally.api.parent.dto.WeeklyReportDetail;
+import com.pally.api.parent.dto.WeeklyReportSummary;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.ActivityLogService;
@@ -20,6 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,8 +30,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -160,6 +168,146 @@ public class ParentController {
                 subjects, weekMinutes, weakAreas,
                 u.isScreenTimeEnabled(), u.getScreenTimeMinutes()
         )));
+    }
+
+    // ── Weekly reports ──────────────────────────────────────────────────
+
+    private static final int WEEKS_TO_LIST = 4;
+
+    @GetMapping("/reports")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> listReports(
+            @AuthenticationPrincipal String userId) {
+        List<WeeklyReportSummary> reports = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        for (int i = 0; i < WEEKS_TO_LIST; i++) {
+            LocalDate weekStart = isoWeekStart(today.minusWeeks(i));
+            LocalDate weekEnd = weekStart.plusDays(6);
+            reports.add(buildSummary(userId, weekStart, weekEnd));
+        }
+        return ResponseEntity.ok(
+                ApiResponse.success(Map.of("reports", reports)));
+    }
+
+    @GetMapping("/reports/{weekId}")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<WeeklyReportDetail>> getReport(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String weekId) {
+        LocalDate weekStart;
+        try {
+            weekStart = parseWeekId(weekId);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(
+                    "Invalid weekId, expected yyyy-Www (e.g. 2026-W22)", 400);
+        }
+        LocalDate weekEnd = weekStart.plusDays(6);
+        Instant from = weekStart.atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant to = weekEnd.plusDays(1)
+                .atStartOfDay().toInstant(ZoneOffset.UTC);
+
+        int sessions = orZero(activityRepo.countBetween(userId, from, to));
+        int minutes = orZero(activityRepo.sumMinutesBetween(userId, from, to));
+        int xp = orZero(activityRepo.sumXpBetween(userId, from, to));
+        List<Integer> dailyMinutes = activityLogService
+                .minutesPerDayBetween(userId, weekStart, weekEnd);
+
+        List<SubjectMasteryDto> subjects = computeSubjectMastery(userId);
+        List<WeakAreaDto> weakAreas = quizResultRepo
+                .findWeakestTopics(userId, 5).stream()
+                .map(r -> new WeakAreaDto((String) r[0],
+                        ((Number) r[1]).doubleValue()))
+                .toList();
+
+        String headline = buildHeadline(sessions, minutes, xp);
+        String narrative = buildNarrative(sessions, minutes, xp,
+                subjects, weakAreas);
+
+        return ResponseEntity.ok(ApiResponse.success(new WeeklyReportDetail(
+                weekId, weekStart, weekEnd,
+                sessions, minutes, xp,
+                dailyMinutes, subjects, weakAreas,
+                headline, narrative)));
+    }
+
+    private WeeklyReportSummary buildSummary(
+            String userId, LocalDate start, LocalDate end) {
+        Instant from = start.atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant to = end.plusDays(1)
+                .atStartOfDay().toInstant(ZoneOffset.UTC);
+        return new WeeklyReportSummary(
+                isoWeekId(start),
+                start,
+                end,
+                orZero(activityRepo.countBetween(userId, from, to)),
+                orZero(activityRepo.sumMinutesBetween(userId, from, to)),
+                orZero(activityRepo.sumXpBetween(userId, from, to)));
+    }
+
+    /// First day (Monday) of the ISO week containing [date].
+    private LocalDate isoWeekStart(LocalDate date) {
+        WeekFields wf = WeekFields.ISO;
+        int dow = date.get(wf.dayOfWeek());
+        return date.minusDays(dow - 1);
+    }
+
+    private String isoWeekId(LocalDate weekStart) {
+        WeekFields wf = WeekFields.ISO;
+        int year = weekStart.get(wf.weekBasedYear());
+        int week = weekStart.get(wf.weekOfWeekBasedYear());
+        return String.format("%04d-W%02d", year, week);
+    }
+
+    private LocalDate parseWeekId(String weekId) {
+        // Expects "yyyy-Www" — split, parse, walk to ISO week Monday.
+        int dash = weekId.indexOf('-');
+        if (dash < 0 || weekId.length() < 7
+                || weekId.charAt(dash + 1) != 'W') {
+            throw new DateTimeParseException("bad format", weekId, 0);
+        }
+        int year = Integer.parseInt(weekId.substring(0, dash));
+        int week = Integer.parseInt(weekId.substring(dash + 2));
+        // Jan 4 is always in week 1 per ISO 8601.
+        LocalDate jan4 = LocalDate.of(year, 1, 4);
+        LocalDate jan4Monday = isoWeekStart(jan4);
+        return jan4Monday.plusWeeks(week - 1L);
+    }
+
+    private String buildHeadline(int sessions, int minutes, int xp) {
+        if (sessions == 0) return "No activity this week";
+        if (minutes >= 60) {
+            return "Solid week — %d min across %d session%s"
+                    .formatted(minutes, sessions, sessions == 1 ? "" : "s");
+        }
+        return "%d session%s, %d min total"
+                .formatted(sessions, sessions == 1 ? "" : "s", minutes);
+    }
+
+    private String buildNarrative(int sessions, int minutes, int xp,
+                                   List<SubjectMasteryDto> subjects,
+                                   List<WeakAreaDto> weakAreas) {
+        if (sessions == 0) {
+            return "Your child didn't open Pally this week. "
+                    + "A short daily reminder can help re-engage.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("This week your child earned %d XP across %d minutes of focused practice."
+                .formatted(xp, minutes));
+        if (!subjects.isEmpty()) {
+            var top = subjects.stream()
+                    .max((a, b) -> Double.compare(a.mastery(), b.mastery()))
+                    .orElse(null);
+            if (top != null && top.mastery() > 0) {
+                sb.append(" Strongest subject: %s (%.0f%%)."
+                        .formatted(top.subject().toLowerCase(Locale.ROOT),
+                                top.mastery() * 100));
+            }
+        }
+        if (!weakAreas.isEmpty()) {
+            sb.append(" Topic to focus on next week: ")
+                    .append(weakAreas.get(0).topic()).append('.');
+        }
+        return sb.toString();
     }
 
     // ── Screen time ─────────────────────────────────────────────────────

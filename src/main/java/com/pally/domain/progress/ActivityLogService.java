@@ -64,4 +64,21 @@ public class ActivityLogService {
         }
         return result;
     }
+
+    /// Minutes per day across [start, end] inclusive (always 7 entries when
+    /// called with a full ISO week). Used by the weekly report detail.
+    public List<Integer> minutesPerDayBetween(
+            String userId, LocalDate start, LocalDate end) {
+        List<Integer> result = new ArrayList<>();
+        for (LocalDate day = start;
+             !day.isAfter(end);
+             day = day.plusDays(1)) {
+            Instant from = day.atStartOfDay().toInstant(ZoneOffset.UTC);
+            Instant to = day.plusDays(1)
+                    .atStartOfDay().toInstant(ZoneOffset.UTC);
+            Integer mins = repo.sumMinutesBetween(userId, from, to);
+            result.add(mins != null ? mins : 0);
+        }
+        return result;
+    }
 }

@@ -38,4 +38,26 @@ public interface ActivityLogJpaRepository extends JpaRepository<ActivityLogJpaEn
             """, nativeQuery = true)
     Integer sumXpSince(@Param("userId") String userId,
                        @Param("since") Instant since);
+
+    @Query(value = """
+            SELECT COUNT(*)
+            FROM activity_log
+            WHERE user_id = :userId
+              AND created_at >= :from
+              AND created_at <  :to
+            """, nativeQuery = true)
+    Integer countBetween(@Param("userId") String userId,
+                         @Param("from") Instant from,
+                         @Param("to") Instant to);
+
+    @Query(value = """
+            SELECT COALESCE(SUM(xp_earned), 0)
+            FROM activity_log
+            WHERE user_id = :userId
+              AND created_at >= :from
+              AND created_at <  :to
+            """, nativeQuery = true)
+    Integer sumXpBetween(@Param("userId") String userId,
+                         @Param("from") Instant from,
+                         @Param("to") Instant to);
 }
