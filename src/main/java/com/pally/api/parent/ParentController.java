@@ -46,6 +46,17 @@ public class ParentController {
 
     // ── PIN management ─────────────────────────────────────────────────
 
+    @GetMapping("/pin/status")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> pinStatus(
+            @AuthenticationPrincipal String userId) {
+        UserJpaEntity u = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        boolean hasPin = u.getParentPinHash() != null
+                && !u.getParentPinHash().isBlank();
+        return ResponseEntity.ok(ApiResponse.success(Map.of("hasPin", hasPin)));
+    }
+
     @PostMapping("/pin/set")
     @Transactional
     public ResponseEntity<ApiResponse<Void>> setPin(
