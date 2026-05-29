@@ -68,6 +68,18 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("com.github.ben-manes.caffeine:caffeine:3.1.8")
 
+    // Metrics — Micrometer registry that Actuator scrapes to expose
+    // /actuator/prometheus. ClaudeMetrics emits the per-call counters
+    // + timers used by both billing dashboards and breaker alerts.
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
+    // Resilience4j around Claude — retry + circuit breaker via Spring
+    // Boot autoconfig. Publishes Micrometer metrics automatically so
+    // breaker state shows up in /actuator/prometheus.
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-reactor:2.2.0")
+    implementation("org.springframework.boot:spring-boot-starter-aop")
+
     // Lombok
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

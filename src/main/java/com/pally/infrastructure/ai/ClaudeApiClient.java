@@ -4,6 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.pally.infrastructure.observability.ClaudeMetrics;
+import com.pally.shared.exception.BusinessException;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +51,7 @@ public class ClaudeApiClient {
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
+    private final ClaudeMetrics metrics;
 
     @Value("${claude.api.key}")
     private String apiKey;
@@ -62,8 +68,22 @@ public class ClaudeApiClient {
      * Not cached — these calls are already cheap on Haiku.
      */
     public String complete(String model, int maxTokens, String prompt) {
+        // task tag derives from the model role — chat/wiki callers go
+        // through the streaming methods, so a unary call here is most
+        // likely a Haiku micro-task (relevance, quiz gen, conflict check).
+        return complete(model, maxTokens, prompt, "haiku-micro");
+    }
+
+    /// Same as {@link #complete} but emits a {@code task} tag on the
+    /// metrics so dashboards can split spend by feature. Wrapped in
+    /// Retry + CircuitBreaker; the fallback NEVER returns fabricated
+    /// content (see {@link #completeFallback}).
+    @Retry(name = "claude")
+    @CircuitBreaker(name = "claude", fallbackMethod = "completeFallback")
+    public String complete(String model, int maxTokens, String prompt, String task) {
         String callId = UUID.randomUUID().toString().substring(0, 8);
         long start = System.currentTimeMillis();
+        Timer.Sample sample = metrics.startLatency();
 
         log.info("[Claude-{}] REQUEST model={} maxTokens={} promptChars={}", callId, model, maxTokens, prompt.length());
         log.debug("[Claude-{}] Prompt preview: {}", callId, prompt.substring(0, Math.min(200, prompt.length())));
@@ -92,6 +112,8 @@ public class ClaudeApiClient {
                             e.getClass().getSimpleName(), e.getMessage()))
                     .block(UNARY_BLOCK_TIMEOUT);
         } catch (Exception e) {
+            metrics.recordError(task, e.getClass().getSimpleName());
+            metrics.stopLatency(sample, task, model);
             throw e;
         }
 
@@ -99,13 +121,41 @@ public class ClaudeApiClient {
         try {
             JsonNode root = objectMapper.readTree(responseJson);
             String text = root.path("content").get(0).path("text").asText();
-            log.info("[Claude-{}] RESPONSE {}ms responseChars={}", callId, ms, text.length());
+            // Anthropic returns usage.{input_tokens,output_tokens} on
+            // every response. Defaults to 0 so a missing field doesn't
+            // throw — metrics are best-effort observability.
+            long inTok = root.path("usage").path("input_tokens").asLong(0);
+            long outTok = root.path("usage").path("output_tokens").asLong(0);
+            metrics.recordTokens(task, model, inTok, outTok);
+            metrics.stopLatency(sample, task, model);
+            log.info("[Claude-{}] RESPONSE {}ms responseChars={} in={} out={}",
+                    callId, ms, text.length(), inTok, outTok);
             log.debug("[Claude-{}] Response preview: {}", callId, text.substring(0, Math.min(300, text.length())));
             return text;
         } catch (Exception e) {
+            metrics.recordError(task, "parse_error");
+            metrics.stopLatency(sample, task, model);
             log.error("[Claude-{}] PARSE FAILED after {}ms: {}", callId, ms, responseJson, e);
             throw new RuntimeException("Unexpected Claude API response format", e);
         }
+    }
+
+    /// Resilience4j fallback for {@link #complete(String, int, String, String)}.
+    /// Called when the breaker is OPEN or retries are exhausted. Throws a
+    /// 503 BusinessException with a friendly message — NEVER fabricates
+    /// tutoring content, per the "never fabricate" rule that survived
+    /// the stub-removal audit. Callers translate this into the same
+    /// PallyError the client already knows.
+    @SuppressWarnings("unused")
+    public String completeFallback(String model, int maxTokens, String prompt,
+                                   String task, Throwable cause) {
+        log.warn("[Claude] fallback fired task={} model={} cause={}: {}",
+                task, model,
+                cause == null ? "null" : cause.getClass().getSimpleName(),
+                cause == null ? "" : cause.getMessage());
+        metrics.recordError(task, "circuit_open");
+        throw new BusinessException(
+                "Mochi's resting for a moment — try again shortly.", 503);
     }
 
     /**
