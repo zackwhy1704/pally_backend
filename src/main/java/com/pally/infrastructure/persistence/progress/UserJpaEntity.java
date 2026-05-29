@@ -110,6 +110,12 @@ public class UserJpaEntity {
     @Column(name = "daily_goal_target", nullable = false)
     private int dailyGoalTarget = 1;
 
+    /// Cached entitlement; the authoritative source is PremiumService which
+    /// resolves from the user's own + their parent's + their centre's
+    /// subscription state. Refresh-on-read keeps it eventually consistent.
+    @Column(name = "is_premium", nullable = false)
+    private boolean isPremium;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

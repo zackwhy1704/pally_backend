@@ -1,5 +1,6 @@
 package com.pally.api.subscription;
 
+import com.pally.domain.subscription.PremiumService;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -43,12 +44,31 @@ import java.util.Map;
 public class SubscriptionController {
 
     private final SubscriptionJpaRepository subRepo;
+    private final PremiumService premiumService;
 
     @Value("${stripe.secret-key:}")
     private String stripeSecretKey;
 
     private boolean isLive() {
         return stripeSecretKey != null && !stripeSecretKey.isBlank();
+    }
+
+    /// Single endpoint the Flutter app polls on resume + after returning
+    /// from Stripe. Source tells the UI whether to show "renew" (SELF) vs
+    /// "managed by parent" (PARENT) — both unlock premium identically.
+    @GetMapping("/entitlement")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> entitlement(
+            @AuthenticationPrincipal String userId) {
+        PremiumService.Entitlement e = premiumService.resolve(userId);
+        Map<String, Object> body = new HashMap<>();
+        body.put("isPremium", e.isPremium());
+        body.put("source", e.source());
+        body.put("plan", e.plan());
+        body.put("status", e.status());
+        body.put("trialEndsAt", e.trialEndsAt() == null ? null
+                : e.trialEndsAt().toString());
+        return ResponseEntity.ok(ApiResponse.success(body));
     }
 
     @GetMapping("/status")
