@@ -1,0 +1,40 @@
+{
+  "subject": "SCIENCE",
+  "pages": [
+    {
+      "slug": "scientific-method",
+      "title": "The Scientific Method",
+      "content": "## The Scientific Method\n\nScientists answer questions about the world using a clear set of steps.\n\n**The five steps**\n1. **Ask a question** — something you're curious about.\n2. **Make a hypothesis** — your best guess at the answer.\n3. **Test it** — run an experiment.\n4. **Look at the results** — what actually happened?\n5. **Share what you found** — explain it to others.\n\nA good hypothesis is testable. \"Plants grow taller in sunlight\" is testable. \"Plants are happy\" is not.\n\nScientists repeat experiments many times before they're sure. One result could be a fluke!"
+    },
+    {
+      "slug": "photosynthesis",
+      "title": "Photosynthesis",
+      "content": "## Photosynthesis\n\nPlants make their own food using sunlight. This is called **photosynthesis**.\n\n**The recipe**\n- **Sunlight** (energy source) ☀️\n- **Water** (from roots) 💧\n- **Carbon dioxide** (from air) 🌬️\n\n**The result**\n- **Glucose** (food for the plant) 🍬\n- **Oxygen** (released into air) 🌿\n\nThe equation: 6 CO₂ + 6 H₂O + sunlight → C₆H₁₂O₆ + 6 O₂\n\n**Key fact:** the green stuff in leaves, **chlorophyll**, captures the sunlight."
+    },
+    {
+      "slug": "states-of-matter",
+      "title": "States of Matter",
+      "content": "## States of Matter\n\nEverything around you is made of matter. Matter comes in **three main states**:\n\n- **Solid** — fixed shape, fixed size. Particles packed tight.\n- **Liquid** — fixed size, takes shape of container. Particles slide around.\n- **Gas** — fills any container. Particles fly everywhere.\n\n**Changing states**\n- Solid → Liquid = **melting** (ice → water)\n- Liquid → Gas = **evaporation / boiling** (water → steam)\n- Gas → Liquid = **condensation** (steam → water droplets)\n- Liquid → Solid = **freezing**\n\nWater is the only common substance you'll see in all three states every day."
+    },
+    {
+      "slug": "forces-and-motion",
+      "title": "Forces and Motion",
+      "content": "## Forces and Motion\n\nA **force** is a push or a pull.\n\n**Common forces**\n- **Gravity** — pulls things toward Earth's centre.\n- **Friction** — slows things sliding against each other.\n- **Magnetism** — pulls magnetic things together.\n- **Air resistance** — slows things moving through air.\n\n**Newton's First Law (made simple):** an object at rest stays at rest, and an object in motion keeps moving — unless a force changes it.\n\nThat's why a ball rolling on grass stops (friction), but in space it would keep rolling forever."
+    },
+    {
+      "slug": "the-water-cycle",
+      "title": "The Water Cycle",
+      "content": "## The Water Cycle\n\nWater on Earth is recycled forever. The journey is the **water cycle**.\n\n**The four steps**\n1. **Evaporation** — sun heats water in oceans/lakes → water rises as vapour.\n2. **Condensation** — vapour cools high in the sky → forms tiny droplets → clouds.\n3. **Precipitation** — drops get heavy and fall → rain, snow, sleet, hail.\n4. **Collection** — water gathers in oceans, lakes, rivers, or soaks into the ground.\n\nThen the cycle starts again. The water you drink today might have been a dinosaur's drink 65 million years ago!"
+    },
+    {
+      "slug": "the-human-body-systems",
+      "title": "Human Body Systems",
+      "content": "## Human Body Systems\n\nYour body is made of **systems** that work together. Big ones:\n\n- **Skeletal system** — bones. Gives you shape, protects organs.\n- **Muscular system** — muscles. Lets you move.\n- **Circulatory system** — heart + blood vessels. Carries oxygen and nutrients.\n- **Respiratory system** — lungs. Brings in oxygen, removes carbon dioxide.\n- **Digestive system** — stomach + intestines. Turns food into energy.\n- **Nervous system** — brain + nerves. Controls everything.\n\nEvery breath, every heartbeat, every thought is teamwork between these systems."
+    },
+    {
+      "slug": "ecosystems-and-food-chains",
+      "title": "Ecosystems and Food Chains",
+      "content": "## Ecosystems and Food Chains\n\nAn **ecosystem** is a place where living things and non-living things interact (a forest, a pond, a coral reef).\n\n**Roles in an ecosystem**\n- **Producers** — make their own food (plants).\n- **Consumers** — eat other living things (animals).\n- **Decomposers** — break down dead things (fungi, bacteria).\n\n**Food chain example (in a meadow):**\n\nGrass → Grasshopper → Frog → Snake → Hawk\n\nEnergy moves up the chain. Each level loses some energy as heat, which is why food chains rarely have more than 5 links."
+    }
+  ]
+}

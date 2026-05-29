@@ -75,6 +75,12 @@ public class WikiPageJpaEntity {
     @Column(name = "has_conflict", nullable = false)
     private boolean hasConflict = false;
 
+    /// True when the row came from the built-in starter pack (Batch B
+    /// seed content) rather than a real user upload. The compiler can
+    /// then prefer user content when both exist for the same slug.
+    @Column(name = "is_seed", nullable = false)
+    private boolean isSeed = false;
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();

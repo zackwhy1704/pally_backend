@@ -1,0 +1,35 @@
+{
+  "subject": "MATHS",
+  "pages": [
+    {
+      "slug": "fractions-basics",
+      "title": "Fractions",
+      "content": "## Fractions\n\nA **fraction** shows part of a whole.\n\n```\n  3   ← numerator (how many parts you have)\n  ─\n  4   ← denominator (how many parts the whole is divided into)\n```\n\n**Key types**\n- **Proper fraction**: numerator < denominator (1/2, 3/4).\n- **Improper fraction**: numerator ≥ denominator (5/4).\n- **Mixed number**: a whole plus a fraction (1¼).\n\n**Equivalent fractions** are different ways of writing the same amount. 1/2 = 2/4 = 4/8.\n\nTo make equivalents, multiply (or divide) the top and bottom by the same number."
+    },
+    {
+      "slug": "multiplication-tables",
+      "title": "Multiplication Times Tables",
+      "content": "## Times Tables\n\nMultiplication is repeated addition. 3 × 4 means \"three groups of four\" = 4 + 4 + 4 = 12.\n\n**Tricks worth memorising**\n- ×0 → always 0\n- ×1 → the number itself\n- ×2 → double it\n- ×5 → ends in 0 or 5\n- ×9 → digits add to 9 (9, 18, 27, 36 → 3+6=9)\n- ×10 → add a 0\n- ×11 (1–9) → repeat the digit (3×11 = 33)\n\nKnowing 1–12 cold makes long multiplication, fractions, and division MUCH faster."
+    },
+    {
+      "slug": "long-division",
+      "title": "Long Division",
+      "content": "## Long Division\n\nTo divide a big number by a small one, work one digit at a time.\n\n**Example: 456 ÷ 4**\n\n1. **Divide:** how many 4s in 4? → 1. Write 1 above.\n2. **Multiply:** 1 × 4 = 4. Subtract: 4 − 4 = 0.\n3. **Bring down** the next digit (5).\n4. How many 4s in 5? → 1. Write 1 above. 1 × 4 = 4. 5 − 4 = 1.\n5. Bring down the 6 → 16. How many 4s in 16? → 4. Write 4 above. 4 × 4 = 16. 16 − 16 = 0.\n\nAnswer: **114**.\n\nThe trick is the rhythm: **Divide → Multiply → Subtract → Bring down**. Then repeat."
+    },
+    {
+      "slug": "perimeter-and-area",
+      "title": "Perimeter and Area",
+      "content": "## Perimeter and Area\n\n**Perimeter** = the distance ALL THE WAY AROUND a shape.\n**Area** = the space INSIDE a shape.\n\n**Formulas**\n- Rectangle perimeter: 2 × (length + width)\n- Rectangle area: length × width\n- Square perimeter: 4 × side\n- Square area: side × side\n- Triangle area: ½ × base × height\n\n**Units**\n- Perimeter is measured in lengths (cm, m).\n- Area is measured in **squares** (cm², m²) — because you're counting how many 1×1 squares fit inside.\n\n**Memory hook:** perimeter = fence around a garden; area = grass inside the garden."
+    },
+    {
+      "slug": "place-value",
+      "title": "Place Value",
+      "content": "## Place Value\n\nIn the number **2,453**:\n- **2** is in the **thousands** place (worth 2,000)\n- **4** is in the **hundreds** place (worth 400)\n- **5** is in the **tens** place (worth 50)\n- **3** is in the **ones** place (worth 3)\n\nAdded up: 2,000 + 400 + 50 + 3 = 2,453.\n\nEach place is **10 times bigger** than the one to its right. That's why the same digit means different amounts depending on where it sits.\n\n**Decimals** work the same way going right: tenths (0.1), hundredths (0.01), thousandths (0.001)."
+    },
+    {
+      "slug": "order-of-operations",
+      "title": "Order of Operations (BODMAS)",
+      "content": "## Order of Operations — BODMAS\n\nWhen a sum has lots of operations, do them in a fixed order or you'll get different answers.\n\n**BODMAS:**\n- **B**rackets\n- **O**rders (powers / roots)\n- **D**ivision\n- **M**ultiplication\n- **A**ddition\n- **S**ubtraction\n\nDivision and Multiplication are equal — do them left to right. Same with Addition and Subtraction.\n\n**Example:** 3 + 4 × 2\n- WITHOUT BODMAS: 3 + 4 = 7, × 2 = 14 ❌\n- WITH BODMAS: 4 × 2 = 8, then 3 + 8 = **11** ✅\n\nWhen in doubt, **brackets first** wins."
+    }
+  ]
+}

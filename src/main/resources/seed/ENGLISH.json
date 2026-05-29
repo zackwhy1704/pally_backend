@@ -1,0 +1,35 @@
+{
+  "subject": "ENGLISH",
+  "pages": [
+    {
+      "slug": "parts-of-speech",
+      "title": "Parts of Speech",
+      "content": "## Parts of Speech\n\nEvery word in a sentence has a job. The main jobs:\n\n- **Noun** — a person, place, thing, or idea (dog, school, freedom).\n- **Verb** — an action or state (run, is, think).\n- **Adjective** — describes a noun (big, blue, happy).\n- **Adverb** — describes a verb / adjective / adverb (quickly, very, never).\n- **Pronoun** — replaces a noun (he, she, it, they).\n- **Preposition** — shows position or time (on, under, before).\n- **Conjunction** — joins parts of sentences (and, but, because).\n\n**Example:** *The* (article) *quick* (adj) *fox* (noun) *jumped* (verb) *over* (prep) *the lazy dog* (noun phrase)."
+    },
+    {
+      "slug": "verb-tenses",
+      "title": "Verb Tenses",
+      "content": "## Verb Tenses\n\nTenses tell you **when** an action happened.\n\n**Past** — already happened.\n- I **walked** to school.\n- She **wrote** a letter.\n\n**Present** — happening now.\n- I **walk** to school.\n- She **writes** a letter.\n\n**Future** — will happen.\n- I **will walk** to school.\n- She **will write** a letter.\n\n**Irregular verbs** don't follow the rule of adding -ed:\n- run → ran (NOT runned)\n- go → went\n- eat → ate\n- write → wrote\n\nThese have to be memorised. There are about 200 in everyday use."
+    },
+    {
+      "slug": "punctuation-basics",
+      "title": "Punctuation",
+      "content": "## Punctuation\n\nPunctuation marks tell readers when to pause, stop, or notice tone.\n\n- **Full stop / period** (.) — ends a complete thought.\n- **Comma** (,) — short pause, separates items in a list, or sets off extra info.\n- **Question mark** (?) — ends a question.\n- **Exclamation mark** (!) — strong feeling or emphasis. Use sparingly!\n- **Apostrophe** (') — shows possession (the dog's bone) OR a missing letter (don't = do not).\n- **Quotation marks** (\"...\") — wrap direct speech.\n\n**Common slip:** *its* (belonging to it) has NO apostrophe. *It's* always means *it is*.\n\n*The dog wagged its tail* ✅\n*It's raining outside* ✅"
+    },
+    {
+      "slug": "story-structure",
+      "title": "Story Structure",
+      "content": "## Story Structure\n\nGood stories follow a shape.\n\n**The five parts**\n1. **Setting** — where and when the story takes place.\n2. **Characters** — who the story is about. Usually a main character (protagonist) and someone or something opposing them (antagonist).\n3. **Problem** — what goes wrong, or what the main character wants.\n4. **Events** — the steps of trying to solve the problem. Tension builds.\n5. **Resolution** — how the problem is solved. The ending.\n\n**The story mountain:**\n- Beginning (calm) → events climb → climax (most exciting moment) → events descend → ending (new calm)\n\nWhen you write a story, plan all five parts BEFORE you write — it stops the middle from feeling lost."
+    },
+    {
+      "slug": "common-spelling-rules",
+      "title": "Common Spelling Rules",
+      "content": "## Common Spelling Rules\n\nEnglish spelling is wild but a few rules help:\n\n- **i before e, except after c** — believe, achieve, ceiling, receive.\n- **Drop the silent e** when adding -ing: make → making, hope → hoping.\n- **Double the consonant** when adding -ed/-ing to a short-vowel word ending in one consonant: stop → stopping, big → bigger.\n- **Change y to i** when y comes after a consonant: happy → happier, study → studied. Keep the y if a vowel comes first: play → played.\n- **Plurals**: most words just add **s**. Words ending in s, x, sh, ch add **es**. Words ending in y after a consonant → **ies**.\n\nWhen in doubt, **sound it out, then look it up** — every writer does."
+    },
+    {
+      "slug": "synonyms-and-antonyms",
+      "title": "Synonyms and Antonyms",
+      "content": "## Synonyms and Antonyms\n\n**Synonyms** — words that mean about the same thing.\n- big → large, huge, enormous, gigantic\n- happy → glad, cheerful, joyful, delighted\n- said → whispered, shouted, mumbled, exclaimed\n\n**Antonyms** — words that mean the opposite.\n- big ↔ small\n- happy ↔ sad\n- noisy ↔ quiet\n- finished ↔ unfinished\n\n**Why it matters in writing:** the same word over and over is boring. \"Said\" loses power on the fifth use. A thesaurus is your best friend, but don't pick a word you don't actually know — it'll sound strange."
+    }
+  ]
+}
