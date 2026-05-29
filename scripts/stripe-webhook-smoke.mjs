@@ -36,31 +36,31 @@ if (!SECRET) {
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL
   ?? 'https://pallybackend-production.up.railway.app/api/v1/subscription/webhook';
-const USER_ID = process.env.USER_ID ?? `smoke-${randomUUID()}`;
-const PLAN = process.env.PLAN ?? 'family_monthly';
 const EVENT_ID = process.env.EVENT_ID ?? `evt_smoke_${Date.now()}`;
 const TIMESTAMP = Math.floor(Date.now() / 1000);
 
-// Minimal but realistic checkout.session.completed shape — only the
-// fields the backend handler reads. Real Stripe events have ~80 fields.
+// The smoke validates the SIGNATURE + IDEMPOTENCY path, not the state
+// mutations. We send an event type the handler's switch ignores
+// (customer.created falls into the default branch → no DB writes, no
+// foreign-key issues) so recordProcessed always runs after the first
+// delivery and the second one is reliably deduped.
+//
+// To smoke-test the full happy path against a real user, override
+// EVENT_ID with a unique value AND use the live Stripe dashboard's
+// "Send test webhook" feature instead — that builds a fully-shaped
+// session payload tied to a real customer.
 const event = {
   id: EVENT_ID,
   object: 'event',
   api_version: '2024-04-10',
   created: TIMESTAMP,
-  type: 'checkout.session.completed',
+  type: 'customer.created',
   livemode: true,
   data: {
     object: {
-      id: `cs_smoke_${Date.now()}`,
-      object: 'checkout.session',
-      client_reference_id: USER_ID,
-      customer: `cus_smoke_${Date.now()}`,
-      subscription: `sub_smoke_${Date.now()}`,
-      payment_status: 'paid',
-      status: 'complete',
-      mode: 'subscription',
-      metadata: { plan: PLAN, userId: USER_ID },
+      id: `cus_smoke_${Date.now()}`,
+      object: 'customer',
+      email: 'smoke@example.invalid',
     },
   },
 };
@@ -88,8 +88,7 @@ async function post(label) {
 
 console.log(`→ POST ${WEBHOOK_URL}`);
 console.log(`   event.id   = ${EVENT_ID}`);
-console.log(`   user_id    = ${USER_ID}`);
-console.log(`   plan       = ${PLAN}`);
+console.log(`   event.type = ${event.type}`);
 console.log('');
 
 const first = await post('1st delivery');
