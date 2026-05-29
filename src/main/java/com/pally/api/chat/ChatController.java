@@ -17,6 +17,7 @@ import com.pally.domain.chat.usecase.ChatSyncService;
 import com.pally.domain.chat.usecase.SendMessageUseCase;
 import com.pally.domain.chat.usecase.SolvePhotoQuestionsUseCase;
 import com.pally.infrastructure.ai.CacheKeepAliveService;
+import com.pally.infrastructure.ratelimit.ChatRateLimiter;
 import com.pally.shared.exception.AvatarNotFoundException;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -60,6 +61,7 @@ public class ChatController {
     private final ChatHistoryService chatHistoryService;
     private final ChatFeedbackService chatFeedbackService;
     private final CacheKeepAliveService cacheKeepAliveService;
+    private final ChatRateLimiter chatRateLimiter;
     private final AvatarRepository avatarRepository;
     private final com.pally.domain.progress.UserRepository userRepository;
     private final com.pally.domain.progress.ActivityLogService activityLogService;
@@ -87,6 +89,7 @@ public class ChatController {
             @Valid @RequestBody ChatRequest request,
             HttpServletResponse response
     ) throws java.io.IOException {
+        chatRateLimiter.check(userId);
         response.setContentType("text/event-stream");
         response.setCharacterEncoding("UTF-8");
         response.setHeader("Cache-Control", "no-cache");
@@ -142,6 +145,7 @@ public class ChatController {
             @PathVariable String avatarId,
             @Valid @RequestBody PhotoQuestionRequest request
     ) {
+        chatRateLimiter.check(userId);
         return solvePhotoQuestionsUseCase.execute(avatarId, userId, request.questions());
     }
 

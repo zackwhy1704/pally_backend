@@ -62,6 +62,10 @@ public class KnowledgeController {
      * @param file     the multipart file to upload
      * @return 201 Created on success, 200 OK with warning if content is irrelevant
      */
+    /// Hard cap matches Railway request-size limits; the upload screen also
+    /// pre-checks on the client, so getting here means the client cap drifted.
+    private static final long MAX_UPLOAD_BYTES = 25L * 1024 * 1024;
+
     @PostMapping("/files")
     public ResponseEntity<ApiResponse<Object>> uploadFile(
             @AuthenticationPrincipal String userId,
@@ -69,6 +73,16 @@ public class KnowledgeController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "skipRelevance", defaultValue = "false") boolean skipRelevance
     ) {
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("File is empty", 400));
+        }
+        if (file.getSize() > MAX_UPLOAD_BYTES) {
+            long limitMb = MAX_UPLOAD_BYTES / (1024 * 1024);
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .body(ApiResponse.error(
+                            "File is too large (max " + limitMb + "MB).", 413));
+        }
         UploadResult result = uploadFileUseCase.execute(avatarId, userId, file, skipRelevance);
 
         return switch (result) {
@@ -115,6 +129,39 @@ public class KnowledgeController {
     ) {
         deleteFileUseCase.execute(fileId, userId);
         return ResponseEntity.noContent().build();
+    }
+
+    /// Lightweight progress probe for the upload screen so it can render
+    /// "Reading your notes…" → "Studying…" → "Done!" without subscribing
+    /// to a stream. Compile is fast enough that polling every 1-2s is fine.
+    @GetMapping("/files/{fileId}/progress")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> fileProgress(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @PathVariable String fileId
+    ) {
+        KnowledgeFile file = knowledgeRepository.findById(fileId)
+                .orElseThrow(() -> new com.pally.shared.exception.BusinessException(
+                        "File not found", 404));
+        if (!file.getAvatarId().equals(avatarId)) {
+            throw new com.pally.shared.exception.BusinessException(
+                    "File does not belong to this avatar", 403);
+        }
+        int percent;
+        String stage;
+        switch (file.getStatus()) {
+            case READY      -> { percent = 100; stage = "Done"; }
+            case FAILED     -> { percent = 0;   stage = "Failed"; }
+            case IRRELEVANT -> { percent = 0;   stage = "Off-topic"; }
+            default         -> { percent = 35;  stage = "Reading your notes…"; }
+        }
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("fileId", file.getId());
+        body.put("status", file.getStatus().name());
+        body.put("progressPercent", percent);
+        body.put("stage", stage);
+        body.put("pageCount", file.getPageCount());
+        return ResponseEntity.ok(ApiResponse.success(body));
     }
 
     /**
