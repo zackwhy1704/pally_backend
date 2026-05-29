@@ -60,6 +60,12 @@ public class AvatarJpaEntity {
     @Column(name = "test_date")
     private LocalDate testDate;
 
+    /// Optional curriculum attached to this avatar — drives the syllabus
+    /// coverage journey UX. Persisted at the infra layer only; the domain
+    /// Avatar stays independent of the curriculum module.
+    @Column(name = "curriculum_id", length = 36)
+    private String curriculumId;
+
     public static AvatarJpaEntity fromDomain(Avatar avatar) {
         AvatarJpaEntity entity = new AvatarJpaEntity();
         entity.id = avatar.getId();
