@@ -120,7 +120,19 @@ public class AuthService {
         if (isNew) {
             characterShopService.seedDefaultUnlocks(user.getId());
         }
-        log.info("[Auth] Social sign-in id={} email={} new={}", user.getId(), email, isNew);
+
+        // Same streak + badge progression as email login. Without this,
+        // Google / Apple users never accumulate streak days even with
+        // daily activity.
+        updateLoginStreak(user);
+        try {
+            badgeService.checkAndGrantMilestones(user.getId());
+        } catch (Exception ignored) {
+            // never block sign-in on badge math
+        }
+
+        log.info("[Auth] Social sign-in id={} email={} new={} streak={}",
+                user.getId(), email, isNew, user.getStreakDays());
         String token = jwtService.generateToken(user.getId());
         return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete());
     }

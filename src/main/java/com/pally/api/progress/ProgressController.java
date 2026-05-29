@@ -10,10 +10,15 @@ import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
@@ -23,6 +28,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/progress")
 @RequiredArgsConstructor
+@Slf4j
 public class ProgressController {
 
     private final GetProgressUseCase getProgressUseCase;
@@ -107,5 +113,19 @@ public class ProgressController {
                 "testCountdown", Map.of()
         );
         return ResponseEntity.ok(ApiResponse.success(plan));
+    }
+
+    /**
+     * No-op acknowledgement so the optimistic "tick task done" call from the
+     * frontend stops 404-ing in the logs. The plan is recomputed per request
+     * from real signals (due cards, untaken quizzes, weak topics), so there
+     * is no per-task state to mutate.
+     */
+    @PostMapping("/study-plan/{taskId}/done")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void markStudyPlanTaskDone(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String taskId) {
+        log.debug("[StudyPlan] Task {} marked done by user {}", taskId, userId);
     }
 }

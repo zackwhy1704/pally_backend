@@ -10,7 +10,7 @@ import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.infrastructure.ocr.PdfTextExtractor;
-import com.pally.infrastructure.ocr.TesseractOcrService;
+import com.pally.domain.knowledge.port.OcrPort;
 import com.pally.infrastructure.storage.StorageService;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.util.TextSampler;
@@ -38,7 +38,7 @@ public class UploadFileUseCase {
     private final KnowledgeRepository knowledgeRepository;
     private final WikiRepository wikiRepository;
     private final StorageService storageService;
-    private final TesseractOcrService ocrService;
+    private final OcrPort ocrService;
     private final PdfTextExtractor pdfTextExtractor;
     private final RelevancePort relevancePort;
     private final CompileWikiUseCase compileWikiUseCase;
@@ -80,7 +80,8 @@ public class UploadFileUseCase {
                 extractedText = result.text();
                 pageCount = result.pageCount();
             } else {
-                extractedText = ocrService.extractText(file.getInputStream());
+                extractedText = ocrService.extractText(
+                        file.getBytes(), file.getContentType());
                 pageCount = 1;
             }
         } catch (IOException e) {

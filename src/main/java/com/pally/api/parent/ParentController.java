@@ -189,6 +189,57 @@ public class ParentController {
                 ApiResponse.success(Map.of("reports", reports)));
     }
 
+    @GetMapping("/reports/{weekId}/share-text")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Map<String, String>>> getShareText(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String weekId) {
+        LocalDate weekStart;
+        try {
+            weekStart = parseWeekId(weekId);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(
+                    "Invalid weekId, expected yyyy-Www (e.g. 2026-W22)", 400);
+        }
+        LocalDate weekEnd = weekStart.plusDays(6);
+        Instant from = weekStart.atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant to = weekEnd.plusDays(1)
+                .atStartOfDay().toInstant(ZoneOffset.UTC);
+
+        UserJpaEntity u = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        int sessions = orZero(activityRepo.countBetween(userId, from, to));
+        int minutes  = orZero(activityRepo.sumMinutesBetween(userId, from, to));
+        int xp       = orZero(activityRepo.sumXpBetween(userId, from, to));
+        List<SubjectMasteryDto> subjects = computeSubjectMastery(userId);
+
+        String childName = u.getChildName() != null
+                ? u.getChildName()
+                : (u.getDisplayName() != null ? u.getDisplayName() : "your child");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("📊 Pally Weekly Report — ").append(weekId).append('\n').append('\n');
+        sb.append("Child: ").append(childName).append('\n');
+        sb.append("Sessions: ").append(sessions).append('\n');
+        sb.append("Minutes studied: ").append(minutes).append('\n');
+        sb.append("XP earned: +").append(xp).append('\n');
+        sb.append("Streak: 🔥 ").append(u.getStreakDays()).append(" days\n");
+        if (!subjects.isEmpty()) {
+            sb.append('\n').append("Subject Mastery:\n");
+            for (SubjectMasteryDto s : subjects) {
+                sb.append("  • ").append(s.subject()).append(": ")
+                        .append(Math.round(s.mastery() * 100))
+                        .append("%\n");
+            }
+        }
+        sb.append('\n').append("Keep it up! Open Pally to keep learning.");
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "text", sb.toString(),
+                "subject", "Pally Weekly Report — " + childName
+        )));
+    }
+
     @GetMapping("/reports/{weekId}")
     @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<WeeklyReportDetail>> getReport(

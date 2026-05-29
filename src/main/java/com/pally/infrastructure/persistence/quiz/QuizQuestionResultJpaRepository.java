@@ -62,6 +62,24 @@ public interface QuizQuestionResultJpaRepository
             @Param("userId") String userId,
             @Param("avatarId") String avatarId);
 
+    /// Distinct calendar days on which the user has at least one answer
+    /// recorded. Drives "quizzes taken" on the progress dashboard.
+    @Query("""
+            SELECT COUNT(DISTINCT CAST(r.createdAt AS date))
+            FROM QuizQuestionResultJpaEntity r
+            WHERE r.userId = :userId
+            """)
+    long countDistinctDaysByUserId(@Param("userId") String userId);
+
+    /// Overall fraction of correct answers across all attempts. Returns 0.0
+    /// when the user has no quiz history.
+    @Query("""
+            SELECT COALESCE(AVG(CASE WHEN r.wasCorrect THEN 1.0 ELSE 0.0 END), 0.0)
+            FROM QuizQuestionResultJpaEntity r
+            WHERE r.userId = :userId
+            """)
+    double averageAccuracyByUserId(@Param("userId") String userId);
+
     /// Did the user already take a quiz for this avatar today (UTC)?
     @Query(value = """
             SELECT EXISTS (

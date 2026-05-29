@@ -44,4 +44,15 @@ public class FlashcardRepositoryAdapter implements FlashcardRepository {
         return jpa.saveAll(cards.stream().map(FlashcardJpaEntity::fromDomain).toList())
                 .stream().map(FlashcardJpaEntity::toDomain).toList();
     }
+
+    @Override
+    public int countByAvatarId(String avatarId) {
+        return jpa.countByAvatarId(avatarId);
+    }
+
+    @Override
+    public void deleteByAvatarIdAndSourceSlug(String avatarId, String sourceSlug) {
+        if (sourceSlug == null) return;
+        jpa.deleteByAvatarIdAndSourceSlug(avatarId, sourceSlug);
+    }
 }

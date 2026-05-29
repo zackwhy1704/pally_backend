@@ -122,18 +122,22 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
         return raw;
     }
 
+    /**
+     * Returns a single error sentinel the client can detect (questionText =
+     * {@code __ERROR__}) and render as a warning bubble instead of a fake
+     * answer list. Previously this produced plausible-looking but wrong
+     * "Unable to solve right now" answers that masked real failures.
+     */
     private List<QuestionAnswerDto> buildStubAnswers(List<String> questions) {
-        List<QuestionAnswerDto> stubs = new ArrayList<>();
-        for (int i = 0; i < questions.size(); i++) {
-            stubs.add(new QuestionAnswerDto(
-                    UUID.randomUUID().toString(),
-                    questions.get(i),
-                    "Unable to solve right now",
-                    List.of("Something went wrong connecting to the AI tutor."),
-                    "Sorry! There was a problem solving this question. Please try again in a moment."
-            ));
-        }
-        return stubs;
+        log.error("[PhotoSolver] Claude response unparseable for {} question(s) "
+                + "— returning error sentinel", questions.size());
+        return List.of(new QuestionAnswerDto(
+                "__PARSE_ERROR__",
+                "__ERROR__",
+                "Something went wrong",
+                List.of("The AI couldn't process your questions. Please try again."),
+                ""
+        ));
     }
 
     private String buildWikiContext(List<WikiPage> pages) {

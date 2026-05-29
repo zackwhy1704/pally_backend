@@ -10,6 +10,7 @@ import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.infrastructure.ai.CacheInvalidationService;
 import com.pally.infrastructure.ai.CacheKeepAliveService;
+import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.WikiCompileException;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,7 @@ public class CompileWikiUseCase {
     private final CacheInvalidationService cacheInvalidationService;
     private final CacheKeepAliveService cacheKeepAliveService;
     private final HintTreeGenerator hintTreeGenerator;
+    private final ClaudeFlashcardGenerator flashcardGenerator;
 
     public record CompileResult(
             int pagesCreated,
@@ -95,12 +97,27 @@ public class CompileWikiUseCase {
                 }
                 WikiPage savedPage = wikiRepository.save(existingPage);
                 hintTreeGenerator.generateForPage(avatarId, savedPage);
+                // Page changed → regenerate its flashcards so SRS reflects
+                // the new content. Best-effort, never blocks the compile.
+                try {
+                    flashcardGenerator.regenerateForPage(avatarId, savedPage);
+                } catch (Exception e) {
+                    log.warn("[Wiki] Flashcard regen failed slug={}: {}",
+                            savedPage.getSlug(), e.getMessage());
+                }
                 updated++;
                 pageTitles.add(draft.title());
             } else {
                 WikiPage newPage = WikiPage.create(avatarId, draft.slug(), draft.title(), draft.content());
                 WikiPage savedPage = wikiRepository.save(newPage);
                 hintTreeGenerator.generateForPage(avatarId, savedPage);
+                try {
+                    flashcardGenerator.generateAndSaveForPage(
+                            avatarId, savedPage);
+                } catch (Exception e) {
+                    log.warn("[Wiki] Flashcard gen failed slug={}: {}",
+                            savedPage.getSlug(), e.getMessage());
+                }
                 created++;
                 pageTitles.add(draft.title());
             }
