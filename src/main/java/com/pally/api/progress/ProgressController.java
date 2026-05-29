@@ -4,10 +4,15 @@ import com.pally.api.progress.dto.ProgressResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.ProgressSummary;
+import com.pally.domain.progress.StreakService;
 import com.pally.domain.progress.usecase.GetProgressUseCase;
 import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.infrastructure.persistence.activity.DailyActivityDayJpaRepository;
+import com.pally.infrastructure.persistence.progress.UserJpaEntity;
+import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
+import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,9 +26,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/progress")
@@ -35,6 +44,9 @@ public class ProgressController {
     private final AvatarRepository avatarRepository;
     private final FlashcardRepository flashcardRepository;
     private final QuizQuestionResultJpaRepository quizResultRepo;
+    private final StreakService streakService;
+    private final DailyActivityDayJpaRepository dailyDayRepo;
+    private final UserJpaRepository userRepo;
 
     @GetMapping
     public ResponseEntity<ApiResponse<ProgressResponse>> getProgress(
@@ -127,5 +139,48 @@ public class ProgressController {
             @AuthenticationPrincipal String userId,
             @PathVariable String taskId) {
         log.debug("[StudyPlan] Task {} marked done by user {}", taskId, userId);
+    }
+
+    /// Everything the streak card needs in one round-trip — the 7-dot strip
+    /// is rendered from {@code last7} (oldest→newest, today last) so the
+    /// client doesn't need to align to a calendar week.
+    @GetMapping("/streak")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getStreak(
+            @AuthenticationPrincipal String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        LocalDate today = LocalDate.now();
+        LocalDate sixDaysAgo = today.minusDays(6);
+        Set<LocalDate> activeDays = new HashSet<>(
+                dailyDayRepo.daysSince(userId, sixDaysAgo));
+        List<Boolean> last7 = new ArrayList<>(7);
+        for (int i = 6; i >= 0; i--) {
+            last7.add(activeDays.contains(today.minusDays(i)));
+        }
+        int streak = user.getStreakDays();
+        int next = streakService.nextMilestone(streak);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("streakDays", streak);
+        body.put("longestStreak", user.getLongestStreak());
+        body.put("freezes", user.getStreakFreezes());
+        body.put("last7", last7);
+        body.put("nextMilestone", next);
+        body.put("daysToMilestone", Math.max(0, next - streak));
+        body.put("milestonesReached",
+                streamMilestones(user.getStreakMilestonesReached()));
+        body.put("ladder", StreakService.MILESTONES);
+        return ResponseEntity.ok(ApiResponse.success(body));
+    }
+
+    private List<Integer> streamMilestones(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        List<Integer> out = new ArrayList<>();
+        for (String part : csv.split(",")) {
+            try {
+                out.add(Integer.parseInt(part.trim()));
+            } catch (NumberFormatException ignored) {}
+        }
+        return out;
     }
 }

@@ -26,6 +26,7 @@ public class AuthService {
     private final BCryptPasswordEncoder passwordEncoder;
     private final CharacterShopService characterShopService;
     private final com.pally.domain.progress.BadgeService badgeService;
+    private final com.pally.domain.progress.StreakService streakService;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -75,29 +76,27 @@ public class AuthService {
         return new AuthResponse(user.getId(), token, false, user.isSetupComplete());
     }
 
-    /// Increments streakDays if the user logs in on consecutive days; resets
-    /// to 1 on a broken streak; no-op on same-day logins. Awards bonus XP for
-    /// the first login of a new day (up to 50 XP cap).
+    /// Day-roll + freeze + milestone is now owned by StreakService; this
+    /// wrapper preserves the existing daily-login XP bonus (5 XP per
+    /// streak day, capped at 50). StreakService already persists streak +
+    /// freezes + lastActiveDate before we add the XP on top.
     private void updateLoginStreak(UserJpaEntity user) {
-        java.time.LocalDate today = java.time.LocalDate.now();
         java.time.LocalDate last = user.getLastActiveDate();
-        if (last != null && last.equals(today)) {
-            return; // already counted today
+        if (last != null && last.equals(java.time.LocalDate.now())) {
+            return;
         }
-        int newStreak;
-        if (last != null && last.equals(today.minusDays(1))) {
-            newStreak = user.getStreakDays() + 1;
-        } else {
-            newStreak = 1;
+        var result = streakService.recordActiveDay(user.getId());
+        int bonus = Math.min(result.streakDays() * 5, 50);
+        if (bonus > 0) {
+            UserJpaEntity refreshed = userRepo.findById(user.getId()).orElse(user);
+            refreshed.setXp(refreshed.getXp() + bonus);
+            refreshed.setLevel(
+                    com.pally.domain.progress.ProgressSummary
+                            .computeLevel(refreshed.getXp()));
+            userRepo.save(refreshed);
+            log.info("[Auth] Streak day {} → +{} XP",
+                    result.streakDays(), bonus);
         }
-        user.setStreakDays(newStreak);
-        user.setLastActiveDate(today);
-        // Streak bonus XP — 5 per day, capped at 50
-        int bonus = Math.min(newStreak * 5, 50);
-        user.setXp(user.getXp() + bonus);
-        user.setLevel(com.pally.domain.progress.ProgressSummary.computeLevel(user.getXp()));
-        userRepo.save(user);
-        log.info("[Auth] Streak day {} → +{} XP", newStreak, bonus);
     }
 
     @Transactional

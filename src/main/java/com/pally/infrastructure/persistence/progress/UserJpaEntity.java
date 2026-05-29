@@ -90,6 +90,19 @@ public class UserJpaEntity {
     @Column(name = "link_code_expires_at")
     private Instant linkCodeExpiresAt;
 
+    /// Streak safety net — new users start with one; capped at 3.
+    @Column(name = "streak_freezes", nullable = false)
+    private int streakFreezes = 1;
+
+    @Column(name = "longest_streak", nullable = false)
+    private int longestStreak;
+
+    /// CSV of integer milestone days already celebrated. We append rather
+    /// than recompute so the same milestone isn't celebrated twice after a
+    /// reset+climb.
+    @Column(name = "streak_milestones_reached", columnDefinition = "TEXT")
+    private String streakMilestonesReached;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

@@ -29,6 +29,7 @@ public class ActivityLogService {
     public static final String TYPE_FLASHCARD = "FLASHCARD";
 
     private final ActivityLogJpaRepository repo;
+    private final StreakService streakService;
 
     @Transactional
     public void log(String userId, String avatarId, String type,
@@ -46,6 +47,14 @@ public class ActivityLogService {
         } catch (Exception ex) {
             log.warn("[ActivityLog] failed user={} type={}: {}",
                     userId, type, ex.getMessage());
+        }
+        // Streak roll happens regardless of whether the activity row saved —
+        // a missed log row shouldn't cost the kid their streak.
+        try {
+            streakService.recordActiveDay(userId);
+        } catch (Exception ex) {
+            log.warn("[ActivityLog] streak update failed user={}: {}",
+                    userId, ex.getMessage());
         }
     }
 
