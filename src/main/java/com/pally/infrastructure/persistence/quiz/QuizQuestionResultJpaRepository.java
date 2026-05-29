@@ -80,6 +80,15 @@ public interface QuizQuestionResultJpaRepository
             """)
     double averageAccuracyByUserId(@Param("userId") String userId);
 
+    /// Total correct answers across all the user's quizzes — drives the
+    /// QUIZ_CORRECT_50 / 250 achievements.
+    @Query("""
+            SELECT COUNT(r)
+            FROM QuizQuestionResultJpaEntity r
+            WHERE r.userId = :userId AND r.wasCorrect = TRUE
+            """)
+    long countCorrectByUserId(@Param("userId") String userId);
+
     /// Did the user already take a quiz for this avatar today (UTC)?
     @Query(value = """
             SELECT EXISTS (
