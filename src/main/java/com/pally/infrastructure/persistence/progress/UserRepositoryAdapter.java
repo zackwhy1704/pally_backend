@@ -2,7 +2,6 @@ package com.pally.infrastructure.persistence.progress;
 
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
-import com.pally.domain.progress.StreakService;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.progress.UserStats;
 import lombok.RequiredArgsConstructor;
@@ -36,43 +35,64 @@ public class UserRepositoryAdapter implements UserRepository {
         }
     }
 
+    /// Atomic XP + stars credit via a single UPDATE — closes the D1
+    /// lost-update race the audit flagged. We round-trip a SELECT for the
+    /// pre-image (to detect level crossings + name the unlock) and a
+    /// recompute after the UPDATE for the post-image. Concurrent credits
+    /// won't lose increments because the increment happens in-DB.
+    ///
+    /// <p>FUNCTIONAL level rewards (L5 tutor slot, L20 freeze cap) are
+    /// read at USE time from {@link LevelRewards} / {@code StreakService},
+    /// so this method no longer mutates {@code streak_freezes} on level-up.
+    /// That was the source of bug-class drift between "what level unlocks"
+    /// and "what state the user actually has."
     @Override
     @Transactional
     public UserRepository.XpResult addXpAndStars(
             String userId, int xpDelta, int starsDelta) {
-        var entity = jpa.findById(userId).orElse(null);
-        if (entity == null) {
+        if (xpDelta == 0 && starsDelta == 0) {
+            int xp = jpa.findById(userId).map(UserJpaEntity::getXp).orElse(0);
+            int lvl = ProgressSummary.computeLevel(xp);
+            return UserRepository.XpResult.unchanged(xp, lvl);
+        }
+
+        // Pre-image — we need the OLD xp to compute crossed levels.
+        var before = jpa.findById(userId).orElse(null);
+        if (before == null) {
             log.warn("[XP] addXpAndStars: user {} not found", userId);
             return UserRepository.XpResult.unchanged(0, 1);
         }
-        int oldLevel = ProgressSummary.computeLevel(entity.getXp());
-        int newXp = entity.getXp() + xpDelta;
-        int newStars = entity.getStars() + starsDelta;
-        int newLevel = ProgressSummary.computeLevel(newXp);
-        entity.setXp(newXp);
-        entity.setStars(newStars);
-        entity.setLevel(newLevel);
+        int oldXp = before.getXp();
+        int oldLevel = ProgressSummary.computeLevel(oldXp);
 
-        // Apply functional level-up rewards. We only walk crossed levels
-        // (oldLevel+1..newLevel) so re-saving without a level-up is a no-op.
+        // Atomic increment. Returns row count; 0 means the user vanished
+        // between the SELECT above and this UPDATE — vanishingly rare but
+        // we degrade gracefully.
+        int updated = jpa.creditXpAndStars(userId, xpDelta, starsDelta);
+        if (updated == 0) {
+            log.warn("[XP] addXpAndStars: 0 rows updated for {}", userId);
+            return UserRepository.XpResult.unchanged(oldXp, oldLevel);
+        }
+
+        int newXp = oldXp + xpDelta;
+        int newLevel = ProgressSummary.computeLevel(newXp);
+        // Persist the computed level only when it actually moved — avoids
+        // an extra write on every credit.
+        if (newLevel != oldLevel) {
+            jpa.updateLevel(userId, newLevel);
+        }
+
+        // Resolve the highest unlock crossed this round, purely informational.
         String unlockedLabel = null;
         if (newLevel > oldLevel) {
             for (int lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
                 var reward = LevelRewards.atLevel(lvl);
-                if (reward == null) continue;
-                unlockedLabel = reward.label();
-                if (reward.kind() == LevelRewards.Reward.Kind.FUNCTIONAL
-                        && "+1 streak freeze".equals(reward.label())
-                        && entity.getStreakFreezes() < StreakService.FREEZE_CAP) {
-                    entity.setStreakFreezes(entity.getStreakFreezes() + 1);
-                    log.info("[XP] user={} L{} unlocked +1 freeze (now={})",
-                            userId, lvl, entity.getStreakFreezes());
-                }
+                if (reward != null) unlockedLabel = reward.label();
             }
         }
-        jpa.save(entity);
-        log.info("[XP] user={} +{}xp +{}stars → xp={} stars={} level={}→{}{}",
-                userId, xpDelta, starsDelta, newXp, newStars,
+
+        log.info("[XP] user={} +{}xp +{}stars → xp={} level={}→{}{}",
+                userId, xpDelta, starsDelta, newXp,
                 oldLevel, newLevel,
                 unlockedLabel == null ? "" : " unlock=" + unlockedLabel);
         return new UserRepository.XpResult(

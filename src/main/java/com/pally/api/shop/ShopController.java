@@ -55,4 +55,15 @@ public class ShopController {
         var result = characterShopService.openMysteryBox(userId);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
+
+    /// Spend 150 stars for a streak freeze. The atomic-update guard in
+    /// CharacterShopService makes this race-safe at the SQL level — the
+    /// audit's D1 lost-update bug is closed for this path.
+    @PostMapping("/buy-freeze")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> buyFreeze(
+            @AuthenticationPrincipal String userId
+    ) {
+        var result = characterShopService.buyStreakFreeze(userId);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
 }

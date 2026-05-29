@@ -6,12 +6,16 @@ import java.util.Map;
 
 /**
  * Static catalog of rewards granted when a user crosses each level.
- * Functional rewards (e.g. +1 streak freeze) are applied in
- * UserRepositoryAdapter on the level-up crossing; cosmetic rewards exist
- * here purely so the UI can name a "next unlock" target.
  *
- * <p>Sequence is tuned to give an early visible win (L2/L3 cosmetic,
- * L5 functional freeze) before stretching to the long-tail rewards.
+ * <p>FUNCTIONAL rewards are <b>implicit</b> — they are read at use time
+ * (e.g. {@link StreakService#effectiveFreezeCap(int)} reads the user's
+ * level, {@code CreateAvatarUseCase} consults {@link #freeTutorCap(int)}).
+ * Nothing is written to the DB on crossing a level; the unlock label is
+ * surfaced purely so the level-up overlay can name the reward.
+ *
+ * <p>The split: L1-5 = habit (cosmetic), L6-15 = tools (functional + small
+ * QoL), L16-30 = privilege (persistent advantages). The aim is that a free
+ * L20 kid feels rewarded for loyalty without breaking the premium boundary.
  */
 public final class LevelRewards {
     private LevelRewards() {}
@@ -20,19 +24,25 @@ public final class LevelRewards {
         public enum Kind { COSMETIC, FUNCTIONAL, BADGE, MYSTERY }
     }
 
-    /// Ordered by level so {@link #nextUnlock(int)} can scan in sequence.
+    /// Free users start with one tutor; L5 unlocks a second. Premium
+    /// remains uncapped. Centralising the rule here keeps the source of
+    /// truth in one place so callers don't recompute the +1 in every site.
+    public static int freeTutorCap(int level) {
+        return level >= 5 ? 2 : 1;
+    }
+
     private static final Map<Integer, Reward> REWARDS;
 
     static {
         Map<Integer, Reward> m = new LinkedHashMap<>();
-        m.put(2,  new Reward(2,  "Extra tutor slot",       Reward.Kind.COSMETIC));
-        m.put(3,  new Reward(3,  "New Mochi colour",       Reward.Kind.COSMETIC));
-        m.put(5,  new Reward(5,  "+1 streak freeze",       Reward.Kind.FUNCTIONAL));
-        m.put(8,  new Reward(8,  "Sparkle avatar effect",  Reward.Kind.COSMETIC));
+        m.put(2,  new Reward(2,  "New Mochi colour",            Reward.Kind.COSMETIC));
+        m.put(3,  new Reward(3,  "Cloud background unlocked",   Reward.Kind.COSMETIC));
+        m.put(5,  new Reward(5,  "Extra free tutor slot",       Reward.Kind.FUNCTIONAL));
+        m.put(8,  new Reward(8,  "Sparkle avatar effect",       Reward.Kind.COSMETIC));
         m.put(10, new Reward(10, "Mystery box + Level 10 badge", Reward.Kind.MYSTERY));
-        m.put(15, new Reward(15, "Golden name plate",      Reward.Kind.COSMETIC));
-        m.put(20, new Reward(20, "Hall of Fame badge",     Reward.Kind.BADGE));
-        m.put(25, new Reward(25, "Legendary tutor frame",  Reward.Kind.COSMETIC));
+        m.put(15, new Reward(15, "Golden name plate",           Reward.Kind.COSMETIC));
+        m.put(20, new Reward(20, "Streak freeze cap raised to 5", Reward.Kind.FUNCTIONAL));
+        m.put(25, new Reward(25, "Legendary tutor frame",       Reward.Kind.COSMETIC));
         m.put(30, new Reward(30, "Max level title — Pally Master", Reward.Kind.BADGE));
         REWARDS = Map.copyOf(m);
     }

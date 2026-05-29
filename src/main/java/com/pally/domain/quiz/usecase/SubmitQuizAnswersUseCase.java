@@ -53,6 +53,7 @@ public class SubmitQuizAnswersUseCase {
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final com.pally.domain.knowledge.WikiRepository wikiRepository;
     private final com.pally.domain.referral.ReferralService referralService;
+    private final com.pally.domain.progress.XpService xpService;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -161,13 +162,19 @@ public class SubmitQuizAnswersUseCase {
         }
 
         int total = submission.answers().size();
-        int xpEarned = BASE_XP + (correct * XP_PER_CORRECT);
-        int starsEarned = Math.round(xpEarned * 0.5f);
+        int baseXp = BASE_XP + (correct * XP_PER_CORRECT);
 
-        // Persist XP+stars and capture the level transition in one round-trip.
-        // (Previously this issued three queries to compute the same thing.)
-        var credit = userRepository.addXpAndStars(
-                submission.userId(), xpEarned, starsEarned);
+        // Route through XpService so decay (per-avatar same-day) + variety
+        // bonus (first quiz of a new subject today) + atomic credit all
+        // live in ONE place. xpEarned/starsEarned below are the *granted*
+        // amounts (after multipliers), not the raw request.
+        var avatar = avatarRepository.findById(submission.avatarId()).orElse(null);
+        var subject = avatar == null ? null : avatar.getSubject();
+        var quizAward = xpService.awardForQuiz(
+                submission.userId(), submission.avatarId(), subject, baseXp);
+        int xpEarned = quizAward.xpGranted();
+        int starsEarned = quizAward.starsGranted();
+        var credit = quizAward.creditResult();
         int newLevel = credit.newLevel();
         boolean levelledUp = credit.levelledUp();
 

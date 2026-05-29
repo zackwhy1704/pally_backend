@@ -27,7 +27,17 @@ import java.util.stream.Collectors;
 public class StreakService {
 
     public static final int[] MILESTONES = {3, 7, 14, 30, 60, 100, 365};
+    /// Base cap. {@link #effectiveFreezeCap(int)} is the real ceiling
+    /// callers should consult — L20 raises it to 5 (a level-unlock perk).
     public static final int FREEZE_CAP = 3;
+    private static final int FREEZE_CAP_L20 = 5;
+
+    /// Returns the freeze cap for a user at {@code level}. L20+ get +2.
+    /// Centralised so the shop, milestone earn, and per-day-roll all
+    /// honour the same ceiling — drift here was the original bug.
+    public static int effectiveFreezeCap(int level) {
+        return level >= 20 ? FREEZE_CAP_L20 : FREEZE_CAP;
+    }
 
     private final UserJpaRepository userRepo;
     private final DailyActivityDayJpaRepository dayRepo;
@@ -100,12 +110,14 @@ public class StreakService {
         }
 
         // Earn a freeze on every 7 successful days (only when the streak
-        // *crossed* the threshold, not on repeat).
+        // *crossed* the threshold, not on repeat). Respect L20's higher cap.
+        int cap = effectiveFreezeCap(user.getLevel());
         if (newStreak > oldStreak
                 && newStreak % 7 == 0
-                && freezes < FREEZE_CAP) {
+                && freezes < cap) {
             freezes += 1;
-            log.info("[Streak] user={} earned freeze (left={})", userId, freezes);
+            log.info("[Streak] user={} earned freeze (left={}/{} cap)",
+                    userId, freezes, cap);
         }
 
         user.setStreakDays(newStreak);

@@ -5,6 +5,8 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.knowledge.SeedContentService;
+import com.pally.domain.progress.LevelRewards;
+import com.pally.domain.progress.UserRepository;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.shared.exception.UpgradeRequiredException;
 import lombok.RequiredArgsConstructor;
@@ -25,13 +27,10 @@ public class CreateAvatarUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(CreateAvatarUseCase.class);
 
-    /// Free tier caps at one tutor — keeps the activation moment focused
-    /// and gives the paywall its first natural trigger.
-    private static final int FREE_TUTOR_CAP = 1;
-
     private final AvatarRepository avatarRepository;
     private final SeedContentService seedContentService;
     private final PremiumService premiumService;
+    private final UserRepository userRepository;
 
     public Avatar execute(String userId, String name, Subject subject, CharacterType characterType) {
         return execute(userId, name, subject, characterType, null, null);
@@ -43,9 +42,15 @@ public class CreateAvatarUseCase {
 
         // Free-tier cap. Read existing count BEFORE the save so we don't
         // off-by-one on the call that's trying to create the second tutor.
+        // L5+ gets an extra slot per LevelRewards.freeTutorCap — turns the
+        // freemium wall into a goal, not a hard block.
         if (!premiumService.resolve(userId).isPremium()) {
             int existing = avatarRepository.findByUserId(userId).size();
-            if (existing >= FREE_TUTOR_CAP) {
+            int level = userRepository.findById(userId)
+                    .map(u -> u.level())
+                    .orElse(1);
+            int cap = LevelRewards.freeTutorCap(level);
+            if (existing >= cap) {
                 throw new UpgradeRequiredException("CREATE_TUTOR");
             }
         }

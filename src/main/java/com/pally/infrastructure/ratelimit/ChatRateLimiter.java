@@ -34,7 +34,7 @@ public class ChatRateLimiter {
     private static final int PER_USER_LIMIT = 30;
     private static final long WINDOW_MS = 60_000;
     /// Free-tier daily cap. Premium bypasses this entirely.
-    private static final int FREE_DAILY_LIMIT = 20;
+    public static final int FREE_DAILY_LIMIT = 20;
 
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
     private final Map<String, DailyCount> dailyHits = new ConcurrentHashMap<>();
@@ -85,5 +85,17 @@ public class ChatRateLimiter {
             throw new UpgradeRequiredException("CHAT_DAILY");
         }
         dailyHits.put(userId, new DailyCount(today, nextCount));
+    }
+
+    /// Read-only inspection of today's used count for {@code userId}, used
+    /// by the /usage/today endpoint to surface the remaining quota in the
+    /// chat UI <i>before</i> the wall. Returns 0 for users that haven't
+    /// chatted today or whose counter was evicted by a restart.
+    public int dailyHitsToday(String userId) {
+        if (userId == null || userId.isBlank()) return 0;
+        LocalDate today = Instant.now()
+                .atOffset(ZoneOffset.UTC).toLocalDate();
+        DailyCount d = dailyHits.get(userId);
+        return (d != null && d.day.equals(today)) ? d.count : 0;
     }
 }

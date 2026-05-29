@@ -170,10 +170,26 @@ public class SubscriptionController {
             return handleMockWebhook(rawBody);
         }
         Event event = stripeService.verifyWebhook(rawBody, sigHeader);
-        // Item 10.2 — idempotency. Stripe retries on any non-2xx; even
-        // a momentary blip can replay the same event. Skip if we've seen
-        // event.id before to avoid double-crediting a subscription.
-        if (event.getId() != null && processedEventRepo.existsById(event.getId())) {
+        // D2 — insert-first idempotency. The old check-then-act could let
+        // two concurrent re-deliveries both pass existsById before either
+        // recorded. We now attempt the INSERT first; the PK collision is
+        // the race-safe dedupe signal. Only if the INSERT succeeded do we
+        // run the handler.
+        if (event.getId() == null || event.getId().isBlank()) {
+            log.warn("[Subscription] webhook event missing id type={} — running",
+                    event.getType());
+            return runHandler(event);
+        }
+        boolean firstDelivery;
+        try {
+            firstDelivery = claimEvent(event.getId(), event.getType());
+        } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+            // Belt-and-braces — claimEvent already catches this, but if a
+            // newer Hibernate version surfaces the violation differently
+            // we still want to dedupe.
+            firstDelivery = false;
+        }
+        if (!firstDelivery) {
             log.info("[Subscription] webhook duplicate event={} type={} — skipping",
                     event.getId(), event.getType());
             return ResponseEntity.ok(ApiResponse.success(Map.of(
@@ -184,14 +200,20 @@ public class SubscriptionController {
         }
         try {
             handleStripeEvent(event);
-            recordProcessed(event.getId(), event.getType());
         } catch (Exception e) {
-            // Don't 500 back to Stripe — they retry aggressively and the
-            // event will be replayed in the dashboard if we need to rerun.
-            // Intentionally do NOT mark the event processed on failure;
-            // the next retry should pick it up.
-            log.error("[Subscription] webhook handler failed type={}: {}",
-                    event.getType(), e.getMessage(), e);
+            // Handler failed AFTER we claimed the event. Delete the claim
+            // row so Stripe's next retry can re-attempt. Without this,
+            // the next delivery would see {@code duplicate=true} and skip
+            // — the state mutation would be lost forever.
+            log.error("[Subscription] webhook handler failed type={}: {} "
+                    + "— releasing claim for retry", event.getType(),
+                    e.getMessage(), e);
+            try {
+                processedEventRepo.deleteById(event.getId());
+            } catch (Exception releaseErr) {
+                log.warn("[Subscription] failed to release event claim {}: {}",
+                        event.getId(), releaseErr.getMessage());
+            }
         }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "mode", "live",
@@ -199,21 +221,37 @@ public class SubscriptionController {
                 "id", event.getId())));
     }
 
-    private void recordProcessed(String eventId, String eventType) {
-        if (eventId == null || eventId.isBlank()) return;
+    /// Attempts to insert the event-id row. Returns true if this is the
+    /// FIRST time we've seen this event (i.e. the row didn't exist);
+    /// false if the PK collision says another thread / re-delivery already
+    /// claimed it. This is the race-safe equivalent of check-then-act.
+    private boolean claimEvent(String eventId, String eventType) {
         try {
             var row = new com.pally.infrastructure.persistence.subscription
                     .ProcessedStripeEventJpaEntity();
             row.setEventId(eventId);
             row.setEventType(eventType == null ? "unknown" : eventType);
             row.setProcessedAt(Instant.now());
-            processedEventRepo.save(row);
-        } catch (Exception e) {
-            // Unique-violation here is fine — another thread won the race
-            // and recorded the event first. Either way, the work is done.
-            log.debug("[Subscription] processed-event insert race: {}",
-                    e.getMessage());
+            processedEventRepo.saveAndFlush(row);
+            return true;
+        } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+            return false;
         }
+    }
+
+    /// Falls back path for events without an id — just runs the handler
+    /// without dedupe (events lacking an id are not retried by Stripe).
+    private ResponseEntity<ApiResponse<Map<String, Object>>> runHandler(Event event) {
+        try {
+            handleStripeEvent(event);
+        } catch (Exception e) {
+            log.error("[Subscription] webhook handler failed type={}: {}",
+                    event.getType(), e.getMessage(), e);
+        }
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "mode", "live",
+                "type", event.getType(),
+                "id", event.getId() == null ? "" : event.getId())));
     }
 
     private void handleStripeEvent(Event event) {

@@ -1,5 +1,7 @@
 package com.pally.domain.shop;
 
+import com.pally.domain.progress.StreakService;
+import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaEntity;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
@@ -58,41 +60,58 @@ public class CharacterShopService {
         return Map.of("characters", characters);
     }
 
+    public static final int MYSTERY_BOX_COST = 600;
+    public static final int MYSTERY_BOX_DUPLICATE_REFUND_COST = 300;
+
+    /**
+     * Open a mystery box. The star spend is an atomic conditional UPDATE
+     * — two concurrent taps at a 600-star balance can't both succeed.
+     * For duplicates we only spend the 300-refund cost; the character
+     * unlock is guarded by the {@code unique(user_id, character)} index
+     * so the "alreadyOwned" race is impossible to corrupt either.
+     */
     @Transactional
     public Map<String, Object> openMysteryBox(String userId) {
-        var user = userRepo.findById(userId)
-                .orElseThrow(() -> new BusinessException("User not found", 404));
-
-        if (user.getStars() < 600) {
-            throw new BusinessException("Not enough stars (need 600)", 400);
-        }
-
         boolean isSecret = ThreadLocalRandom.current().nextInt(24) == 0;
         String awarded = isSecret ? "GOLDSTAR" : "HEADMASTER";
         String rarity = isSecret ? "SECRET" : "RARE";
 
         boolean alreadyOwned = unlockRepo.existsByUserIdAndCharacter(userId, awarded);
+        int cost = alreadyOwned
+                ? MYSTERY_BOX_DUPLICATE_REFUND_COST
+                : MYSTERY_BOX_COST;
 
-        if (alreadyOwned) {
-            user.setStars(user.getStars() - 300);
-            userRepo.save(user);
-            return Map.of("character", awarded, "rarity", rarity,
-                    "newStarBalance", user.getStars(), "isNew", false);
+        int updated = userRepo.spendStars(userId, cost);
+        if (updated == 0) {
+            throw new BusinessException(
+                    "Not enough stars (need " + cost + ")", 400);
         }
 
-        user.setStars(user.getStars() - 600);
-        userRepo.save(user);
+        if (!alreadyOwned) {
+            var unlock = new CharacterUnlockJpaEntity();
+            unlock.setId(IdGenerator.newId());
+            unlock.setUserId(userId);
+            unlock.setCharacter(awarded);
+            unlock.setUnlockedAt(Instant.now());
+            try {
+                unlockRepo.save(unlock);
+            } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+                // Race: another tap inserted the unlock between our
+                // existsBy check and this save. Treat as already-owned —
+                // the user already has the character; we already spent
+                // the full cost so this is a small inflation, but the
+                // alternative (refund attempt) opens up a worse race.
+                log.info("[Shop] User {} unlock race for {} — already owned",
+                        userId, awarded);
+            }
+        }
 
-        var unlock = new CharacterUnlockJpaEntity();
-        unlock.setId(IdGenerator.newId());
-        unlock.setUserId(userId);
-        unlock.setCharacter(awarded);
-        unlock.setUnlockedAt(Instant.now());
-        unlockRepo.save(unlock);
-
-        log.info("[Shop] User {} unlocked {} ({})", userId, awarded, rarity);
+        UserJpaEntity fresh = userRepo.findById(userId).orElseThrow(
+                () -> new BusinessException("User not found", 404));
+        log.info("[Shop] User {} mystery box → {} ({}) cost={} isNew={}",
+                userId, awarded, rarity, cost, !alreadyOwned);
         return Map.of("character", awarded, "rarity", rarity,
-                "newStarBalance", user.getStars(), "isNew", true);
+                "newStarBalance", fresh.getStars(), "isNew", !alreadyOwned);
     }
 
     @Transactional
@@ -103,6 +122,51 @@ public class CharacterShopService {
         userRepo.save(user);
         log.info("[Shop] Credited {} stars to user={}, new balance={}", amount, userId, user.getStars());
         return Map.of("stars", user.getStars());
+    }
+
+    public static final int FREEZE_COST = 150;
+
+    /**
+     * Atomically spend 150 stars for one streak freeze.
+     *
+     * <p>The cost check + freeze increment happen in a single UPDATE so two
+     * concurrent purchases at a 150-balance can never both succeed. Also
+     * honours the per-level cap from {@link StreakService#effectiveFreezeCap(int)}
+     * (3 by default, 5 at L20). On insufficient stars OR at cap, returns
+     * 400 with a kid-friendly message — the caller's UI can choose between
+     * "buy more stars" vs "freezes full" based on the {@code reason} field.
+     */
+    @Transactional
+    public Map<String, Object> buyStreakFreeze(String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        int cap = StreakService.effectiveFreezeCap(user.getLevel());
+        if (user.getStreakFreezes() >= cap) {
+            // Pre-flight check — gives a precise reason without burning a
+            // failed UPDATE. The atomic UPDATE below is still the
+            // authoritative guard against the race.
+            throw new BusinessException(
+                    "Freezes are full (" + cap + ")", 400);
+        }
+        int updated = userRepo.buyStreakFreeze(userId, FREEZE_COST, cap);
+        if (updated == 0) {
+            // Race lost OR stars dropped below 150 between SELECT + UPDATE.
+            // Read the row to see which.
+            UserJpaEntity fresh = userRepo.findById(userId).orElse(user);
+            if (fresh.getStars() < FREEZE_COST) {
+                throw new BusinessException(
+                        "Not enough stars (need " + FREEZE_COST + ")", 400);
+            }
+            throw new BusinessException(
+                    "Freezes are full (" + cap + ")", 400);
+        }
+        UserJpaEntity fresh = userRepo.findById(userId).orElse(user);
+        log.info("[Shop] user={} bought freeze → freezes={}/{} stars={}",
+                userId, fresh.getStreakFreezes(), cap, fresh.getStars());
+        return Map.of(
+                "freezes", fresh.getStreakFreezes(),
+                "freezeCap", cap,
+                "newStarBalance", fresh.getStars());
     }
 
     private String getRarity(String character) {

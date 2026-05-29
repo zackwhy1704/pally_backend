@@ -66,6 +66,7 @@ public class ChatController {
     private final com.pally.domain.progress.UserRepository userRepository;
     private final com.pally.domain.progress.ActivityLogService activityLogService;
     private final com.pally.domain.progress.BadgeService badgeService;
+    private final com.pally.domain.progress.XpService xpService;
 
     /**
      * Streams a chat response from the avatar via Server-Sent Events.
@@ -189,10 +190,10 @@ public class ChatController {
     }
 
     /**
-     * Credits +5 XP for ending a chat session and returns whether the
-     * credit pushed the user over a level threshold so the client can
-     * celebrate. Used to return void → blocked the client from knowing
-     * about level-ups triggered by chat.
+     * Credits +5 XP for ending a chat session — capped at <b>once per
+     * avatar per SGT day</b> via {@code XpService.awardForChat}. Rapid
+     * open/close no longer farms XP. Returns the level-up signal so the
+     * client can celebrate on the legitimate first credit.
      */
     @PostMapping("/chat/session-end")
     @ResponseStatus(HttpStatus.OK)
@@ -201,22 +202,29 @@ public class ChatController {
             @PathVariable String avatarId) {
         cacheKeepAliveService.stopKeepalive(avatarId);
 
-        // Credit 5 XP per chat session. Idempotency: not strict — the client
-        // typically fires session-end exactly once on screen close. Failures
-        // are best-effort so they never block the response.
         boolean levelledUp = false;
         int newLevel = 0;
+        boolean alreadyCredited = false;
         try {
-            var credit = userRepository.addXpAndStars(userId, 5, 2);
-            levelledUp = credit.levelledUp();
-            newLevel = credit.newLevel();
-            activityLogService.log(userId, avatarId,
-                    com.pally.domain.progress.ActivityLogService.TYPE_CHAT, 0, 5);
-            badgeService.grantFirstAction(userId,
-                    com.pally.domain.progress.BadgeService.BadgeType.FIRST_CHAT);
-            badgeService.checkAndGrantMilestones(userId);
+            var award = xpService.awardForChat(userId, avatarId);
+            levelledUp = award.creditResult().levelledUp();
+            newLevel = award.creditResult().newLevel();
+            alreadyCredited = award.alreadyCreditedToday();
+            // Only log to activity_log when we actually credited — otherwise
+            // we'd corrupt the dedup signal (it counts CHAT activity rows).
+            if (!alreadyCredited) {
+                activityLogService.log(userId, avatarId,
+                        com.pally.domain.progress.ActivityLogService.TYPE_CHAT,
+                        0, award.xpGranted());
+                badgeService.grantFirstAction(userId,
+                        com.pally.domain.progress.BadgeService.BadgeType.FIRST_CHAT);
+                badgeService.checkAndGrantMilestones(userId);
+            }
         } catch (Exception ignored) {}
-        return Map.of("levelledUp", levelledUp, "newLevel", newLevel);
+        return Map.of(
+                "levelledUp", levelledUp,
+                "newLevel", newLevel,
+                "alreadyCreditedToday", alreadyCredited);
     }
 
     @PatchMapping("/teaching-mode")
