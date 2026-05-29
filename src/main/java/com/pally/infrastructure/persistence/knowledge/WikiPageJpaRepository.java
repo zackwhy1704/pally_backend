@@ -35,4 +35,37 @@ public interface WikiPageJpaRepository extends JpaRepository<WikiPageJpaEntity, 
 
     @Query("SELECT SUM(LENGTH(p.content)) FROM WikiPageJpaEntity p WHERE p.avatarId = :avatarId AND p.status = 'ACTIVE'")
     Long sumContentLengthByAvatarId(@Param("avatarId") String avatarId);
+
+    /// Harness feedback — nudge certainty in [0.1, 1.0]. JPQL has no GREATEST/LEAST
+    /// support so we clamp in the WHERE clause via CASE.
+    @Modifying
+    @Query("UPDATE WikiPageJpaEntity p SET p.certaintyScore = " +
+           "CASE " +
+           "  WHEN p.certaintyScore + :delta > 1.0 THEN 1.0 " +
+           "  WHEN p.certaintyScore + :delta < 0.1 THEN 0.1 " +
+           "  ELSE p.certaintyScore + :delta " +
+           "END, p.updatedAt = :now " +
+           "WHERE p.avatarId = :avatarId AND p.slug IN :slugs")
+    int adjustCertainty(@Param("avatarId") String avatarId,
+                        @Param("slugs") List<String> slugs,
+                        @Param("delta") double delta,
+                        @Param("now") Instant now);
+
+    /// Toggle reviewRequired for a batch of slugs.
+    @Modifying
+    @Query("UPDATE WikiPageJpaEntity p SET p.reviewRequired = :value " +
+           "WHERE p.avatarId = :avatarId AND p.slug IN :slugs")
+    int setReviewRequired(@Param("avatarId") String avatarId,
+                          @Param("slugs") List<String> slugs,
+                          @Param("value") boolean value);
+
+    /// R6 — flip ACTIVE → ARCHIVED for pages not retrieved since `cutoff`.
+    /// Pages never retrieved (lastRetrievedAt IS NULL) are left alone — they
+    /// were just compiled and haven't had a chance to be used yet.
+    @Modifying
+    @Query("UPDATE WikiPageJpaEntity p SET p.status = 'ARCHIVED' " +
+           "WHERE p.avatarId = :avatarId AND p.status = 'ACTIVE' " +
+           "AND p.lastRetrievedAt IS NOT NULL AND p.lastRetrievedAt < :cutoff")
+    int archiveStalePages(@Param("avatarId") String avatarId,
+                          @Param("cutoff") Instant cutoff);
 }

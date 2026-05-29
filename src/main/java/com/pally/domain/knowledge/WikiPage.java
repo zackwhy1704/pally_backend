@@ -58,7 +58,9 @@ public final class WikiPage {
         this.status = status;
         this.reviewRequired = reviewRequired;
         this.prerequisiteSlugs = prerequisiteSlugs;
-        this.hasConflict = false;
+        // Previously hardcoded to false — a latent bug that swallowed the
+        // passed-in flag and made hasConflict always reset on rehydrate.
+        this.hasConflict = hasConflict;
     }
 
     private WikiPage(
@@ -154,6 +156,28 @@ public final class WikiPage {
     /** Clears the conflict flag (e.g. after a human correction). */
     public void clearConflict() {
         this.hasConflict = false;
+    }
+
+    /** Nudges certainty within [0.1, 1.0]. Positive = reinforced, negative = shaken. */
+    public void adjustCertaintyScore(double delta) {
+        this.certaintyScore =
+                Math.max(0.1, Math.min(1.0, this.certaintyScore + delta));
+        this.updatedAt = Instant.now();
+    }
+
+    /** Flags (or clears) the page as needing student/parent review. */
+    public void setReviewRequired(boolean value) {
+        this.reviewRequired = value;
+    }
+
+    /** Sets the prerequisite slug list (comma-separated for the TEXT column). */
+    public void setPrerequisiteSlugs(String slugs) {
+        this.prerequisiteSlugs = slugs;
+    }
+
+    /** Updates lifecycle status (ACTIVE / ARCHIVED / REVIEW). */
+    public void setStatus(Status status) {
+        if (status != null) this.status = status;
     }
 
     public String getSummary() {

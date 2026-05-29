@@ -12,7 +12,10 @@ public record ParentDashboardResponse(
         List<Integer> weekMinutes,
         List<WeakAreaDto> weakAreas,
         boolean screenTimeEnabled,
-        int screenTimeMinutes
+        int screenTimeMinutes,
+        // R8 — topics flagged for review by the quiz feedback loop
+        // (aggregated across the parent's avatars).
+        List<String> reviewTopics
 ) {
     public record SubjectMasteryDto(String subject, double mastery) {}
     public record WeakAreaDto(String topic, double mastery) {}

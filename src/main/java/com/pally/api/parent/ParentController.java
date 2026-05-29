@@ -50,6 +50,7 @@ public class ParentController {
     private final ActivityLogService activityLogService;
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final AvatarRepository avatarRepository;
+    private final com.pally.domain.knowledge.WikiRepository wikiRepository;
     private final BCryptPasswordEncoder passwordEncoder;
 
     // ── PIN management ─────────────────────────────────────────────────
@@ -162,11 +163,21 @@ public class ParentController {
                         ((Number) r[1]).doubleValue()))
                 .toList();
 
+        // R8 — review topics: pages flagged by the quiz feedback loop,
+        // aggregated across this user's avatars. Surfaced in the parent
+        // dashboard so guardians know what to revisit with their child.
+        List<String> reviewTopics = new ArrayList<>();
+        for (Avatar a : avatarRepository.findByUserId(userId)) {
+            wikiRepository.findReviewRequired(a.getId())
+                    .forEach(p -> reviewTopics.add(p.getTitle()));
+        }
+
         return ResponseEntity.ok(ApiResponse.success(new ParentDashboardResponse(
                 sessions, minutesThisWeek, xpThisWeek,
                 u.getLevel(), u.getStreakDays(),
                 subjects, weekMinutes, weakAreas,
-                u.isScreenTimeEnabled(), u.getScreenTimeMinutes()
+                u.isScreenTimeEnabled(), u.getScreenTimeMinutes(),
+                reviewTopics
         )));
     }
 

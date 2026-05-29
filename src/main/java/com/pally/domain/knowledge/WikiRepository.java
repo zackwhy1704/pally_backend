@@ -1,5 +1,6 @@
 package com.pally.domain.knowledge;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,4 +35,19 @@ public interface WikiRepository {
 
     // Brain budget: approximate token count (1 token ≈ 4 chars)
     long estimateTokenCount(String avatarId);
+
+    // Harness feedback: nudge certainty for specific slugs (+ reinforce, − shake)
+    void adjustCertainty(String avatarId, List<String> slugs, double delta);
+
+    // Harness feedback: increment quiz usage counters
+    void recordQuizUsage(String avatarId, List<String> slugs);
+
+    // Harness feedback: flag/unflag review-required
+    void setReviewRequired(String avatarId, List<String> slugs, boolean value);
+
+    // R6: mark pages not retrieved since `cutoff` as ARCHIVED (returns count)
+    int archiveStalePages(String avatarId, Instant cutoff);
+
+    // R8: pages currently flagged for review
+    List<WikiPage> findReviewRequired(String avatarId);
 }

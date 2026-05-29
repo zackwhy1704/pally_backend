@@ -75,14 +75,39 @@ public class WikiRepositoryAdapter implements WikiRepository {
     @Override
     @Transactional(readOnly = true)
     public List<WikiPage> findByKeywords(String avatarId, List<String> keywords, int maxPages) {
-        if (keywords.isEmpty()) return List.of();
-        List<WikiPage> all = wikiJpaRepository.findActiveByAvatarId(avatarId).stream()
+        if (keywords == null || keywords.isEmpty()) return List.of();
+        List<WikiPage> active = wikiJpaRepository
+                .findActiveByAvatarId(avatarId).stream()
                 .map(WikiPageJpaEntity::toDomain)
                 .toList();
-        return all.stream()
-                .filter(p -> matchesAnyKeyword(p, keywords))
-                .limit(maxPages)
-                .toList();
+
+        // R4 — content-aware retrieval, two passes.
+        // Pass 1: TopicRouter already returns slugs from the index; trust an
+        // exact slug match first to preserve its ordering.
+        // Pass 2: fall back to substring across slug, title AND content so
+        // routed topics don't get dropped just because their title wording
+        // doesn't include the literal keyword.
+        java.util.LinkedHashMap<String, WikiPage> picked =
+                new java.util.LinkedHashMap<>();
+
+        for (String kw : keywords) {
+            String k = kw.toLowerCase(Locale.ROOT).trim();
+            active.stream()
+                    .filter(p -> p.getSlug().toLowerCase(Locale.ROOT).equals(k))
+                    .findFirst()
+                    .ifPresent(p -> picked.putIfAbsent(p.getSlug(), p));
+        }
+        for (String kw : keywords) {
+            String k = kw.toLowerCase(Locale.ROOT).trim();
+            for (WikiPage p : active) {
+                if (picked.containsKey(p.getSlug())) continue;
+                String hay =
+                        (p.getSlug() + " " + p.getTitle() + " " + p.getContent())
+                                .toLowerCase(Locale.ROOT);
+                if (hay.contains(k)) picked.put(p.getSlug(), p);
+            }
+        }
+        return picked.values().stream().limit(maxPages).toList();
     }
 
     @Override
@@ -117,13 +142,39 @@ public class WikiRepositoryAdapter implements WikiRepository {
         return charCount != null ? charCount / 4 : 0L;
     }
 
-    private boolean matchesAnyKeyword(WikiPage page, List<String> keywords) {
-        String slugLower = page.getSlug().toLowerCase(Locale.ROOT);
-        String titleLower = page.getTitle().toLowerCase(Locale.ROOT);
-        return keywords.stream().anyMatch(kw -> {
-            String kwLower = kw.toLowerCase(Locale.ROOT);
-            return slugLower.contains(kwLower) || titleLower.contains(kwLower);
-        });
+    @Override
+    @Transactional
+    public void adjustCertainty(String avatarId, List<String> slugs, double delta) {
+        if (slugs == null || slugs.isEmpty()) return;
+        wikiJpaRepository.adjustCertainty(avatarId, slugs, delta, Instant.now());
+    }
+
+    @Override
+    @Transactional
+    public void recordQuizUsage(String avatarId, List<String> slugs) {
+        if (slugs == null || slugs.isEmpty()) return;
+        wikiJpaRepository.incrementQuizUseCount(avatarId, slugs);
+    }
+
+    @Override
+    @Transactional
+    public void setReviewRequired(String avatarId, List<String> slugs, boolean value) {
+        if (slugs == null || slugs.isEmpty()) return;
+        wikiJpaRepository.setReviewRequired(avatarId, slugs, value);
+    }
+
+    @Override
+    @Transactional
+    public int archiveStalePages(String avatarId, Instant cutoff) {
+        return wikiJpaRepository.archiveStalePages(avatarId, cutoff);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WikiPage> findReviewRequired(String avatarId) {
+        return wikiJpaRepository.findReviewRequired(avatarId).stream()
+                .map(WikiPageJpaEntity::toDomain)
+                .toList();
     }
 
     private String extractSummary(String content) {

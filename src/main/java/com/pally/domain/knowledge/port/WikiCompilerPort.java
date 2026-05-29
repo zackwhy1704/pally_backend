@@ -24,9 +24,17 @@ public interface WikiCompilerPort {
     /**
      * Intermediate draft produced by the AI compiler before being persisted as a {@link WikiPage}.
      *
-     * @param slug    URL-safe identifier for the page (e.g. "photosynthesis")
-     * @param title   human-readable page title
-     * @param content markdown content body
+     * @param slug          URL-safe identifier for the page (e.g. "photosynthesis")
+     * @param title         human-readable page title
+     * @param content       markdown content body
+     * @param prerequisites slugs of pages a student must understand first
      */
-    record WikiPageDraft(String slug, String title, String content) {}
+    record WikiPageDraft(
+            String slug, String title, String content, List<String> prerequisites
+    ) {
+        /// Back-compat constructor for callers that don't supply prerequisites.
+        public WikiPageDraft(String slug, String title, String content) {
+            this(slug, title, content, List.of());
+        }
+    }
 }

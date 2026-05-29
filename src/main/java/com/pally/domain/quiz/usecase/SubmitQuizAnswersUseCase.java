@@ -37,6 +37,7 @@ public class SubmitQuizAnswersUseCase {
     private final ActivityLogService activityLogService;
     private final BadgeService badgeService;
     private final QuizQuestionResultJpaRepository quizResultRepo;
+    private final com.pally.domain.knowledge.WikiRepository wikiRepository;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -78,6 +79,10 @@ public class SubmitQuizAnswersUseCase {
         List<String> misconception = new ArrayList<>();
         List<String> luckyGuess = new ArrayList<>();
         List<String> knownGap = new ArrayList<>();
+        // R1 — accumulate source-slug feedback so the wiki's certainty
+        // scores can self-correct from real student performance.
+        List<String> correctSlugs = new ArrayList<>();
+        List<String> wrongSlugs = new ArrayList<>();
 
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
             String questionId = entry.getKey();
@@ -88,6 +93,14 @@ public class SubmitQuizAnswersUseCase {
             String topic = topicMap.get(questionId);
             String label = topic != null ? topic : questionId;
             String confidence = confidenceMap.get(questionId);
+
+            if (topic != null && !topic.isBlank()) {
+                if (wasCorrect) {
+                    correctSlugs.add(topic);
+                } else {
+                    wrongSlugs.add(topic);
+                }
+            }
 
             // Classify into the 2x2 matrix when we have a confidence reading.
             if (confidence != null) {
@@ -144,6 +157,28 @@ public class SubmitQuizAnswersUseCase {
         badgeService.grantFirstAction(submission.userId(), BadgeService.BadgeType.FIRST_QUIZ);
         badgeService.grantPerfectQuiz(submission.userId(), correct, total);
         badgeService.checkAndGrantMilestones(submission.userId());
+
+        // R1 — self-correcting knowledge base. Correct answers reinforce the
+        // source page (small +); wrong answers shake confidence harder and
+        // flag the page for review because misconceptions compound fast.
+        try {
+            if (!correctSlugs.isEmpty()) {
+                wikiRepository.adjustCertainty(submission.avatarId(),
+                        correctSlugs.stream().distinct().toList(), +0.05);
+            }
+            if (!wrongSlugs.isEmpty()) {
+                List<String> distinctWrong = wrongSlugs.stream().distinct().toList();
+                wikiRepository.adjustCertainty(submission.avatarId(),
+                        distinctWrong, -0.10);
+                wikiRepository.setReviewRequired(submission.avatarId(),
+                        distinctWrong, true);
+                log.info("[Harness] Flagged {} pages for review after wrong "
+                        + "answers: {}", distinctWrong.size(), distinctWrong);
+            }
+        } catch (Exception e) {
+            // Never block scoring on harness feedback — log + carry on.
+            log.warn("[Harness] Certainty feedback failed: {}", e.getMessage());
+        }
 
         QuizResult.MasteryMatrix matrix = null;
         if (!confidenceMap.isEmpty()) {

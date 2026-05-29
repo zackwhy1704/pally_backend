@@ -105,7 +105,15 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
 
                 ## OUTPUT FORMAT
                 Respond ONLY with a JSON array — no markdown fences, no extra text.
-                Each object: {"slug": "lowercase-hyphenated", "title": "Human Title", "content": "full markdown content"}
+                Each object:
+                {"slug": "lowercase-hyphenated", "title": "Human Title",
+                 "content": "full markdown content",
+                 "prerequisites": ["slug-a","slug-b"]}
+
+                For "prerequisites": list the slugs of OTHER pages in this same
+                set (or existing pages listed above) that a student must
+                understand FIRST to grasp this page. Use the exact slug strings.
+                If none, use an empty array [].
 
                 IMPORTANT: The "content" field must contain ALL the specific facts,
                 equations, and details from the source material. Do not summarise —
@@ -131,8 +139,16 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 String slug = node.path("slug").asText();
                 String title = node.path("title").asText();
                 String content = node.path("content").asText();
+                List<String> prereqs = new ArrayList<>();
+                JsonNode pre = node.path("prerequisites");
+                if (pre.isArray()) {
+                    for (JsonNode p : pre) {
+                        String ps = p.asText("").trim();
+                        if (!ps.isBlank()) prereqs.add(ps);
+                    }
+                }
                 if (!slug.isBlank() && !title.isBlank()) {
-                    drafts.add(new WikiPageDraft(slug, title, content));
+                    drafts.add(new WikiPageDraft(slug, title, content, prereqs));
                 }
             }
             log.debug("Parsed {} wiki page drafts from Claude response", drafts.size());

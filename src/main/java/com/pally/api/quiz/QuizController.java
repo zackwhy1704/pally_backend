@@ -12,6 +12,7 @@ import com.pally.domain.quiz.usecase.GetDailyQuizUseCase;
 import com.pally.domain.quiz.usecase.GetFlashcardsUseCase;
 import com.pally.domain.quiz.usecase.RateFlashcardUseCase;
 import com.pally.domain.quiz.usecase.SubmitQuizAnswersUseCase;
+import com.pally.domain.knowledge.WikiRepository;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.response.ApiResponse;
@@ -36,6 +37,7 @@ public class QuizController {
     private final RateFlashcardUseCase rateFlashcardUseCase;
     private final QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
     private final QuizQuestionResultJpaRepository quizQuestionResultRepository;
+    private final WikiRepository wikiRepository;
 
     @GetMapping("/quiz/daily")
     public ResponseEntity<ApiResponse<List<QuizQuestionResponse>>> getDailyQuiz(
@@ -102,6 +104,8 @@ public class QuizController {
 
     /// Per-topic mastery (correct-ratio) for this avatar. Used by the
     /// brain-map screen to colour topic nodes; missing topics = untouched.
+    /// R8 — adds reviewRequired so the brain map can pulse pages the quiz
+    /// feedback loop has flagged after wrong answers.
     @GetMapping("/topic-mastery")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getTopicMastery(
             @AuthenticationPrincipal String userId,
@@ -109,11 +113,19 @@ public class QuizController {
     ) {
         List<Object[]> rows = quizQuestionResultRepository
                 .findAllTopicMasteryByAvatar(userId, avatarId);
+        java.util.Set<String> reviewSlugs = wikiRepository
+                .findReviewRequired(avatarId).stream()
+                .map(com.pally.domain.knowledge.WikiPage::getSlug)
+                .collect(java.util.stream.Collectors.toSet());
         List<Map<String, Object>> body = rows.stream()
-                .map(r -> Map.<String, Object>of(
-                        "topicSlug", (String) r[0],
-                        "mastery", ((Number) r[1]).doubleValue(),
-                        "attempts", ((Number) r[2]).intValue()))
+                .map(r -> {
+                    String slug = (String) r[0];
+                    return Map.<String, Object>of(
+                            "topicSlug", slug,
+                            "mastery", ((Number) r[1]).doubleValue(),
+                            "attempts", ((Number) r[2]).intValue(),
+                            "reviewRequired", reviewSlugs.contains(slug));
+                })
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(body));
     }

@@ -260,15 +260,35 @@ public class ClaudeContextAssembler {
         var sb = new StringBuilder("## YOUR KNOWLEDGE BASE\n");
         sb.append("(Built from uploaded study notes)\n\n");
 
-        // Include full content of all wiki pages
+        // Include full content of all wiki pages. R5 — surface a HIGH /
+        // MEDIUM / LOW confidence band so the tutor hedges on facts the quiz
+        // feedback loop has already shaken (low certaintyScore).
         for (WikiPage page : pages) {
             String content = page.getHumanCorrection() != null
                     ? "✅ VERIFIED: " + page.getHumanCorrection()
                     : page.getContent();
+
+            String band;
+            double cs = page.getCertaintyScore();
+            if (page.isHumanVerified() || cs >= 0.8) {
+                band = "HIGH";
+            } else if (cs >= 0.5) {
+                band = "MEDIUM";
+            } else {
+                band = "LOW";
+            }
+
             sb.append("### ").append(page.getTitle())
               .append(" [").append(page.getSlug()).append("]")
-              .append(" [").append(page.getCertainty()).append("]\n")
-              .append(content).append("\n\n");
+              .append(" [").append(page.getCertainty()).append("]")
+              .append(" [confidence: ").append(band).append("]\n");
+            if ("LOW".equals(band)) {
+                sb.append("(Low confidence — derived from limited notes and "
+                        + "linked to past wrong answers. If the student "
+                        + "questions this, suggest they re-check their notes "
+                        + "rather than insisting.)\n");
+            }
+            sb.append(content).append("\n\n");
         }
         return sb.toString();
     }
@@ -313,12 +333,22 @@ public class ClaudeContextAssembler {
 
     // ── Existing tier builders (kept for string-based assemble) ──────────────
 
+    // NOTE: This string-assembly path feeds harnessTrace only. The live
+    // chat prompt is built from buildCacheBlocks(...). Keep pedagogy /
+    // identity wording in sync with buildBlock1HardRules and
+    // buildBlock2AvatarConfig to avoid drift between the trace and the
+    // prompt the model actually sees.
     private String buildTier1(Avatar avatar) {
         String gradeCtx = avatar.getGradeLevel() != null
                 ? "Grade: " + avatar.getGradeLevel() + ". " : "";
         String curriculumCtx = avatar.getCurriculumType() != null
                 ? "Curriculum: " + avatar.getCurriculumType() + ". " : "";
-        String pedagogyStyle = "Use the Socratic method — guide with questions before explaining.";
+        // R7 — honour the avatar's real pedagogy mode (was hardcoded to
+        // Socratic, which silently disagreed with the cache-block path
+        // any time the user toggled Direct mode).
+        String pedagogyStyle = avatar.getPedagogyMode() == Avatar.PedagogyMode.SOCRATIC
+                ? "Use the Socratic method — guide with questions before explaining."
+                : "Direct mode — give the answer first, then explain in up to 3 steps.";
 
         return """
                 You are %s, a friendly AI tutor specialising in %s for children aged 8–14.

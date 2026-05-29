@@ -57,6 +57,23 @@ public class CompileWikiUseCase {
         Avatar avatar = avatarRepository.findById(avatarId)
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
+        // R6 — archive pages not retrieved in 60+ days so the active index
+        // stays lean across a school year. Archived pages stay in the DB and
+        // can be revived on next retrieval if a future query matches them.
+        // Best-effort: never block a compile on stale-page housekeeping.
+        try {
+            int archived = wikiRepository.archiveStalePages(
+                    avatarId,
+                    java.time.Instant.now().minus(java.time.Duration.ofDays(60)));
+            if (archived > 0) {
+                log.info("[Harness] Archived {} stale pages for avatar={}",
+                        archived, avatarId);
+            }
+        } catch (Exception e) {
+            log.warn("[Harness] Stale-page archive failed (non-fatal): {}",
+                    e.getMessage());
+        }
+
         List<KnowledgeFile> readyFiles = knowledgeRepository.findByAvatarId(avatarId).stream()
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
                 .toList();
@@ -95,6 +112,12 @@ public class CompileWikiUseCase {
                     log.warn("[Wiki] Conflict flagged on slug={} for avatar={}",
                             draft.slug(), avatarId);
                 }
+                // R2 — persist prerequisite chain (TEXT column, comma-joined).
+                if (draft.prerequisites() != null
+                        && !draft.prerequisites().isEmpty()) {
+                    existingPage.setPrerequisiteSlugs(
+                            String.join(",", draft.prerequisites()));
+                }
                 WikiPage savedPage = wikiRepository.save(existingPage);
                 hintTreeGenerator.generateForPage(avatarId, savedPage);
                 // Page changed → regenerate its flashcards so SRS reflects
@@ -109,6 +132,12 @@ public class CompileWikiUseCase {
                 pageTitles.add(draft.title());
             } else {
                 WikiPage newPage = WikiPage.create(avatarId, draft.slug(), draft.title(), draft.content());
+                // R2 — persist prerequisite chain on first save too.
+                if (draft.prerequisites() != null
+                        && !draft.prerequisites().isEmpty()) {
+                    newPage.setPrerequisiteSlugs(
+                            String.join(",", draft.prerequisites()));
+                }
                 WikiPage savedPage = wikiRepository.save(newPage);
                 hintTreeGenerator.generateForPage(avatarId, savedPage);
                 try {
