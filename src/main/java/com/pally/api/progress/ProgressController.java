@@ -3,6 +3,7 @@ package com.pally.api.progress;
 import com.pally.api.progress.dto.ProgressResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
@@ -12,6 +13,8 @@ import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.activity.DailyActivityDayJpaRepository;
+import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
+import com.pally.infrastructure.persistence.curriculum.CurriculumTopicJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
@@ -54,6 +57,9 @@ public class ProgressController {
     private final DailyActivityDayJpaRepository dailyDayRepo;
     private final UserJpaRepository userRepo;
     private final ActivityLogJpaRepository activityLogRepo;
+    private final AvatarJpaRepository avatarJpaRepo;
+    private final CurriculumTopicJpaRepository curriculumTopicRepo;
+    private final WikiRepository wikiRepository;
 
     @GetMapping
     public ResponseEntity<ApiResponse<ProgressResponse>> getProgress(
@@ -289,5 +295,65 @@ public class ProgressController {
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "goalType", type,
                 "goalTarget", target)));
+    }
+
+    /// Aggregate mastery (Khan-style North Star) across every avatar the
+    /// user owns. Avatar with a curriculum attached counts against its
+    /// curriculum_topics list; otherwise total = wiki_page count, matching
+    /// what {@code /quiz/status} already returns per-avatar.
+    @GetMapping("/coverage")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getCoverage(
+            @AuthenticationPrincipal String userId) {
+        var avatars = avatarJpaRepo.findByUserId(userId);
+
+        int overallTotal = 0;
+        int overallMastered = 0;
+        Map<String, int[]> bySubject = new HashMap<>(); // subject → [mastered, total]
+
+        for (var avatar : avatars) {
+            int total;
+            String curriculumId = avatar.getCurriculumId();
+            if (curriculumId != null && !curriculumId.isBlank()) {
+                total = curriculumTopicRepo
+                        .findByCurriculumIdOrderBySequenceAsc(curriculumId)
+                        .size();
+            } else {
+                total = wikiRepository.findByAvatarId(avatar.getId()).size();
+            }
+            int mastered = 0;
+            var rows = quizResultRepo
+                    .findAllTopicMasteryByAvatar(userId, avatar.getId());
+            for (var r : rows) {
+                if (((Number) r[1]).doubleValue() >= 0.7) mastered++;
+            }
+            // A curriculum can have more topics than the kid has tackled, so
+            // never report mastered > total — clamp before aggregating.
+            mastered = Math.min(mastered, total);
+
+            overallTotal += total;
+            overallMastered += mastered;
+
+            String subject = avatar.getSubject() == null
+                    ? "OTHER"
+                    : avatar.getSubject().name();
+            int[] agg = bySubject.computeIfAbsent(subject, k -> new int[2]);
+            agg[0] += mastered;
+            agg[1] += total;
+        }
+
+        List<Map<String, Object>> subjectDtos = new ArrayList<>();
+        bySubject.forEach((subject, agg) -> subjectDtos.add(Map.of(
+                "subject", subject,
+                "mastered", agg[0],
+                "total", agg[1])));
+        // Highest-volume subjects first so the UI surfaces the biggest piles.
+        subjectDtos.sort((a, b) -> Integer.compare(
+                (int) b.get("total"), (int) a.get("total")));
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "overall", Map.of(
+                        "mastered", overallMastered,
+                        "total", overallTotal),
+                "bySubject", subjectDtos)));
     }
 }
