@@ -74,6 +74,22 @@ public class UserJpaEntity {
     @Column(name = "screen_time_minutes", nullable = false)
     private int screenTimeMinutes = 60;
 
+    /// Family account model. SOLO is the legacy default.
+    @Column(name = "account_type", nullable = false, length = 10)
+    private String accountType = "SOLO";
+
+    /// FK to the parent account when this user is a CHILD.
+    @Column(name = "parent_id", length = 36)
+    private String parentId;
+
+    /// Short, unique, time-limited claim code a child generates so a
+    /// parent can attach them to the family. Cleared on claim / expiry.
+    @Column(name = "link_code", length = 12, unique = true)
+    private String linkCode;
+
+    @Column(name = "link_code_expires_at")
+    private Instant linkCodeExpiresAt;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
