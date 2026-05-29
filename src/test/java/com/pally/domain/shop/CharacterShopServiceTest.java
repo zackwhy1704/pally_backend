@@ -33,6 +33,8 @@ class CharacterShopServiceTest {
 
     @Mock UserJpaRepository userRepo;
     @Mock CharacterUnlockJpaRepository unlockRepo;
+    @Mock com.pally.infrastructure.persistence.mochi.MochiCharacterJpaRepository catalogRepo;
+    @Mock com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository userMochiRepo;
     @InjectMocks CharacterShopService shop;
 
     private static final String USER = "u1";
@@ -44,6 +46,28 @@ class CharacterShopServiceTest {
         u.setStreakFreezes(freezes);
         u.setLevel(level);
         return u;
+    }
+
+    /// Build a catalog row matching the seeded Core theme so mystery-box
+    /// tests behave as before the V40 refactor.
+    private com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity
+            catalogRow(String id, String rarity) {
+        var c = new com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity();
+        c.setId(id);
+        c.setName(id);
+        c.setThemeId("THEME_CORE");
+        c.setRarity(rarity);
+        c.setAcquisition("MYSTERY_BOX");
+        c.setStarCost(null);
+        c.setActiveFrom(null);
+        c.setActiveUntil(null);
+        return c;
+    }
+
+    private void stubMysteryPool() {
+        when(catalogRepo.findByAcquisition("MYSTERY_BOX")).thenReturn(java.util.List.of(
+                catalogRow("HEADMASTER", "RARE"),
+                catalogRow("GOLDSTAR", "SECRET")));
     }
 
     @Test
@@ -117,6 +141,7 @@ class CharacterShopServiceTest {
 
     @Test
     void openMysteryBox_atomicSpend_happyPath() {
+        stubMysteryPool();
         when(unlockRepo.existsByUserIdAndCharacter(eq(USER), anyString()))
                 .thenReturn(false);
         when(userRepo.spendStars(USER, 600)).thenReturn(1);
@@ -132,7 +157,19 @@ class CharacterShopServiceTest {
     }
 
     @Test
+    void openMysteryBox_emptyPool_returns503() {
+        when(catalogRepo.findByAcquisition("MYSTERY_BOX"))
+                .thenReturn(java.util.List.of());
+
+        assertThatThrownBy(() -> shop.openMysteryBox(USER))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Mystery box is closed");
+        verify(userRepo, never()).spendStars(anyString(), anyInt());
+    }
+
+    @Test
     void openMysteryBox_insufficient_throwsBeforeUnlock() {
+        stubMysteryPool();
         when(unlockRepo.existsByUserIdAndCharacter(eq(USER), anyString()))
                 .thenReturn(false);
         when(userRepo.spendStars(USER, 600)).thenReturn(0);
@@ -145,6 +182,7 @@ class CharacterShopServiceTest {
 
     @Test
     void openMysteryBox_duplicate_chargesRefundPriceOnly() {
+        stubMysteryPool();
         when(unlockRepo.existsByUserIdAndCharacter(eq(USER), anyString()))
                 .thenReturn(true);
         when(userRepo.spendStars(USER, 300)).thenReturn(1);
@@ -159,5 +197,28 @@ class CharacterShopServiceTest {
         verify(userRepo, never()).spendStars(USER, 600);
         // No unlock insert when we already own the character.
         verify(unlockRepo, never()).save(any());
+    }
+
+    @Test
+    void getCharacterUnlocks_readsCatalog_filtersActiveWindow() {
+        // Catalog has 2 active + 1 expired.
+        var active1 = catalogRow("ALPHA", "COMMON");
+        active1.setAcquisition("DEFAULT");
+        var active2 = catalogRow("BETA", "RARE");
+        active2.setAcquisition("MYSTERY_BOX");
+        var expired = catalogRow("GAMMA", "SECRET");
+        expired.setAcquisition("SEASONAL");
+        expired.setActiveUntil(java.time.Instant.now().minusSeconds(60));
+        when(catalogRepo.findAll())
+                .thenReturn(java.util.List.of(active1, active2, expired));
+        when(unlockRepo.findByUserId(USER)).thenReturn(java.util.List.of());
+
+        @SuppressWarnings("unchecked")
+        var characters = (java.util.List<java.util.Map<String, Object>>)
+                shop.getCharacterUnlocks(USER).get("characters");
+
+        assertThat(characters).hasSize(2);
+        assertThat(characters).extracting(c -> c.get("character"))
+                .containsExactlyInAnyOrder("ALPHA", "BETA");
     }
 }

@@ -42,6 +42,14 @@ class XpServiceTest {
         return new UserRepository.XpResult(xp, 1, 1, false, null);
     }
 
+    private void stubLevel(int level) {
+        // Stars are minted with starEarnMultiplier(level) — we read level
+        // via userRepository.findById, so every test that exercises a star
+        // mint needs a stubbed lookup. Below-L10 returns 1.0× multiplier.
+        when(userRepository.findById(USER)).thenReturn(
+                java.util.Optional.of(new UserStats(USER, null, 0, level, 0, 0)));
+    }
+
     /// First quiz of a NEW subject today: 100% × 1.5 (variety) = 150%.
     @Test
     void awardForQuiz_firstOfDay_andNewSubject_appliesVariety() {
@@ -51,16 +59,55 @@ class XpServiceTest {
         when(activityLog.countByTypeAndSubjectBetween(
                 eq(USER), eq("QUIZ"), eq("MATHS"), any(), any()))
                 .thenReturn(0);
+        stubLevel(1);
         when(userRepository.addXpAndStars(eq(USER), eq(30), eq(15)))
                 .thenReturn(okCredit(30));
 
         var award = xp.awardForQuiz(USER, AVATAR, SUBJ, 20);
 
         assertThat(award.xpGranted()).isEqualTo(30); // 20 * 1.5
-        assertThat(award.starsGranted()).isEqualTo(15); // 30 * 0.5
+        assertThat(award.starsGranted()).isEqualTo(15); // 30 * 0.5 * 1.0 (L1)
         assertThat(award.varietyBonus()).isTrue();
         assertThat(award.decayStep()).isZero();
         assertThat(award.multiplier()).isEqualTo(1.5);
+    }
+
+    /// L10's "+25% star-earn rate" perk lands here — granted XP is the
+    /// same, but stars are 25% higher. The most concrete test of the
+    /// "tools tier" reward actually doing something.
+    @Test
+    void awardForQuiz_atL10_starsGetTwentyFivePercentBonus() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                eq(USER), eq("QUIZ"), eq(AVATAR), any(), any()))
+                .thenReturn(0);
+        when(activityLog.countByTypeAndSubjectBetween(
+                eq(USER), eq("QUIZ"), eq("MATHS"), any(), any()))
+                .thenReturn(1); // no variety, isolate the star multiplier
+        stubLevel(10);
+        when(userRepository.addXpAndStars(eq(USER), eq(20), eq(13)))
+                .thenReturn(okCredit(20));
+
+        var award = xp.awardForQuiz(USER, AVATAR, SUBJ, 20);
+
+        assertThat(award.xpGranted()).isEqualTo(20);
+        // 20 * 0.5 = 10; 10 * 1.25 = 12.5 → rounds to 13.
+        assertThat(award.starsGranted()).isEqualTo(13);
+    }
+
+    @Test
+    void awardForChat_atL10_starsGetMultiplier() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                eq(USER), eq("CHAT"), eq(AVATAR), any(), any()))
+                .thenReturn(0);
+        stubLevel(10);
+        // 5 XP * 0.5 * 1.25 = 3.125 → rounds to 3.
+        when(userRepository.addXpAndStars(eq(USER), eq(5), eq(3)))
+                .thenReturn(okCredit(5));
+
+        var award = xp.awardForChat(USER, AVATAR);
+
+        assertThat(award.xpGranted()).isEqualTo(5);
+        assertThat(award.starsGranted()).isEqualTo(3);
     }
 
     /// First quiz of the day on an avatar whose subject was ALREADY
@@ -73,6 +120,7 @@ class XpServiceTest {
         when(activityLog.countByTypeAndSubjectBetween(
                 eq(USER), eq("QUIZ"), eq("MATHS"), any(), any()))
                 .thenReturn(1);
+        stubLevel(1);
         when(userRepository.addXpAndStars(eq(USER), eq(20), eq(10)))
                 .thenReturn(okCredit(20));
 
@@ -93,6 +141,7 @@ class XpServiceTest {
         when(activityLog.countByTypeAndSubjectBetween(
                 eq(USER), eq("QUIZ"), eq("MATHS"), any(), any()))
                 .thenReturn(1);
+        stubLevel(1);
         when(userRepository.addXpAndStars(eq(USER), eq(10), eq(5)))
                 .thenReturn(okCredit(10));
 
@@ -113,6 +162,7 @@ class XpServiceTest {
         when(activityLog.countByTypeAndSubjectBetween(
                 eq(USER), eq("QUIZ"), eq("MATHS"), any(), any()))
                 .thenReturn(1);
+        stubLevel(1);
         when(userRepository.addXpAndStars(eq(USER), anyInt(), anyInt()))
                 .thenReturn(okCredit(0));
 
@@ -139,13 +189,15 @@ class XpServiceTest {
         when(activityLog.countByTypeAndAvatarBetween(
                 eq(USER), eq("CHAT"), eq(AVATAR), any(), any()))
                 .thenReturn(0);
-        when(userRepository.addXpAndStars(eq(USER), eq(5), eq(2)))
+        stubLevel(1);
+        // 5 * 0.5 * 1.0 = 2.5 → rounds to 3.
+        when(userRepository.addXpAndStars(eq(USER), eq(5), eq(3)))
                 .thenReturn(okCredit(5));
 
         var award = xp.awardForChat(USER, AVATAR);
 
         assertThat(award.xpGranted()).isEqualTo(5);
-        assertThat(award.starsGranted()).isEqualTo(2);
+        assertThat(award.starsGranted()).isEqualTo(3);
         assertThat(award.alreadyCreditedToday()).isFalse();
     }
 
@@ -171,6 +223,7 @@ class XpServiceTest {
         when(activityLog.countByTypeAndAvatarBetween(
                 anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(0);
+        stubLevel(1);
         when(userRepository.addXpAndStars(eq(USER), eq(20), eq(10)))
                 .thenReturn(okCredit(20));
 
@@ -191,6 +244,7 @@ class XpServiceTest {
         when(activityLog.countByTypeAndSubjectBetween(
                 anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(1);
+        stubLevel(1);
         when(userRepository.addXpAndStars(eq(USER), anyInt(), anyInt()))
                 .thenReturn(okCredit(0));
 
@@ -201,6 +255,139 @@ class XpServiceTest {
         verify(userRepository, times(1)).addXpAndStars(
                 eq(USER), xpCap.capture(), starsCap.capture());
         assertThat(xpCap.getValue()).isEqualTo(20);
-        assertThat(starsCap.getValue()).isEqualTo(10); // 20 * 0.5
+        assertThat(starsCap.getValue()).isEqualTo(10); // 20 * 0.5 * 1.0
+    }
+
+    @Test
+    void awardFlat_appliesMultiplier_atL10() {
+        stubLevel(10);
+        // 10 XP * 0.5 * 1.25 = 6.25 → rounds to 6.
+        when(userRepository.addXpAndStars(eq(USER), eq(10), eq(6)))
+                .thenReturn(okCredit(10));
+
+        xp.awardFlat(USER, 10);
+
+        verify(userRepository).addXpAndStars(USER, 10, 6);
+    }
+
+    @Test
+    void awardForQuiz_srsBonus_addsToPreDecayXp() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                eq(USER), eq("QUIZ"), eq(AVATAR), any(), any()))
+                .thenReturn(0);
+        when(activityLog.countByTypeAndSubjectBetween(
+                anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(1); // no variety
+        stubLevel(1);
+        // base=20 + srs=6 + weak=2 → 28 pre-decay. mult=1.0.
+        when(userRepository.addXpAndStars(eq(USER), eq(28), eq(14)))
+                .thenReturn(okCredit(28));
+
+        var award = xp.awardForQuiz(USER, AVATAR, SUBJ, 20, 6, 2);
+
+        assertThat(award.xpGranted()).isEqualTo(28);
+        assertThat(award.srsBonusXp()).isEqualTo(6);
+        assertThat(award.weakBonusXp()).isEqualTo(2);
+    }
+
+    /// SRS/weak bonuses are pre-decay — a 2nd-quiz-of-day on this avatar
+    /// gets half of the BONUS too, not just the base. The point isn't to
+    /// dodge anti-farm; it's to preserve the *ratio* of bonus to base.
+    @Test
+    void awardForQuiz_srsBonus_decaysWithBase() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                eq(USER), eq("QUIZ"), eq(AVATAR), any(), any()))
+                .thenReturn(1); // 0.5× decay
+        when(activityLog.countByTypeAndSubjectBetween(
+                anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(1);
+        stubLevel(1);
+        // (20 + 6 + 2) * 0.5 = 14 → granted.
+        when(userRepository.addXpAndStars(eq(USER), eq(14), eq(7)))
+                .thenReturn(okCredit(14));
+
+        var award = xp.awardForQuiz(USER, AVATAR, SUBJ, 20, 6, 2);
+
+        assertThat(award.xpGranted()).isEqualTo(14);
+        assertThat(award.multiplier()).isEqualTo(0.5);
+    }
+
+    @Test
+    void awardForQuiz_negativeBonuses_clampToZero() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(0);
+        when(activityLog.countByTypeAndSubjectBetween(
+                anyString(), anyString(), anyString(), any(), any()))
+                .thenReturn(1);
+        stubLevel(1);
+        when(userRepository.addXpAndStars(eq(USER), eq(20), eq(10)))
+                .thenReturn(okCredit(20));
+
+        var award = xp.awardForQuiz(USER, AVATAR, SUBJ, 20, -100, -50);
+
+        // Negative bonuses are clamped — a buggy caller can't accidentally
+        // dock the kid's XP via a bonus parameter.
+        assertThat(award.xpGranted()).isEqualTo(20);
+    }
+
+    @Test
+    void awardForPhoto_firstOfDay_paysFull() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                eq(USER), eq("PHOTO"), eq(AVATAR), any(), any()))
+                .thenReturn(0);
+        stubLevel(1);
+        when(userRepository.addXpAndStars(eq(USER), eq(15), eq(8)))
+                .thenReturn(okCredit(15));
+
+        var award = xp.awardForPhoto(USER, AVATAR, 15);
+
+        assertThat(award.xpGranted()).isEqualTo(15);
+        // 15 * 0.5 = 7.5 → rounds to 8.
+        assertThat(award.starsGranted()).isEqualTo(8);
+        assertThat(award.multiplier()).isEqualTo(1.0);
+    }
+
+    @Test
+    void awardForPhoto_secondOnAvatar_decaysToHalf() {
+        when(activityLog.countByTypeAndAvatarBetween(
+                eq(USER), eq("PHOTO"), eq(AVATAR), any(), any()))
+                .thenReturn(1);
+        stubLevel(1);
+        when(userRepository.addXpAndStars(eq(USER), eq(8), eq(4)))
+                .thenReturn(okCredit(8));
+
+        // 15 * 0.5 = 7.5 → rounds to 8.
+        var award = xp.awardForPhoto(USER, AVATAR, 15);
+
+        assertThat(award.xpGranted()).isEqualTo(8);
+        assertThat(award.multiplier()).isEqualTo(0.5);
+        assertThat(award.decayStep()).isEqualTo(1);
+    }
+
+    @Test
+    void awardForPhoto_zeroBase_noWrite() {
+        when(userRepository.findById(USER))
+                .thenReturn(java.util.Optional.of(
+                        new UserStats(USER, null, 600, 4, 0, 0)));
+
+        var award = xp.awardForPhoto(USER, AVATAR, 0);
+
+        assertThat(award.xpGranted()).isZero();
+        verify(userRepository, never()).addXpAndStars(anyString(), anyInt(), anyInt());
+    }
+
+    @Test
+    void awardFlat_zeroXp_isUnchanged_noWrite() {
+        // xpForLevel(L) = 50*(L-1)*L; 600 XP = exactly L4 boundary.
+        when(userRepository.findById(USER))
+                .thenReturn(java.util.Optional.of(
+                        new UserStats(USER, null, 600, 4, 0, 0)));
+
+        var result = xp.awardFlat(USER, 0);
+
+        assertThat(result.newXp()).isEqualTo(600);
+        assertThat(result.newLevel()).isEqualTo(4);
+        verify(userRepository, never()).addXpAndStars(anyString(), anyInt(), anyInt());
     }
 }

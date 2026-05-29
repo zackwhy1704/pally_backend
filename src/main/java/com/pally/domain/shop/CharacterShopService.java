@@ -1,6 +1,10 @@
 package com.pally.domain.shop;
 
 import com.pally.domain.progress.StreakService;
+import com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity;
+import com.pally.infrastructure.persistence.mochi.MochiCharacterJpaRepository;
+import com.pally.infrastructure.persistence.mochi.UserMochiJpaEntity;
+import com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaEntity;
@@ -13,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -25,23 +30,27 @@ public class CharacterShopService {
 
     private final CharacterUnlockJpaRepository unlockRepo;
     private final UserJpaRepository userRepo;
-
-    private static final List<String> ALL_CHARACTERS = List.of(
-            "PENCIL", "SCIENCE", "PE", "ART", "LUNCHBOX", "LIBRARY", "HEADMASTER", "GOLDSTAR");
-    private static final List<String> DEFAULT_UNLOCKS = List.of(
-            "PENCIL", "SCIENCE", "PE", "ART", "LUNCHBOX", "LIBRARY");
+    private final MochiCharacterJpaRepository catalogRepo;
+    private final UserMochiJpaRepository userMochiRepo;
 
     @Transactional
     public void seedDefaultUnlocks(String userId) {
-        for (String c : DEFAULT_UNLOCKS) {
-            if (!unlockRepo.existsByUserIdAndCharacter(userId, c)) {
+        // Read DEFAULT-acquisition characters from the catalog. Old behaviour:
+        // the same 6 (Pencil/Science/PE/Art/Lunchbox/Library). New behaviour:
+        // if a future theme adds DEFAULT characters, new users get those too
+        // — no code change. We still write to character_unlocks for backward
+        // compat AND mirror to user_mochi for the collection screen.
+        Instant now = Instant.now();
+        for (MochiCharacterJpaEntity ch : activeOf("DEFAULT", now)) {
+            if (!unlockRepo.existsByUserIdAndCharacter(userId, ch.getId())) {
                 var entity = new CharacterUnlockJpaEntity();
                 entity.setId(IdGenerator.newId());
                 entity.setUserId(userId);
-                entity.setCharacter(c);
-                entity.setUnlockedAt(Instant.now());
+                entity.setCharacter(ch.getId());
+                entity.setUnlockedAt(now);
                 unlockRepo.save(entity);
             }
+            mirrorToUserMochi(userId, ch.getId(), "DEFAULT");
         }
     }
 
@@ -51,17 +60,48 @@ public class CharacterShopService {
                 .map(CharacterUnlockJpaEntity::getCharacter)
                 .collect(Collectors.toSet());
 
-        var characters = ALL_CHARACTERS.stream().map(c -> Map.<String, Object>of(
-                "character", c,
-                "unlocked", unlocked.contains(c),
-                "rarity", getRarity(c)
-        )).toList();
+        // Catalog drives the list — adding a new Mochi via INSERT lights it
+        // up in every client without a deploy. Filter to active so a sunset
+        // seasonal Mochi disappears from the picker.
+        Instant now = Instant.now();
+        var characters = catalogRepo.findAll().stream()
+                .filter(c -> c.isActiveAt(now))
+                .map(c -> Map.<String, Object>of(
+                        "character", c.getId(),
+                        "unlocked", unlocked.contains(c.getId()),
+                        "rarity", c.getRarity()))
+                .toList();
 
         return Map.of("characters", characters);
     }
 
+    private List<MochiCharacterJpaEntity> activeOf(String acquisition, Instant when) {
+        List<MochiCharacterJpaEntity> active = new ArrayList<>();
+        for (MochiCharacterJpaEntity c : catalogRepo.findByAcquisition(acquisition)) {
+            if (c.isActiveAt(when)) active.add(c);
+        }
+        return active;
+    }
+
+    private void mirrorToUserMochi(String userId, String mochiId, String via) {
+        var id = new UserMochiJpaEntity.Id(userId, mochiId);
+        if (userMochiRepo.existsById(id)) return;
+        try {
+            userMochiRepo.save(new UserMochiJpaEntity(userId, mochiId, via));
+        } catch (Exception e) {
+            // Race against another grant — the PK will reject the dupe,
+            // which is fine. Don't fail the surrounding action over it.
+            log.debug("[Shop] mirror to user_mochi race for {}/{}: {}",
+                    userId, mochiId, e.getMessage());
+        }
+    }
+
     public static final int MYSTERY_BOX_COST = 600;
     public static final int MYSTERY_BOX_DUPLICATE_REFUND_COST = 300;
+
+    /// Secret 1-in-N odds. The catalog determines WHICH Mochis are the
+    /// secret vs rare pool — this constant only sets the rate.
+    private static final int SECRET_ODDS = 24;
 
     /**
      * Open a mystery box. The star spend is an atomic conditional UPDATE
@@ -69,14 +109,27 @@ public class CharacterShopService {
      * For duplicates we only spend the 300-refund cost; the character
      * unlock is guarded by the {@code unique(user_id, character)} index
      * so the "alreadyOwned" race is impossible to corrupt either.
+     *
+     * <p>The pool is read from {@code mochi_characters} where
+     * {@code acquisition = MYSTERY_BOX} and the window is active — a
+     * future seasonal Mochi listed as MYSTERY_BOX will join the pool
+     * automatically when its window opens, no deploy.
      */
     @Transactional
     public Map<String, Object> openMysteryBox(String userId) {
-        boolean isSecret = ThreadLocalRandom.current().nextInt(24) == 0;
-        String awarded = isSecret ? "GOLDSTAR" : "HEADMASTER";
-        String rarity = isSecret ? "SECRET" : "RARE";
+        Instant now = Instant.now();
+        List<MochiCharacterJpaEntity> pool = activeOf("MYSTERY_BOX", now);
+        if (pool.isEmpty()) {
+            throw new BusinessException(
+                    "Mystery box is closed right now — try again later", 503);
+        }
 
-        boolean alreadyOwned = unlockRepo.existsByUserIdAndCharacter(userId, awarded);
+        boolean isSecret = ThreadLocalRandom.current().nextInt(SECRET_ODDS) == 0;
+        MochiCharacterJpaEntity awarded = pickFromPool(pool, isSecret);
+        String awardedId = awarded.getId();
+        String rarity = awarded.getRarity();
+
+        boolean alreadyOwned = unlockRepo.existsByUserIdAndCharacter(userId, awardedId);
         int cost = alreadyOwned
                 ? MYSTERY_BOX_DUPLICATE_REFUND_COST
                 : MYSTERY_BOX_COST;
@@ -91,10 +144,11 @@ public class CharacterShopService {
             var unlock = new CharacterUnlockJpaEntity();
             unlock.setId(IdGenerator.newId());
             unlock.setUserId(userId);
-            unlock.setCharacter(awarded);
-            unlock.setUnlockedAt(Instant.now());
+            unlock.setCharacter(awardedId);
+            unlock.setUnlockedAt(now);
             try {
                 unlockRepo.save(unlock);
+                mirrorToUserMochi(userId, awardedId, "MYSTERY_BOX");
             } catch (org.springframework.dao.DataIntegrityViolationException dup) {
                 // Race: another tap inserted the unlock between our
                 // existsBy check and this save. Treat as already-owned —
@@ -102,16 +156,34 @@ public class CharacterShopService {
                 // the full cost so this is a small inflation, but the
                 // alternative (refund attempt) opens up a worse race.
                 log.info("[Shop] User {} unlock race for {} — already owned",
-                        userId, awarded);
+                        userId, awardedId);
             }
         }
 
         UserJpaEntity fresh = userRepo.findById(userId).orElseThrow(
                 () -> new BusinessException("User not found", 404));
         log.info("[Shop] User {} mystery box → {} ({}) cost={} isNew={}",
-                userId, awarded, rarity, cost, !alreadyOwned);
-        return Map.of("character", awarded, "rarity", rarity,
+                userId, awardedId, rarity, cost, !alreadyOwned);
+        return Map.of("character", awardedId, "rarity", rarity,
                 "newStarBalance", fresh.getStars(), "isNew", !alreadyOwned);
+    }
+
+    /// Pick a SECRET rarity if requested + available, else a non-SECRET.
+    /// Falls back to the first character if the pool lacks the desired
+    /// rarity — better to award SOMETHING than to 500 the user.
+    private MochiCharacterJpaEntity pickFromPool(
+            List<MochiCharacterJpaEntity> pool, boolean preferSecret) {
+        String preferred = preferSecret ? "SECRET" : null;
+        List<MochiCharacterJpaEntity> matching = new ArrayList<>();
+        for (var c : pool) {
+            if (preferred == null) {
+                if (!"SECRET".equals(c.getRarity())) matching.add(c);
+            } else {
+                if (preferred.equals(c.getRarity())) matching.add(c);
+            }
+        }
+        if (matching.isEmpty()) matching = pool;
+        return matching.get(ThreadLocalRandom.current().nextInt(matching.size()));
     }
 
     @Transactional
@@ -169,11 +241,4 @@ public class CharacterShopService {
                 "newStarBalance", fresh.getStars());
     }
 
-    private String getRarity(String character) {
-        return switch (character) {
-            case "GOLDSTAR" -> "SECRET";
-            case "HEADMASTER" -> "RARE";
-            default -> "STANDARD";
-        };
-    }
 }

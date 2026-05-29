@@ -19,6 +19,7 @@ public class ShopController {
 
     private final CharacterShopService characterShopService;
     private final UserRepository userRepository;
+    private final com.pally.domain.shop.PowerupService powerupService;
 
     @GetMapping("/stars")
     public ResponseEntity<ApiResponse<StarsResponse>> getStars(
@@ -65,5 +66,43 @@ public class ShopController {
     ) {
         var result = characterShopService.buyStreakFreeze(userId);
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/powerups/catalog")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> powerupCatalog() {
+        return ResponseEntity.ok(ApiResponse.success(powerupService.catalog()));
+    }
+
+    @GetMapping("/powerups")
+    public ResponseEntity<ApiResponse<Map<String, Integer>>> powerupInventory(
+            @AuthenticationPrincipal String userId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                powerupService.inventory(userId)));
+    }
+
+    /// Buy one powerup of {@code type}. Atomic stars-spend + count upsert
+    /// via PowerupService. 400 on insufficient stars or unknown type.
+    @PostMapping("/powerups/{type}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> buyPowerup(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String type
+    ) {
+        var parsed = com.pally.domain.shop.PowerupService.Type.parse(type);
+        return ResponseEntity.ok(ApiResponse.success(
+                powerupService.buy(userId, parsed)));
+    }
+
+    /// Consume one of {@code type}. 400 if the user has none.
+    /// The CLIENT decides when to consume (e.g. opening a quiz hint dialog
+    /// → POST /shop/powerups/HINT_TOKEN/consume); we just enforce the count.
+    @PostMapping("/powerups/{type}/consume")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> consumePowerup(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String type
+    ) {
+        var parsed = com.pally.domain.shop.PowerupService.Type.parse(type);
+        return ResponseEntity.ok(ApiResponse.success(
+                powerupService.consume(userId, parsed)));
     }
 }

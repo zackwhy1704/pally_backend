@@ -70,7 +70,7 @@ class SubmitQuizAnswersUseCaseTest {
 
     private XpService.QuizAward award(int xp, int stars, boolean variety, double mult) {
         return new XpService.QuizAward(xp, stars, 20, mult, variety, 0,
-                new UserRepository.XpResult(100, 1, 1, false, null));
+                0, 0, new UserRepository.XpResult(100, 1, 1, false, null));
     }
 
     @Test
@@ -92,7 +92,8 @@ class SubmitQuizAnswersUseCaseTest {
                 .thenReturn(Optional.of(mathsAvatar()));
         when(flashcardRepository.findDueByAvatarId(AVATAR))
                 .thenReturn(List.of());
-        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS), anyInt()))
+        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt()))
                 .thenReturn(award(30, 15, true, 1.5));
 
         AnswerSubmission sub = new AnswerSubmission(
@@ -111,7 +112,7 @@ class SubmitQuizAnswersUseCaseTest {
         // Verify the use case asked XpService for the right base.
         ArgumentCaptor<Integer> baseCap = ArgumentCaptor.forClass(Integer.class);
         verify(xpService).awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
-                baseCap.capture());
+                baseCap.capture(), anyInt(), anyInt());
         assertThat(baseCap.getValue()).isEqualTo(24);
     }
 
@@ -122,14 +123,16 @@ class SubmitQuizAnswersUseCaseTest {
         when(avatarRepository.findById(AVATAR)).thenReturn(Optional.empty());
         when(flashcardRepository.findDueByAvatarId(AVATAR))
                 .thenReturn(List.of());
-        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(null), anyInt()))
+        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(null),
+                anyInt(), anyInt(), anyInt()))
                 .thenReturn(award(20, 10, false, 1.0));
 
         AnswerSubmission sub = new AnswerSubmission(
                 AVATAR, USER, Map.of("q1", 0));
         QuizResult result = useCase.execute(sub, Map.of("q1", 0));
         assertThat(result.xpEarned()).isEqualTo(20);
-        verify(xpService).awardForQuiz(USER, AVATAR, null, 24);
+        verify(xpService).awardForQuiz(eq(USER), eq(AVATAR), eq(null),
+                eq(24), anyInt(), anyInt());
     }
 
     @Test
@@ -143,7 +146,8 @@ class SubmitQuizAnswersUseCaseTest {
                 .thenReturn(Optional.of(mathsAvatar()));
         when(flashcardRepository.findDueByAvatarId(AVATAR))
                 .thenReturn(List.of());
-        when(xpService.awardForQuiz(anyString(), anyString(), any(), anyInt()))
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt()))
                 .thenReturn(award(20, 10, false, 1.0));
 
         useCase.execute(new AnswerSubmission(AVATAR, USER, Map.of("q1", 0)),

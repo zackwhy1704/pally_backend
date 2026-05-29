@@ -6,6 +6,7 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.UserRepository;
+import com.pally.domain.progress.XpService;
 import com.pally.infrastructure.ai.ClaudeTeachEvaluator;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
@@ -34,6 +35,7 @@ public class TeachController {
     private final ClaudeTeachEvaluator evaluator;
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
+    private final XpService xpService;
 
     @PostMapping
     @Transactional
@@ -52,12 +54,12 @@ public class TeachController {
         TeachResponse result = evaluator.evaluate(page, request.explanation());
 
         if (result.xpEarned() > 0) {
-            int stars = Math.round(result.xpEarned() * 0.5f);
-            var credit = userRepository.addXpAndStars(
-                    userId, result.xpEarned(), stars);
+            // Route through XpService so the L10 star-earn multiplier
+            // applies. Teach has its own dedup (one explain → one score),
+            // so no per-day decay — awardFlat is the right entrypoint.
+            var credit = xpService.awardFlat(userId, result.xpEarned());
             activityLogService.log(userId, avatarId,
                     ActivityLogService.TYPE_QUIZ, 0, result.xpEarned());
-            // Surface the level-up so the screen can celebrate.
             result = result.withLevel(credit.levelledUp(), credit.newLevel());
         }
 

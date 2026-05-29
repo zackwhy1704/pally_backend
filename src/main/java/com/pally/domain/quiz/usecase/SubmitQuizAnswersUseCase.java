@@ -164,14 +164,52 @@ public class SubmitQuizAnswersUseCase {
         int total = submission.answers().size();
         int baseXp = BASE_XP + (correct * XP_PER_CORRECT);
 
+        // SRS + weak-topic bonuses: read the harness's "due" set + the
+        // wiki's review-required set, then per CORRECT answer on a
+        // matching topic, contribute (0.5×) or (0.25×) of the per-correct
+        // XP. The bonuses are pre-decay so they get scaled like base XP
+        // if the kid is on their 4th quiz of the day — tying the reward
+        // to the learning algorithm without making it farm-resistant
+        // (which would punish keen learners).
+        java.util.Set<String> srsDueSlugs = new java.util.HashSet<>();
+        try {
+            for (var card : flashcardRepository.findDueByAvatarId(submission.avatarId())) {
+                if (card.sourceSlug() != null) {
+                    srsDueSlugs.add(card.sourceSlug());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[Quiz] SRS due lookup failed: {}", e.getMessage());
+        }
+        java.util.Set<String> weakSlugs = new java.util.HashSet<>();
+        try {
+            for (var page : wikiRepository.findReviewRequired(submission.avatarId())) {
+                weakSlugs.add(page.getSlug());
+            }
+        } catch (Exception e) {
+            log.warn("[Quiz] weak-topic lookup failed: {}", e.getMessage());
+        }
+        int srsBonusXp = 0;
+        int weakBonusXp = 0;
+        for (String slug : correctSlugs) {
+            if (srsDueSlugs.contains(slug)) {
+                srsBonusXp += Math.round(XP_PER_CORRECT * 0.5f);
+            }
+            if (weakSlugs.contains(slug)) {
+                weakBonusXp += Math.round(XP_PER_CORRECT * 0.25f);
+            }
+        }
+
         // Route through XpService so decay (per-avatar same-day) + variety
-        // bonus (first quiz of a new subject today) + atomic credit all
-        // live in ONE place. xpEarned/starsEarned below are the *granted*
-        // amounts (after multipliers), not the raw request.
+        // bonus (first quiz of a new subject today) + SRS/weak bonuses +
+        // L10 star multiplier + atomic credit all live in ONE place.
+        // xpEarned/starsEarned below are the *granted* amounts (after
+        // multipliers), not the raw request.
         var avatar = avatarRepository.findById(submission.avatarId()).orElse(null);
         var subject = avatar == null ? null : avatar.getSubject();
         var quizAward = xpService.awardForQuiz(
-                submission.userId(), submission.avatarId(), subject, baseXp);
+                submission.userId(), submission.avatarId(), subject,
+                baseXp, srsBonusXp, weakBonusXp);
         int xpEarned = quizAward.xpGranted();
         int starsEarned = quizAward.starsGranted();
         var credit = quizAward.creditResult();

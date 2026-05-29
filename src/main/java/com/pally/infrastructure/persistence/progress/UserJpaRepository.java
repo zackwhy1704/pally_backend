@@ -85,4 +85,18 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
             """, nativeQuery = true)
     int spendStars(@Param("userId") String userId,
                    @Param("cost") int cost);
+
+    /// Bumps streak_freezes by {@code count} but never past {@code cap}.
+    /// Used for the L20 unlock to grant the stack-of-5 in one atomic UPDATE
+    /// rather than read-modify-write. Idempotent under retry — clamping
+    /// at the cap means a duplicate firing is a no-op once the kid is full.
+    @Modifying
+    @Query(value = """
+            UPDATE users
+               SET streak_freezes = LEAST(streak_freezes + :count, :cap)
+             WHERE id = :userId
+            """, nativeQuery = true)
+    int grantFreezesUpTo(@Param("userId") String userId,
+                         @Param("count") int count,
+                         @Param("cap") int cap);
 }

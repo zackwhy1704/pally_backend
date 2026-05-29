@@ -2,6 +2,7 @@ package com.pally.infrastructure.persistence.progress;
 
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
+import com.pally.domain.progress.StreakService;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.progress.UserStats;
 import lombok.RequiredArgsConstructor;
@@ -83,11 +84,22 @@ public class UserRepositoryAdapter implements UserRepository {
         }
 
         // Resolve the highest unlock crossed this round, purely informational.
+        // Side-effecting unlocks that need a DB write (L20 freeze stack) are
+        // applied here too — gated on the level crossing so they fire ONCE
+        // per kid for the lifetime of the account.
         String unlockedLabel = null;
         if (newLevel > oldLevel) {
             for (int lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
                 var reward = LevelRewards.atLevel(lvl);
                 if (reward != null) unlockedLabel = reward.label();
+                if (lvl == 20) {
+                    int newCap = StreakService.effectiveFreezeCap(20);
+                    int granted = jpa.grantFreezesUpTo(
+                            userId, LevelRewards.L20_FREEZE_STACK, newCap);
+                    log.info("[XP] user={} crossed L20 → granted up to {} "
+                            + "freezes (cap {}) rows={}", userId,
+                            LevelRewards.L20_FREEZE_STACK, newCap, granted);
+                }
             }
         }
 

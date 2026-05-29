@@ -9,6 +9,7 @@ import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.UserRepository;
+import com.pally.domain.progress.XpService;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -30,6 +31,7 @@ public class SolvePhotoQuestionsUseCase {
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
     private final BadgeService badgeService;
+    private final XpService xpService;
 
     public PhotoQuestionResponse execute(String avatarId, String userId, List<String> questions) {
         Avatar avatar = avatarRepository.findById(avatarId)
@@ -44,14 +46,13 @@ public class SolvePhotoQuestionsUseCase {
                 avatar, wikiPages, questions
         );
 
-        int xpEarned = questions.size() * XP_PER_QUESTION;
-        int starsEarned = Math.round(xpEarned * 0.5f);
+        int baseXp = questions.size() * XP_PER_QUESTION;
 
-        // Persist XP — without this the home counter never moves. The
-        // returned XpResult lets the client fire a level-up celebration
-        // when a photo solve happens to push the user over a threshold.
-        UserRepository.XpResult credit =
-                userRepository.addXpAndStars(userId, xpEarned, starsEarned);
+        // Route through XpService for per-avatar daily decay + L10 star
+        // multiplier. Spamming the same homework photo decays the reward;
+        // the first photo of the day always pays full XP.
+        var award = xpService.awardForPhoto(userId, avatarId, baseXp);
+        int xpEarned = award.xpGranted();
 
         activityLogService.log(userId, avatarId, ActivityLogService.TYPE_PHOTO, 0, xpEarned);
         badgeService.checkAndGrantMilestones(userId);
@@ -59,6 +60,6 @@ public class SolvePhotoQuestionsUseCase {
         String sourceWikiPage = wikiPages.isEmpty() ? null : wikiPages.getFirst().getSlug();
 
         return new PhotoQuestionResponse(answers, xpEarned, sourceWikiPage,
-                credit.levelledUp(), credit.newLevel());
+                award.creditResult().levelledUp(), award.creditResult().newLevel());
     }
 }

@@ -41,7 +41,12 @@ class BuyStreakFreezeConcurrencyTest {
         UserJpaRepository userRepo = mock(UserJpaRepository.class);
         CharacterUnlockJpaRepository unlockRepo =
                 mock(CharacterUnlockJpaRepository.class);
-        var shop = new CharacterShopService(unlockRepo, userRepo);
+        var catalogRepo = mock(
+                com.pally.infrastructure.persistence.mochi.MochiCharacterJpaRepository.class);
+        var userMochiRepo = mock(
+                com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository.class);
+        var shop = new CharacterShopService(unlockRepo, userRepo,
+                catalogRepo, userMochiRepo);
 
         // Pre-flight read returns the current state.
         lenient().when(userRepo.findById(anyString())).thenAnswer(

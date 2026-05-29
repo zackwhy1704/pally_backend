@@ -53,4 +53,28 @@ class LevelRewardsTest {
         var r = LevelRewards.nextUnlock(99);
         assertThat(r).isNull();
     }
+
+    @Test
+    void starEarnMultiplier_isOne_belowL10() {
+        for (int lvl = 1; lvl < 10; lvl++) {
+            assertThat(LevelRewards.starEarnMultiplier(lvl))
+                    .as("level %d", lvl).isEqualTo(1.0);
+        }
+    }
+
+    @Test
+    void starEarnMultiplier_isOnePointTwoFive_atOrAboveL10() {
+        for (int lvl = 10; lvl <= 30; lvl++) {
+            assertThat(LevelRewards.starEarnMultiplier(lvl))
+                    .as("level %d", lvl).isEqualTo(1.25);
+        }
+    }
+
+    @Test
+    void l20FreezeStack_isFive() {
+        // The size of the stack granted on first L20 crossing. Pinning
+        // the constant so a refactor that drops or changes it would
+        // surface here.
+        assertThat(LevelRewards.L20_FREEZE_STACK).isEqualTo(5);
+    }
 }

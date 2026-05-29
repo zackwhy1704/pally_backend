@@ -57,7 +57,17 @@ public class XpService {
             double multiplier,
             boolean varietyBonus,
             int decayStep,
-            UserRepository.XpResult creditResult) {}
+            int srsBonusXp,
+            int weakBonusXp,
+            UserRepository.XpResult creditResult) {
+        /// 7-arg overload retained for tests that don't exercise SRS/weak.
+        public QuizAward(int xpGranted, int starsGranted, int requestedXp,
+                         double multiplier, boolean varietyBonus, int decayStep,
+                         UserRepository.XpResult creditResult) {
+            this(xpGranted, starsGranted, requestedXp, multiplier, varietyBonus,
+                    decayStep, 0, 0, creditResult);
+        }
+    }
 
     public record ChatAward(
             int xpGranted,
@@ -76,6 +86,22 @@ public class XpService {
      */
     public QuizAward awardForQuiz(String userId, String avatarId,
                                   Subject subject, int baseXp) {
+        return awardForQuiz(userId, avatarId, subject, baseXp, 0, 0);
+    }
+
+    /**
+     * Quiz award with SRS + weak-topic bonuses.
+     *
+     * <p>Caller computes the additional XP from correct answers on
+     * SRS-due topics (each contributes 0.5× the per-correct XP) and on
+     * brain-map-flagged weak topics (0.25×). Those bonuses are summed
+     * INTO the base and the daily decay applies to the total — so a
+     * 4th-quiz-today still gets the bonus shape proportionally. Stars
+     * are minted from the granted total with the level multiplier.
+     */
+    public QuizAward awardForQuiz(String userId, String avatarId,
+                                  Subject subject, int baseXp,
+                                  int srsBonusXp, int weakBonusXp) {
         var window = sgtToday();
         int priorQuizzes = nz(activityLog.countByTypeAndAvatarBetween(
                 userId, TYPE_QUIZ, avatarId, window.from, window.to));
@@ -93,16 +119,28 @@ public class XpService {
             }
         }
 
-        int xpGranted = (int) Math.round(baseXp * mult);
-        int starsGranted = (int) Math.round(xpGranted * STAR_RATIO);
-        log.info("[XP] quiz user={} avatar={} baseXp={} priorQuizzes={} "
-                + "variety={} mult={} → xp={} stars={}",
-                userId, avatarId, baseXp, priorQuizzes, variety, mult,
-                xpGranted, starsGranted);
+        int preDecayXp = baseXp + Math.max(0, srsBonusXp) + Math.max(0, weakBonusXp);
+        int xpGranted = (int) Math.round(preDecayXp * mult);
+        int starsGranted = mintStars(userId, xpGranted);
+        log.info("[XP] quiz user={} avatar={} base={} srs={} weak={} "
+                + "priorQuizzes={} variety={} mult={} → xp={} stars={}",
+                userId, avatarId, baseXp, srsBonusXp, weakBonusXp,
+                priorQuizzes, variety, mult, xpGranted, starsGranted);
 
         var credit = userRepository.addXpAndStars(userId, xpGranted, starsGranted);
-        return new QuizAward(xpGranted, starsGranted, baseXp, mult, variety,
-                priorQuizzes, credit);
+        return new QuizAward(xpGranted, starsGranted, preDecayXp, mult, variety,
+                priorQuizzes, srsBonusXp, weakBonusXp, credit);
+    }
+
+    /// Mints stars with the level-based star-earn multiplier (L10 +25%).
+    /// Reads the user's current level once so a single award reflects the
+    /// state at credit time. Returns 0 if xp is 0 (chat-dedup path).
+    private int mintStars(String userId, int xpGranted) {
+        if (xpGranted <= 0) return 0;
+        int level = userRepository.findById(userId)
+                .map(UserStats::level).orElse(1);
+        double mult = LevelRewards.starEarnMultiplier(level);
+        return (int) Math.round(xpGranted * STAR_RATIO * mult);
     }
 
     /**
@@ -125,16 +163,75 @@ public class XpService {
             return new ChatAward(0, 0, true,
                     UserRepository.XpResult.unchanged(xp, level));
         }
-        var credit = userRepository.addXpAndStars(userId, CHAT_XP, CHAT_STARS);
+        int starsGranted = mintStars(userId, CHAT_XP);
+        var credit = userRepository.addXpAndStars(userId, CHAT_XP, starsGranted);
         log.info("[XP] chat user={} avatar={} +{}xp +{}stars",
-                userId, avatarId, CHAT_XP, CHAT_STARS);
-        return new ChatAward(CHAT_XP, CHAT_STARS, false, credit);
+                userId, avatarId, CHAT_XP, starsGranted);
+        return new ChatAward(CHAT_XP, starsGranted, false, credit);
     }
 
-    /// Pass-through for sites that aren't yet centralised (referral,
-    /// photo question). Kept narrow so we can migrate them one by one.
+    /// Pass-through for sites that don't need decay (referral activation).
+    /// Star multiplier is still applied so the L10 perk affects all credits,
+    /// not just quiz/chat.
     public UserRepository.XpResult award(String userId, int xp, int stars) {
+        // Caller's {@code stars} is treated as a *requested* amount before
+        // the multiplier — callers shouldn't have to know about the perk.
+        // Pass 0 to skip multiplier (e.g. referral pays a fixed amount).
         return userRepository.addXpAndStars(userId, xp, stars);
+    }
+
+    /// Generic credit with decay-free, multiplier-applied stars. Use when
+    /// the source has its own dedup (e.g. teach session-end is one per
+    /// session, photo per-question-hash via the caller).
+    public UserRepository.XpResult awardFlat(String userId, int xp) {
+        if (xp <= 0) {
+            int currentXp = userRepository.findById(userId)
+                    .map(UserStats::xp).orElse(0);
+            int level = ProgressSummary.computeLevel(currentXp);
+            return UserRepository.XpResult.unchanged(currentXp, level);
+        }
+        int stars = mintStars(userId, xp);
+        return userRepository.addXpAndStars(userId, xp, stars);
+    }
+
+    private static final String TYPE_PHOTO = "PHOTO";
+
+    public record PhotoAward(
+            int xpGranted,
+            int starsGranted,
+            int requestedXp,
+            double multiplier,
+            int decayStep,
+            UserRepository.XpResult creditResult) {}
+
+    /**
+     * Credits photo-question XP with per-avatar daily decay. Kids who
+     * resubmit the same photo or spam the same homework page get
+     * decreasing returns (50/25/10), but the first photo of the day
+     * still pays full XP. Per-question-hash decay is a future iteration
+     * (would require a small dedup table) — this addresses the spam
+     * case adequately for now.
+     */
+    public PhotoAward awardForPhoto(String userId, String avatarId, int baseXp) {
+        if (baseXp <= 0) {
+            int xp = userRepository.findById(userId).map(UserStats::xp).orElse(0);
+            int lvl = ProgressSummary.computeLevel(xp);
+            return new PhotoAward(0, 0, 0, 0.0, 0,
+                    UserRepository.XpResult.unchanged(xp, lvl));
+        }
+        var window = sgtToday();
+        int priorPhotos = nz(activityLog.countByTypeAndAvatarBetween(
+                userId, TYPE_PHOTO, avatarId, window.from, window.to));
+        int decayIdx = Math.min(priorPhotos, QUIZ_DECAY.length - 1);
+        double mult = QUIZ_DECAY[decayIdx];
+        int xpGranted = (int) Math.round(baseXp * mult);
+        int starsGranted = mintStars(userId, xpGranted);
+        log.info("[XP] photo user={} avatar={} base={} priorPhotos={} mult={} "
+                + "→ xp={} stars={}", userId, avatarId, baseXp, priorPhotos,
+                mult, xpGranted, starsGranted);
+        var credit = userRepository.addXpAndStars(userId, xpGranted, starsGranted);
+        return new PhotoAward(xpGranted, starsGranted, baseXp, mult,
+                priorPhotos, credit);
     }
 
     private static int nz(Integer i) { return i == null ? 0 : i; }

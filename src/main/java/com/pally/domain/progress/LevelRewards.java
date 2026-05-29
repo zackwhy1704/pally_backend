@@ -31,6 +31,20 @@ public final class LevelRewards {
         return level >= 5 ? 2 : 1;
     }
 
+    /// L10's "permanent +25% star-earn rate" — applied by {@code XpService}
+    /// when minting stars. Read-at-use-time (no migration, idempotent on
+    /// level recompute). Compounding incentive that rewards loyalty without
+    /// breaking the freemium boundary.
+    public static double starEarnMultiplier(int level) {
+        return level >= 10 ? 1.25 : 1.0;
+    }
+
+    /// One-time stack granted on first crossing of L20. Applied in
+    /// {@code UserRepositoryAdapter.addXpAndStars}. Idempotent because
+    /// crossing is detected by oldLevel < 20 && newLevel >= 20, not
+    /// by re-checking state — a level recompute won't re-grant.
+    public static final int L20_FREEZE_STACK = 5;
+
     private static final Map<Integer, Reward> REWARDS;
 
     static {
