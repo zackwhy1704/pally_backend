@@ -1,5 +1,15 @@
 package com.pally.domain.progress;
 
+/**
+ * Aggregated learner-progress snapshot returned by the dashboard endpoint.
+ *
+ * <p>Leveling curve: quadratic, smooth, 30 levels total. The first few
+ * thresholds are intentionally close together (dopamine for new users); the
+ * gap widens linearly so a daily-active child takes a school year to cap.
+ *
+ * <p>{@code xpForLevel(L) = 50 * (L - 1) * L} →
+ * 0, 100, 300, 600, 1000, 1500, … 43,500 (L = 30).
+ */
 public record ProgressSummary(
         String userId,
         int xp,
@@ -14,21 +24,40 @@ public record ProgressSummary(
         java.util.List<Integer> weekMinutes,
         java.util.List<String> badges
 ) {
-    public static int computeLevel(int xp) {
-        int[] thresholds = {0, 100, 250, 500, 900, 1400, 2000, 2800, 3800, 5000};
-        int level = 1;
-        for (int i = 1; i < thresholds.length; i++) {
-            if (xp >= thresholds[i]) level = i + 1;
-            else break;
-        }
-        return level;
+    public static final int MAX_LEVEL = 30;
+    private static final int CURVE = 50; // xpForLevel(L) = 50 * (L - 1) * L
+
+    /** Cumulative XP needed to REACH level {@code level} (level &gt;= 1). */
+    public static int xpForLevel(int level) {
+        if (level <= 1) return 0;
+        int capped = Math.min(level, MAX_LEVEL);
+        return CURVE * (capped - 1) * capped;
     }
 
-    public static int xpToNext(int xp) {
-        int[] thresholds = {0, 100, 250, 500, 900, 1400, 2000, 2800, 3800, 5000};
-        for (int threshold : thresholds) {
-            if (xp < threshold) return threshold - xp;
+    /** Current level for a given lifetime XP total. Bounded to MAX_LEVEL. */
+    public static int computeLevel(int xp) {
+        for (int l = MAX_LEVEL; l >= 1; l--) {
+            if (xp >= xpForLevel(l)) return l;
         }
-        return 0;
+        return 1;
+    }
+
+    /** XP remaining until the next level. 0 at max level. */
+    public static int xpToNext(int xp) {
+        int level = computeLevel(xp);
+        if (level >= MAX_LEVEL) return 0;
+        return xpForLevel(level + 1) - xp;
+    }
+
+    /** XP earned INSIDE the current level — the numerator for the bar. */
+    public static int xpIntoLevel(int xp) {
+        return xp - xpForLevel(computeLevel(xp));
+    }
+
+    /** Total XP span of the current level — the denominator for the bar. */
+    public static int xpSpanForLevel(int xp) {
+        int level = computeLevel(xp);
+        if (level >= MAX_LEVEL) return 1; // avoid /0; UI renders full at max
+        return xpForLevel(level + 1) - xpForLevel(level);
     }
 }

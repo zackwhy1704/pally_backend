@@ -184,9 +184,15 @@ public class ChatController {
         cacheKeepAliveService.startKeepalive(avatarId);
     }
 
+    /**
+     * Credits +5 XP for ending a chat session and returns whether the
+     * credit pushed the user over a level threshold so the client can
+     * celebrate. Used to return void → blocked the client from knowing
+     * about level-ups triggered by chat.
+     */
     @PostMapping("/chat/session-end")
     @ResponseStatus(HttpStatus.OK)
-    public void sessionEnd(
+    public Map<String, Object> sessionEnd(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
         cacheKeepAliveService.stopKeepalive(avatarId);
@@ -194,14 +200,19 @@ public class ChatController {
         // Credit 5 XP per chat session. Idempotency: not strict — the client
         // typically fires session-end exactly once on screen close. Failures
         // are best-effort so they never block the response.
+        boolean levelledUp = false;
+        int newLevel = 0;
         try {
-            userRepository.addXpAndStars(userId, 5, 2);
+            var credit = userRepository.addXpAndStars(userId, 5, 2);
+            levelledUp = credit.levelledUp();
+            newLevel = credit.newLevel();
             activityLogService.log(userId, avatarId,
                     com.pally.domain.progress.ActivityLogService.TYPE_CHAT, 0, 5);
             badgeService.grantFirstAction(userId,
                     com.pally.domain.progress.BadgeService.BadgeType.FIRST_CHAT);
             badgeService.checkAndGrantMilestones(userId);
         } catch (Exception ignored) {}
+        return Map.of("levelledUp", levelledUp, "newLevel", newLevel);
     }
 
     @PatchMapping("/teaching-mode")

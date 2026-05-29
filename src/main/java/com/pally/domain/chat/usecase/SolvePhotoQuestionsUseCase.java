@@ -47,14 +47,18 @@ public class SolvePhotoQuestionsUseCase {
         int xpEarned = questions.size() * XP_PER_QUESTION;
         int starsEarned = Math.round(xpEarned * 0.5f);
 
-        // Persist XP — without this the home counter never moves.
-        userRepository.addXpAndStars(userId, xpEarned, starsEarned);
+        // Persist XP — without this the home counter never moves. The
+        // returned XpResult lets the client fire a level-up celebration
+        // when a photo solve happens to push the user over a threshold.
+        UserRepository.XpResult credit =
+                userRepository.addXpAndStars(userId, xpEarned, starsEarned);
 
         activityLogService.log(userId, avatarId, ActivityLogService.TYPE_PHOTO, 0, xpEarned);
         badgeService.checkAndGrantMilestones(userId);
 
         String sourceWikiPage = wikiPages.isEmpty() ? null : wikiPages.getFirst().getSlug();
 
-        return new PhotoQuestionResponse(answers, xpEarned, sourceWikiPage);
+        return new PhotoQuestionResponse(answers, xpEarned, sourceWikiPage,
+                credit.levelledUp(), credit.newLevel());
     }
 }

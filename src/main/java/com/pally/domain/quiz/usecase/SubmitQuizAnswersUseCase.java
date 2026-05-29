@@ -137,16 +137,12 @@ public class SubmitQuizAnswersUseCase {
         int xpEarned = BASE_XP + (correct * XP_PER_CORRECT);
         int starsEarned = Math.round(xpEarned * 0.5f);
 
-        // Snapshot level before, persist XP+stars, then read the new level
-        // so we can emit levelledUp = true exactly once per crossing.
-        int oldLevel = userRepository.findById(submission.userId())
-                .map(s -> s.level())
-                .orElse(1);
-        userRepository.addXpAndStars(submission.userId(), xpEarned, starsEarned);
-        int newLevel = userRepository.findById(submission.userId())
-                .map(s -> s.level())
-                .orElse(oldLevel);
-        boolean levelledUp = newLevel > oldLevel;
+        // Persist XP+stars and capture the level transition in one round-trip.
+        // (Previously this issued three queries to compute the same thing.)
+        var credit = userRepository.addXpAndStars(
+                submission.userId(), xpEarned, starsEarned);
+        int newLevel = credit.newLevel();
+        boolean levelledUp = credit.levelledUp();
 
         // Update SM-2 for due flashcards based on performance
         updateFlashcardSchedules(submission.avatarId(), correct, total);

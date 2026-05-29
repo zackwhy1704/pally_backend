@@ -36,12 +36,14 @@ public class UserRepositoryAdapter implements UserRepository {
 
     @Override
     @Transactional
-    public void addXpAndStars(String userId, int xpDelta, int starsDelta) {
+    public UserRepository.XpResult addXpAndStars(
+            String userId, int xpDelta, int starsDelta) {
         var entity = jpa.findById(userId).orElse(null);
         if (entity == null) {
             log.warn("[XP] addXpAndStars: user {} not found", userId);
-            return;
+            return UserRepository.XpResult.unchanged(0, 1);
         }
+        int oldLevel = ProgressSummary.computeLevel(entity.getXp());
         int newXp = entity.getXp() + xpDelta;
         int newStars = entity.getStars() + starsDelta;
         int newLevel = ProgressSummary.computeLevel(newXp);
@@ -49,7 +51,10 @@ public class UserRepositoryAdapter implements UserRepository {
         entity.setStars(newStars);
         entity.setLevel(newLevel);
         jpa.save(entity);
-        log.info("[XP] user={} +{}xp +{}stars → total xp={} stars={} level={}",
-                userId, xpDelta, starsDelta, newXp, newStars, newLevel);
+        log.info("[XP] user={} +{}xp +{}stars → xp={} stars={} level={}→{}",
+                userId, xpDelta, starsDelta, newXp, newStars,
+                oldLevel, newLevel);
+        return new UserRepository.XpResult(
+                newXp, oldLevel, newLevel, newLevel > oldLevel);
     }
 }

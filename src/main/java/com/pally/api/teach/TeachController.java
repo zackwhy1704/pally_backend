@@ -53,14 +53,18 @@ public class TeachController {
 
         if (result.xpEarned() > 0) {
             int stars = Math.round(result.xpEarned() * 0.5f);
-            userRepository.addXpAndStars(userId, result.xpEarned(), stars);
+            var credit = userRepository.addXpAndStars(
+                    userId, result.xpEarned(), stars);
             activityLogService.log(userId, avatarId,
                     ActivityLogService.TYPE_QUIZ, 0, result.xpEarned());
+            // Surface the level-up so the screen can celebrate.
+            result = result.withLevel(credit.levelledUp(), credit.newLevel());
         }
 
-        log.info("[Teach] user={} avatar={} slug={} score={}/{} xp={}",
+        log.info("[Teach] user={} avatar={} slug={} score={}/{} xp={} level={}",
                 userId, avatarId, request.topicSlug(),
-                result.score(), result.totalConcepts(), result.xpEarned());
+                result.score(), result.totalConcepts(), result.xpEarned(),
+                result.newLevel());
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }
