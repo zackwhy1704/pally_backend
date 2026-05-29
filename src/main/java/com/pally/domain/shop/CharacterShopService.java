@@ -99,9 +99,16 @@ public class CharacterShopService {
     public static final int MYSTERY_BOX_COST = 600;
     public static final int MYSTERY_BOX_DUPLICATE_REFUND_COST = 300;
 
-    /// Secret 1-in-N odds. The catalog determines WHICH Mochis are the
-    /// secret vs rare pool — this constant only sets the rate.
-    private static final int SECRET_ODDS = 24;
+    /// Per-character draw weights in percent points. The catalog assigns
+    /// each Mochi to a rarity; each rarity has a per-character weight.
+    /// With 6 COMMONs + 1 RARE + 1 SECRET: 6×15 + 8 + 2 = 100. If the
+    /// catalog changes (e.g. a 7th common is added), weights stay per
+    /// character — total becomes 7×15+8+2=115 and the ratios shift
+    /// proportionally. That's intentional: the SEC/RARE rates are
+    /// stable relative to common while content grows.
+    private static final int WEIGHT_COMMON = 15;
+    private static final int WEIGHT_RARE = 8;
+    private static final int WEIGHT_SECRET = 2;
 
     /**
      * Open a mystery box. The star spend is an atomic conditional UPDATE
@@ -124,8 +131,7 @@ public class CharacterShopService {
                     "Mystery box is closed right now — try again later", 503);
         }
 
-        boolean isSecret = ThreadLocalRandom.current().nextInt(SECRET_ODDS) == 0;
-        MochiCharacterJpaEntity awarded = pickFromPool(pool, isSecret);
+        MochiCharacterJpaEntity awarded = pickWeighted(pool);
         String awardedId = awarded.getId();
         String rarity = awarded.getRarity();
 
@@ -168,22 +174,62 @@ public class CharacterShopService {
                 "newStarBalance", fresh.getStars(), "isNew", !alreadyOwned);
     }
 
-    /// Pick a SECRET rarity if requested + available, else a non-SECRET.
-    /// Falls back to the first character if the pool lacks the desired
-    /// rarity — better to award SOMETHING than to 500 the user.
-    private MochiCharacterJpaEntity pickFromPool(
-            List<MochiCharacterJpaEntity> pool, boolean preferSecret) {
-        String preferred = preferSecret ? "SECRET" : null;
-        List<MochiCharacterJpaEntity> matching = new ArrayList<>();
-        for (var c : pool) {
-            if (preferred == null) {
-                if (!"SECRET".equals(c.getRarity())) matching.add(c);
-            } else {
-                if (preferred.equals(c.getRarity())) matching.add(c);
-            }
+    /// True weighted pull. Each character carries the per-rarity weight
+    /// (COMMON=15, RARE=8, SECRET=2). With the current Core theme that
+    /// gives the design-spec odds: each of 6 commons 15%, headmaster 8%,
+    /// goldstar 2%. The roll is a single uniform draw in [0, totalWeight)
+    /// mapped to whichever character's window it lands in.
+    private MochiCharacterJpaEntity pickWeighted(
+            List<MochiCharacterJpaEntity> pool) {
+        int total = 0;
+        for (var c : pool) total += weightOf(c);
+        if (total <= 0) {
+            // Catalog corruption (all UNKNOWN rarity) — better award
+            // SOMETHING than 500. Fair fallback: uniform.
+            return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
         }
-        if (matching.isEmpty()) matching = pool;
-        return matching.get(ThreadLocalRandom.current().nextInt(matching.size()));
+        int roll = ThreadLocalRandom.current().nextInt(total);
+        int accum = 0;
+        for (var c : pool) {
+            accum += weightOf(c);
+            if (roll < accum) return c;
+        }
+        // Floating point can't bite here (we're in ints), but be safe.
+        return pool.get(pool.size() - 1);
+    }
+
+    static int weightOf(MochiCharacterJpaEntity c) {
+        return switch (c.getRarity()) {
+            case "COMMON" -> WEIGHT_COMMON;
+            case "RARE"   -> WEIGHT_RARE;
+            case "SECRET" -> WEIGHT_SECRET;
+            default       -> 0;
+        };
+    }
+
+    /// Public catalog hook for the "FYI — Probability" UI. Returns each
+    /// active MYSTERY_BOX character with its odds as a percentage of the
+    /// current total weight — kid-friendly numbers the Flutter screen
+    /// just renders verbatim instead of hardcoding.
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> mysteryBoxOdds() {
+        Instant now = Instant.now();
+        List<MochiCharacterJpaEntity> pool = activeOf("MYSTERY_BOX", now);
+        int total = 0;
+        for (var c : pool) total += weightOf(c);
+        if (total == 0) return List.of();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (var c : pool) {
+            int w = weightOf(c);
+            if (w == 0) continue;
+            result.add(Map.of(
+                    "character", c.getId(),
+                    "name", c.getName(),
+                    "rarity", c.getRarity(),
+                    "weight", w,
+                    "percent", Math.round(100.0 * w / total)));
+        }
+        return result;
     }
 
     @Transactional

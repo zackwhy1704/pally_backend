@@ -199,6 +199,88 @@ class CharacterShopServiceTest {
         verify(unlockRepo, never()).save(any());
     }
 
+    /// True statistical test of the weighted-pull odds: 10000 draws on
+    /// the Core pool should land within ±2% of the spec rates (15%/8%/2%).
+    /// Catches regressions that flip the weighting back to "secret coin
+    /// + uniform-among-remaining" (the old behaviour) where the rates
+    /// would diverge.
+    @Test
+    void openMysteryBox_weightedPull_matchesSpecOdds() {
+        // Stub the catalog with the exact Core composition.
+        var commons = new java.util.ArrayList<
+                com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity>();
+        for (var id : java.util.List.of(
+                "PENCIL", "SCIENCE", "PE", "ART", "LUNCHBOX", "LIBRARY")) {
+            commons.add(catalogRow(id, "COMMON"));
+        }
+        var rare = catalogRow("HEADMASTER", "RARE");
+        var secret = catalogRow("GOLDSTAR", "SECRET");
+        var pool = new java.util.ArrayList<
+                com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity>();
+        pool.addAll(commons);
+        pool.add(rare);
+        pool.add(secret);
+        when(catalogRepo.findByAcquisition("MYSTERY_BOX")).thenReturn(pool);
+
+        // Stub the rest so the call doesn't blow up. Each draw treats
+        // "stars=600", "no duplicate" so we always go down the
+        // happy spend+unlock path.
+        when(unlockRepo.existsByUserIdAndCharacter(eq(USER), anyString()))
+                .thenReturn(false);
+        when(userRepo.spendStars(USER, 600)).thenReturn(1);
+        when(userRepo.findById(USER))
+                .thenReturn(Optional.of(user(0, 0, 1)));
+
+        final int draws = 10_000;
+        var counts = new java.util.HashMap<String, Integer>();
+        for (int i = 0; i < draws; i++) {
+            var result = shop.openMysteryBox(USER);
+            counts.merge((String) result.get("character"), 1, Integer::sum);
+        }
+
+        int commonHits = 0;
+        for (var id : java.util.List.of(
+                "PENCIL", "SCIENCE", "PE", "ART", "LUNCHBOX", "LIBRARY")) {
+            commonHits += counts.getOrDefault(id, 0);
+        }
+        int rareHits = counts.getOrDefault("HEADMASTER", 0);
+        int secretHits = counts.getOrDefault("GOLDSTAR", 0);
+
+        // 90% common ± 2% (180-pt window over 10000)
+        assertThat(commonHits).isBetween(8800, 9200);
+        // 8% rare  ± 1.5%
+        assertThat(rareHits).isBetween(650, 950);
+        // 2% secret ± 1%
+        assertThat(secretHits).isBetween(100, 300);
+    }
+
+    @Test
+    void mysteryBoxOdds_corePool_returns15_8_2() {
+        var pool = new java.util.ArrayList<
+                com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity>();
+        for (var id : java.util.List.of(
+                "PENCIL", "SCIENCE", "PE", "ART", "LUNCHBOX", "LIBRARY")) {
+            pool.add(catalogRow(id, "COMMON"));
+        }
+        pool.add(catalogRow("HEADMASTER", "RARE"));
+        pool.add(catalogRow("GOLDSTAR", "SECRET"));
+        when(catalogRepo.findByAcquisition("MYSTERY_BOX")).thenReturn(pool);
+
+        var odds = shop.mysteryBoxOdds();
+        assertThat(odds).hasSize(8);
+        for (var entry : odds) {
+            String rarity = (String) entry.get("rarity");
+            long pct = (Long) (Object) entry.get("percent");
+            switch (rarity) {
+                case "COMMON" -> assertThat(pct).isEqualTo(15L);
+                case "RARE"   -> assertThat(pct).isEqualTo(8L);
+                case "SECRET" -> assertThat(pct).isEqualTo(2L);
+                default -> org.assertj.core.api.Assertions.fail(
+                        "unexpected rarity: " + rarity);
+            }
+        }
+    }
+
     @Test
     void getCharacterUnlocks_readsCatalog_filtersActiveWindow() {
         // Catalog has 2 active + 1 expired.

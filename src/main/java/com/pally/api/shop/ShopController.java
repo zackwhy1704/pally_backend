@@ -57,6 +57,15 @@ public class ShopController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    /// Per-character odds for the mystery box, derived from the live
+    /// catalog. Returned as percent so the Flutter "FYI — Probability"
+    /// card can render the list verbatim without hardcoding rates.
+    @GetMapping("/open-box/odds")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> mysteryBoxOdds() {
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "odds", characterShopService.mysteryBoxOdds())));
+    }
+
     /// Spend 150 stars for a streak freeze. The atomic-update guard in
     /// CharacterShopService makes this race-safe at the SQL level — the
     /// audit's D1 lost-update bug is closed for this path.
