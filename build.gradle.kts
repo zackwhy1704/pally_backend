@@ -53,7 +53,7 @@ dependencies {
     implementation("org.apache.pdfbox:pdfbox:3.0.2")
 
     // Tesseract OCR
-    implementation("net.sourceforge.tess4j:tess4j:5.11.0")
+    implementation("net.sourceforge.tess4j:tess4j:5.19.0")
 
     // OpenAPI / SpringDoc
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
