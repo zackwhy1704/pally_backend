@@ -51,6 +51,20 @@ management:
 jwt:
   secret: ${JWT_SECRET:dev-secret-min-32-chars-long-here-!!}
 
+# Stripe — leave blank in dev so SubscriptionController stays in mock mode.
+# Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET on Railway to flip to live.
+# Register the webhook URL in the Stripe Dashboard as:
+#   https://pallybackend-production.up.railway.app/api/v1/subscription/webhook
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  return:
+    success-url: ${STRIPE_SUCCESS_URL:pally://subscription/return?status=success}
+    cancel-url: ${STRIPE_CANCEL_URL:pally://subscription/return?status=cancel}
+  price:
+    individual-monthly: ${STRIPE_PRICE_INDIVIDUAL_MONTHLY:}
+    family-monthly: ${STRIPE_PRICE_FAMILY_MONTHLY:}
+
 claude:
   api:
     key: ${CLAUDE_API_KEY:}

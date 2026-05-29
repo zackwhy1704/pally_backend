@@ -58,6 +58,10 @@ dependencies {
     // OpenAPI / SpringDoc
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
+    // Stripe — Checkout Sessions, Billing Portal, Webhook signature verify.
+    // Pinned to a major version that supports java 21 and the modern API.
+    implementation("com.stripe:stripe-java:28.4.0")
+
     // Lombok
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
