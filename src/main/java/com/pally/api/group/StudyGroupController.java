@@ -2,6 +2,7 @@ package com.pally.api.group;
 
 import com.pally.domain.knowledge.RelevanceScore;
 import com.pally.domain.knowledge.port.RelevancePort;
+import com.pally.domain.progress.XpService;
 import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
@@ -56,6 +57,8 @@ public class StudyGroupController {
     private static final int FREE_GROUP_CAP = 1;
     private static final String PILOT_FLAG = "groups_enabled";
 
+    private static final int SHARE_XP = 10;
+
     private final StudyGroupJpaRepository groupRepo;
     private final GroupMemberJpaRepository memberRepo;
     private final GroupSharedNoteJpaRepository sharedNoteRepo;
@@ -64,6 +67,7 @@ public class StudyGroupController {
     private final RelevancePort relevancePort;
     private final UserJpaRepository userRepo;
     private final UserFeatureFlagJpaRepository flagRepo;
+    private final XpService xpService;
 
     /// Relevance thresholds — share is hard-blocked below BLOCK, soft-warned
     /// between BLOCK and WARN. Tuned against the same scale the upload-time
@@ -173,6 +177,7 @@ public class StudyGroupController {
                     Map<String, Object> m = new HashMap<>();
                     m.put("id", n.getId());
                     m.put("wikiPageId", n.getWikiPageId());
+                    m.put("avatarId", n.getAvatarId() == null ? "" : n.getAvatarId());
                     m.put("title", n.getTitle() == null ? "" : n.getTitle());
                     m.put("sharedBy", n.getSharedBy());
                     m.put("sharedAt", n.getSharedAt().toString());
@@ -209,18 +214,22 @@ public class StudyGroupController {
         var group = groupRepo.findById(groupId)
                 .orElseThrow(() -> new BusinessException("Group not found", 404));
 
+        WikiPageJpaEntity page = wikiPageRepo.findById(wikiPageId)
+                .orElseThrow(() -> new BusinessException("Wiki page not found", 404));
+
         GroupSharedNoteJpaEntity n = new GroupSharedNoteJpaEntity();
         n.setId(IdGenerator.newId());
         n.setGroupId(groupId);
         n.setWikiPageId(wikiPageId);
-        n.setTitle(body.get("title"));
+        n.setAvatarId(page.getAvatarId());
+        n.setTitle(body.get("title") != null ? body.get("title") : page.getTitle());
         n.setSharedBy(userId);
         n.setSharedAt(Instant.now());
 
         // Re-run relevance against the group's subject. Best-effort: a
         // Claude outage shouldn't block sharing — fall back to OK in that
         // case so the share isn't silently lost.
-        applyShareRelevance(n, group);
+        applyShareRelevance(n, group, page);
 
         if ("BLOCKED".equals(n.getRelevanceStatus())) {
             throw new BusinessException(
@@ -232,11 +241,29 @@ public class StudyGroupController {
         log.info("[Groups] share group={} note={} status={} score={}",
                 groupId, n.getId(), n.getRelevanceStatus(),
                 n.getRelevanceScore());
+
+        // Award XP once per (user, wikiPage, group) — dedup so re-sharing the
+        // same page to the same group doesn't farm rewards. We check BEFORE
+        // saving, so existsByGroupIdAndWikiPageIdAndSharedBy returns false on
+        // first share and true on any subsequent re-share.
+        boolean firstShare = !sharedNoteRepo
+                .existsByGroupIdAndWikiPageIdAndSharedBy(groupId, wikiPageId, userId);
+        int xpGranted = 0;
+        int starsGranted = 0;
+        if (firstShare) {
+            xpGranted = SHARE_XP;
+            xpService.awardFlat(userId, SHARE_XP);
+            starsGranted = (int) Math.round(SHARE_XP * 0.5);
+        }
+
         Map<String, Object> resp = new HashMap<>();
         resp.put("id", n.getId());
         resp.put("wikiPageId", n.getWikiPageId());
+        resp.put("avatarId", n.getAvatarId() == null ? "" : n.getAvatarId());
         resp.put("title", n.getTitle() == null ? "" : n.getTitle());
         resp.put("relevanceStatus", n.getRelevanceStatus());
+        resp.put("xpGranted", xpGranted);
+        resp.put("starsGranted", starsGranted);
         if (n.getRelevanceScore() != null) {
             resp.put("relevanceScore", n.getRelevanceScore());
         }
@@ -393,16 +420,12 @@ public class StudyGroupController {
     }
 
     private void applyShareRelevance(GroupSharedNoteJpaEntity note,
-                                     StudyGroupJpaEntity group) {
+                                     StudyGroupJpaEntity group,
+                                     WikiPageJpaEntity page) {
         String subject = group.getSubject();
         if (subject == null || subject.isBlank()) {
             note.setRelevanceStatus("OK");
             return;
-        }
-        WikiPageJpaEntity page =
-                wikiPageRepo.findById(note.getWikiPageId()).orElse(null);
-        if (page == null) {
-            throw new BusinessException("Wiki page not found", 404);
         }
         String content = page.getContent() == null ? "" : page.getContent();
         if (content.isBlank()) {

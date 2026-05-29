@@ -19,4 +19,7 @@ public interface GroupSharedNoteJpaRepository
             """, nativeQuery = true)
     List<GroupSharedNoteJpaEntity> findRecentByGroupId(
             @Param("groupId") String groupId);
+
+    boolean existsByGroupIdAndWikiPageIdAndSharedBy(
+            String groupId, String wikiPageId, String sharedBy);
 }
