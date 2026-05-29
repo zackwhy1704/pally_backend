@@ -91,6 +91,22 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(message, 400));
     }
 
+    /// Handles {@code @Validated} constraint failures on path/query
+    /// params (different exception type than {@code @Valid} on bodies).
+    /// Same envelope so the client's PallyError mapper can treat them
+    /// identically.
+    @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConstraintViolation(
+            jakarta.validation.ConstraintViolationException ex) {
+        String message = ex.getConstraintViolations().stream()
+                .map(v -> v.getPropertyPath() + " " + v.getMessage())
+                .collect(Collectors.joining("; "));
+        log.debug("Constraint violation: {}", message);
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(message, 400));
+    }
+
     /**
      * Catch-all handler for unexpected exceptions.
      * Logs the full stack trace but returns only a generic message to the client.

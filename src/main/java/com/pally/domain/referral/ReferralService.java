@@ -92,6 +92,9 @@ public class ReferralService {
 
     /// Called from the quiz path on a user's FIRST answer ever. Idempotent:
     /// already-activated referrals are skipped, missing referrals no-op.
+    /// Item 10.1 gate: payout requires referee.email_verified — a kid
+    /// can still PLAY without verification, but rewards don't mint until
+    /// the email is verified (closes a fake-signup farming hole).
     @Transactional
     public void onFirstQuizAnswer(String refereeUserId) {
         Optional<ReferralJpaEntity> maybe =
@@ -99,6 +102,18 @@ public class ReferralService {
         if (maybe.isEmpty()) return;
         ReferralJpaEntity r = maybe.get();
         if (ReferralJpaEntity.STATUS_ACTIVATED.equals(r.getStatus())) return;
+
+        boolean verified = userRepo.findById(refereeUserId)
+                .map(UserJpaEntity::isEmailVerified)
+                .orElse(false);
+        if (!verified) {
+            // Don't flip the row yet — leave it pending so the reward
+            // mints on a later trigger once the user verifies. Same
+            // method is safe to call again after verify-email returns.
+            log.info("[Referral] referee={} unverified — withholding reward",
+                    refereeUserId);
+            return;
+        }
 
         r.setStatus(ReferralJpaEntity.STATUS_ACTIVATED);
         r.setActivatedAt(Instant.now());

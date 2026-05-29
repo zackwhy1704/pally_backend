@@ -134,6 +134,12 @@ public class UserJpaEntity {
     @Column(name = "role", nullable = false, length = 20)
     private String role = "USER";
 
+    /// Email verification gate (Item 10.1). Does NOT block basic app
+    /// usage — kids need to start fast — but referral rewards only
+    /// mint when this is true. Anti-fraud: blocks fake-account farming.
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
