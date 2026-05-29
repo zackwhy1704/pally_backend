@@ -55,6 +55,7 @@ public class AccountController {
     private static final Duration CODE_TTL = Duration.ofHours(24);
 
     private final UserJpaRepository userRepo;
+    private final com.pally.domain.subscription.PremiumService premiumService;
 
     @PostMapping("/link-code")
     @Transactional
@@ -135,6 +136,14 @@ public class AccountController {
 
         parent.setAccountType("PARENT");
         userRepo.save(parent);
+        // CHILD's inherited entitlement flips on this link — flush their
+        // cached resolve() value so the next gate read sees the parent's
+        // premium status without waiting for the TTL.
+        try {
+            premiumService.evictEntitlement(child.getId());
+        } catch (Exception ignored) {
+            // Eviction failure is non-fatal; the TTL bounds the staleness.
+        }
         log.info("[Account] parent={} claimed child={}", parent.getId(), child.getId());
 
         return ResponseEntity.ok(ApiResponse.success(Map.of(

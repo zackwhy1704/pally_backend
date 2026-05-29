@@ -32,6 +32,19 @@ public class SubmitQuizAnswersUseCase {
     private static final int XP_PER_CORRECT = 4;
     private static final int BASE_XP = 20;
 
+    /// Confidence-weighted certainty deltas — B-B2 fidelity upgrade over
+    /// the flat ±0.05/-0.10 the harness used to apply. A confidently-wrong
+    /// answer is a real misconception and should shake the page hardest;
+    /// a low-confidence wrong is a known gap (still nudges down, gently);
+    /// confidently-right reinforces more; a lucky guess barely moves the
+    /// needle so we don't paper over weak understanding.
+    private static final double DELTA_HIGH_CORRECT     = +0.08;
+    private static final double DELTA_HIGH_WRONG       = -0.15;
+    private static final double DELTA_LOW_CORRECT      = +0.02;
+    private static final double DELTA_LOW_WRONG        = -0.03;
+    private static final double DELTA_DEFAULT_CORRECT  = +0.05;
+    private static final double DELTA_DEFAULT_WRONG    = -0.10;
+
     private final AvatarRepository avatarRepository;
     private final FlashcardRepository flashcardRepository;
     private final UserRepository userRepository;
@@ -91,6 +104,10 @@ public class SubmitQuizAnswersUseCase {
         // scores can self-correct from real student performance.
         List<String> correctSlugs = new ArrayList<>();
         List<String> wrongSlugs = new ArrayList<>();
+        // B-B2 — per-slug delta sum so we can apply ONE adjust per slug,
+        // weighted by the per-question confidence reading. Falls back to
+        // the flat default deltas when the question has no confidence.
+        java.util.Map<String, Double> slugDeltas = new java.util.HashMap<>();
 
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
             String questionId = entry.getKey();
@@ -108,6 +125,8 @@ public class SubmitQuizAnswersUseCase {
                 } else {
                     wrongSlugs.add(topic);
                 }
+                slugDeltas.merge(topic, weightedDelta(wasCorrect, confidence),
+                        Double::sum);
             }
 
             // Classify into the 2x2 matrix when we have a confidence reading.
@@ -178,14 +197,17 @@ public class SubmitQuizAnswersUseCase {
         // this quiz clears its review flag — without this, the flag would
         // stick forever even after the student masters the topic.
         try {
-            if (!correctSlugs.isEmpty()) {
+            // Confidence-weighted: apply the per-slug summed delta. One
+            // adjust call per slug (typically 3-5 per quiz) trades a tiny
+            // number of extra round-trips for harness fidelity.
+            for (var entry : slugDeltas.entrySet()) {
+                double d = entry.getValue();
+                if (d == 0.0) continue;
                 wikiRepository.adjustCertainty(submission.avatarId(),
-                        correctSlugs.stream().distinct().toList(), +0.05);
+                        List.of(entry.getKey()), d);
             }
             if (!wrongSlugs.isEmpty()) {
                 List<String> distinctWrong = wrongSlugs.stream().distinct().toList();
-                wikiRepository.adjustCertainty(submission.avatarId(),
-                        distinctWrong, -0.10);
                 wikiRepository.setReviewRequired(submission.avatarId(),
                         distinctWrong, true);
                 log.info("[Harness] Flagged {} pages for review after wrong "
@@ -239,5 +261,21 @@ public class SubmitQuizAnswersUseCase {
                 .map(card -> Sm2Scheduler.applyRating(card, rating))
                 .toList();
         flashcardRepository.saveAll(updated);
+    }
+
+    /// Translate a (correct, confidence) pair into the certainty delta the
+    /// harness should apply to the page that taught this topic.
+    private double weightedDelta(boolean correct, String confidence) {
+        if (confidence == null) {
+            return correct ? DELTA_DEFAULT_CORRECT : DELTA_DEFAULT_WRONG;
+        }
+        String c = confidence.toUpperCase();
+        if (c.equals("HIGH")) {
+            return correct ? DELTA_HIGH_CORRECT : DELTA_HIGH_WRONG;
+        }
+        if (c.equals("LOW")) {
+            return correct ? DELTA_LOW_CORRECT : DELTA_LOW_WRONG;
+        }
+        return correct ? DELTA_DEFAULT_CORRECT : DELTA_DEFAULT_WRONG;
     }
 }

@@ -6,12 +6,19 @@ spring:
     username: ${DB_USER:pally}
     password: ${DB_PASSWORD:pally}
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
-      connection-timeout: 30000
+      # Env-driven so we can tune per environment without a redeploy. With
+      # virtual threads on, the app accepts thousands of concurrent requests
+      # but each DB call still borrows a real connection — so the pool is the
+      # ceiling and tuning matters MORE, not less. 10s connection-timeout
+      # fails fast instead of piling up callers for 30s; leak-detection at
+      # 20s catches accidentally-held connections in dev.
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN:5}
+      connection-timeout: ${DB_POOL_TIMEOUT:10000}
       keepalive-time: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+      leak-detection-threshold: ${DB_LEAK_MS:20000}
       connection-test-query: SELECT 1
   jpa:
     hibernate:

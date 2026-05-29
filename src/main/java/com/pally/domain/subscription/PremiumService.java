@@ -1,11 +1,14 @@
 package com.pally.domain.subscription;
 
+import com.pally.infrastructure.config.CacheConfig;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +45,11 @@ public class PremiumService {
             Instant trialEndsAt
     ) {}
 
+    /// Cached: same userId hits Postgres at most once per ENTITLEMENT TTL
+    /// (60s). Eviction fires on every premium-write path (Stripe webhook,
+    /// family link change) so a cancellation can't be hidden by a stale
+    /// cache for more than that TTL even if eviction is missed.
+    @Cacheable(value = CacheConfig.ENTITLEMENT, key = "#userId")
     @Transactional
     public Entitlement resolve(String userId) {
         UserJpaEntity user = userRepo.findById(userId).orElse(null);
@@ -79,10 +87,21 @@ public class PremiumService {
     }
 
     /// Force-refresh the user's flag — call from webhook handlers when the
-    /// subscription state changes asynchronously.
+    /// subscription state changes asynchronously. Evicts the cached
+    /// entitlement entry first so the resolve() call inside doesn't
+    /// hand back the stale value via @Cacheable's read-through.
+    @CacheEvict(value = CacheConfig.ENTITLEMENT, key = "#userId")
     @Transactional
     public void refreshFlag(String userId) {
         resolve(userId);
+    }
+
+    /// Public eviction hook for non-subscription writes that still need
+    /// to flush the entitlement cache (e.g. parent-link claim flips a
+    /// CHILD's inherited premium status).
+    @CacheEvict(value = CacheConfig.ENTITLEMENT, key = "#userId")
+    public void evictEntitlement(String userId) {
+        // Method body is empty by design — the annotation does the work.
     }
 
     private void persistFlag(UserJpaEntity user, boolean isPremium) {

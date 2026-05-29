@@ -9,14 +9,23 @@ import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.infrastructure.ai.CacheInvalidationService;
 import com.pally.infrastructure.ai.CacheKeepAliveService;
+import com.pally.infrastructure.config.AiTaskExecutorConfig;
 import com.pally.shared.exception.AvatarNotFoundException;
+import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.WikiCompileException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Use case: compile an avatar's knowledge files into structured wiki pages via Claude.
@@ -35,11 +44,43 @@ public class CompileWikiUseCase {
     private final CacheKeepAliveService cacheKeepAliveService;
     private final WikiPagePersistenceService persistenceService;
 
+    @Qualifier(AiTaskExecutorConfig.AI_TASK_EXECUTOR)
+    private final ThreadPoolExecutor aiTaskExecutor;
+
     public record CompileResult(
             int pagesCreated,
             int pagesUpdated,
             List<String> pageTitles
     ) {}
+
+    /// Bounded variant — runs the compile on the {@link AiTaskExecutorConfig}
+    /// pool so concurrent compiles can never exhaust the web tier or the
+    /// Claude budget. A flooded queue surfaces a 503 to the caller via
+    /// {@link RejectedExecutionException} → {@link BusinessException}, which
+    /// the client treats as "try again in a moment".
+    public CompileResult executeBounded(String avatarId) {
+        try {
+            Future<CompileResult> future =
+                    aiTaskExecutor.submit(() -> execute(avatarId));
+            // Cap the wait so a stuck queue can't park the request thread
+            // forever. Matches the Claude stream/idle ceiling.
+            return future.get(4, TimeUnit.MINUTES);
+        } catch (RejectedExecutionException e) {
+            throw new BusinessException(
+                    "Mochi's busy compiling other brains — try again in a moment.",
+                    503);
+        } catch (TimeoutException e) {
+            throw new BusinessException(
+                    "Compile took too long. Please retry.", 504);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("Compile interrupted", 500);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new WikiCompileException("Compile failed", cause);
+        }
+    }
 
     public CompileResult execute(String avatarId) {
         Avatar avatar = avatarRepository.findById(avatarId)

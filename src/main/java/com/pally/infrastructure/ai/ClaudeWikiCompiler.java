@@ -12,7 +12,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Claude-backed implementation of {@link WikiCompilerPort}.
@@ -26,7 +28,16 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeWikiCompiler.class);
     private static final int MAX_TOKENS = 4096;
+    /// Largest single-file body we'll send Claude in one call. Anything
+    /// bigger is map-reduced: split into ~CHUNK_SIZE windows, compile each,
+    /// then merge drafts by slug. Was a silent truncation before B1 — long
+    /// PDFs lost everything past 4k chars from the brain.
     private static final int MAX_FILE_CHARS = 4000;
+    private static final int CHUNK_SIZE = 3500;
+    /// Cost guard: a 100-page textbook compiled as 25 chunks of 3.5k chars
+    /// each is ~12.5k tokens to Haiku. Cap at 8 chunks/file (~28k chars)
+    /// and ask the user to split the file if they exceed it.
+    private static final int MAX_CHUNKS_PER_FILE = 8;
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
@@ -34,12 +45,101 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
 
     @Override
     public List<WikiPageDraft> compile(Avatar avatar, List<KnowledgeFile> files, List<WikiPage> existingPages) {
-        String prompt = buildPrompt(avatar, files, existingPages);
-        log.debug("Compiling wiki for avatarId={} fileCount={}", avatar.getId(), files.size());
+        log.debug("Compiling wiki for avatarId={} fileCount={}",
+                avatar.getId(), files.size());
 
-        String raw = apiClient.complete(modelRouter.forWikiCompile(), MAX_TOKENS, prompt);
-        return parseResponse(raw);
+        // Fast path: nothing is oversized → one batched Claude call (preserves
+        // the prior cross-file organisation behaviour for the common case).
+        if (files.stream().allMatch(f -> length(f.getExtractedText()) <= MAX_FILE_CHARS)) {
+            String prompt = buildPrompt(avatar, files, existingPages, null);
+            String raw = apiClient.complete(
+                    modelRouter.forWikiCompile(), MAX_TOKENS, prompt);
+            return parseResponse(raw);
+        }
+
+        // Map-reduce path: chunk any oversized file into windows, run one
+        // Claude call per chunk, then merge drafts by slug. Cost stays
+        // bounded by MAX_CHUNKS_PER_FILE per source file.
+        Map<String, WikiPageDraft> bySlug = new LinkedHashMap<>();
+        for (KnowledgeFile file : files) {
+            List<String> chunks = chunkText(file.getExtractedText());
+            for (int i = 0; i < chunks.size(); i++) {
+                String chunkLabel = "chunk %d of %d".formatted(
+                        i + 1, chunks.size());
+                String prompt = buildPrompt(avatar, List.of(file),
+                        existingPages, new ChunkContext(chunks.get(i), chunkLabel));
+                String raw;
+                try {
+                    raw = apiClient.complete(
+                            modelRouter.forWikiCompile(), MAX_TOKENS, prompt);
+                } catch (Exception e) {
+                    log.warn("[WikiCompiler] chunk {} failed for {}: {}",
+                            chunkLabel, file.getFileName(), e.getMessage());
+                    continue;
+                }
+                mergeDrafts(bySlug, parseResponse(raw));
+            }
+        }
+        return new ArrayList<>(bySlug.values());
     }
+
+    private List<String> chunkText(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        if (text.length() <= MAX_FILE_CHARS) return List.of(text);
+        List<String> out = new ArrayList<>();
+        int pos = 0;
+        while (pos < text.length() && out.size() < MAX_CHUNKS_PER_FILE) {
+            int end = Math.min(pos + CHUNK_SIZE, text.length());
+            // Try to break on a paragraph boundary so equations / list items
+            // aren't sliced in half across two Claude calls.
+            if (end < text.length()) {
+                int para = text.lastIndexOf("\n\n", end);
+                if (para > pos + (CHUNK_SIZE / 2)) end = para;
+            }
+            out.add(text.substring(pos, end));
+            pos = end;
+        }
+        if (pos < text.length()) {
+            log.warn("[WikiCompiler] source exceeded {}-chunk cap; tail truncated",
+                    MAX_CHUNKS_PER_FILE);
+        }
+        return out;
+    }
+
+    /// Merge two slug-keyed sets: same slug → concatenate content with a
+    /// separator so later passes pick up additions; prerequisite slugs
+    /// union. Title from the first occurrence wins (chunks usually agree).
+    private void mergeDrafts(Map<String, WikiPageDraft> bySlug,
+                              List<WikiPageDraft> incoming) {
+        for (WikiPageDraft d : incoming) {
+            String slug = d.slug();
+            WikiPageDraft existing = bySlug.get(slug);
+            if (existing == null) {
+                bySlug.put(slug, d);
+                continue;
+            }
+            StringBuilder content = new StringBuilder(existing.content());
+            if (!existing.content().isBlank() && !d.content().isBlank()) {
+                content.append("\n\n");
+            }
+            content.append(d.content());
+            List<String> prereqs = new ArrayList<>(existing.prerequisites());
+            for (String p : d.prerequisites()) {
+                if (!prereqs.contains(p)) prereqs.add(p);
+            }
+            bySlug.put(slug, new WikiPageDraft(
+                    slug, existing.title(), content.toString(), prereqs));
+        }
+    }
+
+    private int length(String s) {
+        return s == null ? 0 : s.length();
+    }
+
+    /// Marker that the prompt should treat its single file as a slice of a
+    /// larger source. {@code text} replaces the file's full extractedText
+    /// for this call only.
+    private record ChunkContext(String text, String label) {}
 
     /**
      * Legacy method for backward compatibility — delegates to {@link #compile(Avatar, List, List)}.
@@ -48,7 +148,9 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
         return compile(avatar, readyFiles, existingPages);
     }
 
-    private String buildPrompt(Avatar avatar, List<KnowledgeFile> files, List<WikiPage> existingPages) {
+    private String buildPrompt(Avatar avatar, List<KnowledgeFile> files,
+                               List<WikiPage> existingPages,
+                               ChunkContext chunkContext) {
         StringBuilder sb = new StringBuilder();
         sb.append("""
                 You are a knowledge organiser for a children's educational tutoring app (ages 8-14).
@@ -77,13 +179,18 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
 
         sb.append("## EXTRACTED CONTENT TO COMPILE\n\n");
         for (KnowledgeFile file : files) {
-            sb.append("### Source: ").append(file.getFileName()).append("\n");
-            String text = file.getExtractedText();
+            sb.append("### Source: ").append(file.getFileName());
+            if (chunkContext != null) {
+                sb.append(" (").append(chunkContext.label()).append(")");
+            }
+            sb.append("\n");
+            // Chunk-mode wins when present so a single oversized file
+            // doesn't fall back to the legacy 4000-char truncation.
+            String text = chunkContext != null
+                    ? chunkContext.text()
+                    : file.getExtractedText();
             if (text != null && !text.isBlank()) {
-                String truncated = text.length() > MAX_FILE_CHARS
-                        ? text.substring(0, MAX_FILE_CHARS) + "\n[... truncated ...]"
-                        : text;
-                sb.append(truncated).append("\n\n");
+                sb.append(text).append("\n\n");
             } else {
                 sb.append("(no text content available)\n\n");
             }

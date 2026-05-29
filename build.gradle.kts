@@ -62,6 +62,12 @@ dependencies {
     // Pinned to a major version that supports java 21 and the modern API.
     implementation("com.stripe:stripe-java:28.4.0")
 
+    // Cache abstraction (Caffeine impl now; Redis-swappable via config).
+    // Business code stays on @Cacheable / CacheManager so Stage 2 of the
+    // scaling plan is a config change, not a refactor.
+    implementation("org.springframework.boot:spring-boot-starter-cache")
+    implementation("com.github.ben-manes.caffeine:caffeine:3.1.8")
+
     // Lombok
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

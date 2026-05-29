@@ -198,7 +198,10 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
-        CompileWikiUseCase.CompileResult result = compileWikiUseCase.execute(avatarId);
+        // Bounded path — capped concurrent compiles so a burst can't
+        // exhaust the web tier or the Claude token budget.
+        CompileWikiUseCase.CompileResult result =
+                compileWikiUseCase.executeBounded(avatarId);
         int total = result.pagesCreated() + result.pagesUpdated();
         WikiCompileResponse response = new WikiCompileResponse(
                 total,

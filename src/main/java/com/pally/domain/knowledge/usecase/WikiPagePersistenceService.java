@@ -5,7 +5,9 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
+import com.pally.infrastructure.ai.ClaudeApiClient;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
+import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.domain.chat.HintTreeGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,12 +36,19 @@ import java.util.Set;
 @Slf4j
 public class WikiPagePersistenceService {
 
-    private static final double CONFLICT_SIMILARITY_THRESHOLD = 0.40;
+    /// Jaccard below this is a definite contradiction — too few words
+    /// overlap for the two passages to be the same fact.
+    private static final double CONFLICT_BLOCK_BELOW = 0.40;
+    /// Jaccard in [BLOCK, GRAY) is the gray band — could be a paraphrase
+    /// of the same fact OR a real contradiction; we ask Claude on these.
+    private static final double CONFLICT_GRAY_BELOW = 0.70;
 
     private final WikiRepository wikiRepository;
     private final AvatarRepository avatarRepository;
     private final HintTreeGenerator hintTreeGenerator;
     private final ClaudeFlashcardGenerator flashcardGenerator;
+    private final ClaudeApiClient claudeApiClient;
+    private final ModelRouter modelRouter;
 
     public record PersistOutcome(
             int created,
@@ -111,6 +120,12 @@ public class WikiPagePersistenceService {
         return new PersistOutcome(created, updated, pageTitles);
     }
 
+    /// Two-stage conflict detection (B-B3):
+    ///  1. Jaccard on lowercased word tokens (cheap, always runs).
+    ///  2. If similarity is in the gray band, one Haiku yes/no — catches
+    ///     paraphrase-vs-contradiction cases like "boils at 100°C" vs
+    ///     "boils at 90°C" that lexical alone would miss/false-fire on.
+    /// Only runs on slug collisions, so the LLM cost stays negligible.
     private boolean detectConflict(String existingContent, String newContent) {
         if (existingContent == null || newContent == null) return false;
         Set<String> a = tokenize(existingContent);
@@ -121,7 +136,47 @@ public class WikiPagePersistenceService {
         Set<String> union = new HashSet<>(a);
         union.addAll(b);
         double jaccard = (double) intersection.size() / union.size();
-        return jaccard < CONFLICT_SIMILARITY_THRESHOLD;
+        if (jaccard >= CONFLICT_GRAY_BELOW) return false;
+        if (jaccard < CONFLICT_BLOCK_BELOW) return true;
+        return haikuContradicts(existingContent, newContent, jaccard);
+    }
+
+    private boolean haikuContradicts(String existing, String incoming, double jaccard) {
+        try {
+            String prompt = """
+                    You compare two passages about the same topic from a kids'
+                    tutor knowledge base. Answer YES if they materially
+                    contradict each other (different facts, numbers, definitions);
+                    answer NO if they're paraphrases of the same fact, or one is
+                    a superset of the other.
+
+                    Reply with ONLY the single word YES or NO.
+
+                    PASSAGE A:
+                    %s
+
+                    PASSAGE B:
+                    %s
+                    """.formatted(truncate(existing, 1500), truncate(incoming, 1500));
+            String response = claudeApiClient.complete(
+                    modelRouter.forRelevanceCheck(), 8, prompt);
+            String verdict = response == null ? "" : response.trim().toUpperCase();
+            boolean conflict = verdict.startsWith("YES");
+            log.info("[Wiki] Haiku conflict check jaccard={} → {}",
+                    String.format("%.2f", jaccard), conflict ? "CONFLICT" : "ok");
+            return conflict;
+        } catch (Exception e) {
+            // Don't block persistence on the AI check — fall back to the
+            // lexical signal (gray band leans toward "probably ok").
+            log.warn("[Wiki] Haiku conflict check failed; defaulting to no-conflict: {}",
+                    e.getMessage());
+            return false;
+        }
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
     private Set<String> tokenize(String s) {
