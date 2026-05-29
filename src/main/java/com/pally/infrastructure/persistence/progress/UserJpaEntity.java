@@ -120,6 +120,14 @@ public class UserJpaEntity {
     @Column(name = "referral_code", length = 12, unique = true)
     private String referralCode;
 
+    /// Set when a student redeems a CENTRE_ENROLL code; all their metrics
+    /// roll up to the parent centre dashboard from there on.
+    @Column(name = "centre_id", length = 36)
+    private String centreId;
+
+    @Column(name = "cohort_label", length = 120)
+    private String cohortLabel;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
