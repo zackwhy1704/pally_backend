@@ -50,7 +50,7 @@ dependencies {
     implementation("software.amazon.awssdk:s3:2.26.25")
 
     // PDF text extraction
-    implementation("org.apache.pdfbox:pdfbox:3.0.2")
+    implementation("org.apache.pdfbox:pdfbox:3.0.7")
 
     // Tesseract OCR
     implementation("net.sourceforge.tess4j:tess4j:5.11.0")
