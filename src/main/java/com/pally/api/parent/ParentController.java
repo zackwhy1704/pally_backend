@@ -53,6 +53,19 @@ public class ParentController {
     private final com.pally.domain.knowledge.WikiRepository wikiRepository;
     private final BCryptPasswordEncoder passwordEncoder;
 
+    /// In-memory PIN-attempt throttle keyed by userId. Resets on app restart
+    /// and on a successful verify. Persisting these to the DB is overkill for
+    /// a 60-second cooldown — a malicious child can't restart the server.
+    private static final int MAX_ATTEMPTS = 5;
+    private static final long LOCKOUT_MS = 60_000;
+    private final java.util.Map<String, PinAttempts> pinAttempts =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final class PinAttempts {
+        int fails;
+        long lockedUntil;
+    }
+
     // ── PIN management ─────────────────────────────────────────────────
 
     @GetMapping("/pin/status")
@@ -94,22 +107,60 @@ public class ParentController {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("PIN must be 4-6 digits", 400));
         }
+        // Lockout check — prevents a child from brute-forcing the 10k-combo
+        // space (PINs are 4 digits, fully scriptable).
+        long now = System.currentTimeMillis();
+        PinAttempts att = pinAttempts.computeIfAbsent(userId, k -> new PinAttempts());
+        synchronized (att) {
+            if (att.lockedUntil > now) {
+                long secs = (att.lockedUntil - now + 999) / 1000;
+                return ResponseEntity.ok(ApiResponse.success(Map.of(
+                        "verified", false,
+                        "firstTimeSetup", false,
+                        "lockedOut", true,
+                        "retryAfterSeconds", secs)));
+            }
+        }
+
         UserJpaEntity u = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
 
         String hash = u.getParentPinHash();
         if (hash == null || hash.isBlank()) {
-            // First time — accept and store
+            // First time — accept and store. The frontend already enforces a
+            // confirm-re-entry step before sending, so a typo here would
+            // have failed match client-side.
             u.setParentPinHash(passwordEncoder.encode(pin));
             userRepo.save(u);
+            synchronized (att) { att.fails = 0; }
             log.info("[Parent] First-time PIN set for user {}", userId);
             return ResponseEntity.ok(ApiResponse.success(
                     Map.of("verified", true, "firstTimeSetup", true)));
         }
 
         boolean ok = passwordEncoder.matches(pin, hash);
-        return ResponseEntity.ok(ApiResponse.success(
-                Map.of("verified", ok, "firstTimeSetup", false)));
+        synchronized (att) {
+            if (ok) {
+                att.fails = 0;
+            } else {
+                att.fails++;
+                if (att.fails >= MAX_ATTEMPTS) {
+                    att.lockedUntil = now + LOCKOUT_MS;
+                    att.fails = 0;
+                    log.warn("[Parent] PIN locked for user {} until {}",
+                            userId, att.lockedUntil);
+                    return ResponseEntity.ok(ApiResponse.success(Map.of(
+                            "verified", false,
+                            "firstTimeSetup", false,
+                            "lockedOut", true,
+                            "retryAfterSeconds", LOCKOUT_MS / 1000)));
+                }
+            }
+        }
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "verified", ok,
+                "firstTimeSetup", false,
+                "attemptsRemaining", Math.max(0, MAX_ATTEMPTS - att.fails))));
     }
 
     @PostMapping("/pin/reset")
