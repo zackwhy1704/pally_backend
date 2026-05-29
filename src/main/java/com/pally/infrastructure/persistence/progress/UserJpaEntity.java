@@ -103,6 +103,13 @@ public class UserJpaEntity {
     @Column(name = "streak_milestones_reached", columnDefinition = "TEXT")
     private String streakMilestonesReached;
 
+    /// QUIZ | XP | MINUTES — what closes today's goal ring.
+    @Column(name = "daily_goal_type", nullable = false, length = 20)
+    private String dailyGoalType = "QUIZ";
+
+    @Column(name = "daily_goal_target", nullable = false)
+    private int dailyGoalTarget = 1;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

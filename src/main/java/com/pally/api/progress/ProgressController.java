@@ -3,11 +3,13 @@ package com.pally.api.progress;
 import com.pally.api.progress.dto.ProgressResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.ProgressSummary;
 import com.pally.domain.progress.StreakService;
 import com.pally.domain.progress.usecase.GetProgressUseCase;
 import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.activity.DailyActivityDayJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
@@ -22,11 +24,14 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -47,6 +52,7 @@ public class ProgressController {
     private final StreakService streakService;
     private final DailyActivityDayJpaRepository dailyDayRepo;
     private final UserJpaRepository userRepo;
+    private final ActivityLogJpaRepository activityLogRepo;
 
     @GetMapping
     public ResponseEntity<ApiResponse<ProgressResponse>> getProgress(
@@ -182,5 +188,84 @@ public class ProgressController {
             } catch (NumberFormatException ignored) {}
         }
         return out;
+    }
+
+    /// Today's goal ring data. {@code goalProgress} is computed live from
+    /// activity_log so changing the goal type doesn't strand stale counts.
+    @GetMapping("/today")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getToday(
+            @AuthenticationPrincipal String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        LocalDate today = LocalDate.now();
+        Instant from = today.atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant to = today.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+
+        String type = user.getDailyGoalType();
+        int target = Math.max(1, user.getDailyGoalTarget());
+        int progress = switch (type) {
+            case "XP" -> {
+                Integer xp = activityLogRepo.sumXpBetween(userId, from, to);
+                yield xp == null ? 0 : xp;
+            }
+            case "MINUTES" -> {
+                Integer m = activityLogRepo.sumMinutesBetween(userId, from, to);
+                yield m == null ? 0 : m;
+            }
+            default -> {
+                Integer q = activityLogRepo.countByTypeBetween(
+                        userId, ActivityLogService.TYPE_QUIZ, from, to);
+                yield q == null ? 0 : q;
+            }
+        };
+        boolean met = progress >= target;
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("goalType", type);
+        body.put("goalTarget", target);
+        body.put("goalProgress", Math.min(progress, target * 5)); // hard cap for sanity
+        body.put("met", met);
+        return ResponseEntity.ok(ApiResponse.success(body));
+    }
+
+    /// Persist the child's chosen goal. Validation keeps targets sane so a
+    /// fat-fingered 999-XP goal can't soft-lock the ring.
+    @PostMapping("/daily-goal")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> setDailyGoal(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, Object> body) {
+        String type = body.get("goalType") == null
+                ? "QUIZ"
+                : body.get("goalType").toString().toUpperCase();
+        int target;
+        try {
+            target = ((Number) body.getOrDefault("goalTarget", 1)).intValue();
+        } catch (ClassCastException e) {
+            throw new BusinessException("goalTarget must be a number", 400);
+        }
+        if (!List.of("QUIZ", "XP", "MINUTES").contains(type)) {
+            throw new BusinessException(
+                    "goalType must be QUIZ, XP, or MINUTES", 400);
+        }
+        // Sensible upper bounds — keeps the ring achievable. A kid who
+        // wants more can stack multiple sessions.
+        int max = switch (type) {
+            case "XP" -> 200;
+            case "MINUTES" -> 120;
+            default -> 5;
+        };
+        if (target < 1 || target > max) {
+            throw new BusinessException(
+                    "goalTarget for " + type + " must be between 1 and " + max,
+                    400);
+        }
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        user.setDailyGoalType(type);
+        user.setDailyGoalTarget(target);
+        userRepo.save(user);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "goalType", type,
+                "goalTarget", target)));
     }
 }

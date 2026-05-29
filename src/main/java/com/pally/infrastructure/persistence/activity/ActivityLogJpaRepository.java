@@ -60,4 +60,17 @@ public interface ActivityLogJpaRepository extends JpaRepository<ActivityLogJpaEn
     Integer sumXpBetween(@Param("userId") String userId,
                          @Param("from") Instant from,
                          @Param("to") Instant to);
+
+    @Query(value = """
+            SELECT COUNT(*)
+            FROM activity_log
+            WHERE user_id = :userId
+              AND activity_type = :type
+              AND created_at >= :from
+              AND created_at <  :to
+            """, nativeQuery = true)
+    Integer countByTypeBetween(@Param("userId") String userId,
+                               @Param("type") String type,
+                               @Param("from") Instant from,
+                               @Param("to") Instant to);
 }
