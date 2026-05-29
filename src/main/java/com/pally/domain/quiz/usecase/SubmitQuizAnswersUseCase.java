@@ -161,6 +161,9 @@ public class SubmitQuizAnswersUseCase {
         // R1 — self-correcting knowledge base. Correct answers reinforce the
         // source page (small +); wrong answers shake confidence harder and
         // flag the page for review because misconceptions compound fast.
+        // Closing the loop: a topic answered correctly AND never wrong in
+        // this quiz clears its review flag — without this, the flag would
+        // stick forever even after the student masters the topic.
         try {
             if (!correctSlugs.isEmpty()) {
                 wikiRepository.adjustCertainty(submission.avatarId(),
@@ -174,6 +177,21 @@ public class SubmitQuizAnswersUseCase {
                         distinctWrong, true);
                 log.info("[Harness] Flagged {} pages for review after wrong "
                         + "answers: {}", distinctWrong.size(), distinctWrong);
+            }
+            // Clear the flag for topics that were correct AND never wrong in
+            // this quiz. Wrong wins on ties so a single mistake keeps the
+            // page flagged even if the student also got it right elsewhere.
+            if (!correctSlugs.isEmpty()) {
+                List<String> cleanlyCorrect = correctSlugs.stream()
+                        .distinct()
+                        .filter(s -> !wrongSlugs.contains(s))
+                        .toList();
+                if (!cleanlyCorrect.isEmpty()) {
+                    wikiRepository.setReviewRequired(submission.avatarId(),
+                            cleanlyCorrect, false);
+                    log.info("[Harness] Cleared review flag on {} mastered "
+                            + "pages: {}", cleanlyCorrect.size(), cleanlyCorrect);
+                }
             }
         } catch (Exception e) {
             // Never block scoring on harness feedback — log + carry on.

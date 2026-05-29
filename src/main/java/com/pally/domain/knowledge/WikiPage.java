@@ -141,6 +141,11 @@ public final class WikiPage {
         this.humanVerified = true;
         this.certainty = Certainty.VERIFIED;
         this.certaintyScore = 0.9;
+        // A verified page is, by definition, no longer in dispute — clear
+        // both the harness review flag and any prior content-conflict flag
+        // so the brain map / parent dashboard stop nagging about it.
+        this.reviewRequired = false;
+        clearConflict();
         this.updatedAt = Instant.now();
     }
 
