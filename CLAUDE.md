@@ -4,6 +4,48 @@
 
 ---
 
+# PART 00 — MANDATORY WORKFLOW (run every time, no exceptions)
+
+After **every** code change, before marking a task complete:
+1. Run `./gradlew compileJava` — must succeed with zero warnings.
+2. **Write unit tests for every new piece of code** (see the testing rule below).
+3. Run `./gradlew test` — all tests must pass.
+4. If any of the above fails: fix all issues, then re-run from the beginning.
+5. Only report the task as done after every command passes.
+
+## TESTING IS NOT OPTIONAL — for every new piece of code, both apps
+
+Every new piece of code ships with tests. **No exceptions**, no "I'll add tests later",
+no "the existing tests cover it". This rule applies to BOTH the Spring Boot backend
+and the Flutter app.
+
+- **New use case / service / domain logic** → JUnit + Mockito unit test covering the
+  happy path and the named failure paths (insufficient stars, not found, race-loss, etc).
+- **New `@RestController` endpoint** → controller-level test (sliced or `@ExtendWith
+  (MockitoExtension.class)`) proving 2xx happy path + at least one auth/validation
+  failure (401/403/404/400/429 as relevant).
+- **New repository method** (`@Query` / `@Modifying`) — integration test via
+  Testcontainers when it's an atomic UPDATE or has a non-trivial WHERE clause.
+- **New atomic balance / concurrency-sensitive code** → include a concurrency harness
+  (ExecutorService + CountDownLatch) that proves the invariant under N parallel callers.
+  Money/XP/star mutations MUST have one of these.
+- **New Stripe webhook handler branch** → idempotency + signature failure + happy path.
+- **New Flyway migration** → at least one test that exercises the schema via the
+  repository it backs.
+- Aim for the new code itself to be ≥90% covered. The overall repo coverage doesn't
+  need to jump 90% in one PR, but the *new* lines you add should be.
+- Test names describe the invariant in plain English ("buyStreakFreeze_raceLoss_
+  lowStars_reportsNotEnough", not "test1") so a reviewer can read the test list and
+  agree with the rules before reading the code.
+- **Flutter side** (when working full-stack from this repo): when you add a state
+  class, write a state test; when you add a widget, render it in a `ProviderScope`
+  with overrides and assert the visible widgets across loading/loaded/error.
+
+**Definition of "done" for any feature change:** code + tests + compile + test suite
+all clean. A PR that adds code without tests is not done; it's a draft.
+
+---
+
 # PART 0 — WHO YOU ARE & WHAT YOU'RE BUILDING
 
 You are an expert Flutter + Java engineer implementing Pally (小伴), a kids AI tutor app for ages 6–14. Children create multiple AI tutor avatar characters, each with its own subject-specific knowledge base built from uploaded photos and PDFs. They chat with each avatar to get homework help.
