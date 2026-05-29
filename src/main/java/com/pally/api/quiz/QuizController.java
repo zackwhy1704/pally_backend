@@ -102,6 +102,39 @@ public class QuizController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
+    /// Daily-quiz journey status. Used by Home + Progress + Quiz screens
+    /// to (a) show "Today's quiz complete ✓" instead of re-launching the
+    /// same quiz a second time, (b) drive a syllabus-coverage ring
+    /// (mastered / total).
+    @GetMapping("/quiz/status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getQuizStatus(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId
+    ) {
+        boolean takenToday = Boolean.TRUE.equals(
+                quizQuestionResultRepository.takenToday(userId, avatarId));
+
+        // Coverage = ACTIVE pages on this avatar vs how many have been
+        // answered correctly at all (any time). 0.7 mastery threshold so
+        // a single lucky answer doesn't count.
+        var allMastery = quizQuestionResultRepository
+                .findAllTopicMasteryByAvatar(userId, avatarId);
+        int mastered = 0;
+        for (var r : allMastery) {
+            if (((Number) r[1]).doubleValue() >= 0.7) mastered++;
+        }
+        // Total topics = wiki pages currently in the brain.
+        // Re-using the existing helper rather than a new query.
+        int totalTopics = wikiRepository
+                .findByAvatarId(avatarId).size();
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "takenToday", takenToday,
+                "totalTopics", totalTopics,
+                "masteredTopics", mastered
+        )));
+    }
+
     /// Per-topic mastery (correct-ratio) for this avatar. Used by the
     /// brain-map screen to colour topic nodes; missing topics = untouched.
     /// R8 — adds reviewRequired so the brain map can pulse pages the quiz
