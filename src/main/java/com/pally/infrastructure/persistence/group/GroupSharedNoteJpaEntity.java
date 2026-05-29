@@ -35,4 +35,14 @@ public class GroupSharedNoteJpaEntity {
 
     @Column(name = "shared_at", nullable = false)
     private Instant sharedAt;
+
+    /// OK | WARNING | BLOCKED — set on share when relevance check runs.
+    @Column(name = "relevance_status", nullable = false, length = 20)
+    private String relevanceStatus = "OK";
+
+    @Column(name = "relevance_score")
+    private Float relevanceScore;
+
+    @Column(name = "relevance_reason", columnDefinition = "TEXT")
+    private String relevanceReason;
 }

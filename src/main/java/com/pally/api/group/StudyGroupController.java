@@ -1,12 +1,18 @@
 package com.pally.api.group;
 
+import com.pally.domain.knowledge.RelevanceScore;
+import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
+import com.pally.infrastructure.persistence.group.GroupReportJpaEntity;
+import com.pally.infrastructure.persistence.group.GroupReportJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupSharedNoteJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupSharedNoteJpaRepository;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaEntity;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaRepository;
+import com.pally.infrastructure.persistence.knowledge.WikiPageJpaEntity;
+import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
@@ -53,8 +59,18 @@ public class StudyGroupController {
     private final StudyGroupJpaRepository groupRepo;
     private final GroupMemberJpaRepository memberRepo;
     private final GroupSharedNoteJpaRepository sharedNoteRepo;
+    private final GroupReportJpaRepository reportRepo;
+    private final WikiPageJpaRepository wikiPageRepo;
+    private final RelevancePort relevancePort;
     private final UserJpaRepository userRepo;
     private final UserFeatureFlagJpaRepository flagRepo;
+
+    /// Relevance thresholds — share is hard-blocked below BLOCK, soft-warned
+    /// between BLOCK and WARN. Tuned against the same scale the upload-time
+    /// relevance check uses, so the UX stays consistent across surfaces.
+    private static final double SHARE_BLOCK_BELOW = 0.20;
+    private static final double SHARE_WARN_BELOW = 0.45;
+    private static final int RELEVANCE_SAMPLE_CHARS = 1500;
 
     // ── List ────────────────────────────────────────────────────────────
 
@@ -149,12 +165,26 @@ public class StudyGroupController {
 
         List<Map<String, Object>> notes = sharedNoteRepo
                 .findRecentByGroupId(groupId).stream()
-                .map(n -> Map.<String, Object>of(
-                        "id", n.getId(),
-                        "wikiPageId", n.getWikiPageId(),
-                        "title", n.getTitle() == null ? "" : n.getTitle(),
-                        "sharedBy", n.getSharedBy(),
-                        "sharedAt", n.getSharedAt().toString()))
+                // BLOCKED notes stay invisible to everyone except the sharer
+                // so an off-topic share isn't pushed to other kids' feeds.
+                .filter(n -> !"BLOCKED".equals(n.getRelevanceStatus())
+                        || n.getSharedBy().equals(userId))
+                .map(n -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", n.getId());
+                    m.put("wikiPageId", n.getWikiPageId());
+                    m.put("title", n.getTitle() == null ? "" : n.getTitle());
+                    m.put("sharedBy", n.getSharedBy());
+                    m.put("sharedAt", n.getSharedAt().toString());
+                    m.put("relevanceStatus", n.getRelevanceStatus());
+                    if (n.getRelevanceScore() != null) {
+                        m.put("relevanceScore", n.getRelevanceScore());
+                    }
+                    if (n.getRelevanceReason() != null) {
+                        m.put("relevanceReason", n.getRelevanceReason());
+                    }
+                    return m;
+                })
                 .toList();
 
         Map<String, Object> response = new HashMap<>(toSummary(group));
@@ -176,6 +206,9 @@ public class StudyGroupController {
         if (wikiPageId == null || wikiPageId.isBlank()) {
             throw new BusinessException("wikiPageId is required", 400);
         }
+        var group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new BusinessException("Group not found", 404));
+
         GroupSharedNoteJpaEntity n = new GroupSharedNoteJpaEntity();
         n.setId(IdGenerator.newId());
         n.setGroupId(groupId);
@@ -183,12 +216,139 @@ public class StudyGroupController {
         n.setTitle(body.get("title"));
         n.setSharedBy(userId);
         n.setSharedAt(Instant.now());
+
+        // Re-run relevance against the group's subject. Best-effort: a
+        // Claude outage shouldn't block sharing — fall back to OK in that
+        // case so the share isn't silently lost.
+        applyShareRelevance(n, group);
+
+        if ("BLOCKED".equals(n.getRelevanceStatus())) {
+            throw new BusinessException(
+                    "That note doesn't match the group's subject. "
+                            + "Try a more on-topic page.",
+                    422);
+        }
         sharedNoteRepo.save(n);
+        log.info("[Groups] share group={} note={} status={} score={}",
+                groupId, n.getId(), n.getRelevanceStatus(),
+                n.getRelevanceScore());
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("id", n.getId());
+        resp.put("wikiPageId", n.getWikiPageId());
+        resp.put("title", n.getTitle() == null ? "" : n.getTitle());
+        resp.put("relevanceStatus", n.getRelevanceStatus());
+        if (n.getRelevanceScore() != null) {
+            resp.put("relevanceScore", n.getRelevanceScore());
+        }
+        if (n.getRelevanceReason() != null) {
+            resp.put("relevanceReason", n.getRelevanceReason());
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.created(Map.of(
-                        "id", n.getId(),
-                        "wikiPageId", n.getWikiPageId(),
-                        "title", n.getTitle() == null ? "" : n.getTitle())));
+                .body(ApiResponse.created(resp));
+    }
+
+    // ── Report a member or a shared note ────────────────────────────────
+
+    @PostMapping("/{groupId}/report")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> report(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String groupId,
+            @RequestBody Map<String, String> body) {
+        ensureMember(groupId, userId);
+        String targetUserId = body.get("targetUserId");
+        String targetNoteId = body.get("targetNoteId");
+        String reason = body.get("reason");
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException("reason is required", 400);
+        }
+        if (reason.length() > 50) {
+            throw new BusinessException(
+                    "reason must be 50 chars or less", 400);
+        }
+        boolean hasUser = targetUserId != null && !targetUserId.isBlank();
+        boolean hasNote = targetNoteId != null && !targetNoteId.isBlank();
+        if (hasUser == hasNote) {
+            throw new BusinessException(
+                    "Provide exactly one of targetUserId or targetNoteId",
+                    400);
+        }
+        if (hasUser && targetUserId.equals(userId)) {
+            throw new BusinessException("You can't report yourself", 400);
+        }
+        if (hasNote) {
+            var note = sharedNoteRepo.findById(targetNoteId).orElseThrow(
+                    () -> new BusinessException("Note not found", 404));
+            if (!note.getGroupId().equals(groupId)) {
+                throw new BusinessException(
+                        "Note doesn't belong to this group", 400);
+            }
+        }
+        GroupReportJpaEntity r = new GroupReportJpaEntity();
+        r.setId(IdGenerator.newId());
+        r.setGroupId(groupId);
+        r.setReporterUserId(userId);
+        r.setTargetUserId(hasUser ? targetUserId : null);
+        r.setTargetNoteId(hasNote ? targetNoteId : null);
+        r.setReason(reason);
+        r.setDetails(body.get("details"));
+        r.setStatus(GroupReportJpaEntity.STATUS_OPEN);
+        r.setCreatedAt(Instant.now());
+        reportRepo.save(r);
+        log.info("[Groups] report group={} by={} target={} reason={}",
+                groupId, userId,
+                hasUser ? "user:" + targetUserId : "note:" + targetNoteId,
+                reason);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.created(Map.of("id", r.getId())));
+    }
+
+    @GetMapping("/{groupId}/reports")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> listReports(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String groupId) {
+        ensureOwner(groupId, userId);
+        var rows = reportRepo
+                .findByGroupIdOrderByCreatedAtDesc(groupId).stream()
+                .map(r -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", r.getId());
+                    m.put("reporterUserId", r.getReporterUserId());
+                    m.put("targetUserId", r.getTargetUserId());
+                    m.put("targetNoteId", r.getTargetNoteId());
+                    m.put("reason", r.getReason());
+                    m.put("details", r.getDetails());
+                    m.put("status", r.getStatus());
+                    m.put("createdAt", r.getCreatedAt().toString());
+                    return m;
+                })
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(Map.of("reports", rows)));
+    }
+
+    // ── Kick a member ───────────────────────────────────────────────────
+
+    @DeleteMapping("/{groupId}/members/{targetUserId}")
+    @Transactional
+    public ResponseEntity<ApiResponse<Void>> kickMember(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String groupId,
+            @PathVariable String targetUserId) {
+        ensureOwner(groupId, userId);
+        if (userId.equals(targetUserId)) {
+            throw new BusinessException(
+                    "Owners can't kick themselves — leave the group instead",
+                    400);
+        }
+        if (!memberRepo.existsByGroupIdAndUserId(groupId, targetUserId)) {
+            throw new BusinessException(
+                    "That user isn't in this group", 404);
+        }
+        memberRepo.deleteByGroupIdAndUserId(groupId, targetUserId);
+        log.info("[Groups] owner={} kicked user={} from group={}",
+                userId, targetUserId, groupId);
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     // ── Leave ───────────────────────────────────────────────────────────
@@ -218,6 +378,59 @@ public class StudyGroupController {
         if (!memberRepo.existsByGroupIdAndUserId(groupId, userId)) {
             throw new BusinessException(
                     "You are not a member of this group", 403);
+        }
+    }
+
+    private void ensureOwner(String groupId, String userId) {
+        var member = memberRepo
+                .findById(new GroupMemberJpaEntity.PK(groupId, userId))
+                .orElseThrow(() -> new BusinessException(
+                        "You are not a member of this group", 403));
+        if (!GroupMemberJpaEntity.ROLE_OWNER.equals(member.getRole())) {
+            throw new BusinessException(
+                    "Only the group owner can do that", 403);
+        }
+    }
+
+    private void applyShareRelevance(GroupSharedNoteJpaEntity note,
+                                     StudyGroupJpaEntity group) {
+        String subject = group.getSubject();
+        if (subject == null || subject.isBlank()) {
+            note.setRelevanceStatus("OK");
+            return;
+        }
+        WikiPageJpaEntity page =
+                wikiPageRepo.findById(note.getWikiPageId()).orElse(null);
+        if (page == null) {
+            throw new BusinessException("Wiki page not found", 404);
+        }
+        String content = page.getContent() == null ? "" : page.getContent();
+        if (content.isBlank()) {
+            note.setRelevanceStatus("OK");
+            return;
+        }
+        String sample = content.length() > RELEVANCE_SAMPLE_CHARS
+                ? content.substring(0, RELEVANCE_SAMPLE_CHARS)
+                : content;
+        try {
+            RelevanceScore score = relevancePort.check(
+                    subject,
+                    "Group: " + group.getName(),
+                    sample);
+            double v = score.value();
+            note.setRelevanceScore((float) v);
+            note.setRelevanceReason(score.reason());
+            if (v < SHARE_BLOCK_BELOW) {
+                note.setRelevanceStatus("BLOCKED");
+            } else if (v < SHARE_WARN_BELOW) {
+                note.setRelevanceStatus("WARNING");
+            } else {
+                note.setRelevanceStatus("OK");
+            }
+        } catch (Exception e) {
+            log.warn("[Groups] share relevance check failed, defaulting OK: {}",
+                    e.getMessage());
+            note.setRelevanceStatus("OK");
         }
     }
 
