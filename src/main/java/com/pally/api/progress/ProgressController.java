@@ -4,6 +4,7 @@ import com.pally.api.progress.dto.ProgressResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.ActivityLogService;
+import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
 import com.pally.domain.progress.StreakService;
 import com.pally.domain.progress.usecase.GetProgressUseCase;
@@ -226,6 +227,27 @@ public class ProgressController {
         body.put("goalProgress", Math.min(progress, target * 5)); // hard cap for sanity
         body.put("met", met);
         return ResponseEntity.ok(ApiResponse.success(body));
+    }
+
+    /// Static catalog of every level reward, tagged with which ones the
+    /// caller has already crossed. Powers the LevelRoadmap screen.
+    @GetMapping("/level-roadmap")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> levelRoadmap(
+            @AuthenticationPrincipal String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        int currentLevel = user.getLevel();
+        List<Map<String, Object>> rewards = LevelRewards.all().stream()
+                .map(r -> Map.<String, Object>of(
+                        "level", r.level(),
+                        "label", r.label(),
+                        "kind", r.kind().name(),
+                        "unlocked", currentLevel >= r.level()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "currentLevel", currentLevel,
+                "maxLevel", ProgressSummary.MAX_LEVEL,
+                "rewards", rewards)));
     }
 
     /// Persist the child's chosen goal. Validation keeps targets sane so a

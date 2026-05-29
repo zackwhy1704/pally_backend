@@ -1,6 +1,8 @@
 package com.pally.infrastructure.persistence.progress;
 
+import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
+import com.pally.domain.progress.StreakService;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.progress.UserStats;
 import lombok.RequiredArgsConstructor;
@@ -50,11 +52,30 @@ public class UserRepositoryAdapter implements UserRepository {
         entity.setXp(newXp);
         entity.setStars(newStars);
         entity.setLevel(newLevel);
+
+        // Apply functional level-up rewards. We only walk crossed levels
+        // (oldLevel+1..newLevel) so re-saving without a level-up is a no-op.
+        String unlockedLabel = null;
+        if (newLevel > oldLevel) {
+            for (int lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+                var reward = LevelRewards.atLevel(lvl);
+                if (reward == null) continue;
+                unlockedLabel = reward.label();
+                if (reward.kind() == LevelRewards.Reward.Kind.FUNCTIONAL
+                        && "+1 streak freeze".equals(reward.label())
+                        && entity.getStreakFreezes() < StreakService.FREEZE_CAP) {
+                    entity.setStreakFreezes(entity.getStreakFreezes() + 1);
+                    log.info("[XP] user={} L{} unlocked +1 freeze (now={})",
+                            userId, lvl, entity.getStreakFreezes());
+                }
+            }
+        }
         jpa.save(entity);
-        log.info("[XP] user={} +{}xp +{}stars → xp={} stars={} level={}→{}",
+        log.info("[XP] user={} +{}xp +{}stars → xp={} stars={} level={}→{}{}",
                 userId, xpDelta, starsDelta, newXp, newStars,
-                oldLevel, newLevel);
+                oldLevel, newLevel,
+                unlockedLabel == null ? "" : " unlock=" + unlockedLabel);
         return new UserRepository.XpResult(
-                newXp, oldLevel, newLevel, newLevel > oldLevel);
+                newXp, oldLevel, newLevel, newLevel > oldLevel, unlockedLabel);
     }
 }

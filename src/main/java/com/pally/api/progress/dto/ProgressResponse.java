@@ -1,5 +1,6 @@
 package com.pally.api.progress.dto;
 
+import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
 
 import java.util.List;
@@ -23,9 +24,12 @@ public record ProgressResponse(
         int totalQuizzesTaken,
         int averageScore,
         List<Integer> weekMinutes,
-        List<String> badges
+        List<String> badges,
+        Integer nextUnlockLevel,
+        String nextUnlockLabel
 ) {
     public static ProgressResponse from(ProgressSummary s) {
+        var nextUnlock = LevelRewards.nextUnlock(s.level());
         return new ProgressResponse(
                 s.xp(), s.level(), s.xpToNextLevel(),
                 ProgressSummary.xpIntoLevel(s.xp()),
@@ -35,7 +39,9 @@ public record ProgressResponse(
                 s.totalFlashcards(), s.dueFlashcards(),
                 s.totalQuizzesTaken(), s.averageScore(),
                 s.weekMinutes() != null ? s.weekMinutes() : List.of(),
-                s.badges() != null ? s.badges() : List.of()
+                s.badges() != null ? s.badges() : List.of(),
+                nextUnlock == null ? null : nextUnlock.level(),
+                nextUnlock == null ? null : nextUnlock.label()
         );
     }
 }
