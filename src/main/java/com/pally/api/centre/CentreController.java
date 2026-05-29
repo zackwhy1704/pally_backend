@@ -11,6 +11,7 @@ import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -100,11 +101,22 @@ public class CentreController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> roster(
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId,
-            @RequestParam(required = false) String cohort) {
-        OrganizationJpaEntity org = ensureOwner(userId, orgId);
-        List<UserJpaEntity> students = cohort == null || cohort.isBlank()
-                ? userRepo.findByCentreId(orgId)
-                : userRepo.findByCentreIdAndCohortLabel(orgId, cohort);
+            @RequestParam(required = false) String cohort,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        // Local var avoids the standard "org" name because it shadows the
+        // org.springframework.* package below.
+        OrganizationJpaEntity orgEntity = ensureOwner(userId, orgId);
+        // Page-size cap protects a misbehaving caller from yanking the
+        // whole roster in one shot; default 50 fits a typical cohort.
+        int safeSize = Math.max(1, Math.min(size, 200));
+        var pageable = org.springframework.data.domain.PageRequest.of(
+                Math.max(0, page), safeSize,
+                org.springframework.data.domain.Sort
+                        .by("createdAt").descending());
+        Page<UserJpaEntity> students = (cohort == null || cohort.isBlank())
+                ? userRepo.findByCentreId(orgId, pageable)
+                : userRepo.findByCentreIdAndCohortLabel(orgId, cohort, pageable);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (UserJpaEntity s : students) {
             rows.add(Map.of(
@@ -118,10 +130,14 @@ public class CentreController {
         }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "organization", Map.of(
-                        "id", org.getId(),
-                        "name", org.getName(),
-                        "seatLimit", org.getSeatLimit()),
-                "students", rows)));
+                        "id", orgEntity.getId(),
+                        "name", orgEntity.getName(),
+                        "seatLimit", orgEntity.getSeatLimit()),
+                "students", rows,
+                "page", students.getNumber(),
+                "size", students.getSize(),
+                "totalElements", students.getTotalElements(),
+                "totalPages", students.getTotalPages())));
     }
 
     // ── Admin-side: analytics (weakest-topic roll-up scoped to centre) ─
@@ -133,37 +149,32 @@ public class CentreController {
             @PathVariable String orgId,
             @RequestParam(required = false) String cohort) {
         ensureOwner(userId, orgId);
-        // Reuse the existing weakest-topic SQL by aggregating per student.
-        // For v1 we walk the in-centre user list and merge their top weak
-        // topics; the dedicated cross-user SQL is a future optimization.
-        List<UserJpaEntity> students = cohort == null || cohort.isBlank()
-                ? userRepo.findByCentreId(orgId)
-                : userRepo.findByCentreIdAndCohortLabel(orgId, cohort);
-        Map<String, double[]> topicTotals = new HashMap<>(); // topic → [ratioSum, n]
-        for (UserJpaEntity s : students) {
-            try {
-                var rows = quizResultRepo.findWeakestTopics(s.getId(), 5);
-                for (Object[] r : rows) {
-                    String topic = (String) r[0];
-                    double ratio = ((Number) r[1]).doubleValue();
-                    double[] agg = topicTotals.computeIfAbsent(topic,
-                            k -> new double[]{0.0, 0.0});
-                    agg[0] += ratio;
-                    agg[1] += 1;
-                }
-            } catch (Exception ignored) {}
+        // One cohort-scoped aggregate replaces the previous per-student
+        // loop: a 40-student class now hits the DB once instead of 40+
+        // times. Cohort filter is "match-or-skip" — null spans the centre.
+        String cohortFilter = (cohort == null || cohort.isBlank()) ? null : cohort;
+        long studentCount = cohortFilter == null
+                ? userRepo.countByCentreId(orgId)
+                : userRepo.countByCentreIdAndCohortLabel(orgId, cohortFilter);
+
+        List<Object[]> rows;
+        try {
+            rows = quizResultRepo.findWeakestTopicsForCentre(orgId, cohortFilter, 10);
+        } catch (Exception e) {
+            log.warn("[Centre] weak-topic query failed org={}: {}",
+                    orgId, e.getMessage());
+            rows = List.of();
         }
         List<Map<String, Object>> weakDtos = new ArrayList<>();
-        topicTotals.forEach((topic, agg) -> weakDtos.add(Map.of(
-                "topic", topic,
-                "avgMastery", agg[1] == 0 ? 0 : agg[0] / agg[1],
-                "studentsAffected", (int) agg[1])));
-        weakDtos.sort((a, b) -> Double.compare(
-                (double) a.get("avgMastery"),
-                (double) b.get("avgMastery")));
+        for (Object[] r : rows) {
+            weakDtos.add(Map.of(
+                    "topic", r[0],
+                    "avgMastery", ((Number) r[1]).doubleValue(),
+                    "studentsAffected", ((Number) r[2]).intValue()));
+        }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "studentCount", students.size(),
-                "weakestTopics", weakDtos.subList(0, Math.min(10, weakDtos.size())))));
+                "studentCount", studentCount,
+                "weakestTopics", weakDtos)));
     }
 
     // ── Admin-side: CSV export ────────────────────────────────────────

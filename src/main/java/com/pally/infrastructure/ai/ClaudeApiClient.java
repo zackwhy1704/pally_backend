@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +34,15 @@ public class ClaudeApiClient {
     private static final Logger log = LoggerFactory.getLogger(ClaudeApiClient.class);
     private static final String ANTHROPIC_VERSION = "2023-06-01";
     private static final String MESSAGES_PATH = "/v1/messages";
+
+    /// Bound every blocking Claude call so a hung Anthropic response can
+    /// never park a server worker thread forever. Matches the
+    /// WebClientConfig response-timeout with a small safety margin.
+    private static final Duration UNARY_BLOCK_TIMEOUT = Duration.ofSeconds(70);
+    /// Inter-chunk idle timeout for streaming. If Anthropic stops sending
+    /// chunks for this long we fail the Flux instead of leaking the
+    /// underlying socket. 45s is generous for big-context Sonnet replies.
+    private static final Duration STREAM_IDLE_TIMEOUT = Duration.ofSeconds(45);
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -80,7 +90,7 @@ public class ClaudeApiClient {
                     .doOnError(e -> log.error("[Claude-{}] FAILED after {}ms: {} — {}",
                             callId, System.currentTimeMillis() - start,
                             e.getClass().getSimpleName(), e.getMessage()))
-                    .block();
+                    .block(UNARY_BLOCK_TIMEOUT);
         } catch (Exception e) {
             throw e;
         }
@@ -160,6 +170,13 @@ public class ClaudeApiClient {
                 .bodyValue(body.toString())
                 .retrieve()
                 .bodyToFlux(String.class)
+                // Inter-emission idle timeout: if no chunk arrives within the
+                // window, fail fast so the SSE controller can close the
+                // client connection instead of leaking the underlying socket.
+                .timeout(STREAM_IDLE_TIMEOUT, Flux.error(
+                        new java.util.concurrent.TimeoutException(
+                                "Claude stream idle for "
+                                        + STREAM_IDLE_TIMEOUT.toSeconds() + "s")))
                 .doOnNext(chunk -> chunkCount.incrementAndGet())
                 .doOnComplete(() -> log.info("[Claude-{}] STREAM COMPLETE {}ms ~{}chunks",
                         callId, System.currentTimeMillis() - start.get(), chunkCount.get()))
@@ -201,6 +218,10 @@ public class ClaudeApiClient {
                 .bodyValue(body.toString())
                 .retrieve()
                 .bodyToFlux(String.class)
+                .timeout(STREAM_IDLE_TIMEOUT, Flux.error(
+                        new java.util.concurrent.TimeoutException(
+                                "Claude stream idle for "
+                                        + STREAM_IDLE_TIMEOUT.toSeconds() + "s")))
                 .doOnNext(chunk -> chunkCount.incrementAndGet())
                 .doOnComplete(() -> log.info("[Claude-{}] STREAM COMPLETE {}ms ~{}chunks",
                         callId, System.currentTimeMillis() - start.get(), chunkCount.get()))

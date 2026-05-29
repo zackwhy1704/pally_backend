@@ -22,6 +22,15 @@ public interface FlashcardJpaRepository extends JpaRepository<FlashcardJpaEntity
             @Param("now") Instant now
     );
 
+    /// Counts due rows without materialising them — keeps the progress
+    /// dashboard cheap for kids with hundreds of cards.
+    @Query("SELECT COUNT(f) FROM FlashcardJpaEntity f WHERE f.avatarId = :avatarId "
+            + "AND (f.nextReviewAt IS NULL OR f.nextReviewAt <= :now)")
+    int countDueByAvatarId(
+            @Param("avatarId") String avatarId,
+            @Param("now") Instant now
+    );
+
     @Modifying
     @Transactional
     @Query("DELETE FROM FlashcardJpaEntity f WHERE f.avatarId = :avatarId "

@@ -17,6 +17,7 @@ import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -67,6 +68,12 @@ public class SubmitQuizAnswersUseCase {
      * @param confidenceMap questionId → "LOW" | "MEDIUM" | "HIGH"; empty when
      *                       the client is on legacy quiz mode
      */
+    /// Wrapped in @Transactional so the multi-write path (per-question
+    /// results + XP/stars + SRS reschedule + referral activation +
+    /// badges + activity log) commits atomically. Without this, a
+    /// failure halfway through left us with XP credited but no quiz
+    /// rows, or a referral marked activated without the reward landing.
+    @Transactional
     public QuizResult execute(AnswerSubmission submission,
                               Map<String, Integer> correctMap,
                               Map<String, String> topicMap,

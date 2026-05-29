@@ -1,5 +1,7 @@
 package com.pally.infrastructure.persistence.progress;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -19,4 +21,13 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
 
     List<UserJpaEntity> findByCentreIdAndCohortLabel(
             String centreId, String cohortLabel);
+
+    long countByCentreId(String centreId);
+
+    long countByCentreIdAndCohortLabel(String centreId, String cohortLabel);
+
+    Page<UserJpaEntity> findByCentreId(String centreId, Pageable pageable);
+
+    Page<UserJpaEntity> findByCentreIdAndCohortLabel(
+            String centreId, String cohortLabel, Pageable pageable);
 }

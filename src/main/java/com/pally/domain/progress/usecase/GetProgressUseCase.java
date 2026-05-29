@@ -45,7 +45,10 @@ public class GetProgressUseCase {
         int dueFlashcards = 0;
         for (Avatar a : avatars) {
             totalFlashcards += flashcardRepository.countByAvatarId(a.getId());
-            dueFlashcards += flashcardRepository.findDueByAvatarId(a.getId()).size();
+            // countDueByAvatarId replaces findDueByAvatarId(...).size() —
+            // previously we loaded full rows just to count them, which
+            // blew up the progress dashboard for kids with big decks.
+            dueFlashcards += flashcardRepository.countDueByAvatarId(a.getId());
         }
 
         int totalQuizzesTaken =

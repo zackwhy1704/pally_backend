@@ -80,6 +80,32 @@ public interface QuizQuestionResultJpaRepository
             """)
     double averageAccuracyByUserId(@Param("userId") String userId);
 
+    /// Cohort-scoped aggregate for the centre admin dashboard. One SQL
+    /// trip returns the weakest topics across every student in a centre
+    /// (optionally filtered to a cohort label), with the number of
+    /// students affected per topic — replaces the per-student loop that
+    /// did N round-trips for an N-student cohort.
+    /// Cohort filter is "match-or-skip": pass NULL to span the whole centre.
+    @Query(value = """
+            SELECT r.topic_slug                                       AS topic,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS ratio,
+                   COUNT(DISTINCT r.user_id)                          AS students_affected,
+                   COUNT(*)                                           AS attempts
+            FROM quiz_question_results r
+            JOIN users u ON u.id = r.user_id
+            WHERE u.centre_id = :centreId
+              AND (CAST(:cohort AS varchar) IS NULL OR u.cohort_label = :cohort)
+              AND r.topic_slug IS NOT NULL
+            GROUP BY r.topic_slug
+            HAVING COUNT(*) >= 3
+            ORDER BY ratio ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Object[]> findWeakestTopicsForCentre(
+            @Param("centreId") String centreId,
+            @Param("cohort") String cohortLabel,
+            @Param("limit") int limit);
+
     /// Total correct answers across all the user's quizzes — drives the
     /// QUIZ_CORRECT_50 / 250 achievements.
     @Query("""

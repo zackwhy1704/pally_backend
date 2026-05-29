@@ -63,8 +63,16 @@ public class ReferralController {
     @GetMapping("/redemptions")
     @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Object>>> redemptions(
-            @AuthenticationPrincipal String userId) {
-        var rows = referralRepo.findByReferrerUserIdOrderByCreatedAtDesc(userId);
+            @AuthenticationPrincipal String userId,
+            @org.springframework.web.bind.annotation.RequestParam(
+                    defaultValue = "0") int page,
+            @org.springframework.web.bind.annotation.RequestParam(
+                    defaultValue = "50") int size) {
+        int safeSize = Math.max(1, Math.min(size, 200));
+        var pageable = org.springframework.data.domain.PageRequest.of(
+                Math.max(0, page), safeSize);
+        var rows = referralRepo.findByReferrerUserIdOrderByCreatedAtDesc(
+                userId, pageable);
         List<Map<String, Object>> dtos = new ArrayList<>();
         for (var r : rows) {
             UserJpaEntity referee = userRepo.findById(r.getRefereeUserId())
@@ -77,7 +85,11 @@ public class ReferralController {
                             ? "" : r.getActivatedAt().toString()));
         }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "redemptions", dtos)));
+                "redemptions", dtos,
+                "page", rows.getNumber(),
+                "size", rows.getSize(),
+                "totalElements", rows.getTotalElements(),
+                "totalPages", rows.getTotalPages())));
     }
 
     /// Privacy: never expose email or the full name; render a first-name

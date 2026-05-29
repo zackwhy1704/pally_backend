@@ -51,6 +51,11 @@ public class FlashcardRepositoryAdapter implements FlashcardRepository {
     }
 
     @Override
+    public int countDueByAvatarId(String avatarId) {
+        return jpa.countDueByAvatarId(avatarId, Instant.now());
+    }
+
+    @Override
     public void deleteByAvatarIdAndSourceSlug(String avatarId, String sourceSlug) {
         if (sourceSlug == null) return;
         jpa.deleteByAvatarIdAndSourceSlug(avatarId, sourceSlug);
