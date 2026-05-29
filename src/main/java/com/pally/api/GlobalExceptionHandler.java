@@ -2,7 +2,10 @@ package com.pally.api;
 
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.PallyException;
+import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
+
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +35,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(ex.getMessage(), 404));
+    }
+
+    /// More specific than {@link #handlePallyException} — gives the
+    /// frontend a structured payload it can pattern-match on to route
+    /// straight to the paywall (instead of just toasting "402").
+    @ExceptionHandler(UpgradeRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleUpgradeRequired(
+            UpgradeRequiredException ex) {
+        log.debug("Upgrade required: {}", ex.getFeature());
+        Map<String, Object> payload = Map.of(
+                "code", "UPGRADE_REQUIRED",
+                "feature", ex.getFeature());
+        return ResponseEntity
+                .status(402)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 402));
     }
 
     /**

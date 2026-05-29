@@ -1,9 +1,14 @@
 package com.pally.infrastructure.ratelimit;
 
+import com.pally.domain.subscription.PremiumService;
 import com.pally.shared.exception.BusinessException;
+import com.pally.shared.exception.UpgradeRequiredException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -23,12 +28,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * not lifetime usage.
  */
 @Component
+@RequiredArgsConstructor
 public class ChatRateLimiter {
 
     private static final int PER_USER_LIMIT = 30;
     private static final long WINDOW_MS = 60_000;
+    /// Free-tier daily cap. Premium bypasses this entirely.
+    private static final int FREE_DAILY_LIMIT = 20;
 
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
+    private final Map<String, DailyCount> dailyHits = new ConcurrentHashMap<>();
+
+    private final PremiumService premiumService;
+
+    private record DailyCount(LocalDate day, int count) {}
 
     public void check(String userId) {
         if (userId == null || userId.isBlank()) return;
@@ -50,5 +63,27 @@ public class ChatRateLimiter {
             }
             deque.addLast(now);
         }
+
+        // Daily cap only applies to free tier; premium users skip the
+        // entitlement-recompute too so chat stays cheap.
+        boolean premium;
+        try {
+            premium = premiumService.resolve(userId).isPremium();
+        } catch (Exception ignored) {
+            // Never deny chat because a premium check blipped.
+            return;
+        }
+        if (premium) return;
+
+        LocalDate today = Instant.ofEpochMilli(now)
+                .atOffset(ZoneOffset.UTC).toLocalDate();
+        DailyCount prev = dailyHits.get(userId);
+        int nextCount = (prev != null && prev.day.equals(today))
+                ? prev.count + 1
+                : 1;
+        if (nextCount > FREE_DAILY_LIMIT) {
+            throw new UpgradeRequiredException("CHAT_DAILY");
+        }
+        dailyHits.put(userId, new DailyCount(today, nextCount));
     }
 }

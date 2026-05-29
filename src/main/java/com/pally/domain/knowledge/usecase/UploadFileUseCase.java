@@ -34,6 +34,10 @@ public class UploadFileUseCase {
     private static final Logger log = LoggerFactory.getLogger(UploadFileUseCase.class);
     private static final double RELEVANCE_THRESHOLD = 0.30;
 
+    /// Free tier caps at 3 uploaded documents per avatar — generous enough
+    /// for the activation moment, tight enough to bite a real student.
+    private static final int FREE_UPLOAD_CAP = 3;
+
     private final AvatarRepository avatarRepository;
     private final KnowledgeRepository knowledgeRepository;
     private final WikiRepository wikiRepository;
@@ -44,6 +48,7 @@ public class UploadFileUseCase {
     private final CompileWikiUseCase compileWikiUseCase;
     private final ActivityLogService activityLogService;
     private final BadgeService badgeService;
+    private final com.pally.domain.subscription.PremiumService premiumService;
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
         return execute(avatarId, userId, file, false);
@@ -53,6 +58,15 @@ public class UploadFileUseCase {
         avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
+
+        // Free-tier cap on docs per avatar. Counts only the user's own
+        // uploads — seed-pack pages don't count.
+        if (!premiumService.resolve(userId).isPremium()) {
+            int existing = knowledgeRepository.findByAvatarId(avatarId).size();
+            if (existing >= FREE_UPLOAD_CAP) {
+                throw new com.pally.shared.exception.UpgradeRequiredException("UPLOAD_DOC");
+            }
+        }
 
         String contentType = file.getContentType();
         KnowledgeFile.UploadType uploadType = resolveUploadType(contentType);
