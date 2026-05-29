@@ -128,6 +128,12 @@ public class UserJpaEntity {
     @Column(name = "cohort_label", length = 120)
     private String cohortLabel;
 
+    /// Authorization role. USER (default) | ADMIN. Distinct from
+    /// account_type (which is SOLO/PARENT/CHILD for the family model);
+    /// `role` is what hasRole('ADMIN') checks for /api/v1/admin/**.
+    @Column(name = "role", nullable = false, length = 20)
+    private String role = "USER";
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

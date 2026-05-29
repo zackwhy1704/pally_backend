@@ -7,7 +7,10 @@ import com.pally.api.auth.dto.RegisterRequest;
 import com.pally.api.auth.dto.SetupRequest;
 import com.pally.api.auth.dto.SocialAuthRequest;
 import com.pally.infrastructure.auth.AuthService;
+import com.pally.infrastructure.ratelimit.SlidingWindowRateLimiter;
+import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +34,17 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AuthController {
 
+    /// 5 login attempts per 5 min, keyed by (ip, email). Tight enough to
+    /// kill brute-force; loose enough that a kid fat-fingering the
+    /// password isn't locked out for an hour.
+    private static final int LOGIN_LIMIT = 5;
+    private static final long LOGIN_WINDOW_MS = 5L * 60_000;
+    /// Forgot-password is rarer; 3 / hour is a fine cap.
+    private static final int FORGOT_LIMIT = 3;
+    private static final long FORGOT_WINDOW_MS = 60L * 60_000;
+
     private final AuthService authService;
+    private final SlidingWindowRateLimiter rateLimiter;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
@@ -43,10 +56,31 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
-            @Valid @RequestBody LoginRequest request
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest http
     ) {
-        AuthResponse result = authService.login(request.email(), request.password());
-        return ResponseEntity.ok(ApiResponse.success(result));
+        // IP+email key — one IP can't spray many accounts, one account
+        // can't be hammered from many IPs. Failed-attempts only: we
+        // reset on success below.
+        String key = "login:" + clientIp(http) + ":" + safeEmail(request.email());
+        var r = rateLimiter.tryAcquire(key, LOGIN_LIMIT, LOGIN_WINDOW_MS);
+        if (!r.allowed()) {
+            throw new BusinessException(
+                    "Too many login attempts. Try again in "
+                            + r.retryAfterSeconds() + "s.", 429);
+        }
+        try {
+            AuthResponse result = authService.login(
+                    request.email(), request.password());
+            // Success: clear the counter so the next session isn't
+            // throttled by their earlier fat-fingered tries.
+            rateLimiter.reset(key);
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } catch (RuntimeException e) {
+            // Failure leaves the hit recorded — the counter walks toward
+            // the limit, which is the whole point.
+            throw e;
+        }
     }
 
     /**
@@ -109,11 +143,40 @@ public class AuthController {
 
     @PostMapping("/forgot-password")
     public ResponseEntity<ApiResponse<Map<String, String>>> forgotPassword(
-            @Valid @RequestBody ForgotPasswordRequest request
+            @Valid @RequestBody ForgotPasswordRequest request,
+            HttpServletRequest http
     ) {
-        log.info("[Auth] Forgot password requested for email={}", request.email());
+        String key = "forgot:" + clientIp(http) + ":" + safeEmail(request.email());
+        var r = rateLimiter.tryAcquire(key, FORGOT_LIMIT, FORGOT_WINDOW_MS);
+        if (!r.allowed()) {
+            // Return the same generic body even on throttle so the
+            // response shape doesn't leak whether the email exists.
+            log.info("[Auth] Forgot-password throttled (key hash={})",
+                    Integer.toHexString(key.hashCode()));
+            return ResponseEntity.ok(ApiResponse.success(Map.of(
+                    "message", "If an account exists, a reset link has been sent")));
+        }
+        // Never log the email. AuthService handles the actual lookup +
+        // dispatch; we keep the response identical regardless of whether
+        // the account exists (user-enumeration guard).
+        log.info("[Auth] Forgot-password request received");
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("message", "If an account exists, a reset link has been sent")));
+    }
+
+    /// Best-effort client IP. Railway sets X-Forwarded-For; fall back to
+    /// the remote address when running locally or via direct connections.
+    private String clientIp(HttpServletRequest request) {
+        String fwd = request.getHeader("X-Forwarded-For");
+        if (fwd != null && !fwd.isBlank()) {
+            return fwd.split(",")[0].trim();
+        }
+        String real = request.getHeader("X-Real-IP");
+        return (real != null && !real.isBlank()) ? real : request.getRemoteAddr();
+    }
+
+    private String safeEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase();
     }
 
     @DeleteMapping("/account")

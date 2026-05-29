@@ -47,9 +47,9 @@ public class AuthService {
         user.setSetupComplete(false);
         userRepo.save(user);
 
-        log.info("[Auth] Registered new user id={} email={}", user.getId(), email);
+        log.info("[Auth] Registered new user id={}", user.getId());
         characterShopService.seedDefaultUnlocks(user.getId());
-        String token = jwtService.generateToken(user.getId());
+        String token = jwtService.generateToken(user.getId(), user.getRole());
         return new AuthResponse(user.getId(), token, true, false);
     }
 
@@ -70,9 +70,9 @@ public class AuthService {
             badgeService.checkAndGrantMilestones(user.getId());
         } catch (Exception ignored) {}
 
-        log.info("[Auth] Login success id={} email={} streak={}",
-                user.getId(), email, user.getStreakDays());
-        String token = jwtService.generateToken(user.getId());
+        log.info("[Auth] Login success id={} streak={}",
+                user.getId(), user.getStreakDays());
+        String token = jwtService.generateToken(user.getId(), user.getRole());
         return new AuthResponse(user.getId(), token, false, user.isSetupComplete());
     }
 
@@ -130,9 +130,9 @@ public class AuthService {
             // never block sign-in on badge math
         }
 
-        log.info("[Auth] Social sign-in id={} email={} new={} streak={}",
-                user.getId(), email, isNew, user.getStreakDays());
-        String token = jwtService.generateToken(user.getId());
+        log.info("[Auth] Social sign-in id={} new={} streak={}",
+                user.getId(), isNew, user.getStreakDays());
+        String token = jwtService.generateToken(user.getId(), user.getRole());
         return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete());
     }
 
@@ -154,7 +154,7 @@ public class AuthService {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
         userRepo.deleteById(userId);
-        log.info("[Auth] Deleted account id={} email={}", user.getId(), user.getEmail());
+        log.info("[Auth] Deleted account id={}", user.getId());
     }
 
     @Transactional
@@ -164,7 +164,7 @@ public class AuthService {
         if (childName != null && !childName.isBlank()) {
             user.setChildName(childName);
             userRepo.save(user);
-            log.info("[Auth] Updated child name id={} name={}", userId, childName);
+            log.info("[Auth] Updated child name id={}", userId);
         }
     }
 
@@ -179,8 +179,8 @@ public class AuthService {
         user.setSetupComplete(true);
         userRepo.save(user);
 
-        log.info("[Auth] Setup complete id={} child={}", userId, childName);
-        String token = jwtService.generateToken(userId);
+        log.info("[Auth] Setup complete id={}", userId);
+        String token = jwtService.generateToken(userId, user.getRole());
         return new AuthResponse(userId, token, false, true);
     }
 }

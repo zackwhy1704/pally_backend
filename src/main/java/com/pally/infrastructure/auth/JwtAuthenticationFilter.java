@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
@@ -42,8 +43,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String userId = jwtService.extractUserId(token);
 
             if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                // Grant ROLE_<role> from the JWT claim so hasRole('ADMIN')
+                // in SecurityConfig fires correctly. Defaults to USER for
+                // legacy tokens minted before V36 — fail-closed because
+                // `anyRequest().authenticated()` still demands a valid token.
+                String role = jwtService.extractRole(token);
+                var authorities = List.of(
+                        new SimpleGrantedAuthority("ROLE_" + role));
                 UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(userId, null, List.of());
+                        new UsernamePasswordAuthenticationToken(userId, null, authorities);
                 auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }
