@@ -38,6 +38,7 @@ public class SubmitQuizAnswersUseCase {
     private final BadgeService badgeService;
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final com.pally.domain.knowledge.WikiRepository wikiRepository;
+    private final com.pally.domain.referral.ReferralService referralService;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -153,6 +154,15 @@ public class SubmitQuizAnswersUseCase {
         badgeService.grantFirstAction(submission.userId(), BadgeService.BadgeType.FIRST_QUIZ);
         badgeService.grantPerfectQuiz(submission.userId(), correct, total);
         badgeService.checkAndGrantMilestones(submission.userId());
+
+        // Referral activation — idempotent + no-op when nothing pending.
+        // Has to run AFTER the per-question results above so the user has
+        // a real activity footprint by the time the bonus credits land.
+        try {
+            referralService.onFirstQuizAnswer(submission.userId());
+        } catch (Exception e) {
+            log.warn("[Referral] activation hook skipped: {}", e.getMessage());
+        }
 
         // R1 — self-correcting knowledge base. Correct answers reinforce the
         // source page (small +); wrong answers shake confidence harder and

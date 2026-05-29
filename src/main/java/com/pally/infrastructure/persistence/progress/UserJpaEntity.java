@@ -116,6 +116,10 @@ public class UserJpaEntity {
     @Column(name = "is_premium", nullable = false)
     private boolean isPremium;
 
+    /// Personal referral code — lazy-generated on first /referral/me hit.
+    @Column(name = "referral_code", length = 12, unique = true)
+    private String referralCode;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

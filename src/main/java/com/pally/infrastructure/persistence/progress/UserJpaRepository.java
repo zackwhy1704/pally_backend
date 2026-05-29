@@ -12,4 +12,6 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
     Optional<UserJpaEntity> findByLinkCode(String linkCode);
 
     List<UserJpaEntity> findByParentId(String parentId);
+
+    Optional<UserJpaEntity> findByReferralCode(String referralCode);
 }
