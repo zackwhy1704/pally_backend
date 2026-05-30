@@ -38,10 +38,12 @@ public class StripeService {
     @Value("${stripe.webhook-secret:}")
     private String webhookSecret;
 
-    @Value("${stripe.return.success-url:pally://subscription/return?status=success}")
+    // Default to the HTTPS redirect endpoint which bounces → pally:// deep link.
+    // Stripe Checkout rejects custom-scheme deep links as success_url.
+    @Value("${stripe.return.success-url:https://pallybackend-production.up.railway.app/api/v1/subscription/return?status=success}")
     private String successUrl;
 
-    @Value("${stripe.return.cancel-url:pally://subscription/return?status=cancel}")
+    @Value("${stripe.return.cancel-url:https://pallybackend-production.up.railway.app/api/v1/subscription/return?status=cancel}")
     private String cancelUrl;
 
     @Value("${stripe.price.individual-monthly:}")
@@ -88,8 +90,8 @@ public class StripeService {
             var session = com.stripe.model.checkout.Session.create(params);
             return session.getUrl();
         } catch (StripeException e) {
-            log.error("[Stripe] checkout failed user={} plan={}: {}",
-                    userId, plan, e.getMessage());
+            log.error("[Stripe] checkout failed user={} plan={} code={} type={}: {}",
+                    userId, plan, e.getCode(), e.getClass().getSimpleName(), e.getMessage());
             throw new BusinessException(
                     "Could not start checkout — try again", 502);
         }

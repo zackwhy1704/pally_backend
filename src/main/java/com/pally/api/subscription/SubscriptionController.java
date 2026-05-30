@@ -14,6 +14,8 @@ import com.stripe.model.checkout.Session;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
@@ -62,6 +65,25 @@ public class SubscriptionController {
 
     private boolean isLive() {
         return stripeSecretKey != null && !stripeSecretKey.isBlank();
+    }
+
+    /// HTTPS landing page for Stripe's success/cancel redirect. Stripe
+    /// Checkout requires an https:// success_url — custom deep-link schemes
+    /// (pally://) are rejected. This endpoint receives the redirect from
+    /// Stripe and immediately 302s to the app's deep-link, which Android/iOS
+    /// will intercept and route to SubscriptionReturnScreen.
+    ///
+    /// Configure STRIPE_RETURN_SUCCESS_URL in Railway to:
+    ///   https://pallybackend-production.up.railway.app/api/v1/subscription/return?status=success
+    @GetMapping("/return")
+    public ResponseEntity<Void> handleReturn(
+            @RequestParam(name = "status", defaultValue = "success") String status) {
+        // Deep link the mobile app handles via AndroidManifest intent-filter.
+        String deepLink = "pally://subscription/return?status=" + status;
+        log.info("[Subscription] Stripe return redirect → {}", deepLink);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.LOCATION, deepLink);
+        return ResponseEntity.status(HttpStatus.FOUND).headers(headers).build();
     }
 
     /// Single endpoint the Flutter app polls on resume + after returning
