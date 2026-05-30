@@ -15,6 +15,8 @@ import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.activity.DailyActivityDayJpaRepository;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.curriculum.CurriculumTopicJpaRepository;
+import com.pally.infrastructure.persistence.progress.StudyPlanCompletionJpaEntity;
+import com.pally.infrastructure.persistence.progress.StudyPlanCompletionJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
@@ -35,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -58,6 +61,9 @@ public class ProgressController {
     private final UserJpaRepository userRepo;
     private final ActivityLogJpaRepository activityLogRepo;
     private final AvatarJpaRepository avatarJpaRepo;
+    private final StudyPlanCompletionJpaRepository studyPlanCompletionRepo;
+
+    private static final ZoneId SGT = ZoneId.of("Asia/Singapore");
     private final CurriculumTopicJpaRepository curriculumTopicRepo;
     private final WikiRepository wikiRepository;
 
@@ -69,48 +75,76 @@ public class ProgressController {
         return ResponseEntity.ok(ApiResponse.success(ProgressResponse.from(summary)));
     }
 
-    /// Adaptive study plan: today's tasks come from real signals — due
-    /// flashcards per avatar, untaken daily quizzes, weakest topics.
-    /// Replaces the previous hardcoded stub.
+    /// Adaptive study plan. Task IDs are deterministic: "{avatarId}:{type}:{sgtDate}"
+    /// so the client can mark them done and the server can exclude completed tasks
+    /// on subsequent fetches within the same SGT day.
     @GetMapping("/study-plan")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getStudyPlan(
             @AuthenticationPrincipal String userId
     ) {
-        List<Map<String, Object>> todayTasks = new ArrayList<>();
+        String sgtDate = LocalDate.now(SGT).toString(); // "2025-01-15"
+        Instant dayStart = LocalDate.now(SGT).atStartOfDay(SGT).toInstant();
+        Instant dayEnd = dayStart.plus(1, java.time.temporal.ChronoUnit.DAYS);
 
+        // Load tasks completed today so we can exclude them.
+        Set<String> completedToday = studyPlanCompletionRepo
+                .findCompletedKeysToday(userId, dayStart, dayEnd);
+
+        List<Map<String, Object>> items = new ArrayList<>();
         List<Avatar> avatars = avatarRepository.findByUserId(userId);
+
         for (Avatar avatar : avatars) {
             // Due flashcards
             List<FlashCard> due = flashcardRepository.findDueByAvatarId(avatar.getId());
             if (!due.isEmpty()) {
-                todayTasks.add(Map.of(
-                        "title", "Review " + due.size() + " flashcard"
-                                + (due.size() == 1 ? "" : "s") + " — " + avatar.getName(),
-                        "type", "flashcard",
-                        "avatarId", avatar.getId(),
-                        "done", false
-                ));
+                String taskKey = avatar.getId() + ":flashcard:" + sgtDate;
+                boolean done = completedToday.contains(taskKey);
+                Map<String, Object> task = new HashMap<>();
+                task.put("id", taskKey);
+                task.put("title", "Review " + due.size() + " flashcard"
+                        + (due.size() == 1 ? "" : "s") + " — " + avatar.getName());
+                task.put("type", "flashcard");
+                task.put("avatarId", avatar.getId());
+                task.put("done", done);
+                task.put("reason", due.size() + " card" + (due.size() == 1 ? "" : "s")
+                        + " scheduled for review today");
+                items.add(task);
             }
 
-            // Daily quiz if not taken today (best-effort — query may fail on empty table)
-            boolean takenToday;
+            // Daily quiz if not taken today
+            boolean takenToday = false;
             try {
                 Boolean b = quizResultRepo.takenToday(userId, avatar.getId());
                 takenToday = b != null && b;
-            } catch (Exception ignored) {
-                takenToday = false;
-            }
+            } catch (Exception ignored) {}
+
             if (!takenToday) {
-                todayTasks.add(Map.of(
-                        "title", "Daily quiz — " + avatar.getName(),
-                        "type", "quiz",
-                        "avatarId", avatar.getId(),
-                        "done", false
-                ));
+                String taskKey = avatar.getId() + ":quiz:" + sgtDate;
+                boolean done = completedToday.contains(taskKey);
+                Map<String, Object> task = new HashMap<>();
+                task.put("id", taskKey);
+                task.put("title", "Daily quiz — " + avatar.getName());
+                task.put("type", "quiz");
+                task.put("avatarId", avatar.getId());
+                task.put("done", done);
+                task.put("reason", "Keep your daily streak going");
+                items.add(task);
             }
         }
 
-        // Weak-topic practice — top 3 weakest topics across user
+        if (items.isEmpty()) {
+            String taskKey = "info:" + sgtDate;
+            Map<String, Object> task = new HashMap<>();
+            task.put("id", taskKey);
+            task.put("title", "Create your first tutor to get started");
+            task.put("type", "info");
+            task.put("avatarId", "");
+            task.put("done", false);
+            task.put("reason", "");
+            items.add(task);
+        }
+
+        // Upcoming weak-topic hints (not actionable today items)
         List<Map<String, Object>> upcomingTasks = new ArrayList<>();
         try {
             List<Object[]> weakTopics = quizResultRepo.findWeakestTopics(userId, 3);
@@ -124,34 +158,29 @@ public class ProgressController {
             }
         } catch (Exception ignored) {}
 
-        if (todayTasks.isEmpty()) {
-            todayTasks.add(Map.of(
-                    "title", "Create your first tutor to get started",
-                    "type", "info",
-                    "done", false
-            ));
-        }
-
-        var plan = Map.<String, Object>of(
-                "todayTasks", todayTasks,
-                "upcomingTasks", upcomingTasks,
-                "testCountdown", Map.of()
-        );
-        return ResponseEntity.ok(ApiResponse.success(plan));
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "items", items,
+                "upcomingTasks", upcomingTasks
+        )));
     }
 
-    /**
-     * No-op acknowledgement so the optimistic "tick task done" call from the
-     * frontend stops 404-ing in the logs. The plan is recomputed per request
-     * from real signals (due cards, untaken quizzes, weak topics), so there
-     * is no per-task state to mutate.
-     */
+    /// Persists a study-plan task completion keyed by the stable task ID
+    /// ({avatarId}:{type}:{sgtDate}). Idempotent — re-marking the same task
+    /// is a no-op (primary key conflict silently ignored by upsert semantics).
     @PostMapping("/study-plan/{taskId}/done")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void markStudyPlanTaskDone(
             @AuthenticationPrincipal String userId,
             @PathVariable String taskId) {
-        log.debug("[StudyPlan] Task {} marked done by user {}", taskId, userId);
+        var pk = new StudyPlanCompletionJpaEntity.PK(userId, taskId);
+        if (!studyPlanCompletionRepo.existsById(pk)) {
+            var completion = new StudyPlanCompletionJpaEntity();
+            completion.setUserId(userId);
+            completion.setTaskKey(taskId);
+            completion.setCompletedAt(Instant.now());
+            studyPlanCompletionRepo.save(completion);
+        }
+        log.info("[StudyPlan] user={} marked task={} done", userId, taskId);
     }
 
     /// Everything the streak card needs in one round-trip — the 7-dot strip
