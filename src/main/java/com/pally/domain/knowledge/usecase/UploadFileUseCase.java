@@ -7,6 +7,7 @@ import com.pally.domain.knowledge.RelevanceScore;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.RelevancePort;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.infrastructure.ocr.PdfTextExtractor;
@@ -49,12 +50,16 @@ public class UploadFileUseCase {
     private final ActivityLogService activityLogService;
     private final BadgeService badgeService;
     private final com.pally.domain.subscription.PremiumService premiumService;
+    private final ConsentGuard consentGuard;
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
         return execute(avatarId, userId, file, false);
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file, boolean skipRelevance) {
+        // PDPA gate: uploading personal notes requires an ACTIVE account.
+        consentGuard.requireActive(userId, "UPLOAD");
+
         avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));

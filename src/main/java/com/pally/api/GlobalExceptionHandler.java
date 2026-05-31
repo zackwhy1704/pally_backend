@@ -1,6 +1,7 @@
 package com.pally.api;
 
 import com.pally.shared.exception.AvatarNotFoundException;
+import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.PallyException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
@@ -50,6 +51,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(402)
                 .body(new ApiResponse<>(payload, ex.getMessage(), 402));
+    }
+
+    /// Mirrors the UPGRADE_REQUIRED handler — routes the Flutter client to
+    /// the consent-gate sheet instead of a raw 403 error.
+    @ExceptionHandler(ConsentRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleConsentRequired(
+            ConsentRequiredException ex) {
+        log.debug("Consent required: {}", ex.getReason());
+        Map<String, Object> payload = Map.of(
+                "code", "CONSENT_REQUIRED",
+                "reason", ex.getReason());
+        return ResponseEntity
+                .status(403)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 403));
     }
 
     /**

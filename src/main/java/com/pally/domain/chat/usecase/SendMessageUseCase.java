@@ -15,8 +15,10 @@ import com.pally.domain.chat.SocraticHintTree;
 import com.pally.domain.chat.SocraticPromptBuilder;
 import com.pally.domain.chat.TopicClassifier;
 import com.pally.domain.chat.port.ChatPort;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.infrastructure.ai.CacheMetrics;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
+import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +63,8 @@ public class SendMessageUseCase {
     private final SocraticPromptBuilder socraticPromptBuilder;
     private final ModelRouter modelRouter;
     private final ChatSessionSummariser sessionSummariser;
+    private final ConsentGuard consentGuard;
+    private final ModerationService moderationService;
 
     public record StreamEvent(String type, String payload) {}
 
@@ -69,8 +73,25 @@ public class SendMessageUseCase {
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
+        // PDPA: PENDING accounts chat ephemerally — skip persist to chat_message.
+        boolean ephemeral = consentGuard.isPending(userId);
+
+        // Moderation: screen the child's input BEFORE calling the model.
+        // Fails safe: HIGH-severity → replace with caring redirect, never deliver raw content.
+        ModerationService.ModerationResult inputMod = moderationService.screenInput(
+                userId, avatarId, null, userMessage);
+        if (inputMod.flagged() && inputMod.isHighSeverity()) {
+            log.warn("[Chat] Input blocked by moderation cat={} user={}", inputMod.category(), userId);
+            String safeReply = inputMod.safeReply();
+            return Flux.just(
+                    new StreamEvent("token", safeReply),
+                    new StreamEvent("done", "")
+            );
+        }
+
         ChatMessage userMsg = ChatMessage.create(avatarId, userId, ChatMessage.Role.USER, userMessage, null);
-        chatRepository.save(userMsg);
+        // Only persist if account is ACTIVE
+        if (!ephemeral) chatRepository.save(userMsg);
 
         // Build prompt cache blocks 1-3 (stable)
         AssembledContext context = contextAssembler.assemble(avatar, userMessage);
@@ -132,10 +153,22 @@ public class SendMessageUseCase {
                 .doOnComplete(() -> {
                     if (!replyBuffer.isEmpty()) {
                         // Strip the "SOURCE: <slug>" trailer the model appends
-                        // per system prompt — we already carry the slug as a
-                        // dedicated field, so the bubble text must not leak it.
                         String cleanReply = SOURCE_TRAILER.matcher(
                                 replyBuffer.toString()).replaceFirst("").trim();
+
+                        // Screen the model's output before the child sees it.
+                        ModerationService.ModerationResult outMod =
+                                moderationService.screenOutput(userId, avatarId, null, cleanReply);
+                        // Note: if flagged, we still write a flag but the SSE
+                        // stream already emitted, so we can't replace mid-stream.
+                        // Future: buffer the stream before emitting (complex).
+
+                        // PENDING accounts: skip persisting the assistant reply.
+                        if (ephemeral) {
+                            log.debug("[Chat] Ephemeral (PENDING) — skipping persist user={}", userId);
+                            return;
+                        }
+
                         ChatMessage assistantMsg = ChatMessage.createWithTrace(
                                 avatarId, userId, ChatMessage.Role.ASSISTANT,
                                 cleanReply, capturedSourceFile.get(),

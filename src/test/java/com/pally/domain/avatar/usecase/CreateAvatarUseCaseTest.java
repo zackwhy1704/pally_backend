@@ -4,6 +4,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.SeedContentService;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.progress.UserStats;
@@ -36,6 +37,7 @@ class CreateAvatarUseCaseTest {
     @Mock SeedContentService seedContentService;
     @Mock PremiumService premiumService;
     @Mock UserRepository userRepository;
+    @Mock ConsentGuard consentGuard; // no-op in these tests (ACTIVE accounts)
 
     @InjectMocks CreateAvatarUseCase useCase;
 

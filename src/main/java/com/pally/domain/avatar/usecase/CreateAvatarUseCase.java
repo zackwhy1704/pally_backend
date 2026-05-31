@@ -4,6 +4,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.SeedContentService;
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.UserRepository;
@@ -31,6 +32,7 @@ public class CreateAvatarUseCase {
     private final SeedContentService seedContentService;
     private final PremiumService premiumService;
     private final UserRepository userRepository;
+    private final ConsentGuard consentGuard;
 
     public Avatar execute(String userId, String name, Subject subject, CharacterType characterType) {
         return execute(userId, name, subject, characterType, null, null);
@@ -39,6 +41,9 @@ public class CreateAvatarUseCase {
     public Avatar execute(String userId, String name, Subject subject, CharacterType characterType,
                           String gradeLevel, String curriculumType) {
         log.info("Creating avatar for userId={} name={} subject={} grade={}", userId, name, subject, gradeLevel);
+
+        // PDPA gate: creating a personal tutor (which persists data) requires ACTIVE.
+        consentGuard.requireActive(userId, "CREATE_TUTOR");
 
         // Free-tier cap. Read existing count BEFORE the save so we don't
         // off-by-one on the call that's trying to create the second tutor.

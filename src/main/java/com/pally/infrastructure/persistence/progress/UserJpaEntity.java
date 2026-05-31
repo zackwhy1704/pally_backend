@@ -140,6 +140,12 @@ public class UserJpaEntity {
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;
 
+    /// PDPA account status. ACTIVE = normal access; PENDING_CONSENT = under-13
+    /// awaiting parent email approval (consume-yes/generate-no).
+    /// Defaults to ACTIVE so all existing accounts are unaffected.
+    @Column(name = "account_status", nullable = false, length = 20)
+    private String accountStatus = "ACTIVE";
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

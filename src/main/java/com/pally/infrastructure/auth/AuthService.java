@@ -140,13 +140,15 @@ public class AuthService {
     public Map<String, Object> getUser(String userId) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
-        return Map.of(
-                "userId", user.getId(),
-                "email", user.getEmail() != null ? user.getEmail() : "",
-                "displayName", user.getDisplayName() != null ? user.getDisplayName() : "",
-                "setupComplete", user.isSetupComplete(),
-                "childName", user.getChildName() != null ? user.getChildName() : ""
-        );
+        var m = new java.util.HashMap<String, Object>();
+        m.put("userId", user.getId());
+        m.put("email", user.getEmail() != null ? user.getEmail() : "");
+        m.put("displayName", user.getDisplayName() != null ? user.getDisplayName() : "");
+        m.put("setupComplete", user.isSetupComplete());
+        m.put("childName", user.getChildName() != null ? user.getChildName() : "");
+        m.put("accountStatus",
+                user.getAccountStatus() != null ? user.getAccountStatus() : "ACTIVE");
+        return m;
     }
 
     @Transactional
