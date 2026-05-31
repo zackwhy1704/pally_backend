@@ -50,7 +50,7 @@ dependencies {
     implementation("software.amazon.awssdk:s3:2.26.25")
 
     // PDF text extraction
-    implementation("org.apache.pdfbox:pdfbox:3.0.2")
+    implementation("org.apache.pdfbox:pdfbox:3.0.7")
 
     // Deterministic math evaluator for the calculator tool — NEVER eval()/ScriptEngine.
     // Whitelisted operations only; sub-millisecond, no network.
