@@ -60,7 +60,7 @@ dependencies {
     implementation("net.sourceforge.tess4j:tess4j:5.11.0")
 
     // OpenAPI / SpringDoc
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
 
     // Stripe — Checkout Sessions, Billing Portal, Webhook signature verify.
     // Pinned to a major version that supports java 21 and the modern API.
