@@ -76,6 +76,14 @@ public class ClaudeMetrics {
         registry.counter("pally.quiz.answer.disagreement").increment();
     }
 
+    /**
+     * Fired when a photo question is escalated to a heavier vision model.
+     * @param tier "heavy" (Sonnet) or "max" (Opus) — tells dashboards which tier is used.
+     */
+    public void recordVisualEscalation(String tier) {
+        registry.counter("pally.ai.visual_math.escalation", "tier", safe(tier)).increment();
+    }
+
     private String safe(String s) {
         return s == null || s.isBlank() ? "unknown" : s;
     }
