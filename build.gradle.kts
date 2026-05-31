@@ -52,6 +52,10 @@ dependencies {
     // PDF text extraction
     implementation("org.apache.pdfbox:pdfbox:3.0.2")
 
+    // Deterministic math evaluator for the calculator tool — NEVER eval()/ScriptEngine.
+    // Whitelisted operations only; sub-millisecond, no network.
+    implementation("net.objecthunter:exp4j:0.4.8")
+
     // Tesseract OCR
     implementation("net.sourceforge.tess4j:tess4j:5.11.0")
 

@@ -17,6 +17,18 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * Solves homework questions using Claude with a deterministic calculator tool.
+ *
+ * <p>Accuracy improvements over the original:
+ * <ol>
+ *   <li><b>Calculator tool</b> — the model can call the calculator for any arithmetic,
+ *       so final numeric answers are computed rather than predicted.</li>
+ *   <li><b>Hidden reasoning</b> — the model reasons step-by-step about how a student
+ *       might have reached their answer (Khan Academy technique) before producing the
+ *       student-facing reply. The reasoning is in a delimited block that gets stripped.</li>
+ * </ol>
+ */
 @Component
 @RequiredArgsConstructor
 public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
@@ -28,21 +40,31 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
     private final ModelRouter modelRouter;
+    private final CalculatorTool calculatorTool;
 
     @Override
-    public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages, List<String> questions) {
+    public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages,
+                                                  List<String> questions) {
         String wikiContext = buildWikiContext(wikiPages);
         String prompt = buildPrompt(avatar, wikiContext, questions);
 
-        log.debug("Solving {} questions for avatar={}", questions.size(), avatar.getId());
+        log.debug("[PhotoSolver] Solving {} questions for avatar={} with calculator tool",
+                questions.size(), avatar.getId());
 
         try {
-            String raw = apiClient.complete(modelRouter.forPhotoQuestion(), MAX_TOKENS, prompt);
-            log.debug("[PhotoSolver] Raw response ({} chars): {}", raw.length(),
-                    raw.substring(0, Math.min(200, raw.length())));
+            // Pass the calculator tool so the model verifies arithmetic before stating answers.
+            String raw = apiClient.completeWithTools(
+                    modelRouter.forPhotoQuestion(),
+                    MAX_TOKENS,
+                    prompt,
+                    List.of(calculatorTool),
+                    "photo-solver"
+            );
+            log.debug("[PhotoSolver] Raw response ({} chars): {}",
+                    raw.length(), raw.substring(0, Math.min(200, raw.length())));
             return parseAnswers(questions, raw);
         } catch (Exception e) {
-            log.error("[PhotoSolver] Claude call failed: {} — {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            log.error("[PhotoSolver] Failed: {} — {}", e.getClass().getSimpleName(), e.getMessage(), e);
             return buildStubAnswers(questions);
         }
     }
@@ -52,18 +74,34 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
                 .mapToObj(i -> (i + 1) + ". " + questions.get(i))
                 .collect(Collectors.joining("\n"));
 
+        // Part B — hidden reasoning: model thinks about how the student might have arrived
+        // at their answer before producing the student-facing reply. The reasoning block
+        // is stripped before parsing; it never reaches the child.
         return """
                 You are %s, a friendly AI tutor for children studying %s (ages 8-14).
                 Solve every question below. Use simple language and short sentences.
                 Show clear working steps. Be encouraging.
 
+                IMPORTANT — For any arithmetic calculation, use the calculator tool.
+                Never guess a numerical answer; always compute it.
+
                 Knowledge base (use if relevant):
                 %s
 
+                STEP 1 — Think through each question (this is hidden from the student):
+                <reasoning>
+                For each question:
+                a) What concept does this question test?
+                b) What calculation or reasoning is needed?
+                c) What common mistakes might a student make?
+                d) Use the calculator tool for any arithmetic to verify your answer.
+                </reasoning>
+
+                STEP 2 — Output ONLY the JSON array (no other text after the reasoning block):
                 Questions:
                 %s
 
-                IMPORTANT: Reply with ONLY a valid JSON array. No markdown. No text before or after the JSON.
+                Reply with ONLY a valid JSON array. No markdown. No text before or after the JSON.
                 Each object must have exactly these fields:
                 {
                   "questionIndex": <number starting at 1>,
@@ -84,7 +122,9 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
 
     private List<QuestionAnswerDto> parseAnswers(List<String> questions, String raw) {
         try {
-            String json = extractJson(raw);
+            // Strip hidden reasoning block before parsing JSON
+            String cleaned = raw.replaceAll("(?s)<reasoning>.*?</reasoning>", "").strip();
+            String json = extractJson(cleaned);
             JsonNode array = objectMapper.readTree(json);
             List<QuestionAnswerDto> answers = new ArrayList<>();
 
@@ -108,7 +148,7 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
             }
             return answers;
         } catch (Exception e) {
-            log.error("Failed to parse Claude photo answer JSON", e);
+            log.error("[PhotoSolver] Failed to parse Claude response", e);
             return buildStubAnswers(questions);
         }
     }
@@ -116,21 +156,12 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
     private String extractJson(String raw) {
         int start = raw.indexOf('[');
         int end = raw.lastIndexOf(']');
-        if (start >= 0 && end > start) {
-            return raw.substring(start, end + 1);
-        }
+        if (start >= 0 && end > start) return raw.substring(start, end + 1);
         return raw;
     }
 
-    /**
-     * Returns a single error sentinel the client can detect (questionText =
-     * {@code __ERROR__}) and render as a warning bubble instead of a fake
-     * answer list. Previously this produced plausible-looking but wrong
-     * "Unable to solve right now" answers that masked real failures.
-     */
     private List<QuestionAnswerDto> buildStubAnswers(List<String> questions) {
-        log.error("[PhotoSolver] Claude response unparseable for {} question(s) "
-                + "— returning error sentinel", questions.size());
+        log.error("[PhotoSolver] Returning error sentinel for {} question(s)", questions.size());
         return List.of(new QuestionAnswerDto(
                 "__PARSE_ERROR__",
                 "__ERROR__",
@@ -141,7 +172,7 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
     }
 
     private String buildWikiContext(List<WikiPage> pages) {
-        if (pages.isEmpty()) { return "No knowledge loaded yet."; }
+        if (pages.isEmpty()) return "No knowledge loaded yet.";
         String combined = pages.stream()
                 .map(p -> "### " + p.getTitle() + "\n" + p.getContent())
                 .collect(Collectors.joining("\n\n"));

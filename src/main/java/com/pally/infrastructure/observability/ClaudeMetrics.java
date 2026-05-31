@@ -52,6 +52,30 @@ public class ClaudeMetrics {
                 "task", safe(task), "model", safe(model)).record(d);
     }
 
+    // ── AI-quality / tool-use observability ──────────────────────────────────
+
+    public void recordToolCall(String toolName) {
+        registry.counter("pally.ai.tool.calls", "tool", safe(toolName)).increment();
+    }
+
+    public void recordToolError(String toolName) {
+        registry.counter("pally.ai.tool.errors", "tool", safe(toolName)).increment();
+    }
+
+    /**
+     * Fired when the calculator disagrees with the model's stated answer.
+     * A rising rate = model hallucinating arithmetic = direct quality signal.
+     */
+    public void recordCalculatorDisagreement(String surface) {
+        registry.counter("pally.ai.tool.disagreement",
+                "tool", "calculator", "surface", safe(surface)).increment();
+    }
+
+    /** Fired when a quiz question's correctIndex fails calculator verification. */
+    public void recordQuizAnswerDisagreement() {
+        registry.counter("pally.quiz.answer.disagreement").increment();
+    }
+
     private String safe(String s) {
         return s == null || s.isBlank() ? "unknown" : s;
     }

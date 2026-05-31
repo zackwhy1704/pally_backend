@@ -19,6 +19,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -139,6 +141,179 @@ public class ClaudeApiClient {
             throw new RuntimeException("Unexpected Claude API response format", e);
         }
     }
+
+    // ── Tool-use (agentic loop) ────────────────────────────────────────────────
+
+    /**
+     * Sends a completion request with one or more deterministic tools available.
+     * Runs the Anthropic tool-use agentic loop until:
+     *  1. The model returns {@code stop_reason == "end_turn"} (finished), or
+     *  2. {@code MAX_TOOL_ITERATIONS} is reached, or
+     *  3. The total wall-clock time exceeds {@code TOOL_LOOP_TIMEOUT}.
+     *
+     * <p>On time-out the best available text from the last call is returned
+     * with a logged warning — the loop never hangs the request thread.
+     * The circuit breaker wraps the full loop.
+     */
+    private static final int MAX_TOOL_ITERATIONS = 3;
+    private static final Duration TOOL_LOOP_TIMEOUT = Duration.ofSeconds(30);
+
+    @Retry(name = "claude")
+    @CircuitBreaker(name = "claude", fallbackMethod = "completeWithToolsFallback")
+    public String completeWithTools(String modelStr, int maxTokens, String prompt,
+                                    List<ClaudeTool> tools, String task) {
+        String callId = UUID.randomUUID().toString().substring(0, 8);
+        Instant deadline = Instant.now().plus(TOOL_LOOP_TIMEOUT);
+        Timer.Sample sample = metrics.startLatency();
+
+        log.info("[Claude-{}] TOOL-USE REQUEST model={} task={} tools={} promptChars={}",
+                callId, modelStr, task, tools.stream().map(ClaudeTool::name).toList(),
+                prompt.length());
+
+        // Build tools array for the request
+        ArrayNode toolsArray = objectMapper.createArrayNode();
+        for (ClaudeTool tool : tools) {
+            ObjectNode toolNode = toolsArray.addObject();
+            toolNode.put("name", tool.name());
+            toolNode.put("description", tool.description());
+            toolNode.set("input_schema", objectMapper.valueToTree(tool.inputSchema()));
+        }
+
+        // Initial messages: just the user prompt
+        ArrayNode messages = objectMapper.createArrayNode();
+        ObjectNode userMsg = messages.addObject();
+        userMsg.put("role", "user");
+        userMsg.put("content", prompt);
+
+        String lastText = null;
+        int iterations = 0;
+
+        try {
+            while (iterations < MAX_TOOL_ITERATIONS) {
+                if (Instant.now().isAfter(deadline)) {
+                    log.warn("[Claude-{}] Tool loop time-boxed after {}ms (iteration {}); "
+                            + "returning best text answer",
+                            callId, TOOL_LOOP_TIMEOUT.toMillis(), iterations);
+                    break;
+                }
+                iterations++;
+
+                ObjectNode body = objectMapper.createObjectNode();
+                body.put("model", modelStr);
+                body.put("max_tokens", maxTokens);
+                body.set("tools", toolsArray);
+                body.set("messages", messages);
+
+                String responseJson = webClient.post()
+                        .uri(baseUrl + MESSAGES_PATH)
+                        .header("x-api-key", apiKey)
+                        .header("anthropic-version", ANTHROPIC_VERSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body.toString())
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block(UNARY_BLOCK_TIMEOUT);
+
+                JsonNode root = objectMapper.readTree(responseJson);
+                String stopReason = root.path("stop_reason").asText("end_turn");
+
+                // Collect text + tool_use blocks from this response
+                ArrayNode contentArray = (ArrayNode) root.path("content");
+                StringBuilder textAccum = new StringBuilder();
+                List<JsonNode> toolUseBlocks = new ArrayList<>();
+
+                for (JsonNode block : contentArray) {
+                    String type = block.path("type").asText();
+                    if ("text".equals(type)) {
+                        textAccum.append(block.path("text").asText());
+                    } else if ("tool_use".equals(type)) {
+                        toolUseBlocks.add(block);
+                    }
+                }
+                if (!textAccum.isEmpty()) lastText = textAccum.toString().strip();
+
+                // Record tokens
+                long inTok = root.path("usage").path("input_tokens").asLong(0);
+                long outTok = root.path("usage").path("output_tokens").asLong(0);
+                metrics.recordTokens(task, modelStr, inTok, outTok);
+
+                if ("end_turn".equals(stopReason) || toolUseBlocks.isEmpty()) {
+                    log.info("[Claude-{}] Tool loop done after {} iterations", callId, iterations);
+                    break;
+                }
+
+                // Append assistant turn (must mirror what Claude sent, verbatim)
+                ObjectNode assistantTurn = messages.addObject();
+                assistantTurn.put("role", "assistant");
+                assistantTurn.set("content", contentArray);
+
+                // Execute each tool and collect results
+                ArrayNode toolResults = objectMapper.createArrayNode();
+                for (JsonNode toolUse : toolUseBlocks) {
+                    String toolName = toolUse.path("name").asText();
+                    String toolUseId = toolUse.path("id").asText();
+                    JsonNode inputNode = toolUse.path("input");
+
+                    String toolResult = executeToolCall(tools, toolName, inputNode, callId);
+
+                    ObjectNode resultBlock = toolResults.addObject();
+                    resultBlock.put("type", "tool_result");
+                    resultBlock.put("tool_use_id", toolUseId);
+                    resultBlock.put("content", toolResult);
+                }
+
+                // Append user turn with tool results
+                ObjectNode userResultTurn = messages.addObject();
+                userResultTurn.put("role", "user");
+                userResultTurn.set("content", toolResults);
+            }
+        } catch (Exception e) {
+            metrics.recordError(task, e.getClass().getSimpleName());
+            metrics.stopLatency(sample, task, modelStr);
+            throw new RuntimeException("Tool-use loop failed: " + e.getMessage(), e);
+        }
+
+        metrics.stopLatency(sample, task, modelStr);
+        if (lastText == null) lastText = "";
+        log.info("[Claude-{}] Tool-use complete text={} chars iterations={}",
+                callId, lastText.length(), iterations);
+        return lastText;
+    }
+
+    private String executeToolCall(List<ClaudeTool> tools, String toolName,
+                                    JsonNode inputNode, String callId) {
+        for (ClaudeTool tool : tools) {
+            if (tool.name().equals(toolName)) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> input = objectMapper.convertValue(
+                            inputNode, Map.class);
+                    String result = tool.execute(input);
+                    log.info("[Claude-{}] Tool {} → {}", callId, toolName, result);
+                    metrics.recordToolCall(toolName);
+                    return result;
+                } catch (Exception e) {
+                    log.warn("[Claude-{}] Tool {} failed: {}", callId, toolName, e.getMessage());
+                    metrics.recordToolError(toolName);
+                    return "Error: " + e.getMessage();
+                }
+            }
+        }
+        log.warn("[Claude-{}] Unknown tool requested: {}", callId, toolName);
+        return "Error: unknown tool '" + toolName + "'";
+    }
+
+    @SuppressWarnings("unused")
+    public String completeWithToolsFallback(String modelStr, int maxTokens, String prompt,
+                                            List<ClaudeTool> tools, String task, Throwable cause) {
+        log.warn("[Claude] tool-use fallback fired task={} cause={}",
+                task, cause == null ? "null" : cause.getMessage());
+        metrics.recordError(task, "circuit_open");
+        throw new BusinessException(
+                "Mochi's resting for a moment — try again shortly.", 503);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     /// Resilience4j fallback for {@link #complete(String, int, String, String)}.
     /// Called when the breaker is OPEN or retries are exhausted. Throws a
