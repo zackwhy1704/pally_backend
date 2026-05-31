@@ -15,6 +15,8 @@ public interface FlashcardJpaRepository extends JpaRepository<FlashcardJpaEntity
 
     int countByAvatarId(String avatarId);
 
+    int countByAvatarIdAndSourceSlug(String avatarId, String sourceSlug);
+
     @Query("SELECT f FROM FlashcardJpaEntity f WHERE f.avatarId = :avatarId " +
            "AND (f.nextReviewAt IS NULL OR f.nextReviewAt <= :now)")
     List<FlashcardJpaEntity> findDueByAvatarId(

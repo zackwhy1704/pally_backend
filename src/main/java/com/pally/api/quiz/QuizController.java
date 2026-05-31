@@ -6,18 +6,22 @@ import com.pally.api.quiz.dto.RateFlashcardRequest;
 import com.pally.api.quiz.dto.SubmitAnswersRequest;
 import com.pally.domain.quiz.AnswerSubmission;
 import com.pally.domain.quiz.FlashCard;
+import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.domain.quiz.QuizQuestion;
 import com.pally.domain.quiz.QuizResult;
 import com.pally.domain.quiz.usecase.GetDailyQuizUseCase;
 import com.pally.domain.quiz.usecase.GetFlashcardsUseCase;
 import com.pally.domain.quiz.usecase.RateFlashcardUseCase;
 import com.pally.domain.quiz.usecase.SubmitQuizAnswersUseCase;
+import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
+import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +33,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/avatars/{avatarId}")
 @RequiredArgsConstructor
+@Slf4j
 public class QuizController {
 
     private final GetDailyQuizUseCase getDailyQuizUseCase;
@@ -38,6 +43,8 @@ public class QuizController {
     private final QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
     private final QuizQuestionResultJpaRepository quizQuestionResultRepository;
     private final WikiRepository wikiRepository;
+    private final FlashcardRepository flashcardRepository;
+    private final ClaudeFlashcardGenerator flashcardGenerator;
 
     @GetMapping("/quiz/daily")
     public ResponseEntity<ApiResponse<List<QuizQuestionResponse>>> getDailyQuiz(
@@ -78,6 +85,42 @@ public class QuizController {
                 .map(FlashcardResponse::from)
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /// On-demand (re)generate flashcards from the avatar's compiled wiki pages.
+    /// Returns the count generated and whether wiki pages exist — the frontend
+    /// uses this to distinguish "no notes uploaded yet" from "generation just ran".
+    /// Idempotent: existing cards for each slug are deleted before regenerating.
+    @PostMapping("/flashcards/generate")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> generateFlashcards(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId
+    ) {
+        List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
+        boolean hasWikiPages = !pages.isEmpty();
+        int totalGenerated = 0;
+
+        if (hasWikiPages) {
+            log.info("[Flashcard] Manual generate user={} avatar={} pages={}",
+                    userId, avatarId, pages.size());
+            for (WikiPage page : pages) {
+                try {
+                    flashcardGenerator.generateAndSaveForPage(avatarId, page);
+                    totalGenerated += flashcardRepository
+                            .countByAvatarIdAndSourceSlug(avatarId, page.getSlug());
+                } catch (Exception e) {
+                    log.warn("[Flashcard] Generate failed slug={}: {}",
+                            page.getSlug(), e.getMessage());
+                }
+            }
+            log.info("[Flashcard] Generate complete avatar={} total={}",
+                    avatarId, totalGenerated);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "generated", totalGenerated,
+                "hasWikiPages", hasWikiPages
+        )));
     }
 
     @PostMapping("/flashcards/{cardId}/rate")

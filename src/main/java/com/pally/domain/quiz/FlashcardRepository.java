@@ -21,4 +21,8 @@ public interface FlashcardRepository {
     /// Delete every card for a given (avatarId, sourceSlug) pair so the wiki
     /// compiler can re-generate cleanly when a page is recompiled.
     void deleteByAvatarIdAndSourceSlug(String avatarId, String sourceSlug);
+
+    /// Count cards for a specific (avatarId, sourceSlug) — used to measure
+    /// how many were generated for a single wiki page after on-demand generation.
+    int countByAvatarIdAndSourceSlug(String avatarId, String sourceSlug);
 }

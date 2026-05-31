@@ -60,4 +60,9 @@ public class FlashcardRepositoryAdapter implements FlashcardRepository {
         if (sourceSlug == null) return;
         jpa.deleteByAvatarIdAndSourceSlug(avatarId, sourceSlug);
     }
+
+    @Override
+    public int countByAvatarIdAndSourceSlug(String avatarId, String sourceSlug) {
+        return jpa.countByAvatarIdAndSourceSlug(avatarId, sourceSlug);
+    }
 }
