@@ -195,6 +195,20 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(user));
     }
 
+    /// Update the user's default answer mode (GUIDE|ANSWER).
+    /// Called from Settings → Learning style; the per-conversation toggle
+    /// overrides this locally without hitting the server.
+    @PatchMapping("/settings/answer-mode")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateAnswerMode(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, String> body
+    ) {
+        String mode = body.getOrDefault("defaultAnswerMode", "GUIDE");
+        authService.updateDefaultAnswerMode(userId, mode);
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("defaultAnswerMode", mode.equalsIgnoreCase("ANSWER") ? "ANSWER" : "GUIDE")));
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")

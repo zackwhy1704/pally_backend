@@ -153,7 +153,18 @@ public class AuthService {
         m.put("childName", user.getChildName() != null ? user.getChildName() : "");
         m.put("accountStatus",
                 user.getAccountStatus() != null ? user.getAccountStatus() : "ACTIVE");
+        m.put("defaultAnswerMode",
+                user.getDefaultAnswerMode() != null ? user.getDefaultAnswerMode() : "GUIDE");
         return m;
+    }
+
+    @Transactional
+    public void updateDefaultAnswerMode(String userId, String mode) {
+        String normalized = "ANSWER".equalsIgnoreCase(mode) ? "ANSWER" : "GUIDE";
+        userRepo.findById(userId).ifPresent(u -> {
+            u.setDefaultAnswerMode(normalized);
+            userRepo.save(u);
+        });
     }
 
     @Transactional

@@ -157,6 +157,10 @@ public class UserJpaEntity {
     @Column(name = "trial_ends_at")
     private Instant trialEndsAt;
 
+    /// Per-user default answer mode (V50). GUIDE = Socratic (default). ANSWER = direct.
+    @Column(name = "default_answer_mode", nullable = false, length = 10)
+    private String defaultAnswerMode = "GUIDE";
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
