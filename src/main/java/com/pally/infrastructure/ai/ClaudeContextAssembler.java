@@ -50,8 +50,13 @@ public class ClaudeContextAssembler {
     private static final int MAX_TIER4_PAGES = 3;
 
     // Extended cache TTL requires this header value sent with every request
-    static final String BETA_HEADER_VALUE = "extended-cache-ttl-2025-04-11";
-    private static final String TTL_1H = "1h";
+    // Switched from extended-cache-ttl-2025-04-11 (1h TTL beta) to the stable
+    // prompt-caching-2024-07-31 header (5-min TTL, no extended-TTL beta).
+    // The 1h-TTL beta was causing ALL chat streaming requests to fail with
+    // an error response from Anthropic — the beta header may have expired or
+    // its format changed.  5-minute TTL is still a significant saving for
+    // rapid back-and-forth chat; 1h was nice-to-have, not load-bearing.
+    static final String BETA_HEADER_VALUE = "prompt-caching-2024-07-31";
     private static final String CACHE_EPHEMERAL = "ephemeral";
 
     private final TopicRouter topicRouter;
@@ -130,7 +135,7 @@ public class ClaudeContextAssembler {
         Map<String, Object> b1 = new HashMap<>();
         b1.put("type", "text");
         b1.put("text", block1);
-        b1.put("cache_control", Map.of("type", CACHE_EPHEMERAL, "ttl", TTL_1H));
+        b1.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
         blocks.add(b1);
         log.debug("[Cache] Block1 HardRules: ~{}t, 1h TTL", estimateTokens(block1));
 
@@ -139,7 +144,7 @@ public class ClaudeContextAssembler {
         Map<String, Object> b2 = new HashMap<>();
         b2.put("type", "text");
         b2.put("text", block2);
-        b2.put("cache_control", Map.of("type", CACHE_EPHEMERAL, "ttl", TTL_1H));
+        b2.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
         blocks.add(b2);
         log.debug("[Cache] Block2 AvatarConfig: ~{}t, 1h TTL", estimateTokens(block2));
 

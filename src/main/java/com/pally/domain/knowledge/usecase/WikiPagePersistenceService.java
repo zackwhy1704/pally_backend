@@ -113,7 +113,7 @@ public class WikiPagePersistenceService {
             }
         }
 
-        int totalPages = wikiRepository.countByAvatarId(avatarId);
+        int totalPages = wikiRepository.countActiveByAvatarId(avatarId); // ACTIVE only — matches quiz/brain filter
         avatar.setWikiPageCount(totalPages);
         avatarRepository.save(avatar);
 

@@ -5,6 +5,7 @@ import com.pally.api.knowledge.dto.RelevanceCheckRequest;
 import com.pally.api.knowledge.dto.RelevanceCheckResponse;
 import com.pally.api.knowledge.dto.WikiCompileResponse;
 import com.pally.api.knowledge.dto.WikiPageResponse;
+import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
@@ -52,6 +53,7 @@ public class KnowledgeController {
     private final KnowledgeRepository knowledgeRepository;
     private final KnowledgeMapper knowledgeMapper;
     private final WikiRepository wikiRepository;
+    private final AvatarRepository avatarRepository;
 
     /**
      * Uploads a file to the avatar's knowledge base.
@@ -214,8 +216,16 @@ public class KnowledgeController {
 
     @GetMapping("/wiki/pages")
     public ResponseEntity<ApiResponse<WikiPageResponse.ListResponse>> listWikiPages(
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        // Ownership guard: verify the avatar belongs to the requesting user
+        // before returning wiki pages. Without this, any authenticated user
+        // who knows an avatarId could read another user's notes.
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
         List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
         List<WikiPageResponse> responses = pages.stream()
                 .map(WikiPageResponse::from)
