@@ -30,9 +30,21 @@ public class ClaudeRelevanceChecker implements RelevancePort {
     public RelevanceScore check(String subject, String wikiSummary, String contentSample) {
         String prompt = buildPrompt(subject, wikiSummary, contentSample);
         log.debug("Sending relevance check for subject={}", subject);
-
-        String raw = apiClient.complete(modelRouter.forRelevanceCheck(), MAX_TOKENS, prompt);
-        return parseResponse(raw);
+        try {
+            // Note: apiClient.complete(3-arg) delegates to complete(4-arg) via a
+            // direct this-call inside the bean, which bypasses Spring AOP proxies.
+            // @Retry and @CircuitBreaker on the 4-arg method are therefore not
+            // applied here. We guard manually: any API or parse failure defaults to
+            // "relevant" so the upload succeeds rather than returning a raw 500.
+            String raw = apiClient.complete(modelRouter.forRelevanceCheck(), MAX_TOKENS, prompt);
+            return parseResponse(raw);
+        } catch (Exception e) {
+            log.error("[Relevance] Claude API call failed for subject={} — defaulting to relevant", subject, e);
+            // Fail open: if the relevance check itself is unavailable, accept the
+            // content. A false positive (irrelevant content accepted) is much
+            // better than blocking a valid upload with an opaque 500 error.
+            return new RelevanceScore(1.0, "Relevance check unavailable — content accepted");
+        }
     }
 
     /**

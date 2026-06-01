@@ -168,8 +168,16 @@ public class UploadFileUseCase {
                     .map(p -> "- " + p.getTitle())
                     .collect(Collectors.joining("\n"));
 
-            RelevanceScore rel = relevancePort.check(
-                    avatar.getSubject().name(), wikiSummary, sample);
+            RelevanceScore rel;
+            try {
+                rel = relevancePort.check(avatar.getSubject().name(), wikiSummary, sample);
+            } catch (Exception e) {
+                // Relevance check is a best-effort gate. If Claude is unavailable
+                // (timeout, parse error, circuit open), accept the content so a
+                // transient API failure never blocks a valid upload with a raw 500.
+                log.warn("[Upload] Relevance check threw for fileId={} — treating as relevant", fileId, e);
+                rel = new RelevanceScore(1.0, "Check unavailable");
+            }
 
             if (rel.value() < RELEVANCE_THRESHOLD) {
                 kf.markIrrelevant();

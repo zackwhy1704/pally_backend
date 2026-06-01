@@ -122,7 +122,15 @@ public class ClaudeApiClient {
         long ms = System.currentTimeMillis() - start;
         try {
             JsonNode root = objectMapper.readTree(responseJson);
-            String text = root.path("content").get(0).path("text").asText();
+            // content is an array; guard against empty array (content moderation
+            // blocks, error objects, etc.) to avoid NullPointerException.
+            JsonNode contentArray = root.path("content");
+            if (!contentArray.isArray() || contentArray.isEmpty()) {
+                log.error("[Claude-{}] Empty content array in response: {}", callId,
+                        responseJson == null ? "null" : responseJson.substring(0, Math.min(300, responseJson.length())));
+                throw new RuntimeException("Claude returned empty content array");
+            }
+            String text = contentArray.get(0).path("text").asText();
             // Anthropic returns usage.{input_tokens,output_tokens} on
             // every response. Defaults to 0 so a missing field doesn't
             // throw — metrics are best-effort observability.
