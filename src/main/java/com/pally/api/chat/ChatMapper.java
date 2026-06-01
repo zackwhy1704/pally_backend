@@ -15,15 +15,25 @@ public class ChatMapper {
     /**
      * Maps a single {@link ChatMessage} to a {@link ChatMessageResponse}.
      *
+     * <p>The {@code avatarId} field is now included in the response so the Flutter client
+     * can parse history without needing the URL path parameter. The old {@code sourceFile}
+     * single-string field is replaced by {@code sources: List<String>} to match the
+     * Flutter {@code ChatMessage.sources} field name and type.
+     *
      * @param message domain chat message
      * @return response DTO
      */
     public ChatMessageResponse toResponse(ChatMessage message) {
+        List<String> sources = (message.getSourceFile() != null && !message.getSourceFile().isBlank())
+                ? List.of(message.getSourceFile())
+                : List.of();
+
         return new ChatMessageResponse(
                 message.getId(),
+                message.getAvatarId(),
                 message.getRole(),
-                message.getContent(),
-                message.getSourceFile(),
+                message.getContent() != null ? message.getContent() : "",
+                sources,
                 message.getCreatedAt()
         );
     }
