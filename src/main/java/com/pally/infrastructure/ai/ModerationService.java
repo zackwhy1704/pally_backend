@@ -90,7 +90,11 @@ public class ModerationService {
                 """.formatted(truncate(text, 500));
 
         try {
-            String raw = claudeApiClient.complete(
+            // Use completeFast (8s timeout) — moderation runs SYNCHRONOUSLY on
+            // the request thread before the SSE Flux starts.  The 70s default
+            // timeout (with one @Retry = 140s total) stalls the HTTP response
+            // and causes the Flutter client to receive 0 SSE chars.
+            String raw = claudeApiClient.completeFast(
                     modelRouter.getHaikuModel(), MODERATION_MAX_TOKENS, prompt, "moderation");
             // Strip fences and parse
             if (raw.startsWith("```")) raw = raw.replaceAll("```[a-z]*\\n?", "").replaceAll("```", "").strip();

@@ -46,6 +46,9 @@ public class ClaudeApiClient {
     /// never park a server worker thread forever. Matches the
     /// WebClientConfig response-timeout with a small safety margin.
     private static final Duration UNARY_BLOCK_TIMEOUT = Duration.ofSeconds(70);
+    /// Short timeout for latency-sensitive micro-tasks (moderation, relevance).
+    /// These must NOT block the request thread for 70s — fail fast and fall back.
+    private static final Duration MICRO_BLOCK_TIMEOUT = Duration.ofSeconds(8);
     /// Inter-chunk idle timeout for streaming. If Anthropic stops sending
     /// chunks for this long we fail the Flux instead of leaking the
     /// underlying socket. 45s is generous for big-context Sonnet replies.
@@ -74,6 +77,59 @@ public class ClaudeApiClient {
         // through the streaming methods, so a unary call here is most
         // likely a Haiku micro-task (relevance, quiz gen, conflict check).
         return complete(model, maxTokens, prompt, "haiku-micro");
+    }
+
+    /**
+     * Fast-fail variant for latency-sensitive micro-tasks (moderation, relevance).
+     *
+     * <p>Uses {@link #MICRO_BLOCK_TIMEOUT} (8s) instead of the 70s default.
+     * These calls run SYNCHRONOUSLY on the request thread before the SSE Flux
+     * starts. A 70s timeout would stall the HTTP response for 70s (or 140s with
+     * one retry), causing the Flutter client to receive 0 SSE chars.
+     *
+     * <p>Callers MUST have their own fallback — this method throws on timeout.
+     */
+    public String completeFast(String model, int maxTokens, String prompt, String task)
+            throws com.fasterxml.jackson.core.JsonProcessingException {
+        String callId = UUID.randomUUID().toString().substring(0, 8);
+        long start = System.currentTimeMillis();
+
+        log.info("[Claude-{}] FAST REQUEST task={} model={} promptChars={}",
+                callId, task, model, prompt.length());
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", model);
+        body.put("max_tokens", maxTokens);
+        ArrayNode messages = body.putArray("messages");
+        ObjectNode userMsg = messages.addObject();
+        userMsg.put("role", "user");
+        userMsg.put("content", prompt);
+
+        try {
+            String responseJson = webClient.post()
+                    .uri(baseUrl + MESSAGES_PATH)
+                    .header("x-api-key", apiKey)
+                    .header("anthropic-version", ANTHROPIC_VERSION)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body.toString())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(MICRO_BLOCK_TIMEOUT);
+
+            long ms = System.currentTimeMillis() - start;
+            JsonNode root = objectMapper.readTree(responseJson);
+            JsonNode contentArray = root.path("content");
+            if (!contentArray.isArray() || contentArray.isEmpty()) {
+                throw new RuntimeException("Empty content array from Claude fast call");
+            }
+            String text = contentArray.get(0).path("text").asText();
+            log.info("[Claude-{}] FAST RESPONSE {}ms task={}", callId, ms, task);
+            return text;
+        } catch (Exception e) {
+            log.warn("[Claude-{}] FAST FAILED after {}ms task={}: {}",
+                    callId, System.currentTimeMillis() - start, task, e.getMessage());
+            throw e;
+        }
     }
 
     /// Same as {@link #complete} but emits a {@code task} tag on the

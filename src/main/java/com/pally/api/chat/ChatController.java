@@ -99,6 +99,15 @@ public class ChatController {
 
         java.io.PrintWriter writer = response.getWriter();
 
+        // Flush HTTP 200 + headers IMMEDIATELY so the client knows it is
+        // connected before any synchronous pre-processing (moderation,
+        // context assembly, DB queries) begins.  Without this flush, the
+        // client receives no bytes until ~118s later when the moderation
+        // Claude call finally times out, causing the Flutter receiveTimeout
+        // to fire and producing a 0-char stream instead of a real error.
+        writer.write(": connected\n\n");
+        writer.flush();
+
         try {
             sendMessageUseCase.executeStream(avatarId, userId, request.message())
                     .toIterable()
