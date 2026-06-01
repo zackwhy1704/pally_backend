@@ -18,18 +18,27 @@ import com.pally.shared.util.TextSampler;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
- * Use case: upload a file, run OCR/extraction, relevance-check, and ingest into the avatar's wiki.
+ * Upload a file, run OCR/extraction + relevance check synchronously, then
+ * kick off wiki compilation in a background thread so the HTTP response
+ * returns within seconds — well under Railway's 60s proxy timeout.
+ *
+ * <p>Wiki compilation is the slow step (30–120s per document). Moving it
+ * off-thread makes the upload feel instant: the file is accepted, the brain
+ * starts building, and the frontend navigates to the success screen
+ * immediately. The wiki viewer will populate as pages are written.
  */
 @Service
-@RequiredArgsConstructor
 public class UploadFileUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(UploadFileUseCase.class);
@@ -50,6 +59,38 @@ public class UploadFileUseCase {
     private final BadgeService badgeService;
     private final com.pally.domain.subscription.PremiumService premiumService;
     private final ConsentGuard consentGuard;
+    /// Background executor for wiki compilation so the HTTP upload response
+    /// returns in seconds instead of blocking for 60–120s.
+    private final Executor aiTaskExecutor;
+
+    public UploadFileUseCase(
+            AvatarRepository avatarRepository,
+            KnowledgeRepository knowledgeRepository,
+            WikiRepository wikiRepository,
+            StorageService storageService,
+            OcrPort ocrService,
+            PdfTextExtractor pdfTextExtractor,
+            RelevancePort relevancePort,
+            CompileWikiUseCase compileWikiUseCase,
+            ActivityLogService activityLogService,
+            BadgeService badgeService,
+            com.pally.domain.subscription.PremiumService premiumService,
+            ConsentGuard consentGuard,
+            @Qualifier("aiTaskExecutor") Executor aiTaskExecutor) {
+        this.avatarRepository    = avatarRepository;
+        this.knowledgeRepository = knowledgeRepository;
+        this.wikiRepository      = wikiRepository;
+        this.storageService      = storageService;
+        this.ocrService          = ocrService;
+        this.pdfTextExtractor    = pdfTextExtractor;
+        this.relevancePort       = relevancePort;
+        this.compileWikiUseCase  = compileWikiUseCase;
+        this.activityLogService  = activityLogService;
+        this.badgeService        = badgeService;
+        this.premiumService      = premiumService;
+        this.consentGuard        = consentGuard;
+        this.aiTaskExecutor      = aiTaskExecutor;
+    }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
         return execute(avatarId, userId, file, false);
@@ -134,18 +175,31 @@ public class UploadFileUseCase {
         kf.markReady(pageCount);
         knowledgeRepository.save(kf);
 
-        // Trigger wiki compilation and capture the new page titles so the
-        // upload response can drive the post-upload "you learned X" screen.
-        CompileWikiUseCase.CompileResult compileResult =
-                compileWikiUseCase.execute(avatarId);
-
-        // Activity + first-upload badge
+        // Activity + first-upload badge (fast, run synchronously)
         activityLogService.log(userId, avatarId, ActivityLogService.TYPE_UPLOAD, 0, 0);
         badgeService.grantFirstAction(userId, BadgeService.BadgeType.FIRST_UPLOAD);
 
-        log.info("File uploaded and ingested fileId={} pages={} compiledPages={}",
-                fileId, pageCount, compileResult.pageTitles().size());
-        return new UploadResult.Success(fileId, pageCount, compileResult.pageTitles());
+        // Wiki compilation is the slow step (30–120s per doc). Run it in the
+        // background so the HTTP response returns well within Railway's 60s
+        // proxy timeout. The frontend navigates to the success screen
+        // immediately; the brain viewer populates as pages are written.
+        final String capturedFileId = fileId;
+        final int capturedPageCount = pageCount;
+        aiTaskExecutor.execute(() -> {
+            try {
+                CompileWikiUseCase.CompileResult r = compileWikiUseCase.execute(avatarId);
+                log.info("[Upload] Async compile done fileId={} pages={} compiled={}",
+                        capturedFileId, capturedPageCount, r.pageTitles().size());
+            } catch (Exception e) {
+                log.error("[Upload] Async compile failed fileId={}", capturedFileId, e);
+            }
+        });
+
+        log.info("[Upload] File accepted, compilation started in background fileId={} pages={}",
+                fileId, pageCount);
+        // Return immediately with an empty pageTitles list — the wiki viewer
+        // will show pages as they're written by the background compile.
+        return new UploadResult.Success(fileId, pageCount, List.of());
     }
 
     private KnowledgeFile.UploadType resolveUploadType(String contentType) {
