@@ -1,6 +1,7 @@
 package com.pally.api.consent;
 
 import com.pally.domain.consent.ConsentGuard;
+import com.pally.domain.subscription.PremiumService;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaEntity;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRequestJpaEntity;
@@ -50,6 +51,7 @@ public class ConsentController {
     private final ConsentRequestJpaRepository requestRepo;
     private final ConsentRecordJpaRepository  recordRepo;
     private final UserJpaRepository           userRepo;
+    private final PremiumService              premiumService;
 
     /// Current status for the authenticated child.
     /// Returns: accountStatus, latestRequest (if any), approvedAt.
@@ -159,6 +161,10 @@ public class ConsentController {
             u.setAccountStatus(ConsentGuard.STATUS_ACTIVE);
             userRepo.save(u);
         });
+        // Start the 7-day trial NOW that the account is ACTIVE — not at
+        // registration (when it was PENDING), so the week isn't burned
+        // waiting for the parent to approve.
+        premiumService.grantTrial(req.getChildUserId());
 
         // Record in audit log
         ConsentRecordJpaEntity record = new ConsentRecordJpaEntity();

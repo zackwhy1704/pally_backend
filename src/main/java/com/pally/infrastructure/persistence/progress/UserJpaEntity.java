@@ -146,6 +146,17 @@ public class UserJpaEntity {
     @Column(name = "account_status", nullable = false, length = 20)
     private String accountStatus = "ACTIVE";
 
+    // ── Cardless 7-day trial (V47) ────────────────────────────────────────
+    // NONE | ACTIVE | EXPIRED | CONVERTED
+    @Column(name = "trial_status", nullable = false, length = 20)
+    private String trialStatus = "NONE";
+
+    @Column(name = "trial_started_at")
+    private Instant trialStartedAt;
+
+    @Column(name = "trial_ends_at")
+    private Instant trialEndsAt;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

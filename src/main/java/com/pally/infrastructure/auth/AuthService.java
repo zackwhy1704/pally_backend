@@ -2,6 +2,7 @@ package com.pally.infrastructure.auth;
 
 import com.pally.api.auth.dto.AuthResponse;
 import com.pally.domain.shop.CharacterShopService;
+import com.pally.domain.subscription.PremiumService;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -27,6 +28,7 @@ public class AuthService {
     private final CharacterShopService characterShopService;
     private final com.pally.domain.progress.BadgeService badgeService;
     private final com.pally.domain.progress.StreakService streakService;
+    private final PremiumService premiumService;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -49,6 +51,9 @@ public class AuthService {
 
         log.info("[Auth] Registered new user id={}", user.getId());
         characterShopService.seedDefaultUnlocks(user.getId());
+        // Grant 7-day cardless trial immediately for new 13+ accounts.
+        // Under-13 (PENDING) trial starts at consent-approval, not here.
+        premiumService.grantTrial(user.getId());
         String token = jwtService.generateToken(user.getId(), user.getRole());
         return new AuthResponse(user.getId(), token, true, false);
     }

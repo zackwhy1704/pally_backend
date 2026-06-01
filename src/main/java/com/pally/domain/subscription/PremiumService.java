@@ -12,6 +12,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 
@@ -33,6 +34,11 @@ import java.util.Set;
 public class PremiumService {
 
     private static final Set<String> ACTIVE_STATUSES = Set.of("active", "trialing");
+    public  static final Duration   TRIAL_DURATION  = Duration.ofDays(7);
+    public  static final String     TRIAL_NONE      = "NONE";
+    public  static final String     TRIAL_ACTIVE    = "ACTIVE";
+    public  static final String     TRIAL_EXPIRED   = "EXPIRED";
+    public  static final String     TRIAL_CONVERTED = "CONVERTED";
 
     private final UserJpaRepository userRepo;
     private final SubscriptionJpaRepository subRepo;
@@ -79,6 +85,11 @@ public class PremiumService {
             }
         }
 
+        // Cardless trial — inserted between paid sources and free/NONE so
+        // it never shadows a live Stripe subscription.
+        Entitlement trial = resolveLocalTrial(user);
+        if (trial != null) return trial;
+
         // No active subscription. Don't expose the cancelled-plan label so the
         // UI doesn't have to special-case "premium=false, plan=family_monthly".
         persistFlag(user, false);
@@ -113,5 +124,87 @@ public class PremiumService {
 
     private boolean isTrialing(SubscriptionJpaEntity sub) {
         return "trialing".equals(sub.getStatus());
+    }
+
+    // ── Local cardless trial ──────────────────────────────────────────────────
+
+    private Entitlement resolveLocalTrial(UserJpaEntity user) {
+        if (!TRIAL_ACTIVE.equals(user.getTrialStatus())) return null;
+        Instant ends = user.getTrialEndsAt();
+        if (ends == null) return null;
+        Instant now = Instant.now();
+        if (now.isBefore(ends)) {
+            persistFlag(user, true);
+            return new Entitlement(true, "TRIAL", "trial", "trialing", ends);
+        }
+        // Lazy expiry — flip to EXPIRED on first read after the boundary.
+        user.setTrialStatus(TRIAL_EXPIRED);
+        userRepo.save(user);
+        persistFlag(user, false);
+        log.info("[Trial] Expired userId={}", user.getId());
+        return null;
+    }
+
+    /**
+     * Grants a 7-day cardless trial. Call once when an account becomes ACTIVE:
+     * new registration (immediate) OR under-13 consent approval.
+     * Idempotent — does nothing if a trial is already running or converted.
+     */
+    @CacheEvict(value = CacheConfig.ENTITLEMENT, key = "#userId")
+    @Transactional
+    public void grantTrial(String userId) {
+        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        if (user == null) return;
+        if (!TRIAL_NONE.equals(user.getTrialStatus())) return; // already used
+        Instant now = Instant.now();
+        user.setTrialStatus(TRIAL_ACTIVE);
+        user.setTrialStartedAt(now);
+        user.setTrialEndsAt(now.plus(TRIAL_DURATION));
+        userRepo.save(user);
+        log.info("[Trial] Granted 7-day trial userId={} ends={}", userId, user.getTrialEndsAt());
+    }
+
+    /**
+     * Marks the trial as CONVERTED when the user subscribes via Stripe.
+     * The SELF check in resolve() already wins; this just keeps the audit trail clean.
+     */
+    @CacheEvict(value = CacheConfig.ENTITLEMENT, key = "#userId")
+    @Transactional
+    public void convertTrial(String userId) {
+        userRepo.findById(userId).ifPresent(user -> {
+            if (TRIAL_ACTIVE.equals(user.getTrialStatus())
+                    || TRIAL_EXPIRED.equals(user.getTrialStatus())) {
+                user.setTrialStatus(TRIAL_CONVERTED);
+                userRepo.save(user);
+                log.info("[Trial] Converted userId={}", userId);
+            }
+        });
+    }
+
+    /**
+     * Returns trial info for the Usage/Today endpoint without re-resolving
+     * the full entitlement (avoids a second DB hit on the happy path).
+     */
+    public record TrialInfo(
+            boolean trialActive,
+            Instant trialEndsAt,
+            long trialDaysLeft,
+            long trialHoursLeft,
+            String trialStatus
+    ) {}
+
+    @Transactional(readOnly = true)
+    public TrialInfo getTrialInfo(String userId) {
+        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        if (user == null || user.getTrialEndsAt() == null) {
+            return new TrialInfo(false, null, 0, 0, TRIAL_NONE);
+        }
+        Instant now  = Instant.now();
+        Instant ends = user.getTrialEndsAt();
+        boolean active = TRIAL_ACTIVE.equals(user.getTrialStatus()) && now.isBefore(ends);
+        long hours = active ? Duration.between(now, ends).toHours() : 0;
+        long days  = active ? hours / 24 : 0;
+        return new TrialInfo(active, active ? ends : null, days, hours,
+                user.getTrialStatus() != null ? user.getTrialStatus() : TRIAL_NONE);
     }
 }

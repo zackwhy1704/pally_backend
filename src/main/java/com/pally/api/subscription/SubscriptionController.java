@@ -304,6 +304,7 @@ public class SubscriptionController {
                 sub.setUpdatedAt(Instant.now());
                 subRepo.save(sub);
                 premiumService.refreshFlag(userId);
+                premiumService.convertTrial(userId); // trial → CONVERTED
                 log.info("[Stripe] checkout.complete user={} sub={}",
                         userId, sub.getStripeSubscriptionId());
             }

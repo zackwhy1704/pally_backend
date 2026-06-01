@@ -1,6 +1,7 @@
 package com.pally.api.usage;
 
 import com.pally.domain.subscription.PremiumService;
+import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.ratelimit.ChatRateLimiter;
 import com.pally.shared.response.ApiResponse;
 import org.junit.jupiter.api.Test;
@@ -12,7 +13,12 @@ import org.springframework.http.ResponseEntity;
 
 import java.util.Map;
 
+import org.junit.jupiter.api.BeforeEach;
+
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -20,7 +26,20 @@ class UsageControllerTest {
 
     @Mock ChatRateLimiter rateLimiter;
     @Mock PremiumService premiumService;
+    @Mock UserJpaRepository userRepo;
     @InjectMocks UsageController controller;
+
+    private static final PremiumService.TrialInfo NO_TRIAL =
+            new PremiumService.TrialInfo(false, null, 0, 0, PremiumService.TRIAL_NONE);
+
+    @BeforeEach
+    void stubDefaults() {
+        // Default: no trial, level-1 user. Individual tests override as needed.
+        when(premiumService.getTrialInfo(anyString())).thenReturn(NO_TRIAL);
+        var user = new com.pally.infrastructure.persistence.progress.UserJpaEntity();
+        user.setLevel(1);
+        when(userRepo.findById(anyString())).thenReturn(Optional.of(user));
+    }
 
     private PremiumService.Entitlement free() {
         return new PremiumService.Entitlement(false, "NONE", null, "free", null);
