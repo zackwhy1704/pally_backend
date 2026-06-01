@@ -5,7 +5,6 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.consent.ConsentGuard;
-import com.pally.domain.knowledge.SeedContentService;
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.subscription.PremiumService;
@@ -18,9 +17,13 @@ import org.springframework.stereotype.Service;
 /**
  * Use case: create a new avatar for a user.
  *
- * <p>Also seeds a starter wiki pack so the brand-new tutor can answer
- * questions on the chosen subject before the child uploads anything —
- * fixes the cold-start activation hole called out in the audit.
+ * <p>Seeding removed: wiki starter packs were indistinguishable from the
+ * student's own notes, which (1) confused the library and (2) undermined
+ * the "trained on YOUR notes" moat. Option-B base-model fallback already
+ * handles the cold-start case — a fresh Mochi with 0 pages answers
+ * in-subject questions from general knowledge, clearly labelled.
+ * SeedContentService is still present but no longer called here;
+ * it can be deleted in a future cleanup migration.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,7 +32,6 @@ public class CreateAvatarUseCase {
     private static final Logger log = LoggerFactory.getLogger(CreateAvatarUseCase.class);
 
     private final AvatarRepository avatarRepository;
-    private final SeedContentService seedContentService;
     private final PremiumService premiumService;
     private final UserRepository userRepository;
     private final ConsentGuard consentGuard;
@@ -63,20 +65,9 @@ public class CreateAvatarUseCase {
         Avatar avatar = Avatar.create(userId, name, subject, characterType, gradeLevel, curriculumType);
         Avatar saved = avatarRepository.save(avatar);
 
-        // Cold-start seed pack — best effort. A missing pack or DB hiccup
-        // must never block avatar creation; the user can always upload
-        // their own notes and the tutor still works.
-        try {
-            int seeded = seedContentService.seedForAvatar(
-                    saved.getId(), subject.name());
-            if (seeded > 0) {
-                saved.setWikiPageCount(seeded);
-                avatarRepository.save(saved);
-            }
-        } catch (Exception e) {
-            log.warn("[Seed] avatar={} subject={} failed (non-fatal): {}",
-                    saved.getId(), subject, e.getMessage());
-        }
+        // New avatar starts with wikiPageCount = 0.
+        // The student uploads their own notes; Option-B answers general
+        // in-subject questions (with disclaimer) before any upload.
 
         log.info("Avatar created id={}", saved.getId());
         return saved;

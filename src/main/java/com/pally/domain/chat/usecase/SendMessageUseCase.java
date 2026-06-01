@@ -97,15 +97,27 @@ public class SendMessageUseCase {
         AssembledContext context = contextAssembler.assemble(avatar, userMessage);
         List<ChatMessage> history = chatRepository.findByAvatarId(avatarId, HISTORY_LIMIT);
 
-        // Socratic: classify topic and get/update session
-        List<SocraticHintTree> allTrees = hintTreeRepository.findByAvatarId(avatarId);
-        Optional<String> topicSlug = topicClassifier.classify(userMessage, allTrees);
-        Optional<SocraticHintTree> hintTree = topicSlug
-                .flatMap(slug -> hintTreeRepository.findByAvatarIdAndSlug(avatarId, slug));
+        // ── Optional pre-stream steps — MUST NOT abort the turn ─────────────
+        // Any failure here falls back to sane defaults so the main Claude
+        // streaming call still runs. A DB hiccup on hint-tree lookup must
+        // never show the user an empty "something went wrong" bubble.
+        List<SocraticHintTree> allTrees = List.of();
+        Optional<String> topicSlug = Optional.empty();
+        Optional<SocraticHintTree> hintTree = Optional.empty();
+        ChatSession session = ChatSession.createToday(avatarId);
 
-        ChatSession session = chatSessionRepository
-                .findByAvatarIdAndDate(avatarId, LocalDate.now())
-                .orElseGet(() -> ChatSession.createToday(avatarId));
+        try {
+            allTrees = hintTreeRepository.findByAvatarId(avatarId);
+            topicSlug = topicClassifier.classify(userMessage, allTrees);
+            hintTree = topicSlug
+                    .flatMap(slug -> hintTreeRepository.findByAvatarIdAndSlug(avatarId, slug));
+            session = chatSessionRepository
+                    .findByAvatarIdAndDate(avatarId, LocalDate.now())
+                    .orElseGet(() -> ChatSession.createToday(avatarId));
+        } catch (Exception e) {
+            log.warn("[Chat] Optional pre-stream steps failed for avatar={} — using defaults: {}",
+                    avatarId, e.getMessage());
+        }
 
         // Record attempt and check escape hatch
         topicSlug.ifPresent(session::recordAttempt);
@@ -123,7 +135,11 @@ public class SendMessageUseCase {
             session.markEscapeFired();
         }
 
-        chatSessionRepository.save(session);
+        try {
+            chatSessionRepository.save(session);
+        } catch (Exception e) {
+            log.warn("[Chat] Session save failed for avatar={} (non-fatal): {}", avatarId, e.getMessage());
+        }
 
         // Build Block 4 (dynamic tail — no cache) based on Socratic state
         Map<String, Object> block4 = socraticPromptBuilder.buildBlock4(
