@@ -2,6 +2,9 @@ package com.pally.api.avatar;
 
 import com.pally.api.avatar.dto.AvatarResponse;
 import com.pally.domain.avatar.Avatar;
+import com.pally.domain.knowledge.KnowledgeFile;
+import com.pally.domain.knowledge.KnowledgeRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -10,21 +13,31 @@ import java.util.List;
  * Maps {@link Avatar} domain objects to API response DTOs.
  */
 @Component
+@RequiredArgsConstructor
 public class AvatarMapper {
+
+    private final KnowledgeRepository knowledgeRepository;
 
     /**
      * Maps a single {@link Avatar} to an {@link AvatarResponse}.
-     *
-     * @param avatar domain avatar
-     * @return response DTO
+     * Includes {@code fileCount} (number of READY knowledge files) so the
+     * Flutter client can show "brain compiling…" when files exist but
+     * wiki pages haven't been generated yet.
      */
     public AvatarResponse toResponse(Avatar avatar) {
+        int fileCount = (int) knowledgeRepository.findByAvatarId(avatar.getId())
+                .stream()
+                .filter(f -> f.getStatus() == KnowledgeFile.Status.READY
+                          || f.getStatus() == KnowledgeFile.Status.PROCESSING)
+                .count();
+
         return new AvatarResponse(
                 avatar.getId(),
                 avatar.getName(),
                 avatar.getSubject(),
                 avatar.getCharacterType(),
                 avatar.getWikiPageCount(),
+                fileCount,
                 avatar.getCreatedAt(),
                 avatar.getGradeLevel(),
                 avatar.getCurriculumType(),
@@ -35,9 +48,6 @@ public class AvatarMapper {
 
     /**
      * Maps a list of {@link Avatar} objects to a list of {@link AvatarResponse} DTOs.
-     *
-     * @param avatars list of domain avatars
-     * @return list of response DTOs
      */
     public List<AvatarResponse> toResponseList(List<Avatar> avatars) {
         return avatars.stream().map(this::toResponse).toList();

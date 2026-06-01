@@ -13,6 +13,11 @@ public record AvatarResponse(
         Subject subject,
         CharacterType characterType,
         int wikiPageCount,
+        /// Number of READY knowledge files — included so the frontend can
+        /// distinguish "files uploaded, brain still compiling" from
+        /// "no files yet". The Flutter library screen uses this to show
+        /// a "compiling…" badge instead of "no notes yet".
+        int fileCount,
         Instant createdAt,
         String gradeLevel,
         String curriculumType,
