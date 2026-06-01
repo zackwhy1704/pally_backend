@@ -8,6 +8,7 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.consent.ConsentGuard;
+import com.pally.domain.knowledge.ContentDeduplicator;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.infrastructure.ocr.PdfTextExtractor;
@@ -59,6 +60,7 @@ public class UploadFileUseCase {
     private final BadgeService badgeService;
     private final com.pally.domain.subscription.PremiumService premiumService;
     private final ConsentGuard consentGuard;
+    private final ContentDeduplicator deduplicator;
     /// Background executor for wiki compilation so the HTTP upload response
     /// returns in seconds instead of blocking for 60–120s.
     private final Executor aiTaskExecutor;
@@ -76,6 +78,7 @@ public class UploadFileUseCase {
             BadgeService badgeService,
             com.pally.domain.subscription.PremiumService premiumService,
             ConsentGuard consentGuard,
+            ContentDeduplicator deduplicator,
             @Qualifier("aiTaskExecutor") Executor aiTaskExecutor) {
         this.avatarRepository    = avatarRepository;
         this.knowledgeRepository = knowledgeRepository;
@@ -89,6 +92,7 @@ public class UploadFileUseCase {
         this.badgeService        = badgeService;
         this.premiumService      = premiumService;
         this.consentGuard        = consentGuard;
+        this.deduplicator        = deduplicator;
         this.aiTaskExecutor      = aiTaskExecutor;
     }
 
@@ -142,10 +146,15 @@ public class UploadFileUseCase {
             return new UploadResult.Failure("Text extraction failed: " + e.getMessage(), e);
         }
 
-        // Save extracted text on the KnowledgeFile so the wiki compiler can use it.
-        // Without this the compiler only sees filename + ID and Claude invents
-        // content from the filename — the root cause of "vague" tutor answers.
+        // Save extracted text + content hash for deduplication.
         kf.setExtractedText(extractedText);
+        String contentHash = deduplicator.computeHash(extractedText);
+        kf.setContentHash(contentHash);
+
+        // Deduplication: reject exact duplicates; warn on near-duplicates.
+        // Runs BEFORE relevance check to save the Claude API call.
+        // DuplicateContentException is a PallyException → 409 handled by GlobalExceptionHandler.
+        deduplicator.check(avatarId, extractedText, file.getOriginalFilename());
 
         // Relevance check (skippable when user explicitly opts in via "Add Anyway")
         if (!skipRelevance) {

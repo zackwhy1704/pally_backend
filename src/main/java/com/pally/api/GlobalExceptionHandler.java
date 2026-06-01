@@ -2,6 +2,7 @@ package com.pally.api;
 
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.ConsentRequiredException;
+import com.pally.shared.exception.DuplicateContentException;
 import com.pally.shared.exception.PallyException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
@@ -65,6 +66,23 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(403)
                 .body(new ApiResponse<>(payload, ex.getMessage(), 403));
+    }
+
+    /// Duplicate/similar content: structured 409 so the Flutter client can
+    /// show a specific "already uploaded" message instead of a generic error.
+    @ExceptionHandler(DuplicateContentException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleDuplicateContent(
+            DuplicateContentException ex) {
+        log.debug("Duplicate content kind={} existing={}", ex.getKind(), ex.getExistingFileName());
+        Map<String, Object> payload = Map.of(
+                "code", ex.getKind() == DuplicateContentException.Kind.EXACT
+                        ? "DUPLICATE_FILE"
+                        : "SIMILAR_CONTENT",
+                "existingFileName", ex.getExistingFileName(),
+                "similarity", ex.getSimilarity());
+        return ResponseEntity
+                .status(409)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 409));
     }
 
     /**

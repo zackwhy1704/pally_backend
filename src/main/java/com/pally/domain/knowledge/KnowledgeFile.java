@@ -23,6 +23,7 @@ public final class KnowledgeFile {
     private Status status;
     private final Instant createdAt;
     private String extractedText;
+    private String contentHash;  // SHA-256 of normalised extracted text
 
     private KnowledgeFile(
             String id, String avatarId, String userId, String fileName,
@@ -92,6 +93,8 @@ public final class KnowledgeFile {
     public Status getStatus()            { return status; }
     public Instant getCreatedAt()        { return createdAt; }
     public String getExtractedText()     { return extractedText; }
+    public String getContentHash()       { return contentHash; }
 
     public void setExtractedText(String text) { this.extractedText = text; }
+    public void setContentHash(String hash)   { this.contentHash = hash; }
 }

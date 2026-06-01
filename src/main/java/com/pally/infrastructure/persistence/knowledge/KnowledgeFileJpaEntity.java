@@ -48,6 +48,9 @@ public class KnowledgeFileJpaEntity {
     @Column(name = "extracted_text", columnDefinition = "TEXT")
     private String extractedText;
 
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
     public static KnowledgeFileJpaEntity fromDomain(KnowledgeFile kf) {
         KnowledgeFileJpaEntity e = new KnowledgeFileJpaEntity();
         e.id = kf.getId();
@@ -60,13 +63,21 @@ public class KnowledgeFileJpaEntity {
         e.status = kf.getStatus();
         e.createdAt = kf.getCreatedAt();
         e.extractedText = kf.getExtractedText();
+        e.contentHash   = kf.getContentHash();
         return e;
     }
 
     public KnowledgeFile toDomain() {
-        return KnowledgeFile.reconstitute(
+        KnowledgeFile kf = KnowledgeFile.reconstitute(
                 id, avatarId, userId, fileName, storageKey, pageCount, uploadType,
-                status, createdAt, extractedText
-        );
+                status, createdAt, extractedText);
+        kf.setContentHash(contentHash);
+        return kf;
     }
+
+    // Explicit getters for use in ContentDeduplicator queries
+    public String getFileName()          { return fileName; }
+    public String getContentHash()       { return contentHash; }
+    public KnowledgeFile.Status getStatus() { return status; }
+    public String getExtractedText()     { return extractedText; }
 }
