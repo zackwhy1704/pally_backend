@@ -35,9 +35,8 @@ public class UploadFileUseCase {
     private static final Logger log = LoggerFactory.getLogger(UploadFileUseCase.class);
     private static final double RELEVANCE_THRESHOLD = 0.30;
 
-    /// Free tier caps at 3 uploaded documents per avatar — generous enough
-    /// for the activation moment, tight enough to bite a real student.
-    private static final int FREE_UPLOAD_CAP = 3;
+    // Uploads are the core value loop — no cap. The gate is Mochi count,
+    // not how much a student can teach a single Mochi.
 
     private final AvatarRepository avatarRepository;
     private final KnowledgeRepository knowledgeRepository;
@@ -64,14 +63,6 @@ public class UploadFileUseCase {
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
-        // Free-tier cap on docs per avatar. Counts only the user's own
-        // uploads — seed-pack pages don't count.
-        if (!premiumService.resolve(userId).isPremium()) {
-            int existing = knowledgeRepository.findByAvatarId(avatarId).size();
-            if (existing >= FREE_UPLOAD_CAP) {
-                throw new com.pally.shared.exception.UpgradeRequiredException("UPLOAD_DOC");
-            }
-        }
 
         String contentType = file.getContentType();
         KnowledgeFile.UploadType uploadType = resolveUploadType(contentType);

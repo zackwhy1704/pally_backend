@@ -67,7 +67,7 @@ class UsageControllerTest {
     @Test
     void free_partlyUsed_remainingClampsAtZero() {
         when(premiumService.resolve("u1")).thenReturn(free());
-        when(rateLimiter.dailyHitsToday("u1")).thenReturn(25);
+        when(rateLimiter.dailyHitsToday("u1")).thenReturn(85);
 
         var body = controller.today("u1").getBody().data();
         assertThat(body.get("chatRemaining")).isEqualTo(0);

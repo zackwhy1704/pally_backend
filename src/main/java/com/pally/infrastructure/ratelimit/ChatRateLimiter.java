@@ -33,8 +33,9 @@ public class ChatRateLimiter {
 
     private static final int PER_USER_LIMIT = 30;
     private static final long WINDOW_MS = 60_000;
-    /// Free-tier daily cap. Premium bypasses this entirely.
-    public static final int FREE_DAILY_LIMIT = 20;
+    /// Free-tier daily cap. High enough for real exam-prep sessions;
+    /// unlimited on Premium. Gate is Mochi count, not chat depth.
+    public static final int FREE_DAILY_LIMIT = 80;
 
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
     private final Map<String, DailyCount> dailyHits = new ConcurrentHashMap<>();
@@ -85,6 +86,14 @@ public class ChatRateLimiter {
             throw new UpgradeRequiredException("CHAT_DAILY");
         }
         dailyHits.put(userId, new DailyCount(today, nextCount));
+    }
+
+    /// Test-only: pre-seed the daily counter so tests can exercise the daily
+    /// cap without having to call check() 80 times (which would trip the
+    /// burst limiter at 30/min first).
+    void seedDailyCountForTest(String userId, int count) {
+        LocalDate today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate();
+        dailyHits.put(userId, new DailyCount(today, count));
     }
 
     /// Read-only inspection of today's used count for {@code userId}, used

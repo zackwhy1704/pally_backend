@@ -49,9 +49,10 @@ class ChatRateLimiterTest {
     void dailyHits_throwsUpgradeRequired_pastDailyCap() {
         when(premiumService.resolve("u1")).thenReturn(free());
         var limiter = newLimiter();
-        for (int i = 0; i < ChatRateLimiter.FREE_DAILY_LIMIT; i++) {
-            limiter.check("u1");
-        }
+        // The burst limit (30/min) fires before the daily limit when calling
+        // check() rapidly, so we seed the daily counter just below the cap,
+        // then call check() once more to confirm the daily gate fires.
+        limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT);
         // The exception's feature() is the typed signal — the message itself
         // is a kid-friendly sentence, not the code.
         assertThatThrownBy(() -> limiter.check("u1"))
@@ -61,21 +62,16 @@ class ChatRateLimiterTest {
                                 .isEqualTo("CHAT_DAILY"));
     }
 
-    /// Premium bypass — daily-cap doesn't fire. Burst still does (real
-    /// rule), so we keep the volume well under 30 to isolate the daily
-    /// branch.
+    /// Premium bypass — daily-cap doesn't fire. Keep well under burst (30/min).
     @Test
     void premium_bypassesDailyLimit() {
         when(premiumService.resolve("u1"))
                 .thenReturn(new PremiumService.Entitlement(
                         true, "SELF", "family_monthly", "active", null));
         var limiter = newLimiter();
-        // Free cap is 20 → 25 would trip CHAT_DAILY for a free user.
-        // Premium should sail through.
-        for (int i = 0; i < 25; i++) {
-            limiter.check("u1");
-        }
-        // No throw.
+        // Seed daily counter above the free limit to confirm premium ignores it.
+        limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT);
+        limiter.check("u1"); // must not throw
     }
 
     /// Burst limiter (30/min) throws plain BusinessException, NOT
