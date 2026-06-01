@@ -33,6 +33,28 @@ public class PdfTextExtractor implements OcrPort {
     public record PdfExtractionResult(String text, int pageCount) {}
 
     /**
+     * Extracts all text from a PDF byte array.
+     *
+     * <p>Preferred over {@link #extract(InputStream)} when the caller already
+     * holds the bytes in memory — avoids the risk of reading the same
+     * {@link java.io.InputStream} twice (the {@code MultipartFile} stream is
+     * drained on first read and returns EOF on subsequent calls).
+     *
+     * @param bytes raw PDF bytes
+     * @return {@link PdfExtractionResult} with extracted text and page count
+     * @throws IOException if the PDF cannot be read or parsed
+     */
+    public PdfExtractionResult extractFromBytes(byte[] bytes) throws IOException {
+        try (PDDocument document = Loader.loadPDF(bytes)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(document);
+            int pageCount = document.getNumberOfPages();
+            log.debug("Extracted {} chars from {} PDF pages", text.length(), pageCount);
+            return new PdfExtractionResult(text, pageCount);
+        }
+    }
+
+    /**
      * Extracts all text from a PDF input stream.
      *
      * @param inputStream PDF content (caller is responsible for closing)
@@ -40,13 +62,7 @@ public class PdfTextExtractor implements OcrPort {
      * @throws IOException if the PDF cannot be read or parsed
      */
     public PdfExtractionResult extract(InputStream inputStream) throws IOException {
-        try (PDDocument document = Loader.loadPDF(inputStream.readAllBytes())) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
-            int pageCount = document.getNumberOfPages();
-            log.debug("Extracted {} chars from {} PDF pages", text.length(), pageCount);
-            return new PdfExtractionResult(text, pageCount);
-        }
+        return extractFromBytes(inputStream.readAllBytes());
     }
 
     /**

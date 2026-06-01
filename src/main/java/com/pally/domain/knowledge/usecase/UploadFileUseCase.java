@@ -113,10 +113,25 @@ public class UploadFileUseCase {
         KnowledgeFile.UploadType uploadType = resolveUploadType(contentType);
         String storageKey = buildStorageKey(avatarId, file.getOriginalFilename());
 
+        // Read bytes ONCE — MultipartFile.getInputStream() returns the same
+        // underlying stream each call; once storage drains it, PDF extraction
+        // gets EOF and produces empty text (Bug: entire pipeline starved).
+        // Using file.getBytes() guarantees a fresh in-memory byte array that
+        // both storage and extraction can read independently.
+        byte[] fileBytes;
+        try {
+            fileBytes = file.getBytes();
+        } catch (IOException e) {
+            log.error("Failed to read multipart bytes for avatarId={}", avatarId, e);
+            return new UploadResult.Failure("Could not read the uploaded file.", e);
+        }
+
         // Persist file to storage
         try {
-            storageService.store(storageKey, file.getInputStream(), file.getSize(), contentType);
-        } catch (IOException e) {
+            storageService.store(storageKey,
+                    new java.io.ByteArrayInputStream(fileBytes),
+                    fileBytes.length, contentType);
+        } catch (Exception e) {
             log.error("Storage failure for avatarId={}", avatarId, e);
             return new UploadResult.Failure("Storage error: " + e.getMessage(), e);
         }
@@ -126,17 +141,17 @@ public class UploadFileUseCase {
         kf = knowledgeRepository.save(kf);
         final String fileId = kf.getId();
 
-        // Extract text
+        // Extract text — both paths now use the pre-read byte array so the
+        // multipart stream is never touched again.
         String extractedText;
         int pageCount;
         try {
             if (uploadType == KnowledgeFile.UploadType.PDF) {
-                var result = pdfTextExtractor.extract(file.getInputStream());
+                var result = pdfTextExtractor.extractFromBytes(fileBytes);
                 extractedText = result.text();
                 pageCount = result.pageCount();
             } else {
-                extractedText = ocrService.extractText(
-                        file.getBytes(), file.getContentType());
+                extractedText = ocrService.extractText(fileBytes, contentType);
                 pageCount = 1;
             }
         } catch (IOException e) {
@@ -144,6 +159,18 @@ public class UploadFileUseCase {
             kf.markFailed();
             knowledgeRepository.save(kf);
             return new UploadResult.Failure("Text extraction failed: " + e.getMessage(), e);
+        }
+
+        // Empty-text guard: if extraction produced nothing (e.g. a scanned
+        // image-only PDF with no selectable text), fail explicitly rather
+        // than marking READY and compiling an empty wiki page.
+        if (extractedText == null || extractedText.isBlank()) {
+            log.warn("[Upload] Zero text extracted from fileId={} type={}", fileId, uploadType);
+            kf.markFailed();
+            knowledgeRepository.save(kf);
+            return new UploadResult.Failure(
+                    "Couldn't read any text from this file. "
+                    + "Make sure it's a text-based PDF or a clear photo of notes.", null);
         }
 
         // Save extracted text + content hash for deduplication.
@@ -207,8 +234,26 @@ public class UploadFileUseCase {
                 CompileWikiUseCase.CompileResult r = compileWikiUseCase.execute(avatarId);
                 log.info("[Upload] Async compile done fileId={} pages={} compiled={}",
                         capturedFileId, capturedPageCount, r.pageTitles().size());
+                // If Claude compiled 0 pages from a non-empty file, record a
+                // partial failure so the frontend can surface a "retry" option
+                // via the /files/{id}/progress endpoint instead of silently
+                // showing an empty brain.
+                if (r.pageTitles().isEmpty()) {
+                    log.warn("[Upload] Compile produced 0 pages for fileId={} — marking FAILED",
+                            capturedFileId);
+                    knowledgeRepository.findById(capturedFileId).ifPresent(f -> {
+                        f.markFailed();
+                        knowledgeRepository.save(f);
+                    });
+                }
             } catch (Exception e) {
                 log.error("[Upload] Async compile failed fileId={}", capturedFileId, e);
+                // Persist the failure so the /files/{id}/progress endpoint can
+                // surface it and the frontend can offer a retry affordance.
+                knowledgeRepository.findById(capturedFileId).ifPresent(f -> {
+                    f.markFailed();
+                    knowledgeRepository.save(f);
+                });
             }
         });
 
