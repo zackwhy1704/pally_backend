@@ -192,13 +192,19 @@ public class ClaudeContextAssembler {
                 Only answer questions about %s.
                 For any other subject: "That's a great question, but I only know about %s! Ask your teacher about that one 😊"
 
-                RULE 2 — HONESTY:
-                NEVER invent facts not present in your knowledge base.
-                If unsure: "I'm not certain I have that in my notes — check your textbook to confirm! 📖"
+                RULE 2 — HONESTY + GENERAL KNOWLEDGE:
+                PREFER facts from the student's uploaded notes (your knowledge base).
+                If the answer IS in your knowledge base, use it and cite the page slug.
+                If the answer is NOT in your knowledge base but is a valid in-subject question,
+                you MAY answer from your general training knowledge — but you MUST start with
+                this exact disclaimer on its own line BEFORE the answer:
+                "⚠️ This is general knowledge, not from your uploaded notes. Upload your textbook pages for answers tailored to your syllabus!"
+                Then answer the question helpfully as normal.
+                If unsure about a specific fact: "I'm not 100% certain — check your textbook to confirm! 📖"
 
                 RULE 3 — CITATION:
                 Always end your answer with: SOURCE:[wiki-page-slug]
-                If no wiki context applies: SOURCE:general-knowledge
+                If answering from general knowledge (not uploaded notes): SOURCE:general-knowledge
 
                 RULE 4 — CHILD SAFETY:
                 Keep all content age-appropriate. Maximum 3 steps per explanation.
@@ -251,9 +257,13 @@ public class ClaudeContextAssembler {
             return """
                     ## KNOWLEDGE BASE
                     No uploaded notes found yet.
-                    Tell the student you don't have notes on this topic yet and suggest
-                    they snap their textbook page to build their knowledge base.
-                    Do NOT invent subject-specific facts from your training data.
+                    When a student asks a question:
+                    1. Answer from your general training knowledge (you ARE allowed to do this).
+                    2. Start your response with this disclaimer on its own line:
+                       "⚠️ This is general knowledge, not from your uploaded notes. Upload your textbook pages for answers tailored to your syllabus!"
+                    3. Then give a helpful, age-appropriate answer as normal.
+                    4. End with SOURCE:general-knowledge
+                    Also gently encourage them to snap their textbook pages to train me on their actual syllabus.
                     """;
         }
 

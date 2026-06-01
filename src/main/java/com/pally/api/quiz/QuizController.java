@@ -168,8 +168,7 @@ public class QuizController {
         }
         // Total topics = wiki pages currently in the brain.
         // Re-using the existing helper rather than a new query.
-        int totalTopics = wikiRepository
-                .findByAvatarId(avatarId).size();
+        int totalTopics = wikiRepository.countActiveByAvatarId(avatarId);
 
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "takenToday", takenToday,

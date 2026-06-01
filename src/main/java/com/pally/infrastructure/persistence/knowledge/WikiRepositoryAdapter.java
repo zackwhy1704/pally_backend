@@ -54,6 +54,11 @@ public class WikiRepositoryAdapter implements WikiRepository {
     }
 
     @Override
+    public int countActiveByAvatarId(String avatarId) {
+        return wikiJpaRepository.countActiveByAvatarId(avatarId);
+    }
+
+    @Override
     @Transactional
     public void deleteByAvatarId(String avatarId) {
         wikiJpaRepository.deleteByAvatarId(avatarId);

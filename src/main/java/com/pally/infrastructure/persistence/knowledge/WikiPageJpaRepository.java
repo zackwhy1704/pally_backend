@@ -20,6 +20,9 @@ public interface WikiPageJpaRepository extends JpaRepository<WikiPageJpaEntity, 
 
     int countByAvatarId(String avatarId);
 
+    @Query("SELECT COUNT(p) FROM WikiPageJpaEntity p WHERE p.avatarId = :avatarId AND p.status = 'ACTIVE'")
+    int countActiveByAvatarId(@Param("avatarId") String avatarId);
+
     void deleteByAvatarId(String avatarId);
 
     @Modifying

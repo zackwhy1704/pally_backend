@@ -18,6 +18,7 @@ public interface WikiRepository {
     List<WikiPage> findByAvatarId(String avatarId);
 
     int countByAvatarId(String avatarId);
+    int countActiveByAvatarId(String avatarId);
 
     void deleteByAvatarId(String avatarId);
 
