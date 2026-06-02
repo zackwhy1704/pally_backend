@@ -204,7 +204,7 @@ public class ClaudeContextAssembler {
                 this exact disclaimer on its own line BEFORE the answer:
                 "⚠️ This is general knowledge, not from your uploaded notes. Upload your textbook pages for answers tailored to your syllabus!"
                 Then answer the question helpfully as normal.
-                If unsure about a specific fact: "I'm not 100% certain — check your textbook to confirm! 📖"
+                If unsure about a specific fact: "I'm not fully certain — check your textbook to confirm! 📖"
 
                 RULE 3 — CITATION:
                 Always end your answer with: SOURCE:[wiki-page-slug]
