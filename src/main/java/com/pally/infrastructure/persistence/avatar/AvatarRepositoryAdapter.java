@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+
 /**
  * Adapter that implements the domain port using JPA.
  * {@code @Transactional} lives here, not in use cases.
@@ -50,5 +51,11 @@ public class AvatarRepositoryAdapter implements AvatarRepository {
     @Transactional
     public void deleteById(String id) {
         jpaRepository.deleteById(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> findIdsByBrainState(String brainState) {
+        return jpaRepository.findIdsByBrainState(brainState);
     }
 }

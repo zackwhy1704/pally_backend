@@ -66,6 +66,9 @@ public class AvatarJpaEntity {
     @Column(name = "curriculum_id", length = 36)
     private String curriculumId;
 
+    @Column(name = "brain_state", nullable = false, length = 20)
+    private String brainState = "READY";
+
     public static AvatarJpaEntity fromDomain(Avatar avatar) {
         AvatarJpaEntity entity = new AvatarJpaEntity();
         entity.id = avatar.getId();
@@ -80,11 +83,18 @@ public class AvatarJpaEntity {
         entity.pedagogyMode = avatar.getPedagogyMode();
         entity.teachingMode = avatar.getTeachingMode();
         entity.testDate = avatar.getTestDate();
+        entity.brainState = avatar.getBrainState().name();
         return entity;
     }
 
     public Avatar toDomain() {
+        Avatar.BrainState bs;
+        try {
+            bs = brainState != null ? Avatar.BrainState.valueOf(brainState) : Avatar.BrainState.READY;
+        } catch (IllegalArgumentException e) {
+            bs = Avatar.BrainState.READY;
+        }
         return Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs);
     }
 }

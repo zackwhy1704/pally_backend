@@ -51,4 +51,12 @@ public interface WikiRepository {
 
     // R8: pages currently flagged for review
     List<WikiPage> findReviewRequired(String avatarId);
+
+    // A3: archive ACTIVE pages whose slug is NOT in the surviving list.
+    // If survivingSlugs is empty, archives ALL active pages for the avatar.
+    // Returns the count of pages archived.
+    int archiveOrphanPages(String avatarId, List<String> survivingSlugs);
+
+    // A3: find avatarIds where files are newer than wiki pages OR files exist but 0 active pages.
+    List<String> findAvatarIdsNeedingRecompile();
 }

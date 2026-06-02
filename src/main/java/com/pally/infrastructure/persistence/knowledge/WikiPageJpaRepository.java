@@ -71,4 +71,35 @@ public interface WikiPageJpaRepository extends JpaRepository<WikiPageJpaEntity, 
            "AND p.lastRetrievedAt IS NOT NULL AND p.lastRetrievedAt < :cutoff")
     int archiveStalePages(@Param("avatarId") String avatarId,
                           @Param("cutoff") Instant cutoff);
+
+    /// A3 — archive ACTIVE pages whose slug is NOT in the surviving list.
+    @Modifying
+    @Query("UPDATE WikiPageJpaEntity p SET p.status = 'ARCHIVED' " +
+           "WHERE p.avatarId = :avatarId AND p.status = 'ACTIVE' " +
+           "AND p.slug NOT IN :survivingSlugs")
+    int archiveOrphanPages(@Param("avatarId") String avatarId,
+                           @Param("survivingSlugs") List<String> survivingSlugs);
+
+    /// A3 — archive ALL active pages for an avatar (when no files remain).
+    @Modifying
+    @Query("UPDATE WikiPageJpaEntity p SET p.status = 'ARCHIVED' " +
+           "WHERE p.avatarId = :avatarId AND p.status = 'ACTIVE'")
+    int archiveAllActivePages(@Param("avatarId") String avatarId);
+
+    /// A3 — find avatarIds where the newest knowledge_file.created_at is
+    /// newer than the newest wiki_page.updated_at, OR files exist but 0
+    /// active wiki pages. Uses a native query for the cross-table check.
+    @Query(value =
+           "SELECT DISTINCT kf.avatar_id " +
+           "FROM knowledge_files kf " +
+           "WHERE kf.status = 'READY' " +
+           "  AND ( " +
+           "    (SELECT COUNT(*) FROM wiki_pages wp " +
+           "     WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE') = 0 " +
+           "    OR " +
+           "    kf.created_at > (SELECT MAX(wp2.updated_at) FROM wiki_pages wp2 " +
+           "                     WHERE wp2.avatar_id = kf.avatar_id AND wp2.status = 'ACTIVE') " +
+           "  )",
+           nativeQuery = true)
+    List<String> findAvatarIdsNeedingRecompile();
 }

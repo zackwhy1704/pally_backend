@@ -182,6 +182,21 @@ public class WikiRepositoryAdapter implements WikiRepository {
                 .toList();
     }
 
+    @Override
+    @Transactional
+    public int archiveOrphanPages(String avatarId, List<String> survivingSlugs) {
+        if (survivingSlugs == null || survivingSlugs.isEmpty()) {
+            return wikiJpaRepository.archiveAllActivePages(avatarId);
+        }
+        return wikiJpaRepository.archiveOrphanPages(avatarId, survivingSlugs);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> findAvatarIdsNeedingRecompile() {
+        return wikiJpaRepository.findAvatarIdsNeedingRecompile();
+    }
+
     private String extractSummary(String content) {
         if (content == null || content.isBlank()) return "";
         int nl = content.indexOf('\n');

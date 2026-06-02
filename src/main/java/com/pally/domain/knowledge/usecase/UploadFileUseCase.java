@@ -11,6 +11,7 @@ import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.ContentDeduplicator;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
+import com.pally.infrastructure.ai.WikiRecompileScheduler;
 import com.pally.infrastructure.ocr.PdfTextExtractor;
 import com.pally.domain.knowledge.port.OcrPort;
 import com.pally.infrastructure.storage.StorageService;
@@ -19,14 +20,11 @@ import com.pally.shared.util.TextSampler;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 /**
@@ -55,15 +53,12 @@ public class UploadFileUseCase {
     private final OcrPort ocrService;
     private final PdfTextExtractor pdfTextExtractor;
     private final RelevancePort relevancePort;
-    private final CompileWikiUseCase compileWikiUseCase;
+    private final WikiRecompileScheduler recompileScheduler;
     private final ActivityLogService activityLogService;
     private final BadgeService badgeService;
     private final com.pally.domain.subscription.PremiumService premiumService;
     private final ConsentGuard consentGuard;
     private final ContentDeduplicator deduplicator;
-    /// Background executor for wiki compilation so the HTTP upload response
-    /// returns in seconds instead of blocking for 60–120s.
-    private final Executor aiTaskExecutor;
 
     public UploadFileUseCase(
             AvatarRepository avatarRepository,
@@ -73,13 +68,12 @@ public class UploadFileUseCase {
             OcrPort ocrService,
             PdfTextExtractor pdfTextExtractor,
             RelevancePort relevancePort,
-            CompileWikiUseCase compileWikiUseCase,
+            WikiRecompileScheduler recompileScheduler,
             ActivityLogService activityLogService,
             BadgeService badgeService,
             com.pally.domain.subscription.PremiumService premiumService,
             ConsentGuard consentGuard,
-            ContentDeduplicator deduplicator,
-            @Qualifier("aiTaskExecutor") Executor aiTaskExecutor) {
+            ContentDeduplicator deduplicator) {
         this.avatarRepository    = avatarRepository;
         this.knowledgeRepository = knowledgeRepository;
         this.wikiRepository      = wikiRepository;
@@ -87,13 +81,12 @@ public class UploadFileUseCase {
         this.ocrService          = ocrService;
         this.pdfTextExtractor    = pdfTextExtractor;
         this.relevancePort       = relevancePort;
-        this.compileWikiUseCase  = compileWikiUseCase;
+        this.recompileScheduler  = recompileScheduler;
         this.activityLogService  = activityLogService;
         this.badgeService        = badgeService;
         this.premiumService      = premiumService;
         this.consentGuard        = consentGuard;
         this.deduplicator        = deduplicator;
-        this.aiTaskExecutor      = aiTaskExecutor;
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
@@ -229,39 +222,11 @@ public class UploadFileUseCase {
         activityLogService.log(userId, avatarId, ActivityLogService.TYPE_UPLOAD, 0, 0);
         badgeService.grantFirstAction(userId, BadgeService.BadgeType.FIRST_UPLOAD);
 
-        // Wiki compilation is the slow step (30–120s per doc). Run it in the
-        // background so the HTTP response returns well within Railway's 60s
-        // proxy timeout. The frontend navigates to the success screen
-        // immediately; the brain viewer populates as pages are written.
-        final String capturedFileId = fileId;
-        final int capturedPageCount = pageCount;
-        aiTaskExecutor.execute(() -> {
-            try {
-                CompileWikiUseCase.CompileResult r = compileWikiUseCase.execute(avatarId);
-                log.info("[Upload] Async compile done fileId={} pages={} compiled={}",
-                        capturedFileId, capturedPageCount, r.pageTitles().size());
-                // If Claude compiled 0 pages from a non-empty file, record a
-                // partial failure so the frontend can surface a "retry" option
-                // via the /files/{id}/progress endpoint instead of silently
-                // showing an empty brain.
-                if (r.pageTitles().isEmpty()) {
-                    log.warn("[Upload] Compile produced 0 pages for fileId={} — marking FAILED",
-                            capturedFileId);
-                    knowledgeRepository.findById(capturedFileId).ifPresent(f -> {
-                        f.markFailed();
-                        knowledgeRepository.save(f);
-                    });
-                }
-            } catch (Exception e) {
-                log.error("[Upload] Async compile failed fileId={}", capturedFileId, e);
-                // Persist the failure so the /files/{id}/progress endpoint can
-                // surface it and the frontend can offer a retry affordance.
-                knowledgeRepository.findById(capturedFileId).ifPresent(f -> {
-                    f.markFailed();
-                    knowledgeRepository.save(f);
-                });
-            }
-        });
+        // Debounced wiki recompile: coalesces rapid uploads into a single compile
+        // and marks the avatar as PENDING_RECOMPILE immediately so the UI can show
+        // a spinner. Actual compile fires after the debounce window.
+        recompileScheduler.requestRecompile(avatarId);
+        log.info("[Upload] Recompile requested via debounce scheduler fileId={}", fileId);
 
         log.info("[Upload] File accepted, compilation started in background fileId={} pages={}",
                 fileId, pageCount);

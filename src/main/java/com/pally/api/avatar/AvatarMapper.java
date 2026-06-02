@@ -42,7 +42,8 @@ public class AvatarMapper {
                 avatar.getGradeLevel(),
                 avatar.getCurriculumType(),
                 avatar.getPedagogyMode(),
-                avatar.getTestDate()
+                avatar.getTestDate(),
+                avatar.getBrainState().name()
         );
     }
 

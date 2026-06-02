@@ -100,6 +100,7 @@ dependencies {
     testImplementation("org.testcontainers:postgresql")
     testImplementation("org.mockito:mockito-core")
     testImplementation("org.mockito:mockito-junit-jupiter")
+    testImplementation("org.awaitility:awaitility:4.2.1")
 }
 
 dependencyManagement {

@@ -22,5 +22,7 @@ public record AvatarResponse(
         String gradeLevel,
         String curriculumType,
         Avatar.PedagogyMode pedagogyMode,
-        LocalDate testDate
+        LocalDate testDate,
+        /// Brain compilation state: READY | PENDING_RECOMPILE | COMPILING
+        String brainState
 ) {}

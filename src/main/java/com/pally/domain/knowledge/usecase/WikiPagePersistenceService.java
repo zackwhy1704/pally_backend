@@ -53,7 +53,8 @@ public class WikiPagePersistenceService {
     public record PersistOutcome(
             int created,
             int updated,
-            List<String> pageTitles) {}
+            List<String> pageTitles,
+            List<String> producedSlugs) {}
 
     @Transactional
     public PersistOutcome persistDrafts(Avatar avatar,
@@ -61,9 +62,11 @@ public class WikiPagePersistenceService {
         int created = 0;
         int updated = 0;
         List<String> pageTitles = new ArrayList<>();
+        List<String> producedSlugs = new ArrayList<>();
         String avatarId = avatar.getId();
 
         for (WikiCompilerPort.WikiPageDraft draft : drafts) {
+            producedSlugs.add(draft.slug());
             var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, draft.slug());
             if (existing.isPresent()) {
                 WikiPage existingPage = existing.get();
@@ -117,7 +120,7 @@ public class WikiPagePersistenceService {
         avatar.setWikiPageCount(totalPages);
         avatarRepository.save(avatar);
 
-        return new PersistOutcome(created, updated, pageTitles);
+        return new PersistOutcome(created, updated, pageTitles, List.copyOf(producedSlugs));
     }
 
     /// Two-stage conflict detection (B-B3):

@@ -130,8 +130,12 @@ public final class WikiPage {
 
     public void updateContent(String newTitle, String newContent, Certainty newCertainty) {
         this.title = newTitle;
-        this.content = newContent;
-        this.certainty = newCertainty;
+        // If a human has verified this page, never downgrade the certainty or
+        // overwrite their correction with AI-synthesised content.
+        if (!humanVerified) {
+            this.content = newContent;
+            this.certainty = newCertainty;
+        }
         this.updatedAt = Instant.now();
     }
 

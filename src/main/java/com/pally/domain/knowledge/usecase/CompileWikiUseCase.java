@@ -120,6 +120,16 @@ public class CompileWikiUseCase {
             log.warn("[Pipeline:Compile] NO READY files for avatarId={} — compile skipped. " +
                      "Failed={} Processing={}. Re-upload or use /wiki/recompile to reset FAILED files.",
                      avatarId, failedCount, processingCount);
+            // Archive all active pages since there are no ready files — the brain is empty.
+            try {
+                int archived = wikiRepository.archiveOrphanPages(avatarId, List.of());
+                if (archived > 0) {
+                    log.info("[Pipeline:Compile] Archived {} orphan pages (no ready files) for avatar={}",
+                            archived, avatarId);
+                }
+            } catch (Exception e) {
+                log.warn("[Pipeline:Compile] Orphan archive failed (non-fatal): {}", e.getMessage());
+            }
             return new CompileResult(0, 0, List.of());
         }
 
@@ -151,6 +161,19 @@ public class CompileWikiUseCase {
 
         log.info("[Pipeline:Compile] DONE avatarId={} created={} updated={} titles={}",
                 avatarId, outcome.created(), outcome.updated(), outcome.pageTitles());
+
+        // Archive wiki pages whose slugs were NOT produced by this compile run.
+        // This makes the brain a pure function of the current READY files —
+        // pages from deleted files disappear automatically.
+        try {
+            int archived = wikiRepository.archiveOrphanPages(avatarId, outcome.producedSlugs());
+            if (archived > 0) {
+                log.info("[Pipeline:Compile] Archived {} orphan pages for avatar={} (slugs no longer produced by compile)",
+                        archived, avatarId);
+            }
+        } catch (Exception e) {
+            log.warn("[Pipeline:Compile] Orphan archive failed (non-fatal): {}", e.getMessage());
+        }
 
         // Invalidate Block 3 cache so next request picks up the new content.
         // Best-effort cache work stays outside the persistence transaction.

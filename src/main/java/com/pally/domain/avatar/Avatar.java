@@ -12,6 +12,8 @@ public final class Avatar {
 
     public enum PedagogyMode { SOCRATIC }
 
+    public enum BrainState { READY, PENDING_RECOMPILE, COMPILING }
+
     private final String id;
     private String name;
     private final String userId;
@@ -24,6 +26,7 @@ public final class Avatar {
     private PedagogyMode pedagogyMode;
     private TeachingMode teachingMode;
     private java.time.LocalDate testDate;
+    private BrainState brainState;
 
     private Avatar(
             String id,
@@ -37,7 +40,8 @@ public final class Avatar {
             String curriculumType,
             PedagogyMode pedagogyMode,
             TeachingMode teachingMode,
-            java.time.LocalDate testDate
+            java.time.LocalDate testDate,
+            BrainState brainState
     ) {
         this.id = id;
         this.userId = userId;
@@ -51,6 +55,7 @@ public final class Avatar {
         this.pedagogyMode = pedagogyMode != null ? pedagogyMode : PedagogyMode.SOCRATIC;
         this.teachingMode = teachingMode != null ? teachingMode : TeachingMode.TEACHING;
         this.testDate = testDate;
+        this.brainState = brainState != null ? brainState : BrainState.READY;
     }
 
     /**
@@ -69,7 +74,7 @@ public final class Avatar {
         if (subject == null) throw new IllegalArgumentException("Subject is required");
         if (characterType == null) throw new IllegalArgumentException("CharacterType is required");
         return new Avatar(IdGenerator.newId(), userId, name, subject, characterType, 0, Instant.now(),
-                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null);
+                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY);
     }
 
     /**
@@ -85,7 +90,7 @@ public final class Avatar {
             Instant createdAt
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null);
+                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY);
     }
 
     public static Avatar reconstitute(
@@ -102,8 +107,27 @@ public final class Avatar {
             TeachingMode teachingMode,
             java.time.LocalDate testDate
     ) {
+        return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, BrainState.READY);
+    }
+
+    public static Avatar reconstitute(
+            String id,
+            String userId,
+            String name,
+            Subject subject,
+            CharacterType characterType,
+            int wikiPageCount,
+            Instant createdAt,
+            String gradeLevel,
+            String curriculumType,
+            PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
+            java.time.LocalDate testDate,
+            BrainState brainState
+    ) {
         return new Avatar(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState);
     }
 
     // Domain behaviour
@@ -156,4 +180,6 @@ public final class Avatar {
     public PedagogyMode getPedagogyMode()       { return pedagogyMode; }
     public TeachingMode getTeachingMode()       { return teachingMode; }
     public java.time.LocalDate getTestDate()    { return testDate; }
+    public BrainState getBrainState()           { return brainState != null ? brainState : BrainState.READY; }
+    public void setBrainState(BrainState state) { this.brainState = state != null ? state : BrainState.READY; }
 }

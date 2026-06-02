@@ -15,6 +15,7 @@ import com.pally.domain.knowledge.usecase.CompileWikiUseCase;
 import com.pally.domain.knowledge.usecase.DeleteFileUseCase;
 import com.pally.domain.knowledge.usecase.UploadFileUseCase;
 import com.pally.domain.knowledge.usecase.UploadResult;
+import com.pally.infrastructure.ai.WikiRecompileScheduler;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -50,6 +51,7 @@ public class KnowledgeController {
     private final DeleteFileUseCase deleteFileUseCase;
     private final CheckRelevanceUseCase checkRelevanceUseCase;
     private final CompileWikiUseCase compileWikiUseCase;
+    private final WikiRecompileScheduler recompileScheduler;
     private final KnowledgeRepository knowledgeRepository;
     private final KnowledgeMapper knowledgeMapper;
     private final WikiRepository wikiRepository;
@@ -217,12 +219,12 @@ public class KnowledgeController {
     /**
      * Retry wiki compilation for all FAILED or READY-but-empty files.
      *
-     * <p>Called when uploads succeeded but compile failed (e.g. during a
-     * temporary Claude outage). Resets FAILED files back to READY so the
-     * compile use case picks them up, then runs a bounded compile.
+     * <p>Resets FAILED files back to READY so they'll be included in the next compile,
+     * then bypasses the debounce and fires the compile immediately (recompileNow).
+     * Returns 202 Accepted immediately — the compile runs asynchronously.
      */
     @PostMapping("/wiki/recompile")
-    public ResponseEntity<ApiResponse<WikiCompileResponse>> recompileWiki(
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> recompileWiki(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
@@ -247,30 +249,16 @@ public class KnowledgeController {
                     .info("[Recompile] Reset {} FAILED files to READY for avatarId={}", failed.size(), avatarId);
         }
 
-        try {
-            CompileWikiUseCase.CompileResult result =
-                    compileWikiUseCase.executeBounded(avatarId);
-            int total = result.pagesCreated() + result.pagesUpdated();
-            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
-                    .info("[Recompile] SUCCESS avatarId={} created={} updated={} pages={}",
-                            avatarId, result.pagesCreated(), result.pagesUpdated(), result.pageTitles());
-            return ResponseEntity.ok(ApiResponse.success(new WikiCompileResponse(
-                    total, result.pageTitles(),
-                    "Recompile: %d page(s) created, %d page(s) updated (reset %d failed file(s))"
-                            .formatted(result.pagesCreated(), result.pagesUpdated(), failed.size())
-            )));
-        } catch (com.pally.shared.exception.WikiCompileException e) {
-            // Compile failed (AI upstream error, credit issue, timeout).
-            // Return 503 + retry hint instead of raw 500 — the compile
-            // failure is already logged with the Anthropic error body in
-            // ClaudeApiClient so the root cause is visible in Railway logs.
-            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
-                    .warn("[Recompile] FAILED avatarId={}: {}", avatarId, e.getMessage());
-            return ResponseEntity.status(503)
-                    .body(ApiResponse.error(
-                            "Couldn't rebuild the brain right now — the AI service is unavailable. " +
-                            "Check Railway logs for the Anthropic error body. Try again shortly.", 503));
-        }
+        // Bypass debounce — fire immediately
+        recompileScheduler.recompileNow(avatarId);
+        org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
+                .info("[Recompile] Queued via recompileNow for avatarId={}", avatarId);
+
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("message", "Brain recompile queued" +
+                (failed.isEmpty() ? "" : " (reset " + failed.size() + " failed file(s))"));
+        body.put("avatarId", avatarId);
+        return ResponseEntity.accepted().body(ApiResponse.success(body));
     }
 
     @GetMapping("/wiki/pages")

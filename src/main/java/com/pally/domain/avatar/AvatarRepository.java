@@ -18,4 +18,6 @@ public interface AvatarRepository {
     boolean existsByIdAndUserId(String id, String userId);
 
     void deleteById(String id);
+
+    List<String> findIdsByBrainState(String brainState);
 }
