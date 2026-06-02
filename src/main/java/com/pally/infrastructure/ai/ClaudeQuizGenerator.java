@@ -124,7 +124,10 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
 
         } catch (Exception e) {
             log.error("[Quiz] Failed to generate questions for avatar {}", avatarId, e);
-            return List.of();
+            // Throw 503 so the controller returns a proper retry response instead
+            // of a silent 200 with 0 questions (which the FE shows as "no quiz yet").
+            throw new com.pally.shared.exception.BusinessException(
+                    "Couldn't generate a quiz right now — please try again shortly.", 503);
         }
     }
 

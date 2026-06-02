@@ -21,6 +21,10 @@ spring:
       leak-detection-threshold: ${DB_LEAK_MS:20000}
       connection-test-query: SELECT 1
   jpa:
+    # OSIV disabled: DB connections are only held during @Transactional methods,
+    # never across the full HTTP request. Without this, a 60s Claude call holds
+    # a Hikari connection → connection leak → pool exhaustion → quiz/compile hangs.
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     show-sql: false
