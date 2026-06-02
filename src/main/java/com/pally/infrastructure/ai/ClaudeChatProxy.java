@@ -79,15 +79,39 @@ public class ClaudeChatProxy implements ChatPort {
     }
 
     private List<Map<String, String>> buildMessages(List<ChatMessage> history, String userMessage) {
+        // history is now chronological (oldest→newest) after ChatRepositoryAdapter.reverse().
+        // Guard: skip blank content AND collapse consecutive same-role turns so Claude
+        // always receives strictly alternating user/assistant sequences.
         List<Map<String, String>> messages = new ArrayList<>();
+        String lastRole = null;
         for (ChatMessage msg : history) {
             if (msg.getContent() == null || msg.getContent().isBlank()) continue;
-            messages.add(Map.of(
-                    "role", msg.getRole() == ChatMessage.Role.USER ? "user" : "assistant",
-                    "content", msg.getContent()
-            ));
+            String role = msg.getRole() == ChatMessage.Role.USER ? "user" : "assistant";
+            if (role.equals(lastRole)) {
+                // Collapse: append content to the previous same-role message
+                // rather than creating two consecutive user or assistant turns
+                // (which the Anthropic API rejects or confuses).
+                Map<String, String> prev = messages.get(messages.size() - 1);
+                messages.set(messages.size() - 1, Map.of(
+                        "role", prev.get("role"),
+                        "content", prev.get("content") + "\n\n" + msg.getContent()
+                ));
+                continue;
+            }
+            messages.add(Map.of("role", role, "content", msg.getContent()));
+            lastRole = role;
         }
-        messages.add(Map.of("role", "user", "content", userMessage));
+        // Ensure the final turn is a user message (required by Anthropic).
+        // If the last history message was also a user message, collapse.
+        if (!messages.isEmpty() && "user".equals(lastRole)) {
+            Map<String, String> prev = messages.get(messages.size() - 1);
+            messages.set(messages.size() - 1, Map.of(
+                    "role", "user",
+                    "content", prev.get("content") + "\n\n" + userMessage
+            ));
+        } else {
+            messages.add(Map.of("role", "user", "content", userMessage));
+        }
         return messages;
     }
 
