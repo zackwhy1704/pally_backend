@@ -94,6 +94,23 @@ public class ClaudeContextAssembler {
         String harnessTrace = buildHarnessTrace(tier1, tier2, tier3Pages, tier3, tier4Pages, tier4,
                 routerMs, assemblyMs);
 
+        // ── Brain Activity Log ────────────────────────────────────────────────
+        // Logged at INFO so it appears in Railway logs for every chat turn.
+        // Tells you exactly what the model sees: which wiki pages, which tier,
+        // and whether the session memory is populated.
+        String memoryPreview = sessionSummariser.findSummary(avatar.getId())
+                .map(s -> s.substring(0, Math.min(120, s.length())) + "…")
+                .orElse("(none)");
+        log.info("[Brain] avatarId={} subject={} totalPages={} tier3Matched={} keywords={} memory={}",
+                avatar.getId(), avatar.getSubject().name(), index.size(),
+                tier3Pages.size(), keywords, memoryPreview);
+        if (!tier3Pages.isEmpty()) {
+            log.info("[Brain] Tier3 slugs: {}", tier3Pages.stream()
+                    .map(WikiPage::getSlug).toList());
+        } else {
+            log.warn("[Brain] NO wiki pages matched query '{}' — model will use general knowledge",
+                    userMessage.length() > 80 ? userMessage.substring(0, 80) : userMessage);
+        }
         log.info("[Harness] Assembled context for avatarId={} tier3Pages={} tier4Pages={} routerMs={} assemblyMs={}",
                 avatar.getId(), tier3Pages.size(), tier4Pages.size(), routerMs, assemblyMs);
 

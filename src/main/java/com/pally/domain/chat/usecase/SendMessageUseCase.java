@@ -149,9 +149,21 @@ public class SendMessageUseCase {
         List<Map<String, Object>> systemBlocks = buildBlocksWithSocraticTail(
                 context.systemBlocks(), block4);
 
-        log.debug("[Chat] avatarId={} historySize={} mode={} attempts={} escape={} topic={}",
-                avatarId, history.size(), mode, session.getAttemptCount(),
-                shouldEscape || deflecting, topicSlug.orElse("none"));
+        // ── Chat context diagnostic log ────────────────────────────────────
+        // INFO so it shows up in Railway on every turn. Tells you what the
+        // model receives: history depth, session memory, topic routing.
+        log.info("[ChatCtx] avatarId={} historyMsgs={} mode={} topic={} escape={}",
+                avatarId, history.size(), mode, topicSlug.orElse("none"),
+                shouldEscape || deflecting);
+        if (history.size() > 0) {
+            // Log the last user message in history so we can see topic drift
+            history.stream()
+                    .filter(m -> m.getRole() == com.pally.domain.chat.ChatMessage.Role.USER)
+                    .reduce((a, b) -> b)
+                    .ifPresent(last -> log.info("[ChatCtx] Last history user msg: '{}'",
+                            last.getContent() == null ? "(null)"
+                            : last.getContent().substring(0, Math.min(80, last.getContent().length()))));
+        }
 
         StringBuilder replyBuffer = new StringBuilder();
         AtomicReference<String> assistantMessageId = new AtomicReference<>();

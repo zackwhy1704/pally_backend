@@ -214,6 +214,49 @@ public class KnowledgeController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    /**
+     * Retry wiki compilation for all FAILED or READY-but-empty files.
+     *
+     * <p>Called when uploads succeeded but compile failed (e.g. during a
+     * temporary Claude outage). Resets FAILED files back to READY so the
+     * compile use case picks them up, then runs a bounded compile.
+     */
+    @PostMapping("/wiki/recompile")
+    public ResponseEntity<ApiResponse<WikiCompileResponse>> recompileWiki(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId
+    ) {
+        // Verify ownership
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
+        // Reset FAILED files to READY so they'll be included in the compile
+        List<com.pally.domain.knowledge.KnowledgeFile> failed =
+                knowledgeRepository.findByAvatarId(avatarId).stream()
+                        .filter(f -> f.getStatus() == com.pally.domain.knowledge.KnowledgeFile.Status.FAILED
+                                && f.getExtractedText() != null
+                                && !f.getExtractedText().isBlank())
+                        .toList();
+        for (var f : failed) {
+            f.markReady(f.getPageCount() > 0 ? f.getPageCount() : 1);
+            knowledgeRepository.save(f);
+        }
+        if (!failed.isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
+                    .info("[Recompile] Reset {} FAILED files to READY for avatarId={}", failed.size(), avatarId);
+        }
+
+        CompileWikiUseCase.CompileResult result =
+                compileWikiUseCase.executeBounded(avatarId);
+        int total = result.pagesCreated() + result.pagesUpdated();
+        return ResponseEntity.ok(ApiResponse.success(new WikiCompileResponse(
+                total, result.pageTitles(),
+                "Recompile: %d page(s) created, %d page(s) updated (reset %d failed file(s))"
+                        .formatted(result.pagesCreated(), result.pagesUpdated(), failed.size())
+        )));
+    }
+
     @GetMapping("/wiki/pages")
     public ResponseEntity<ApiResponse<WikiPageResponse.ListResponse>> listWikiPages(
             @AuthenticationPrincipal String userId,

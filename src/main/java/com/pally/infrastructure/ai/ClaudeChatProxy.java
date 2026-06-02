@@ -146,8 +146,18 @@ public class ClaudeChatProxy implements ChatPort {
     private String extractSourceSlug(String text) {
         if (text == null || text.isEmpty()) return null;
         Matcher m = SOURCE_LINE.matcher(text);
-        if (!m.find()) return null;
+        if (!m.find()) {
+            log.warn("[Source] No SOURCE: line found in response ({} chars). "
+                    + "Claude may not have followed the citation rule.",
+                    text.length());
+            return null;
+        }
         String slug = m.group(1);
-        return "general-knowledge".equalsIgnoreCase(slug) ? null : slug;
+        log.debug("[Source] Extracted slug='{}' from response", slug);
+        // Return "general-knowledge" as a real value (not null) so the Flutter
+        // client can display a distinct "general knowledge" badge instead of
+        // showing nothing. Previously this returned null → empty done payload
+        // → no badge shown for either wiki-grounded or general answers.
+        return slug;
     }
 }
