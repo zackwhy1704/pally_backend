@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -39,7 +40,11 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ClaudeApiClient {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeApiClient.class);
-    private static final String ANTHROPIC_VERSION = "2023-06-01";
+    // Bumped from 2023-06-01 → 2024-02-15. Claude 4.x models (Haiku 4.5,
+    // Sonnet 4.6) were released in 2025/2026; the older version string may
+    // be rejected. 2024-02-15 is the stable version required for modern
+    // Claude models per docs.anthropic.com/en/api/versioning.
+    private static final String ANTHROPIC_VERSION = "2024-02-15";
     private static final String MESSAGES_PATH = "/v1/messages";
 
     /// Bound every blocking Claude call so a hung Anthropic response can
@@ -112,8 +117,18 @@ public class ClaudeApiClient {
                     .header("anthropic-version", ANTHROPIC_VERSION)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body.toString())
-                    .retrieve()
-                    .bodyToMono(String.class)
+                    .exchangeToMono(resp -> {
+                        if (resp.statusCode().isError()) {
+                            return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
+                                    .flatMap(errBody -> {
+                                        log.error("[Claude-{}] FAST {} from Anthropic: {}",
+                                                callId, resp.statusCode(), errBody);
+                                        return Mono.<String>error(new RuntimeException(
+                                                "Anthropic " + resp.statusCode() + ": " + errBody));
+                                    });
+                        }
+                        return resp.bodyToMono(String.class);
+                    })
                     .block(MICRO_BLOCK_TIMEOUT);
 
             long ms = System.currentTimeMillis() - start;
@@ -163,11 +178,18 @@ public class ClaudeApiClient {
                     .header("anthropic-version", ANTHROPIC_VERSION)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body.toString())
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .doOnError(e -> log.error("[Claude-{}] FAILED after {}ms: {} — {}",
-                            callId, System.currentTimeMillis() - start,
-                            e.getClass().getSimpleName(), e.getMessage()))
+                    .exchangeToMono(resp -> {
+                        if (resp.statusCode().isError()) {
+                            return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
+                                    .flatMap(errBody -> {
+                                        log.error("[Claude-{}] {} from Anthropic: {}",
+                                                callId, resp.statusCode(), errBody);
+                                        return Mono.<String>error(new RuntimeException(
+                                                "Anthropic " + resp.statusCode() + ": " + errBody));
+                                    });
+                        }
+                        return resp.bodyToMono(String.class);
+                    })
                     .block(UNARY_BLOCK_TIMEOUT);
         } catch (Exception e) {
             metrics.recordError(task, e.getClass().getSimpleName());
@@ -274,8 +296,18 @@ public class ClaudeApiClient {
                         .header("anthropic-version", ANTHROPIC_VERSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(body.toString())
-                        .retrieve()
-                        .bodyToMono(String.class)
+                        .exchangeToMono(resp -> {
+                            if (resp.statusCode().isError()) {
+                                return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
+                                        .flatMap(errBody -> {
+                                            log.error("[Claude-{}] TOOL {} from Anthropic: {}",
+                                                    callId, resp.statusCode(), errBody);
+                                            return Mono.<String>error(new RuntimeException(
+                                                    "Anthropic " + resp.statusCode() + ": " + errBody));
+                                        });
+                            }
+                            return resp.bodyToMono(String.class);
+                        })
                         .block(UNARY_BLOCK_TIMEOUT);
 
                 JsonNode root = objectMapper.readTree(responseJson);
@@ -455,8 +487,18 @@ public class ClaudeApiClient {
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(body.toString())
-                .retrieve()
-                .bodyToFlux(String.class)
+                .exchangeToFlux(resp -> {
+                    if (resp.statusCode().isError()) {
+                        return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
+                                .flatMapMany(errBody -> {
+                                    log.error("[Claude-{}] STREAM {} from Anthropic: {}",
+                                            callId, resp.statusCode(), errBody);
+                                    return Flux.<String>error(new RuntimeException(
+                                            "Anthropic " + resp.statusCode() + ": " + errBody));
+                                });
+                    }
+                    return resp.bodyToFlux(String.class);
+                })
                 // Inter-emission idle timeout: if no chunk arrives within the
                 // window, fail fast so the SSE controller can close the
                 // client connection instead of leaking the underlying socket.
@@ -503,8 +545,18 @@ public class ClaudeApiClient {
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(body.toString())
-                .retrieve()
-                .bodyToFlux(String.class)
+                .exchangeToFlux(resp -> {
+                    if (resp.statusCode().isError()) {
+                        return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
+                                .flatMapMany(errBody -> {
+                                    log.error("[Claude-{}] STREAM (legacy) {} from Anthropic: {}",
+                                            callId, resp.statusCode(), errBody);
+                                    return Flux.<String>error(new RuntimeException(
+                                            "Anthropic " + resp.statusCode() + ": " + errBody));
+                                });
+                    }
+                    return resp.bodyToFlux(String.class);
+                })
                 .timeout(STREAM_IDLE_TIMEOUT, Flux.error(
                         new java.util.concurrent.TimeoutException(
                                 "Claude stream idle for "

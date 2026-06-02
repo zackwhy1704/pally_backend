@@ -6,12 +6,19 @@ spring:
     username: ${DB_USER:pally}
     password: ${DB_PASSWORD:pally}
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
-      connection-timeout: 30000
+      # Env-driven so we can tune per environment without a redeploy. With
+      # virtual threads on, the app accepts thousands of concurrent requests
+      # but each DB call still borrows a real connection — so the pool is the
+      # ceiling and tuning matters MORE, not less. 10s connection-timeout
+      # fails fast instead of piling up callers for 30s; leak-detection at
+      # 20s catches accidentally-held connections in dev.
+      maximum-pool-size: ${DB_POOL_MAX:20}
+      minimum-idle: ${DB_POOL_MIN:5}
+      connection-timeout: ${DB_POOL_TIMEOUT:10000}
       keepalive-time: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
+      leak-detection-threshold: ${DB_LEAK_MS:20000}
       connection-test-query: SELECT 1
   jpa:
     hibernate:
@@ -43,19 +50,68 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized
+  metrics:
+    tags:
+      application: pally-backend
+
+# Resilience4j around Claude. Retry on 5xx/timeout/429, never on a
+# non-429 4xx (those are caller errors). Breaker opens at 50% failure
+# over 20 calls and waits 30s in half-open. Pally currently runs single
+# instance — counters are per-instance.
+resilience4j:
+  retry:
+    instances:
+      claude:
+        max-attempts: 3
+        wait-duration: 500ms
+        exponential-backoff-multiplier: 2
+        randomized-wait-factor: 0.5
+        retry-exceptions:
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientResponseException$TooManyRequests
+          - org.springframework.web.reactive.function.client.WebClientResponseException$InternalServerError
+          - org.springframework.web.reactive.function.client.WebClientResponseException$BadGateway
+          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
+          - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
+  circuitbreaker:
+    instances:
+      claude:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
 
 jwt:
   secret: ${JWT_SECRET:dev-secret-min-32-chars-long-here-!!}
+
+# Stripe — leave blank in dev so SubscriptionController stays in mock mode.
+# Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET on Railway to flip to live.
+# Register the webhook URL in the Stripe Dashboard as:
+#   https://pallybackend-production.up.railway.app/api/v1/subscription/webhook
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  return:
+    success-url: ${STRIPE_SUCCESS_URL:pally://subscription/return?status=success}
+    cancel-url: ${STRIPE_CANCEL_URL:pally://subscription/return?status=cancel}
+  price:
+    individual-monthly: ${STRIPE_PRICE_INDIVIDUAL_MONTHLY:}
+    family-monthly: ${STRIPE_PRICE_FAMILY_MONTHLY:}
 
 claude:
   api:
     key: ${CLAUDE_API_KEY:}
     base-url: https://api.anthropic.com
     model: claude-haiku-4-5-20251001
+    sonnet-model: ${CLAUDE_SONNET_MODEL:claude-sonnet-4-6}
     relevance-max-tokens: 128
     chat-max-tokens: 1024
     version: "2023-06-01"
