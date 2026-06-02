@@ -38,7 +38,6 @@ public class TeachController {
     private final XpService xpService;
 
     @PostMapping
-    @Transactional
     public ResponseEntity<ApiResponse<TeachResponse>> teach(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
@@ -46,28 +45,73 @@ public class TeachController {
         if (request.topicSlug() == null || request.topicSlug().isBlank()) {
             throw new BusinessException("topicSlug is required", 400);
         }
+
+        // Load wiki page — WikiRepositoryAdapter.findBy... is @Transactional(readOnly)
+        // so the connection is held only for this brief read, not across the Claude call.
         WikiPage page = wikiRepository
                 .findByAvatarIdAndSlug(avatarId, request.topicSlug())
                 .orElseThrow(() -> new BusinessException(
                         "Wiki page not found: " + request.topicSlug(), 404));
 
+        // Claude evaluation — can take 10–30 s. No @Transactional here:
+        // the old annotation held a DB connection for the entire duration,
+        // which exhausted the Hikari pool under concurrent requests.
         TeachResponse result = evaluator.evaluate(page, request.explanation());
 
+        // Update wiki certainty based on student mastery.
+        // save() is @Transactional in WikiRepositoryAdapter — own short transaction.
+        updateWikiCertainty(page, result);
+
+        // XP award — XpService.awardFlat() is transactional internally.
         if (result.xpEarned() > 0) {
-            // Route through XpService so the L10 star-earn multiplier
-            // applies. Teach has its own dedup (one explain → one score),
-            // so no per-day decay — awardFlat is the right entrypoint.
             var credit = xpService.awardFlat(userId, result.xpEarned());
             activityLogService.log(userId, avatarId,
                     ActivityLogService.TYPE_QUIZ, 0, result.xpEarned());
             result = result.withLevel(credit.levelledUp(), credit.newLevel());
         }
 
-        log.info("[Teach] user={} avatar={} slug={} score={}/{} xp={} level={}",
+        log.info("[Teach] user={} avatar={} slug={} score={}/{} xp={} level={} certaintyDelta={}",
                 userId, avatarId, request.topicSlug(),
                 result.score(), result.totalConcepts(), result.xpEarned(),
-                result.newLevel());
+                result.newLevel(), certaintyDelta(result));
 
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * Applies Feynman-technique feedback to the wiki page's certainty score.
+     * <ul>
+     *   <li>≥80 % mastery → boosts certainty, clears reviewRequired</li>
+     *   <li>40–79 % → small boost, keeps reviewRequired as-is</li>
+     *   <li>&lt;40 % → marks reviewRequired so the quiz surfaces it soon</li>
+     * </ul>
+     */
+    private void updateWikiCertainty(WikiPage page, TeachResponse result) {
+        if (result.totalConcepts() == 0) return;
+        double ratio = (double) result.score() / result.totalConcepts();
+        try {
+            if (ratio >= 0.8) {
+                page.adjustCertaintyScore(0.08);    // student clearly mastered it
+                page.setReviewRequired(false);
+            } else if (ratio >= 0.4) {
+                page.adjustCertaintyScore(0.03);    // partial understanding
+            } else {
+                page.adjustCertaintyScore(-0.05);   // gaps detected → flag for review
+                page.setReviewRequired(true);
+            }
+            wikiRepository.save(page);
+            log.debug("[Teach] wiki certainty updated slug={} ratio={} reviewRequired={}",
+                    page.getSlug(), ratio, page.isReviewRequired());
+        } catch (Exception e) {
+            log.warn("[Teach] Failed to update wiki certainty slug={}: {}", page.getSlug(), e.getMessage());
+        }
+    }
+
+    private String certaintyDelta(TeachResponse result) {
+        if (result.totalConcepts() == 0) return "n/a";
+        double ratio = (double) result.score() / result.totalConcepts();
+        if (ratio >= 0.8) return "+0.08";
+        if (ratio >= 0.4) return "+0.03";
+        return "-0.05";
     }
 }
