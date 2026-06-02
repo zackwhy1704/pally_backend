@@ -103,25 +103,44 @@ public class CompileWikiUseCase {
                     e.getMessage());
         }
 
-        List<KnowledgeFile> readyFiles = knowledgeRepository.findByAvatarId(avatarId).stream()
+        // ── Pipeline log: file inventory ─────────────────────────────────────
+        List<KnowledgeFile> allFiles = knowledgeRepository.findByAvatarId(avatarId);
+        long readyCount   = allFiles.stream().filter(f -> f.getStatus() == KnowledgeFile.Status.READY).count();
+        long failedCount  = allFiles.stream().filter(f -> f.getStatus() == KnowledgeFile.Status.FAILED).count();
+        long processingCount = allFiles.stream().filter(f -> f.getStatus() == KnowledgeFile.Status.PROCESSING).count();
+        long existingPages   = wikiRepository.countActiveByAvatarId(avatarId);
+        log.info("[Pipeline:Compile] avatarId={} files: total={} ready={} failed={} processing={} existingWikiPages={}",
+                avatarId, allFiles.size(), readyCount, failedCount, processingCount, existingPages);
+
+        List<KnowledgeFile> readyFiles = allFiles.stream()
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
                 .toList();
 
         if (readyFiles.isEmpty()) {
-            log.warn("No READY files found for avatarId={}, skipping wiki compile", avatarId);
+            log.warn("[Pipeline:Compile] NO READY files for avatarId={} — compile skipped. " +
+                     "Failed={} Processing={}. Re-upload or use /wiki/recompile to reset FAILED files.",
+                     avatarId, failedCount, processingCount);
             return new CompileResult(0, 0, List.of());
         }
 
-        log.info("Compiling wiki for avatarId={} from {} files", avatarId, readyFiles.size());
+        log.info("[Pipeline:Compile] START avatarId={} files={} names={}",
+                avatarId, readyFiles.size(),
+                readyFiles.stream().map(KnowledgeFile::getFileName).toList());
 
-        List<WikiPage> existingPages = wikiRepository.findByAvatarId(avatarId);
+        List<WikiPage> existingWikiPages = wikiRepository.findByAvatarId(avatarId);
 
         List<WikiCompilerPort.WikiPageDraft> drafts;
         try {
-            drafts = wikiCompiler.compile(avatar, readyFiles, existingPages);
+            drafts = wikiCompiler.compile(avatar, readyFiles, existingWikiPages);
         } catch (Exception e) {
+            log.error("[Pipeline:Compile] Claude compile FAILED for avatarId={}: {} — " +
+                      "Check the [Claude-xxx] log line above for the Anthropic error body.",
+                      avatarId, e.getMessage());
             throw new WikiCompileException("Wiki compilation failed for avatar " + avatarId, e);
         }
+
+        log.info("[Pipeline:Compile] Claude produced {} draft pages for avatarId={}: titles={}",
+                drafts.size(), avatarId, drafts.stream().map(WikiCompilerPort.WikiPageDraft::title).toList());
 
         // The Claude compile above is the slow part (often 30-60s). The
         // persistence below runs in a short @Transactional block in a
@@ -130,8 +149,8 @@ public class CompileWikiUseCase {
         WikiPagePersistenceService.PersistOutcome outcome =
                 persistenceService.persistDrafts(avatar, drafts);
 
-        log.info("Wiki compiled for avatarId={} created={} updated={}",
-                avatarId, outcome.created(), outcome.updated());
+        log.info("[Pipeline:Compile] DONE avatarId={} created={} updated={} titles={}",
+                avatarId, outcome.created(), outcome.updated(), outcome.pageTitles());
 
         // Invalidate Block 3 cache so next request picks up the new content.
         // Best-effort cache work stays outside the persistence transaction.

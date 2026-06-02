@@ -141,6 +141,9 @@ public class UploadFileUseCase {
         kf = knowledgeRepository.save(kf);
         final String fileId = kf.getId();
 
+        log.info("[Pipeline:Upload] START fileId={} fileName={} type={} sizeBytes={}",
+                fileId, file.getOriginalFilename(), uploadType, fileBytes.length);
+
         // Extract text — both paths now use the pre-read byte array so the
         // multipart stream is never touched again.
         String extractedText;
@@ -150,9 +153,12 @@ public class UploadFileUseCase {
                 var result = pdfTextExtractor.extractFromBytes(fileBytes);
                 extractedText = result.text();
                 pageCount = result.pageCount();
+                log.info("[Pipeline:Upload] PDF extracted fileId={} chars={} pages={}",
+                        fileId, extractedText.length(), pageCount);
             } else {
                 extractedText = ocrService.extractText(fileBytes, contentType);
                 pageCount = 1;
+                log.info("[Pipeline:Upload] OCR extracted fileId={} chars={}", fileId, extractedText.length());
             }
         } catch (IOException e) {
             log.error("Extraction failure for fileId={}", fileId, e);

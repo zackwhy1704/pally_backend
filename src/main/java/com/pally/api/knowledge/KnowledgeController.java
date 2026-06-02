@@ -247,14 +247,30 @@ public class KnowledgeController {
                     .info("[Recompile] Reset {} FAILED files to READY for avatarId={}", failed.size(), avatarId);
         }
 
-        CompileWikiUseCase.CompileResult result =
-                compileWikiUseCase.executeBounded(avatarId);
-        int total = result.pagesCreated() + result.pagesUpdated();
-        return ResponseEntity.ok(ApiResponse.success(new WikiCompileResponse(
-                total, result.pageTitles(),
-                "Recompile: %d page(s) created, %d page(s) updated (reset %d failed file(s))"
-                        .formatted(result.pagesCreated(), result.pagesUpdated(), failed.size())
-        )));
+        try {
+            CompileWikiUseCase.CompileResult result =
+                    compileWikiUseCase.executeBounded(avatarId);
+            int total = result.pagesCreated() + result.pagesUpdated();
+            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
+                    .info("[Recompile] SUCCESS avatarId={} created={} updated={} pages={}",
+                            avatarId, result.pagesCreated(), result.pagesUpdated(), result.pageTitles());
+            return ResponseEntity.ok(ApiResponse.success(new WikiCompileResponse(
+                    total, result.pageTitles(),
+                    "Recompile: %d page(s) created, %d page(s) updated (reset %d failed file(s))"
+                            .formatted(result.pagesCreated(), result.pagesUpdated(), failed.size())
+            )));
+        } catch (com.pally.shared.exception.WikiCompileException e) {
+            // Compile failed (AI upstream error, credit issue, timeout).
+            // Return 503 + retry hint instead of raw 500 — the compile
+            // failure is already logged with the Anthropic error body in
+            // ClaudeApiClient so the root cause is visible in Railway logs.
+            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
+                    .warn("[Recompile] FAILED avatarId={}: {}", avatarId, e.getMessage());
+            return ResponseEntity.status(503)
+                    .body(ApiResponse.error(
+                            "Couldn't rebuild the brain right now — the AI service is unavailable. " +
+                            "Check Railway logs for the Anthropic error body. Try again shortly.", 503));
+        }
     }
 
     @GetMapping("/wiki/pages")

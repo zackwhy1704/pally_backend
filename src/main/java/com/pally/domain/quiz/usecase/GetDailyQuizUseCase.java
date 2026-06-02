@@ -6,6 +6,8 @@ import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.quiz.QuizQuestion;
 import com.pally.domain.quiz.port.QuizGeneratorPort;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -14,6 +16,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class GetDailyQuizUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(GetDailyQuizUseCase.class);
 
     /// Cap on pages fed to the quiz generator per request. Five questions ~=
     /// five pages keeps the prompt small enough for Haiku and forces the
@@ -29,17 +33,24 @@ public class GetDailyQuizUseCase {
             throw new com.pally.shared.exception.AvatarNotFoundException(avatarId);
         }
 
-        List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId).stream()
+        List<WikiPage> allPages = wikiRepository.findByAvatarId(avatarId);
+        List<WikiPage> pages = allPages.stream()
                 .filter(p -> p.getStatus() == WikiPage.Status.ACTIVE)
                 .toList();
+
+        // ── Pipeline log: quiz source ─────────────────────────────────────
+        log.info("[Pipeline:Quiz] avatarId={} totalPages={} activePages={}",
+                avatarId, allPages.size(), pages.size());
+
         if (pages.isEmpty()) {
+            log.warn("[Pipeline:Quiz] NO ACTIVE wiki pages for avatarId={} — " +
+                     "quiz returns empty. Total pages (all statuses)={}. " +
+                     "Upload notes and wait for compile, or call /wiki/recompile.",
+                     avatarId, allPages.size());
             return List.of();
         }
 
         // R3 — bias toward the student's weak spots and under-tested material.
-        // Priority: lowest certainty first, ties broken by lowest quiz-use
-        // count. Forces fresh material into rotation instead of always
-        // re-quizzing the same handful of pages.
         List<WikiPage> prioritised = pages.stream()
                 .sorted(Comparator
                         .comparingDouble(WikiPage::getCertaintyScore)
@@ -47,11 +58,15 @@ public class GetDailyQuizUseCase {
                 .limit(MAX_PAGES_PER_QUIZ)
                 .toList();
 
-        // Record that these pages seeded a quiz so coverage stays balanced
-        // even if the student keeps acing the same topic.
+        log.info("[Pipeline:Quiz] Generating from {} pages: slugs={}",
+                prioritised.size(), prioritised.stream().map(WikiPage::getSlug).toList());
+
+        // Record that these pages seeded a quiz so coverage stays balanced.
         wikiRepository.recordQuizUsage(avatarId,
                 prioritised.stream().map(WikiPage::getSlug).toList());
 
-        return quizGeneratorPort.generate(avatarId, prioritised);
+        List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised);
+        log.info("[Pipeline:Quiz] Generated {} questions for avatarId={}", questions.size(), avatarId);
+        return questions;
     }
 }
