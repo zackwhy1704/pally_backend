@@ -44,7 +44,7 @@ public class ClaudeApiClient {
     // Sonnet 4.6) were released in 2025/2026; the older version string may
     // be rejected. 2024-02-15 is the stable version required for modern
     // Claude models per docs.anthropic.com/en/api/versioning.
-    private static final String ANTHROPIC_VERSION = "2024-02-15";
+    private static final String ANTHROPIC_VERSION = "2023-06-01"; // only valid version per docs.anthropic.com/en/api/versioning
     private static final String MESSAGES_PATH = "/v1/messages";
 
     /// Bound every blocking Claude call so a hung Anthropic response can
