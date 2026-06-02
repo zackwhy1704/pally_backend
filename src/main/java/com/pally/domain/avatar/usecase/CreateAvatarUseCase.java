@@ -22,7 +22,6 @@ import org.springframework.stereotype.Service;
  * the "trained on YOUR notes" moat. Option-B base-model fallback already
  * handles the cold-start case — a fresh Mochi with 0 pages answers
  * in-subject questions from general knowledge, clearly labelled.
- * SeedContentService is still present but no longer called here;
  * it can be deleted in a future cleanup migration.
  */
 @Service

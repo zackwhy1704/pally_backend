@@ -404,7 +404,6 @@ public class ClaudeApiClient {
      * is a {@code Map<String, Object>} with {@code type}, {@code text}, and optionally
      * {@code cache_control} fields. See {@link ClaudeContextAssembler} for block structure.
      *
-     * <p>The {@code anthropic-beta: extended-cache-ttl-2025-04-11} header is required
      * for 1-hour TTL support. Without it, blocks with {@code "ttl":"1h"} fall back to 5 minutes.
      *
      * @param systemBlocks structured system content blocks with optional cache_control
@@ -453,7 +452,6 @@ public class ClaudeApiClient {
                 .uri(baseUrl + MESSAGES_PATH)
                 .header("x-api-key", apiKey)
                 .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("anthropic-beta", ClaudeContextAssembler.BETA_HEADER_VALUE)
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(body.toString())

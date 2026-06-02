@@ -56,7 +56,6 @@ public class ClaudeContextAssembler {
     // an error response from Anthropic — the beta header may have expired or
     // its format changed.  5-minute TTL is still a significant saving for
     // rapid back-and-forth chat; 1h was nice-to-have, not load-bearing.
-    static final String BETA_HEADER_VALUE = "prompt-caching-2024-07-31";
     private static final String CACHE_EPHEMERAL = "ephemeral";
 
     private final TopicRouter topicRouter;
