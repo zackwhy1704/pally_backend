@@ -43,14 +43,24 @@ public class HintTreeGenerator {
             List<String> keywords = extractKeywords(page.getTitle() + " " + page.getContent(), 15);
             List<SocraticHintTree.HintStep> hints = buildHints(page.getTitle(), page.getContent());
 
-            SocraticHintTree tree = SocraticHintTree.create(
-                    avatarId, page.getSlug(), keywords, hints);
+            // UPSERT: if a hint tree already exists for this (avatarId, slug) pair,
+            // reconstitute it with the existing ID so JPA merges (UPDATE) rather than
+            // blindly trying to INSERT a new row, which fails the unique constraint
+            // "hint_trees_avatar_id_wiki_slug_key" during re-compile / recompile.
+            SocraticHintTree tree = hintTreeRepository
+                    .findByAvatarIdAndSlug(avatarId, page.getSlug())
+                    .map(existing -> SocraticHintTree.reconstitute(
+                            existing.getId(), avatarId, page.getSlug(),
+                            keywords, hints, existing.getCreatedAt()))
+                    .orElseGet(() -> SocraticHintTree.create(
+                            avatarId, page.getSlug(), keywords, hints));
             hintTreeRepository.save(tree);
 
-            log.debug("[Socratic] Generated hint tree for slug={} keywords={} steps={}",
+            log.debug("[Socratic] {} hint tree for slug={} keywords={} steps={}",
+                    tree.getCreatedAt() == null ? "Created" : "Updated",
                     page.getSlug(), keywords.size(), hints.size());
         } catch (Exception e) {
-            log.warn("[Socratic] Failed to generate hint tree for slug={}: {}",
+            log.warn("[Socratic] Failed to generate/update hint tree for slug={}: {}",
                     page.getSlug(), e.getMessage());
         }
     }
