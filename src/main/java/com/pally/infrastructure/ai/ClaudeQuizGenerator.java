@@ -61,37 +61,36 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                 .map(p -> p.getTitle() + ": " + p.getContent())
                 .collect(Collectors.joining("\n\n"));
 
-        // Use tool_use to force Haiku to return structured JSON without any
-        // prose or markdown fences. The QuizGeneratorTool schema guarantees
-        // exactly 5 MCQs with the required fields — no more strip/fence logic.
+        // Direct complete() — NOT tool_use. Tool_use requires 2 Haiku calls
+        // (generate tool call + process result), doubling latency to 50-60s and
+        // consistently hitting timeouts. Simple complete() with Haiku and no
+        // reasoning preamble returns in 5-15s. Fence stripping handles any
+        // occasional markdown wrapping.
         String prompt = """
                 Generate 5 multiple-choice questions from this study material.
                 Each question must test UNDERSTANDING, not memorisation.
-                Use create_quiz_questions to return your answer.
+
+                Reply ONLY with a JSON array — no markdown fences, no explanation:
+                [{"question":"...","options":["A...","B...","C...","D..."],"correctIndex":0,"sourcePage":"slug","explanation":"one sentence"}]
 
                 Material:
                 %s
                 """.formatted(material);
 
         try {
-            // completeWithTools executes QuizGeneratorTool.execute() which returns
-            // the clean JSON array string directly. maxTokens 1200 is ample.
-            String raw = claudeApiClient.completeWithTools(
-                    modelRouter.forQuizGeneration(), 1200, prompt,
-                    List.of(new QuizGeneratorTool(objectMapper)), "quiz-gen");
+            long start0 = System.currentTimeMillis();
+            String raw = claudeApiClient.complete(
+                    modelRouter.forQuizGeneration(), 1200, prompt, "quiz-gen");
+            log.info("[Quiz] Haiku response in {}ms for avatar={}", System.currentTimeMillis() - start0, avatarId);
 
-            // raw is already the serialized JSON array from QuizGeneratorTool.execute()
-            // Fall back to text-mode parsing if the tool wasn't called (e.g. circuit open)
             if (raw == null || raw.isBlank()) {
                 throw new com.pally.shared.exception.BusinessException(
                         "Couldn't generate a quiz right now — please try again shortly.", 503);
             }
 
-            // If the tool was called and execute() returned the JSON array, parse it.
-            // If the model somehow returned text instead, strip fences as before.
+            // Strip any occasional markdown fences
             String json = raw.strip();
             if (!json.startsWith("[")) {
-                // Strip any remaining fences or preamble
                 json = json.replaceAll("(?s)<reasoning>.*?</reasoning>", "").strip();
                 if (json.startsWith("```")) {
                     json = json.replaceAll("```[a-z]*\\n?", "").replaceAll("```", "").strip();
