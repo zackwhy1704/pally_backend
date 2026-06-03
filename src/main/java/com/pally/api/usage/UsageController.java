@@ -57,11 +57,25 @@ public class UsageController {
         body.put("trialDaysLeft",  trial.trialDaysLeft());
         body.put("trialHoursLeft", trial.trialHoursLeft());
 
-        // Free-tier cap: level 5+ unlocks a second Mochi slot.
-        int userLevel = userRepo.findById(userId)
-                .map(u -> u.getLevel() > 0 ? u.getLevel() : 1)
-                .orElse(1);
+        // Free-tier cap + slot cooldown info
+        var userEntityOpt = userRepo.findById(userId);
+        int userLevel = userEntityOpt.map(u -> u.getLevel() > 0 ? u.getLevel() : 1).orElse(1);
         body.put("freeTutorCap", premium ? null : LevelRewards.freeTutorCap(userLevel));
+
+        // Slot swap cooldown: expose seconds remaining so Flutter can show a timer.
+        // For premium users this is always 0 (no cooldown).
+        long slotCooldownSecondsRemaining = 0;
+        if (!premium) {
+            java.time.Instant lastChange = userEntityOpt
+                    .map(u -> u.getLastSlotChangeAt())
+                    .orElse(null);
+            if (lastChange != null) {
+                long elapsed = java.time.Duration.between(lastChange, java.time.Instant.now()).getSeconds();
+                long cooldownSecs = 24L * 3600;
+                slotCooldownSecondsRemaining = Math.max(0, cooldownSecs - elapsed);
+            }
+        }
+        body.put("slotCooldownSecondsRemaining", slotCooldownSecondsRemaining);
 
         if (premium) {
             body.put("chatUsed", 0);

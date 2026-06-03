@@ -68,6 +68,11 @@ public class UserJpaEntity {
     @Column(name = "biometric_locked_until")
     private Instant biometricLockedUntil;
 
+    /// Timestamp of the last user-initiated avatar slot swap (activate/deactivate).
+    /// Enforces the 24-hour cooldown between free-tier slot changes.
+    @Column(name = "last_slot_change_at")
+    private Instant lastSlotChangeAt;
+
     @Column(name = "screen_time_enabled", nullable = false)
     private boolean screenTimeEnabled;
 

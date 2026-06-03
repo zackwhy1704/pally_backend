@@ -27,6 +27,8 @@ public final class Avatar {
     private TeachingMode teachingMode;
     private java.time.LocalDate testDate;
     private BrainState brainState;
+    // true = user can chat/quiz with this avatar; false = locked (over free-tier slot cap)
+    private boolean isActive;
 
     private Avatar(
             String id,
@@ -41,7 +43,8 @@ public final class Avatar {
             PedagogyMode pedagogyMode,
             TeachingMode teachingMode,
             java.time.LocalDate testDate,
-            BrainState brainState
+            BrainState brainState,
+            boolean isActive
     ) {
         this.id = id;
         this.userId = userId;
@@ -56,6 +59,7 @@ public final class Avatar {
         this.teachingMode = teachingMode != null ? teachingMode : TeachingMode.TEACHING;
         this.testDate = testDate;
         this.brainState = brainState != null ? brainState : BrainState.READY;
+        this.isActive = isActive;
     }
 
     /**
@@ -74,7 +78,7 @@ public final class Avatar {
         if (subject == null) throw new IllegalArgumentException("Subject is required");
         if (characterType == null) throw new IllegalArgumentException("CharacterType is required");
         return new Avatar(IdGenerator.newId(), userId, name, subject, characterType, 0, Instant.now(),
-                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY);
+                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY, true);
     }
 
     /**
@@ -90,7 +94,7 @@ public final class Avatar {
             Instant createdAt
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY);
+                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY, true);
     }
 
     public static Avatar reconstitute(
@@ -108,7 +112,7 @@ public final class Avatar {
             java.time.LocalDate testDate
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, BrainState.READY);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, BrainState.READY, true);
     }
 
     public static Avatar reconstitute(
@@ -126,8 +130,28 @@ public final class Avatar {
             java.time.LocalDate testDate,
             BrainState brainState
     ) {
+        return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, true);
+    }
+
+    public static Avatar reconstitute(
+            String id,
+            String userId,
+            String name,
+            Subject subject,
+            CharacterType characterType,
+            int wikiPageCount,
+            Instant createdAt,
+            String gradeLevel,
+            String curriculumType,
+            PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
+            java.time.LocalDate testDate,
+            BrainState brainState,
+            boolean isActive
+    ) {
         return new Avatar(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive);
     }
 
     // Domain behaviour
@@ -182,4 +206,6 @@ public final class Avatar {
     public java.time.LocalDate getTestDate()    { return testDate; }
     public BrainState getBrainState()           { return brainState != null ? brainState : BrainState.READY; }
     public void setBrainState(BrainState state) { this.brainState = state != null ? state : BrainState.READY; }
+    public boolean isActive()                   { return isActive; }
+    public void setActive(boolean active)       { this.isActive = active; }
 }

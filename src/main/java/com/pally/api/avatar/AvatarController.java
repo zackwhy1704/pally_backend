@@ -9,6 +9,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.usecase.CreateAvatarUseCase;
 import com.pally.domain.avatar.usecase.DeleteAvatarUseCase;
 import com.pally.domain.avatar.usecase.GetAvatarUseCase;
+import com.pally.domain.avatar.usecase.SetAvatarActiveUseCase;
 import com.pally.domain.avatar.usecase.UpdateAvatarSettingsUseCase;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -41,6 +42,7 @@ public class AvatarController {
     private final GetAvatarUseCase getAvatarUseCase;
     private final DeleteAvatarUseCase deleteAvatarUseCase;
     private final UpdateAvatarSettingsUseCase updateAvatarSettingsUseCase;
+    private final SetAvatarActiveUseCase setAvatarActiveUseCase;
     private final AvatarMapper avatarMapper;
 
     /**
@@ -110,6 +112,31 @@ public class AvatarController {
     ) {
         deleteAvatarUseCase.execute(avatarId, userId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Activates or deactivates an avatar slot.
+     *
+     * <p>Free users must stay within {@code LevelRewards.freeTutorCap} active avatars
+     * and may only activate one Mochi per 24-hour window. Premium users are unlimited.
+     *
+     * @param avatarId  avatar to change
+     * @param activate  {@code true} = activate, {@code false} = deactivate
+     * @return 200 OK with updated active state; 422 if cap exceeded; 429 if in cooldown
+     */
+    @PatchMapping("/{avatarId}/active")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> setActive(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @RequestBody java.util.Map<String, Boolean> body
+    ) {
+        boolean activate = Boolean.TRUE.equals(body.get("active"));
+        SetAvatarActiveUseCase.Result result = setAvatarActiveUseCase.execute(avatarId, userId, activate);
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of(
+                "isActive", result.isActive(),
+                "message", result.message(),
+                "cooldownSecondsRemaining", result.cooldownSecondsRemaining()
+        )));
     }
 
     @PatchMapping("/{avatarId}/grade")

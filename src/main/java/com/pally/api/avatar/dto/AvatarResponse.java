@@ -24,5 +24,9 @@ public record AvatarResponse(
         Avatar.PedagogyMode pedagogyMode,
         LocalDate testDate,
         /// Brain compilation state: READY | PENDING_RECOMPILE | COMPILING
-        String brainState
+        String brainState,
+        /// False when this avatar is outside the user's active slot cap
+        /// (trial expired or free-tier limit reached). Inactive avatars
+        /// are visible but chat/quiz/upload are blocked until re-selected.
+        boolean isActive
 ) {}
