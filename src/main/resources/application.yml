@@ -120,6 +120,14 @@ claude:
     chat-max-tokens: 1024
     version: "2023-06-01"
 
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    # Gemini 2.0 Flash: 1M token context, $0.075/M input (vs Haiku $0.80/M)
+    # Free tier: 1500 req/day. Used for wiki compilation (highest-token task).
+    model: gemini-2.0-flash
+    base-url: https://generativelanguage.googleapis.com
+
 storage:
   type: ${STORAGE_TYPE:local}
   local:
