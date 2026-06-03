@@ -20,6 +20,26 @@ public interface ChatMessageJpaRepository extends JpaRepository<ChatMessageJpaEn
 
     long countByModelUsedAndCreatedAtAfter(String modelUsed, Instant since);
 
+    // ── Cache-effectiveness aggregates (for admin cost endpoint) ─────────────
+
+    @Query("SELECT COUNT(m) FROM ChatMessageJpaEntity m WHERE m.cacheHit = true AND m.createdAt > :since")
+    long countCacheHitsAfter(@Param("since") Instant since);
+
+    @Query("SELECT COUNT(m) FROM ChatMessageJpaEntity m WHERE m.cacheHit IS NOT NULL AND m.createdAt > :since")
+    long countCacheMissesAfter(@Param("since") Instant since);
+
+    @Query("SELECT COALESCE(SUM(m.cacheReadTokens), 0) FROM ChatMessageJpaEntity m WHERE m.createdAt > :since")
+    long sumCacheReadTokensAfter(@Param("since") Instant since);
+
+    @Query("SELECT COALESCE(SUM(m.cacheWriteTokens), 0) FROM ChatMessageJpaEntity m WHERE m.createdAt > :since")
+    long sumCacheWriteTokensAfter(@Param("since") Instant since);
+
+    @Query("SELECT COALESCE(SUM(m.totalInputTokens), 0) FROM ChatMessageJpaEntity m WHERE m.createdAt > :since")
+    long sumTotalInputTokensAfter(@Param("since") Instant since);
+
+    @Query("SELECT COALESCE(SUM(m.totalOutputTokens), 0) FROM ChatMessageJpaEntity m WHERE m.createdAt > :since")
+    long sumTotalOutputTokensAfter(@Param("since") Instant since);
+
     @Modifying
     @Query("UPDATE ChatMessageJpaEntity m SET m.modelUsed = :modelUsed WHERE m.id = :id")
     void updateModelUsed(@Param("id") String id, @Param("modelUsed") String modelUsed);

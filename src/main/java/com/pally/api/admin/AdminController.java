@@ -26,19 +26,41 @@ public class AdminController {
             @RequestParam(defaultValue = "7") int days
     ) {
         Instant since = Instant.now().minus(Duration.ofDays(days));
-        // Sonnet permanently removed — count it for historical data only
-        long haikuCount = chatRepo.countByModelUsedAndCreatedAtAfter(
-                "claude-haiku-4-5-20251001", since);
-        long sonnetCount = chatRepo.countByModelUsedAndCreatedAtAfter(
-                "claude-sonnet-4-6", since); // historical only; all new calls = Haiku
-        long total = haikuCount + sonnetCount;
+
+        long haikuCount  = chatRepo.countByModelUsedAndCreatedAtAfter("claude-haiku-4-5-20251001", since);
+        long sonnetCount = chatRepo.countByModelUsedAndCreatedAtAfter("claude-sonnet-4-6", since);
+
+        // Cache-effectiveness metrics (read from chat_messages columns)
+        long cacheHits        = chatRepo.countCacheHitsAfter(since);
+        long cacheable        = chatRepo.countCacheMissesAfter(since); // messages with cache_hit tracked
+        long cacheReadTokens  = chatRepo.sumCacheReadTokensAfter(since);
+        long cacheWriteTokens = chatRepo.sumCacheWriteTokensAfter(since);
+        long totalInputTokens = chatRepo.sumTotalInputTokensAfter(since);
+        long totalOutputTokens = chatRepo.sumTotalOutputTokensAfter(since);
+
+        // Saving = read tokens billed at 0.1× instead of 1× — so 0.9× of the read price saved
+        // Haiku input: $0.80/M tokens = $0.0000008 per token
+        double haikuInputPricePerToken = 0.80 / 1_000_000.0;
+        double cacheReadSavingUsd = cacheReadTokens * haikuInputPricePerToken * 0.9;
+        double hitRate = cacheable > 0 ? (double) cacheHits / cacheable * 100 : 0;
 
         return Map.of(
                 "period_days", days,
                 "haiku_calls", haikuCount,
                 "sonnet_calls_historical", sonnetCount,
-                "total_calls", total,
-                "estimated_cost_usd", estimateCost(haikuCount, sonnetCount)
+                "total_calls", haikuCount + sonnetCount,
+                "estimated_cost_usd", estimateCost(haikuCount, sonnetCount),
+                "cache", Map.of(
+                        "hit_count", cacheHits,
+                        "hit_rate_pct", Math.round(hitRate * 10) / 10.0,
+                        "cache_read_tokens", cacheReadTokens,
+                        "cache_write_tokens", cacheWriteTokens,
+                        "estimated_saving_usd", Math.round(cacheReadSavingUsd * 10000) / 10000.0
+                ),
+                "tokens", Map.of(
+                        "total_input", totalInputTokens,
+                        "total_output", totalOutputTokens
+                )
         );
     }
 

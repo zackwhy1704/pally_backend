@@ -60,6 +60,14 @@ public class WikiRecompileScheduler {
     private final Set<String>                                    inFlight       = ConcurrentHashMap.newKeySet();
     private final Set<String>                                    dirtyAgain     = ConcurrentHashMap.newKeySet();
 
+    // Daily compile budget guard: counts compiles per avatar per UTC day.
+    // Prevents a spam-uploading user from triggering unbounded Gemini calls.
+    private static final int DAILY_COMPILE_WARN_THRESHOLD  = 20;
+    private static final int DAILY_COMPILE_HARD_CAP        = 50;
+    private final ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> dailyCompileCount =
+            new ConcurrentHashMap<>();
+    private volatile java.time.LocalDate dailyCountDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+
     private final ThreadPoolExecutor  aiTaskExecutor;
     private final CompileWikiUseCase  compileWikiUseCase;
     private final WikiRepository      wikiRepository;
@@ -150,6 +158,27 @@ public class WikiRecompileScheduler {
     }
 
     private void runCompile(String avatarId) {
+        // Daily compile budget guard — resets at UTC midnight automatically
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        if (!today.equals(dailyCountDate)) {
+            dailyCountDate = today;
+            dailyCompileCount.clear();
+        }
+        int todayCount = dailyCompileCount
+                .computeIfAbsent(avatarId, k -> new java.util.concurrent.atomic.AtomicInteger(0))
+                .incrementAndGet();
+        if (todayCount > DAILY_COMPILE_HARD_CAP) {
+            log.error("[Debounce] HARD CAP hit: avatar={} has {} compiles today (limit {}). " +
+                      "Skipping to prevent runaway Gemini spend.", avatarId, todayCount, DAILY_COMPILE_HARD_CAP);
+            inFlight.remove(avatarId);
+            safeMarkReady(avatarId);
+            return;
+        }
+        if (todayCount >= DAILY_COMPILE_WARN_THRESHOLD) {
+            log.warn("[Debounce] HIGH compile rate: avatar={} has {} compiles today. " +
+                     "Check for upload spam (hard cap at {}).", avatarId, todayCount, DAILY_COMPILE_HARD_CAP);
+        }
+
         boolean failed = false;
         try {
             compileWikiUseCase.execute(avatarId);
