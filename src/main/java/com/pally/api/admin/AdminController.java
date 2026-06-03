@@ -26,19 +26,18 @@ public class AdminController {
             @RequestParam(defaultValue = "7") int days
     ) {
         Instant since = Instant.now().minus(Duration.ofDays(days));
+        // Sonnet permanently removed — count it for historical data only
         long haikuCount = chatRepo.countByModelUsedAndCreatedAtAfter(
                 "claude-haiku-4-5-20251001", since);
         long sonnetCount = chatRepo.countByModelUsedAndCreatedAtAfter(
-                "claude-sonnet-4-6", since);
+                "claude-sonnet-4-6", since); // historical only; all new calls = Haiku
         long total = haikuCount + sonnetCount;
-        double sonnetPct = total > 0 ? (double) sonnetCount / total * 100 : 0;
 
         return Map.of(
                 "period_days", days,
                 "haiku_calls", haikuCount,
-                "sonnet_calls", sonnetCount,
+                "sonnet_calls_historical", sonnetCount,
                 "total_calls", total,
-                "sonnet_percentage", Math.round(sonnetPct * 10) / 10.0,
                 "estimated_cost_usd", estimateCost(haikuCount, sonnetCount)
         );
     }

@@ -115,7 +115,7 @@ claude:
     key: ${CLAUDE_API_KEY:}
     base-url: https://api.anthropic.com
     model: claude-haiku-4-5-20251001
-    sonnet-model: ${CLAUDE_SONNET_MODEL:claude-sonnet-4-6}
+    # sonnet-model removed — all calls use Haiku (claude.api.model)
     relevance-max-tokens: 128
     chat-max-tokens: 1024
     version: "2023-06-01"
