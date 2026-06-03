@@ -6,6 +6,8 @@ import com.pally.api.knowledge.dto.RelevanceCheckResponse;
 import com.pally.api.knowledge.dto.WikiCompileResponse;
 import com.pally.api.knowledge.dto.WikiPageResponse;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
+import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
@@ -56,6 +58,8 @@ public class KnowledgeController {
     private final KnowledgeMapper knowledgeMapper;
     private final WikiRepository wikiRepository;
     private final AvatarRepository avatarRepository;
+    private final AvatarSlotGuard avatarSlotGuard;
+    private final WikiPageSourceJpaRepository wikiPageSourceRepo;
 
     /**
      * Uploads a file to the avatar's knowledge base.
@@ -228,10 +232,9 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
-        // Verify ownership
-        avatarRepository.findById(avatarId)
-                .filter(a -> a.getUserId().equals(userId))
-                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+        // Fix 2: Slot guard — locked avatars cannot be manually recompiled.
+        // Ownership is checked inside the guard.
+        avatarSlotGuard.requireActive(avatarId, userId);
 
         // Reset FAILED files to READY so they'll be included in the compile
         List<com.pally.domain.knowledge.KnowledgeFile> failed =
@@ -274,8 +277,13 @@ public class KnowledgeController {
                 .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
 
         List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
+        // Fix 3: attach provenance (source file names) to each page response
         List<WikiPageResponse> responses = pages.stream()
-                .map(WikiPageResponse::from)
+                .map(page -> {
+                    List<String> sourceFileNames = wikiPageSourceRepo
+                            .findSourceFileNamesByWikiPageId(page.getId());
+                    return WikiPageResponse.from(page, sourceFileNames);
+                })
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(new WikiPageResponse.ListResponse(responses)));
     }

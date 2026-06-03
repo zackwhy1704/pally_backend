@@ -2,6 +2,7 @@ package com.pally.domain.knowledge.usecase;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
@@ -9,6 +10,8 @@ import com.pally.infrastructure.ai.ClaudeApiClient;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.domain.chat.HintTreeGenerator;
+import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaEntity;
+import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -49,6 +52,7 @@ public class WikiPagePersistenceService {
     private final ClaudeFlashcardGenerator flashcardGenerator;
     private final ClaudeApiClient claudeApiClient;
     private final ModelRouter modelRouter;
+    private final WikiPageSourceJpaRepository wikiPageSourceRepo;
 
     public record PersistOutcome(
             int created,
@@ -56,9 +60,23 @@ public class WikiPagePersistenceService {
             List<String> pageTitles,
             List<String> producedSlugs) {}
 
+    /**
+     * Persists wiki page drafts from a compile run. Overwrites existing pages on
+     * slug collision, creates new pages otherwise.
+     *
+     * <p>Fix 3: After saving each page, replaces any existing provenance rows in
+     * {@code wiki_page_sources} with rows linking the page to all files in
+     * {@code sourceFiles} (corpus-level attribution — every file in the compile
+     * corpus is attributed to every page produced by that compile).
+     *
+     * @param sourceFiles the READY knowledge files that were fed into this compile
+     *                    run. Pass an empty list to skip provenance writing (e.g.
+     *                    in tests that don't need it).
+     */
     @Transactional
     public PersistOutcome persistDrafts(Avatar avatar,
-                                        List<WikiCompilerPort.WikiPageDraft> drafts) {
+                                        List<WikiCompilerPort.WikiPageDraft> drafts,
+                                        List<KnowledgeFile> sourceFiles) {
         int created = 0;
         int updated = 0;
         List<String> pageTitles = new ArrayList<>();
@@ -68,6 +86,7 @@ public class WikiPagePersistenceService {
         for (WikiCompilerPort.WikiPageDraft draft : drafts) {
             producedSlugs.add(draft.slug());
             var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, draft.slug());
+            WikiPage savedPage;
             if (existing.isPresent()) {
                 WikiPage existingPage = existing.get();
                 boolean conflict = detectConflict(
@@ -84,7 +103,7 @@ public class WikiPagePersistenceService {
                     existingPage.setPrerequisiteSlugs(
                             String.join(",", draft.prerequisites()));
                 }
-                WikiPage savedPage = wikiRepository.save(existingPage);
+                savedPage = wikiRepository.save(existingPage);
                 hintTreeGenerator.generateForPage(avatarId, savedPage);
                 try {
                     flashcardGenerator.regenerateForPage(avatarId, savedPage);
@@ -102,7 +121,7 @@ public class WikiPagePersistenceService {
                     newPage.setPrerequisiteSlugs(
                             String.join(",", draft.prerequisites()));
                 }
-                WikiPage savedPage = wikiRepository.save(newPage);
+                savedPage = wikiRepository.save(newPage);
                 hintTreeGenerator.generateForPage(avatarId, savedPage);
                 try {
                     flashcardGenerator.generateAndSaveForPage(
@@ -114,6 +133,10 @@ public class WikiPagePersistenceService {
                 created++;
                 pageTitles.add(draft.title());
             }
+
+            // Fix 3: Write provenance rows — replace on every recompile so they
+            // stay in sync with the current READY file set.
+            writeProvenanceRows(savedPage.getId(), sourceFiles);
         }
 
         int totalPages = wikiRepository.countActiveByAvatarId(avatarId); // ACTIVE only — matches quiz/brain filter
@@ -121,6 +144,32 @@ public class WikiPagePersistenceService {
         avatarRepository.save(avatar);
 
         return new PersistOutcome(created, updated, pageTitles, List.copyOf(producedSlugs));
+    }
+
+    /**
+     * Backwards-compat overload — used by callers that don't need provenance
+     * (tests, legacy code paths). Delegates to the canonical method with an
+     * empty source list.
+     */
+    @Transactional
+    public PersistOutcome persistDrafts(Avatar avatar,
+                                        List<WikiCompilerPort.WikiPageDraft> drafts) {
+        return persistDrafts(avatar, drafts, List.of());
+    }
+
+    /** Replace provenance rows for a single page (atomic delete-then-insert). */
+    private void writeProvenanceRows(String wikiPageId, List<KnowledgeFile> sourceFiles) {
+        if (sourceFiles.isEmpty()) return;
+        try {
+            wikiPageSourceRepo.deleteByWikiPageId(wikiPageId);
+            List<WikiPageSourceJpaEntity> rows = sourceFiles.stream()
+                    .map(f -> new WikiPageSourceJpaEntity(wikiPageId, f.getId()))
+                    .toList();
+            wikiPageSourceRepo.saveAll(rows);
+        } catch (Exception e) {
+            // Best-effort: provenance is non-critical — never roll back a compile for it.
+            log.warn("[Wiki] Provenance write failed for wikiPageId={}: {}", wikiPageId, e.getMessage());
+        }
     }
 
     /// Two-stage conflict detection (B-B3):

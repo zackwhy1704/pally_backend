@@ -1,6 +1,7 @@
 package com.pally.domain.quiz.usecase;
 
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.UserRepository;
@@ -54,6 +55,7 @@ public class SubmitQuizAnswersUseCase {
     private final com.pally.domain.knowledge.WikiRepository wikiRepository;
     private final com.pally.domain.referral.ReferralService referralService;
     private final com.pally.domain.progress.XpService xpService;
+    private final AvatarSlotGuard avatarSlotGuard;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -92,9 +94,8 @@ public class SubmitQuizAnswersUseCase {
                               Map<String, Integer> correctMap,
                               Map<String, String> topicMap,
                               Map<String, String> confidenceMap) {
-        if (!avatarRepository.existsByIdAndUserId(submission.avatarId(), submission.userId())) {
-            throw new AvatarNotFoundException(submission.avatarId());
-        }
+        // Fix 2: Slot guard — locked avatars cannot have quiz answers submitted.
+        avatarSlotGuard.requireActive(submission.avatarId(), submission.userId());
 
         int correct = 0;
         List<String> mastered = new ArrayList<>();

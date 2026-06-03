@@ -59,4 +59,11 @@ public interface WikiRepository {
 
     // A3: find avatarIds where files are newer than wiki pages OR files exist but 0 active pages.
     List<String> findAvatarIdsNeedingRecompile();
+
+    // Fix 1: Only ACTIVE pages — used by context assembler so deleted-file pages never reach chat.
+    List<WikiPage> findActiveByAvatarId(String avatarId);
+
+    // Fix 4: Slugs of pages archived within the last `since` window — used to build the
+    // "deleted topics" hint in the dynamic tail of the system prompt.
+    List<String> findRecentlyArchivedSlugs(String avatarId, java.time.Instant since);
 }

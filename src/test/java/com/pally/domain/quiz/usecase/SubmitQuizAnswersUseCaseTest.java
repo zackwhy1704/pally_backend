@@ -4,6 +4,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
@@ -35,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,6 +50,7 @@ import static org.mockito.Mockito.when;
 class SubmitQuizAnswersUseCaseTest {
 
     @Mock AvatarRepository avatarRepository;
+    @Mock AvatarSlotGuard avatarSlotGuard;
     @Mock FlashcardRepository flashcardRepository;
     @Mock UserRepository userRepository;
     @Mock ActivityLogService activityLogService;
@@ -77,8 +80,10 @@ class SubmitQuizAnswersUseCaseTest {
     void unknownAvatar_throws_beforeAnyMutation() {
         AnswerSubmission sub = new AnswerSubmission(
                 AVATAR, USER, Map.of("q1", 0));
-        when(avatarRepository.existsByIdAndUserId(AVATAR, USER))
-                .thenReturn(false);
+        // Fix 2: AvatarSlotGuard now guards this use-case.
+        // When the avatar doesn't exist, the guard (or the old check) throws.
+        doThrow(new AvatarNotFoundException(AVATAR))
+                .when(avatarSlotGuard).requireActive(AVATAR, USER);
 
         assertThatThrownBy(() -> useCase.execute(sub, Map.of("q1", 0)))
                 .isInstanceOf(AvatarNotFoundException.class);

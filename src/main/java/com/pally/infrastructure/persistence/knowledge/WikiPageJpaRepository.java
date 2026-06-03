@@ -86,6 +86,14 @@ public interface WikiPageJpaRepository extends JpaRepository<WikiPageJpaEntity, 
            "WHERE p.avatarId = :avatarId AND p.status = 'ACTIVE'")
     int archiveAllActivePages(@Param("avatarId") String avatarId);
 
+    /// Fix 4 — slugs of pages archived more recently than `since`.
+    /// Used to populate the "deleted topics" hint in the dynamic system-prompt tail.
+    @Query("SELECT p.slug FROM WikiPageJpaEntity p " +
+           "WHERE p.avatarId = :avatarId AND p.status = 'ARCHIVED' " +
+           "AND p.updatedAt > :since ORDER BY p.updatedAt DESC")
+    List<String> findRecentlyArchivedSlugs(@Param("avatarId") String avatarId,
+                                           @Param("since") Instant since);
+
     /// A3 — find avatarIds where the newest knowledge_file.created_at is
     /// newer than the newest wiki_page.updated_at, OR files exist but 0
     /// active wiki pages. Uses a native query for the cross-table check.

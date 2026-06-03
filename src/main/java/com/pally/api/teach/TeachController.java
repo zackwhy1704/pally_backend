@@ -2,6 +2,7 @@ package com.pally.api.teach;
 
 import com.pally.api.teach.dto.TeachRequest;
 import com.pally.api.teach.dto.TeachResponse;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.progress.ActivityLogService;
@@ -36,6 +37,7 @@ public class TeachController {
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
     private final XpService xpService;
+    private final AvatarSlotGuard avatarSlotGuard;
 
     @PostMapping
     public ResponseEntity<ApiResponse<TeachResponse>> teach(
@@ -45,6 +47,9 @@ public class TeachController {
         if (request.topicSlug() == null || request.topicSlug().isBlank()) {
             throw new BusinessException("topicSlug is required", 400);
         }
+
+        // Fix 2: Slot guard — locked avatars cannot be taught.
+        avatarSlotGuard.requireActive(avatarId, userId);
 
         // Load wiki page — WikiRepositoryAdapter.findBy... is @Transactional(readOnly)
         // so the connection is held only for this brief read, not across the Claude call.

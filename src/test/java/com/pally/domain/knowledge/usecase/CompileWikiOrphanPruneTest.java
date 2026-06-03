@@ -84,7 +84,7 @@ class CompileWikiOrphanPruneTest {
         when(wikiCompiler.compile(any(), any(), any())).thenReturn(List.of(draftA));
 
         // PersistOutcome returns slug-a as the only produced slug
-        when(persistenceService.persistDrafts(any(), any()))
+        when(persistenceService.persistDrafts(any(), any(), any()))
                 .thenReturn(new WikiPagePersistenceService.PersistOutcome(
                         0, 1, List.of("Page A"), List.of("slug-a")));
 

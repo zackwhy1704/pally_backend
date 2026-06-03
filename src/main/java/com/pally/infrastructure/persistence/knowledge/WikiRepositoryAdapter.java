@@ -197,6 +197,20 @@ public class WikiRepositoryAdapter implements WikiRepository {
         return wikiJpaRepository.findAvatarIdsNeedingRecompile();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<WikiPage> findActiveByAvatarId(String avatarId) {
+        return wikiJpaRepository.findActiveByAvatarId(avatarId).stream()
+                .map(WikiPageJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> findRecentlyArchivedSlugs(String avatarId, java.time.Instant since) {
+        return wikiJpaRepository.findRecentlyArchivedSlugs(avatarId, since);
+    }
+
     private String extractSummary(String content) {
         if (content == null || content.isBlank()) return "";
         int nl = content.indexOf('\n');

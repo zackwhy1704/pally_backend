@@ -1,6 +1,7 @@
 package com.pally.domain.knowledge.usecase;
 
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.RelevanceScore;
@@ -59,6 +60,7 @@ public class UploadFileUseCase {
     private final com.pally.domain.subscription.PremiumService premiumService;
     private final ConsentGuard consentGuard;
     private final ContentDeduplicator deduplicator;
+    private final AvatarSlotGuard avatarSlotGuard;
 
     public UploadFileUseCase(
             AvatarRepository avatarRepository,
@@ -73,7 +75,8 @@ public class UploadFileUseCase {
             BadgeService badgeService,
             com.pally.domain.subscription.PremiumService premiumService,
             ConsentGuard consentGuard,
-            ContentDeduplicator deduplicator) {
+            ContentDeduplicator deduplicator,
+            AvatarSlotGuard avatarSlotGuard) {
         this.avatarRepository    = avatarRepository;
         this.knowledgeRepository = knowledgeRepository;
         this.wikiRepository      = wikiRepository;
@@ -87,6 +90,7 @@ public class UploadFileUseCase {
         this.premiumService      = premiumService;
         this.consentGuard        = consentGuard;
         this.deduplicator        = deduplicator;
+        this.avatarSlotGuard     = avatarSlotGuard;
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
@@ -97,9 +101,9 @@ public class UploadFileUseCase {
         // PDPA gate: uploading personal notes requires an ACTIVE account.
         consentGuard.requireActive(userId, "UPLOAD");
 
-        avatarRepository.findById(avatarId)
-                .filter(a -> a.getUserId().equals(userId))
-                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
+        // Fix 2: Slot guard — locked avatars cannot receive new knowledge.
+        // NOTE: DELETE paths are exempt (AvatarSlotGuard Javadoc).
+        avatarSlotGuard.requireActive(avatarId, userId);
 
 
         String contentType = file.getContentType();

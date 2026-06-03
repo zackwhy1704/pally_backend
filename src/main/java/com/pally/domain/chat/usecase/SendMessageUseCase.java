@@ -3,6 +3,7 @@ package com.pally.domain.chat.usecase;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.TeachingMode;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.chat.AssembledContext;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
@@ -65,10 +66,14 @@ public class SendMessageUseCase {
     private final ChatSessionSummariser sessionSummariser;
     private final ConsentGuard consentGuard;
     private final ModerationService moderationService;
+    private final AvatarSlotGuard avatarSlotGuard;
 
     public record StreamEvent(String type, String payload) {}
 
     public Flux<StreamEvent> executeStream(String avatarId, String userId, String userMessage) {
+        // Fix 2: Slot guard — locked avatars cannot be chatted with.
+        avatarSlotGuard.requireActive(avatarId, userId);
+
         Avatar avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));

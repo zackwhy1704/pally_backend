@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -114,8 +116,8 @@ public class ClaudeContextAssembler {
         log.info("[Harness] Assembled context for avatarId={} tier3Pages={} tier4Pages={} routerMs={} assemblyMs={}",
                 avatar.getId(), tier3Pages.size(), tier4Pages.size(), routerMs, assemblyMs);
 
-        // Also build cache blocks using the full wiki (not just topic-routed pages)
-        List<WikiPage> allPages = wikiRepository.findByAvatarId(avatar.getId());
+        // Fix 1: Use only ACTIVE pages so archived (deleted-file) pages never reach chat.
+        List<WikiPage> allPages = wikiRepository.findActiveByAvatarId(avatar.getId());
         List<Map<String, Object>> systemBlocks = buildCacheBlocks(avatar, index, allPages, tier3Pages, tier4Pages);
 
         return new AssembledContext(systemPrompt, harnessTrace, systemBlocks);
@@ -134,6 +136,7 @@ public class ClaudeContextAssembler {
             List<WikiPage> allPages) {
 
         List<WikiPageIndex> index = wikiRepository.getIndex(avatar.getId());
+        // Fix 1: caller should pass only ACTIVE pages; rebuild from active list here too
         return buildCacheBlocks(avatar, index, allPages, List.of(), List.of());
     }
 
@@ -188,13 +191,17 @@ public class ClaudeContextAssembler {
         }
 
         // ── Block 4: Dynamic tail — NO cache ──────────────────────────────────
-        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages);
+        // Fix 4: include recently-archived slugs so the tutor is honest about deletions.
+        List<String> recentlyArchived = wikiRepository.findRecentlyArchivedSlugs(
+                avatar.getId(), Instant.now().minus(Duration.ofDays(7)));
+        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived);
         Map<String, Object> b4 = new HashMap<>();
         b4.put("type", "text");
         b4.put("text", block4);
         // intentionally no cache_control
         blocks.add(b4);
-        log.debug("[Cache] Block4 DynamicTail: ~{}t, no cache", estimateTokens(block4));
+        log.debug("[Cache] Block4 DynamicTail: ~{}t, no cache, archivedHints={}",
+                estimateTokens(block4), recentlyArchived.size());
 
         return blocks;
     }
@@ -374,24 +381,39 @@ public class ClaudeContextAssembler {
                 .orElse("");
     }
 
-    private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages) {
+    private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages,
+                                           List<String> recentlyArchivedSlugs) {
         // Dynamic per-message context — NEVER add cache_control here.
         // Contains topic-routed page highlights when available.
-        if (relevantPages.isEmpty()) {
-            return "## CONTEXT\nActive tutoring session. Answer the student's question using the knowledge base above.";
-        }
+        var sb = new StringBuilder();
 
-        var sb = new StringBuilder("## MOST RELEVANT PAGES FOR THIS QUESTION\n");
-        sb.append("(Focus your answer on these pages first)\n");
-        for (WikiPage p : relevantPages) {
-            sb.append("- ").append(p.getTitle()).append(" [").append(p.getSlug()).append("]\n");
-        }
-        if (!prereqPages.isEmpty()) {
-            sb.append("\n## BACKGROUND KNOWLEDGE\n");
-            for (WikiPage p : prereqPages) {
+        if (relevantPages.isEmpty()) {
+            sb.append("## CONTEXT\nActive tutoring session. Answer the student's question using the knowledge base above.");
+        } else {
+            sb.append("## MOST RELEVANT PAGES FOR THIS QUESTION\n");
+            sb.append("(Focus your answer on these pages first)\n");
+            for (WikiPage p : relevantPages) {
                 sb.append("- ").append(p.getTitle()).append(" [").append(p.getSlug()).append("]\n");
             }
+            if (!prereqPages.isEmpty()) {
+                sb.append("\n## BACKGROUND KNOWLEDGE\n");
+                for (WikiPage p : prereqPages) {
+                    sb.append("- ").append(p.getTitle()).append(" [").append(p.getSlug()).append("]\n");
+                }
+            }
         }
+
+        // Fix 4: honest read-back — if any topics were recently removed from the notes,
+        // tell the tutor so it can be honest with the student instead of answering from
+        // general knowledge without acknowledgement.
+        if (!recentlyArchivedSlugs.isEmpty()) {
+            sb.append("\n## DELETED TOPICS (no longer in the student's notes)\n");
+            sb.append(String.join(", ", recentlyArchivedSlugs)).append("\n");
+            sb.append("If the student asks about any of these topics, tell them honestly: ");
+            sb.append("\"That's no longer in your uploaded notes. I can try to help from my general knowledge, ");
+            sb.append("but it won't be from your personal study material.\"\n");
+        }
+
         return sb.toString();
     }
 

@@ -156,8 +156,9 @@ public class CompileWikiUseCase {
         // persistence below runs in a short @Transactional block in a
         // dedicated service so a DB transaction is never held open
         // across an AI call.
+        // Fix 3: pass readyFiles so provenance rows are written in wiki_page_sources.
         WikiPagePersistenceService.PersistOutcome outcome =
-                persistenceService.persistDrafts(avatar, drafts);
+                persistenceService.persistDrafts(avatar, drafts, readyFiles);
 
         log.info("[Pipeline:Compile] DONE avatarId={} created={} updated={} titles={}",
                 avatarId, outcome.created(), outcome.updated(), outcome.pageTitles());

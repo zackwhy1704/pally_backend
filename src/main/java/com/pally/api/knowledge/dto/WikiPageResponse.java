@@ -15,8 +15,11 @@ public record WikiPageResponse(
         Instant updatedAt,
         int qualityScore,
         boolean humanVerified,
-        String humanCorrection
+        String humanCorrection,
+        // Fix 3: provenance — names of knowledge files that contributed to this page
+        List<String> sourceFileNames
 ) {
+    /** Builds a response without provenance (e.g. for single-page GET endpoints). */
     public static WikiPageResponse from(WikiPage page) {
         return new WikiPageResponse(
                 page.getId(),
@@ -28,7 +31,25 @@ public record WikiPageResponse(
                 page.getUpdatedAt(),
                 page.getQualityScore(),
                 page.isHumanVerified(),
-                page.getHumanCorrection()
+                page.getHumanCorrection(),
+                List.of()
+        );
+    }
+
+    /** Builds a response with provenance file names attached. */
+    public static WikiPageResponse from(WikiPage page, List<String> sourceFileNames) {
+        return new WikiPageResponse(
+                page.getId(),
+                page.getSlug(),
+                page.getTitle(),
+                page.getContent(),
+                page.getCertainty().name().toLowerCase(),
+                page.isHasConflict(),
+                page.getUpdatedAt(),
+                page.getQualityScore(),
+                page.isHumanVerified(),
+                page.getHumanCorrection(),
+                sourceFileNames != null ? sourceFileNames : List.of()
         );
     }
 

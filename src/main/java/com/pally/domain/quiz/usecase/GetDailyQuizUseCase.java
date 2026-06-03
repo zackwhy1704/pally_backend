@@ -1,6 +1,7 @@
 package com.pally.domain.quiz.usecase;
 
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.quiz.QuizQuestion;
@@ -27,11 +28,11 @@ public class GetDailyQuizUseCase {
     private final AvatarRepository avatarRepository;
     private final WikiRepository wikiRepository;
     private final QuizGeneratorPort quizGeneratorPort;
+    private final AvatarSlotGuard avatarSlotGuard;
 
     public List<QuizQuestion> execute(String avatarId, String userId) {
-        if (!avatarRepository.existsByIdAndUserId(avatarId, userId)) {
-            throw new com.pally.shared.exception.AvatarNotFoundException(avatarId);
-        }
+        // Fix 2: Slot guard — locked avatars cannot be quizzed.
+        avatarSlotGuard.requireActive(avatarId, userId);
 
         List<WikiPage> allPages = wikiRepository.findByAvatarId(avatarId);
         List<WikiPage> pages = allPages.stream()
