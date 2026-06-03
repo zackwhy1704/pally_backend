@@ -20,6 +20,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -51,6 +53,13 @@ public class ClaudeContextAssembler {
     private static final int MAX_TIER3_PAGES = 5;
     private static final int MAX_TIER4_PAGES = 3;
 
+    /// Matches simple arithmetic expressions in user messages, e.g. "12 × 5", "100 / 4".
+    /// Same pattern as ClaudeQuizGenerator — single two-operand expression.
+    private static final Pattern ARITHMETIC = Pattern.compile(
+            "(\\d+(?:\\.\\d+)?)\\s*([+\\-*/×÷^%])\\s*(\\d+(?:\\.\\d+)?)",
+            Pattern.UNICODE_CHARACTER_CLASS
+    );
+
     // Extended cache TTL requires this header value sent with every request
     // Switched from extended-cache-ttl-2025-04-11 (1h TTL beta) to the stable
     // prompt-caching-2024-07-31 header (5-min TTL, no extended-TTL beta).
@@ -64,6 +73,7 @@ public class ClaudeContextAssembler {
     private final WikiRepository wikiRepository;
     private final ObjectMapper objectMapper;
     private final ChatSessionSummariser sessionSummariser;
+    private final CalculatorTool calculatorTool;
 
     // ── String-based assembly (existing, kept for harness + tests) ────────────
 
@@ -118,7 +128,7 @@ public class ClaudeContextAssembler {
 
         // Fix 1: Use only ACTIVE pages so archived (deleted-file) pages never reach chat.
         List<WikiPage> allPages = wikiRepository.findActiveByAvatarId(avatar.getId());
-        List<Map<String, Object>> systemBlocks = buildCacheBlocks(avatar, index, allPages, tier3Pages, tier4Pages);
+        List<Map<String, Object>> systemBlocks = buildCacheBlocks(avatar, index, allPages, tier3Pages, tier4Pages, userMessage);
 
         return new AssembledContext(systemPrompt, harnessTrace, systemBlocks);
     }
@@ -137,7 +147,7 @@ public class ClaudeContextAssembler {
 
         List<WikiPageIndex> index = wikiRepository.getIndex(avatar.getId());
         // Fix 1: caller should pass only ACTIVE pages; rebuild from active list here too
-        return buildCacheBlocks(avatar, index, allPages, List.of(), List.of());
+        return buildCacheBlocks(avatar, index, allPages, List.of(), List.of(), null);
     }
 
     private List<Map<String, Object>> buildCacheBlocks(
@@ -145,7 +155,8 @@ public class ClaudeContextAssembler {
             List<WikiPageIndex> index,
             List<WikiPage> allPages,
             List<WikiPage> tier3Pages,
-            List<WikiPage> tier4Pages) {
+            List<WikiPage> tier4Pages,
+            String userMessage) {
 
         List<Map<String, Object>> blocks = new ArrayList<>();
 
@@ -194,7 +205,7 @@ public class ClaudeContextAssembler {
         // Fix 4: include recently-archived slugs so the tutor is honest about deletions.
         List<String> recentlyArchived = wikiRepository.findRecentlyArchivedSlugs(
                 avatar.getId(), Instant.now().minus(Duration.ofDays(7)));
-        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived);
+        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived, userMessage);
         Map<String, Object> b4 = new HashMap<>();
         b4.put("type", "text");
         b4.put("text", block4);
@@ -382,7 +393,7 @@ public class ClaudeContextAssembler {
     }
 
     private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages,
-                                           List<String> recentlyArchivedSlugs) {
+                                           List<String> recentlyArchivedSlugs, String userMessage) {
         // Dynamic per-message context — NEVER add cache_control here.
         // Contains topic-routed page highlights when available.
         var sb = new StringBuilder();
@@ -414,7 +425,42 @@ public class ClaudeContextAssembler {
             sb.append("but it won't be from your personal study material.\"\n");
         }
 
+        // FIX 3 — Arithmetic verification: pre-compute any arithmetic in the user's
+        // message and inject the verified result so Haiku doesn't guess the answer.
+        String calcHint = injectArithmeticVerification(userMessage);
+        if (!calcHint.isEmpty()) {
+            sb.append("\n## Verified calculation\n").append(calcHint).append("\n");
+        }
+
         return sb.toString();
+    }
+
+    /**
+     * Finds the first simple arithmetic expression in the user message,
+     * evaluates it via the deterministic {@link CalculatorTool}, and returns
+     * a one-liner hint for Block 4. Returns empty string if no expression
+     * is found or evaluation fails.
+     */
+    String injectArithmeticVerification(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) return "";
+        Matcher m = ARITHMETIC.matcher(userMessage);
+        if (!m.find()) return "";
+
+        // Normalise Unicode operators to ASCII for the calculator
+        String op = m.group(2)
+                .replace("×", "*")
+                .replace("÷", "/")
+                .replace("−", "-");
+        String expr = m.group(1) + op + m.group(3);
+        try {
+            String result = calculatorTool.evaluate(expr);
+            String display = m.group(1) + " " + m.group(2) + " " + m.group(3);
+            log.debug("[ArithVerify] {} = {}", display, result);
+            return display + " = " + result;
+        } catch (CalculatorTool.CalculatorException e) {
+            log.debug("[ArithVerify] Cannot evaluate '{}': {}", expr, e.getMessage());
+            return "";
+        }
     }
 
     // ── Existing tier builders (kept for string-based assemble) ──────────────

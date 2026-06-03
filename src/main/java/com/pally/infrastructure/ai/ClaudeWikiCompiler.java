@@ -33,11 +33,13 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
     /// then merge drafts by slug. Was a silent truncation before B1 — long
     /// PDFs lost everything past 4k chars from the brain.
     private static final int MAX_FILE_CHARS = 4000;
-    private static final int CHUNK_SIZE = 3500;
-    /// Cost guard: a 100-page textbook compiled as 25 chunks of 3.5k chars
-    /// each is ~12.5k tokens to Haiku. Cap at 8 chunks/file (~28k chars)
-    /// and ask the user to split the file if they exceed it.
-    private static final int MAX_CHUNKS_PER_FILE = 8;
+    private static final int CHUNK_SIZE = 2000;
+    /// Cost guard: at 2000-char chunks the same 28k-char doc fits in 15 chunks.
+    /// Cap raised to 15 to keep the same effective total document coverage
+    /// as the old 8 × 3500-char limit.
+    private static final int MAX_CHUNKS_PER_FILE = 15;
+    /// Overlap between consecutive chunks so context isn't lost at boundaries.
+    private static final int CHUNK_OVERLAP = 200;
 
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
@@ -90,14 +92,24 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
         int pos = 0;
         while (pos < text.length() && out.size() < MAX_CHUNKS_PER_FILE) {
             int end = Math.min(pos + CHUNK_SIZE, text.length());
-            // Try to break on a paragraph boundary so equations / list items
-            // aren't sliced in half across two Claude calls.
             if (end < text.length()) {
+                // Prefer paragraph boundary in second half of chunk
                 int para = text.lastIndexOf("\n\n", end);
-                if (para > pos + (CHUNK_SIZE / 2)) end = para;
+                if (para > pos + CHUNK_SIZE / 2) {
+                    end = para;
+                } else {
+                    // Fall back to sentence boundary (". " or ".\n")
+                    int sent = text.lastIndexOf(". ", end);
+                    int sentNl = text.lastIndexOf(".\n", end);
+                    int sentBound = Math.max(sent, sentNl);
+                    if (sentBound > pos + CHUNK_SIZE / 2) {
+                        end = sentBound + 1; // include the period
+                    }
+                }
             }
             out.add(text.substring(pos, end));
-            pos = end;
+            // 200-char overlap so context isn't lost at chunk boundaries
+            pos = Math.max(pos + 1, end - CHUNK_OVERLAP);
         }
         if (pos < text.length()) {
             log.warn("[WikiCompiler] source exceeded {}-chunk cap; tail truncated",
@@ -176,6 +188,33 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 7. Each page should be 200-500 words — comprehensive but not overwhelming.
 
                 """.formatted(avatar.getName(), avatar.getSubject().name()));
+
+        sb.append("""
+                ## EXAMPLE (follow this structure exactly)
+
+                ### Example Source Text:
+                Water boils at 100°C at sea level. The boiling point decreases as altitude increases.
+                Boiling is when water turns from liquid to gas (water vapour). The process requires
+                heat energy — specifically 2260 kJ/kg (latent heat of vaporisation).
+
+                ### Example Output:
+                [{"slug": "boiling-point-of-water",
+                  "title": "Boiling Point of Water",
+                  "content": "## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas** (water vapour).\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- The boiling point **decreases** as altitude increases\\n- Boiling requires heat energy: **2260 kJ/kg** (latent heat of vaporisation)\\n\\n## Why Does Altitude Matter?\\nAt higher altitudes, there is less air pressure pushing down on the water, so water boils at a lower temperature.",
+                  "prerequisites": []}]
+
+                ### Example Source Text 2:
+                Ohm's Law: V = IR, where V is voltage (volts), I is current (amperes), R is resistance (ohms).
+                A circuit with 12V battery and 4Ω resistor has current I = 12/4 = 3A.
+
+                ### Example Output 2:
+                [{"slug": "ohms-law",
+                  "title": "Ohm's Law",
+                  "content": "## Ohm's Law\\n**V = IR**\\n\\nWhere:\\n- **V** = Voltage (measured in Volts)\\n- **I** = Current (measured in Amperes)\\n- **R** = Resistance (measured in Ohms)\\n\\n## Example Calculation\\nA circuit with a **12V** battery and **4Ω** resistor:\\n- I = V ÷ R = 12 ÷ 4 = **3A**\\n\\n## Key Points\\n- Higher resistance → lower current (for same voltage)\\n- Higher voltage → higher current (for same resistance)",
+                  "prerequisites": []}]
+
+                Now apply the same approach to the actual content below:
+                """);
 
         sb.append("## EXTRACTED CONTENT TO COMPILE\n\n");
         for (KnowledgeFile file : files) {

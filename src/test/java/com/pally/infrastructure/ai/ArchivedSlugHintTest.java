@@ -49,7 +49,8 @@ class ArchivedSlugHintTest {
     @BeforeEach
     void setUp() {
         assembler = new ClaudeContextAssembler(
-                topicRouter, wikiRepository, new ObjectMapper(), sessionSummariser);
+                topicRouter, wikiRepository, new ObjectMapper(), sessionSummariser,
+                new CalculatorTool());
 
         avatar = Avatar.reconstitute(
                 AVATAR_ID, "user-1", "Mochi", Subject.MATHS, CharacterType.MOCHI,

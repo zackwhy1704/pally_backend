@@ -1,6 +1,7 @@
 package com.pally.infrastructure.ai;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.quiz.QuizQuestion;
@@ -60,45 +61,49 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                 .map(p -> p.getTitle() + ": " + p.getContent())
                 .collect(Collectors.joining("\n\n"));
 
-        // Generate MCQs directly — no free-form reasoning preamble.
-        // The old <reasoning> block forced the model to output thousands of
-        // chain-of-thought tokens before the JSON, adding 15-40s of wall-clock
-        // latency on Sonnet and 2-5s even on Haiku. Removing it for
-        // non-arithmetic material cuts output by ~70%.
-        // For arithmetic questions we keep a single-sentence verify step
-        // in the explanation field (the model already does this naturally).
+        // Use tool_use to force Haiku to return structured JSON without any
+        // prose or markdown fences. The QuizGeneratorTool schema guarantees
+        // exactly 5 MCQs with the required fields — no more strip/fence logic.
         String prompt = """
-                Based on the following study material, generate 5 multiple-choice quiz questions.
+                Generate 5 multiple-choice questions from this study material.
                 Each question must test UNDERSTANDING, not memorisation.
-                Questions must come directly from the provided material.
-                For numeric questions, verify the correctIndex is arithmetically correct.
-
-                Reply ONLY with a valid JSON array — no preamble, no markdown:
-                [{"question":"...","options":["A...","B...","C...","D..."],"correctIndex":0,"sourcePage":"slug","explanation":"one sentence"}]
+                Use create_quiz_questions to return your answer.
 
                 Material:
                 %s
                 """.formatted(material);
 
         try {
-            // maxTokens 1200 is ample for 5 MCQs + short explanations (~200 tokens/question).
-            // The old 2500 was sized for the now-removed reasoning preamble.
-            String raw = claudeApiClient.complete(modelRouter.forQuizGeneration(), 1200, prompt,
-                    "quiz-gen");
+            // completeWithTools executes QuizGeneratorTool.execute() which returns
+            // the clean JSON array string directly. maxTokens 1200 is ample.
+            String raw = claudeApiClient.completeWithTools(
+                    modelRouter.forQuizGeneration(), 1200, prompt,
+                    List.of(new QuizGeneratorTool(objectMapper)), "quiz-gen");
 
-            // Strip <reasoning>...</reasoning> block before parsing
-            raw = raw.replaceAll("(?s)<reasoning>.*?</reasoning>", "").strip();
-            if (raw.startsWith("```")) {
-                raw = raw.replaceAll("```[a-z]*\\n?", "").replaceAll("```", "").strip();
-            }
-            // Find first JSON array
-            int start = raw.indexOf('[');
-            int end = raw.lastIndexOf(']');
-            if (start >= 0 && end > start) {
-                raw = raw.substring(start, end + 1);
+            // raw is already the serialized JSON array from QuizGeneratorTool.execute()
+            // Fall back to text-mode parsing if the tool wasn't called (e.g. circuit open)
+            if (raw == null || raw.isBlank()) {
+                throw new com.pally.shared.exception.BusinessException(
+                        "Couldn't generate a quiz right now — please try again shortly.", 503);
             }
 
-            List<Map<String, Object>> parsed = objectMapper.readValue(raw,
+            // If the tool was called and execute() returned the JSON array, parse it.
+            // If the model somehow returned text instead, strip fences as before.
+            String json = raw.strip();
+            if (!json.startsWith("[")) {
+                // Strip any remaining fences or preamble
+                json = json.replaceAll("(?s)<reasoning>.*?</reasoning>", "").strip();
+                if (json.startsWith("```")) {
+                    json = json.replaceAll("```[a-z]*\\n?", "").replaceAll("```", "").strip();
+                }
+                int start = json.indexOf('[');
+                int end = json.lastIndexOf(']');
+                if (start >= 0 && end > start) {
+                    json = json.substring(start, end + 1);
+                }
+            }
+
+            List<Map<String, Object>> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
             List<QuizQuestion> questions = new ArrayList<>();
             for (Map<String, Object> q : parsed) {
@@ -118,12 +123,84 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
             // Part A3.1 — Verify numeric questions before returning
             return verifyAndFilter(questions, avatarId);
 
+        } catch (com.pally.shared.exception.BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("[Quiz] Failed to generate questions for avatar {}", avatarId, e);
             // Throw 503 so the controller returns a proper retry response instead
             // of a silent 200 with 0 questions (which the FE shows as "no quiz yet").
             throw new com.pally.shared.exception.BusinessException(
                     "Couldn't generate a quiz right now — please try again shortly.", 503);
+        }
+    }
+
+    /**
+     * Tool that forces Haiku to return structured quiz JSON via the Anthropic
+     * tool_use mechanism. The schema guarantees exactly the right shape without
+     * any prose, markdown fences, or chain-of-thought output.
+     *
+     * <p>{@link #execute} is called by the agentic loop after the model fills
+     * the schema; it returns the raw JSON array so {@code completeWithTools}
+     * returns it as the final text result.
+     */
+    static final class QuizGeneratorTool implements ClaudeTool {
+
+        private final ObjectMapper objectMapper;
+
+        QuizGeneratorTool(ObjectMapper objectMapper) {
+            this.objectMapper = objectMapper;
+        }
+
+        @Override
+        public String name() { return "create_quiz_questions"; }
+
+        @Override
+        public String description() {
+            return "Create 5 multiple-choice quiz questions from the study material provided.";
+        }
+
+        @Override
+        public Map<String, Object> inputSchema() {
+            return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                    "questions", Map.of(
+                        "type", "array",
+                        "description", "Exactly 5 quiz questions",
+                        "items", Map.of(
+                            "type", "object",
+                            "properties", Map.of(
+                                "question",     Map.of("type", "string"),
+                                "options",      Map.of("type", "array",
+                                                       "items", Map.of("type", "string"),
+                                                       "minItems", 4, "maxItems", 4),
+                                "correctIndex", Map.of("type", "integer",
+                                                       "minimum", 0, "maximum", 3),
+                                "sourcePage",   Map.of("type", "string"),
+                                "explanation",  Map.of("type", "string")
+                            ),
+                            "required", List.of("question", "options", "correctIndex",
+                                                "sourcePage", "explanation")
+                        )
+                    )
+                ),
+                "required", List.of("questions")
+            );
+        }
+
+        @Override
+        public String execute(Map<String, Object> input) throws CalculatorTool.CalculatorException {
+            // Extract the questions array and serialize it as a JSON array string
+            // so completeWithTools returns it as the final text result.
+            try {
+                Object questionsRaw = input == null ? null : input.get("questions");
+                if (questionsRaw == null) {
+                    return "[]";
+                }
+                return objectMapper.writeValueAsString(questionsRaw);
+            } catch (Exception e) {
+                return "[]";
+            }
         }
     }
 
