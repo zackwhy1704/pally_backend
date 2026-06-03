@@ -139,6 +139,10 @@ public class WikiPagePersistenceService {
             writeProvenanceRows(savedPage.getId(), sourceFiles);
         }
 
+        // Dedup pass: fetch all ACTIVE pages for this avatar and merge near-duplicates.
+        List<WikiPage> allActivePages = wikiRepository.findActiveByAvatarId(avatarId);
+        deduplicatePages(avatarId, allActivePages);
+
         int totalPages = wikiRepository.countActiveByAvatarId(avatarId); // ACTIVE only — matches quiz/brain filter
         avatar.setWikiPageCount(totalPages);
         avatarRepository.save(avatar);
@@ -236,5 +240,71 @@ public class WikiPagePersistenceService {
         // for the same content pair are identical to the prior behaviour.
         return new HashSet<>(Arrays.asList(
                 s.toLowerCase().replaceAll("[^a-z0-9 ]", " ").trim().split("\\s+")));
+    }
+
+    /**
+     * Post-pass deduplication: detects near-duplicate wiki pages and merges them
+     * by deleting the shorter/poorer page and keeping the richer one.
+     *
+     * <p>Two pages are near-duplicates when:
+     * <ol>
+     *   <li>Their slug token sets have Jaccard similarity ≥ 0.8 (very similar slugs), OR</li>
+     *   <li>Their content word-sets have Jaccard similarity ≥ 0.75 (same text paraphrased).</li>
+     * </ol>
+     */
+    void deduplicatePages(String avatarId, List<WikiPage> allPages) {
+        if (allPages.size() < 2) return;
+        List<WikiPage> pages = new ArrayList<>(allPages);
+        Set<String> toDelete = new HashSet<>();
+
+        for (int i = 0; i < pages.size(); i++) {
+            if (toDelete.contains(pages.get(i).getId())) continue;
+            for (int j = i + 1; j < pages.size(); j++) {
+                if (toDelete.contains(pages.get(j).getId())) continue;
+                WikiPage a = pages.get(i);
+                WikiPage b = pages.get(j);
+                if (areDuplicates(a, b)) {
+                    // Keep the richer page (longer content wins)
+                    WikiPage keep = a.getContent().length() >= b.getContent().length() ? a : b;
+                    WikiPage drop = keep == a ? b : a;
+                    toDelete.add(drop.getId());
+                    log.info("[Dedup] Merged page '{}' into '{}' (avatarId={})",
+                            drop.getSlug(), keep.getSlug(), avatarId);
+                }
+            }
+        }
+
+        if (!toDelete.isEmpty()) {
+            toDelete.forEach(id -> wikiRepository.deleteById(id));
+            log.info("[Dedup] Deleted {} near-duplicate pages for avatarId={}",
+                    toDelete.size(), avatarId);
+        }
+    }
+
+    /**
+     * Returns true when two pages are near-duplicates by slug-token Jaccard (≥ 0.8)
+     * or content word-set Jaccard (≥ 0.75).
+     */
+    boolean areDuplicates(WikiPage a, WikiPage b) {
+        // Slug similarity: tokenize by "-" and check overlap
+        Set<String> slugA = new HashSet<>(Arrays.asList(a.getSlug().split("-")));
+        Set<String> slugB = new HashSet<>(Arrays.asList(b.getSlug().split("-")));
+        Set<String> slugIntersection = new HashSet<>(slugA);
+        slugIntersection.retainAll(slugB);
+        Set<String> slugUnion = new HashSet<>(slugA);
+        slugUnion.addAll(slugB);
+        double slugJaccard = slugUnion.isEmpty() ? 0.0
+                : (double) slugIntersection.size() / slugUnion.size();
+        if (slugJaccard >= 0.8) return true;
+
+        // Content word-set similarity
+        Set<String> wordsA = tokenize(a.getContent());
+        Set<String> wordsB = tokenize(b.getContent());
+        if (wordsA.isEmpty() || wordsB.isEmpty()) return false;
+        Set<String> contentIntersection = new HashSet<>(wordsA);
+        contentIntersection.retainAll(wordsB);
+        Set<String> contentUnion = new HashSet<>(wordsA);
+        contentUnion.addAll(wordsB);
+        return (double) contentIntersection.size() / contentUnion.size() >= 0.75;
     }
 }

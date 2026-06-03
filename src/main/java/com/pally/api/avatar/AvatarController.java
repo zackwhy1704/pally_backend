@@ -27,6 +27,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
+
+import com.pally.shared.exception.BusinessException;
 
 /**
  * REST controller for avatar management endpoints.
@@ -157,6 +160,30 @@ public class AvatarController {
             @Valid @RequestBody UpdateTestDateRequest request
     ) {
         Avatar avatar = updateAvatarSettingsUseCase.updateTestDate(avatarId, userId, request.testDate());
+        return ResponseEntity.ok(ApiResponse.success(avatarMapper.toResponse(avatar)));
+    }
+
+    /**
+     * Sets or clears teacher-specified method preferences for an avatar.
+     * Max 500 characters. Send blank/null to clear.
+     *
+     * @param userId   authenticated user
+     * @param avatarId target avatar
+     * @param body     JSON object with optional key {@code teacherPreferences}
+     * @return 200 OK with updated avatar; 400 if preferences exceed 500 chars
+     */
+    @PatchMapping("/{avatarId}/teacher-preferences")
+    public ResponseEntity<ApiResponse<AvatarResponse>> updateTeacherPreferences(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @RequestBody Map<String, String> body
+    ) {
+        String prefs = body.getOrDefault("teacherPreferences", "");
+        if (prefs.length() > 500) {
+            throw new BusinessException("Teacher preferences must be under 500 characters", 400);
+        }
+        Avatar avatar = updateAvatarSettingsUseCase.updateTeacherPreferences(
+                avatarId, userId, prefs.isBlank() ? null : prefs);
         return ResponseEntity.ok(ApiResponse.success(avatarMapper.toResponse(avatar)));
     }
 }

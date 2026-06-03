@@ -28,5 +28,8 @@ public record AvatarResponse(
         /// False when this avatar is outside the user's active slot cap
         /// (trial expired or free-tier limit reached). Inactive avatars
         /// are visible but chat/quiz/upload are blocked until re-selected.
-        boolean isActive
+        boolean isActive,
+        /// Optional teacher-specified method preferences (max 500 chars).
+        /// Injected into Block 2 of the system prompt.
+        String teacherPreferences
 ) {}

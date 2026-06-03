@@ -72,6 +72,9 @@ public class AvatarJpaEntity {
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 
+    @Column(name = "teacher_preferences", columnDefinition = "TEXT")
+    private String teacherPreferences;
+
     public static AvatarJpaEntity fromDomain(Avatar avatar) {
         AvatarJpaEntity entity = new AvatarJpaEntity();
         entity.id = avatar.getId();
@@ -88,6 +91,7 @@ public class AvatarJpaEntity {
         entity.testDate = avatar.getTestDate();
         entity.brainState = avatar.getBrainState().name();
         entity.isActive = avatar.isActive();
+        entity.teacherPreferences = avatar.getTeacherPreferences();
         return entity;
     }
 
@@ -99,6 +103,6 @@ public class AvatarJpaEntity {
             bs = Avatar.BrainState.READY;
         }
         return Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs, isActive);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs, isActive, teacherPreferences);
     }
 }

@@ -44,7 +44,8 @@ public class AvatarMapper {
                 avatar.getPedagogyMode(),
                 avatar.getTestDate(),
                 avatar.getBrainState().name(),
-                avatar.isActive()
+                avatar.isActive(),
+                avatar.getTeacherPreferences()
         );
     }
 

@@ -65,6 +65,12 @@ public class WikiRepositoryAdapter implements WikiRepository {
     }
 
     @Override
+    @Transactional
+    public void deleteById(String id) {
+        wikiJpaRepository.deleteById(id);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<WikiPageIndex> getIndex(String avatarId) {
         return wikiJpaRepository.findActiveByAvatarId(avatarId).stream()

@@ -35,4 +35,19 @@ public class UpdateAvatarSettingsUseCase {
         log.info("Updated testDate avatarId={} testDate={}", avatarId, testDate);
         return saved;
     }
+
+    /**
+     * Updates the optional teacher-specified method preferences.
+     * Null or blank input clears the field; over-limit input is rejected upstream.
+     */
+    public Avatar updateTeacherPreferences(String avatarId, String userId, String teacherPreferences) {
+        Avatar avatar = getAvatarUseCase.getById(avatarId, userId);
+        avatar.setTeacherPreferences(teacherPreferences == null || teacherPreferences.isBlank()
+                ? null
+                : teacherPreferences.strip());
+        Avatar saved = avatarRepository.save(avatar);
+        log.info("Updated teacherPreferences avatarId={} hasPrefs={}", avatarId,
+                saved.getTeacherPreferences() != null);
+        return saved;
+    }
 }

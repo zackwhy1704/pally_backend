@@ -22,6 +22,8 @@ public interface WikiRepository {
 
     void deleteByAvatarId(String avatarId);
 
+    void deleteById(String id);
+
     // Harness: lightweight index for Tier-2 context
     List<WikiPageIndex> getIndex(String avatarId);
 

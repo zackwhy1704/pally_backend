@@ -29,6 +29,8 @@ public final class Avatar {
     private BrainState brainState;
     // true = user can chat/quiz with this avatar; false = locked (over free-tier slot cap)
     private boolean isActive;
+    // Optional teacher-specified method preferences (max 500 chars), injected into Block 2
+    private String teacherPreferences;
 
     private Avatar(
             String id,
@@ -44,7 +46,8 @@ public final class Avatar {
             TeachingMode teachingMode,
             java.time.LocalDate testDate,
             BrainState brainState,
-            boolean isActive
+            boolean isActive,
+            String teacherPreferences
     ) {
         this.id = id;
         this.userId = userId;
@@ -60,6 +63,7 @@ public final class Avatar {
         this.testDate = testDate;
         this.brainState = brainState != null ? brainState : BrainState.READY;
         this.isActive = isActive;
+        this.teacherPreferences = teacherPreferences;
     }
 
     /**
@@ -78,7 +82,7 @@ public final class Avatar {
         if (subject == null) throw new IllegalArgumentException("Subject is required");
         if (characterType == null) throw new IllegalArgumentException("CharacterType is required");
         return new Avatar(IdGenerator.newId(), userId, name, subject, characterType, 0, Instant.now(),
-                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY, true);
+                gradeLevel, curriculumType, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY, true, null);
     }
 
     /**
@@ -94,7 +98,7 @@ public final class Avatar {
             Instant createdAt
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY, true);
+                null, null, PedagogyMode.SOCRATIC, TeachingMode.TEACHING, null, BrainState.READY, true, null);
     }
 
     public static Avatar reconstitute(
@@ -112,7 +116,7 @@ public final class Avatar {
             java.time.LocalDate testDate
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, BrainState.READY, true);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, BrainState.READY, true, null);
     }
 
     public static Avatar reconstitute(
@@ -131,7 +135,7 @@ public final class Avatar {
             BrainState brainState
     ) {
         return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, true);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, true, null);
     }
 
     public static Avatar reconstitute(
@@ -150,8 +154,29 @@ public final class Avatar {
             BrainState brainState,
             boolean isActive
     ) {
+        return reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive, null);
+    }
+
+    public static Avatar reconstitute(
+            String id,
+            String userId,
+            String name,
+            Subject subject,
+            CharacterType characterType,
+            int wikiPageCount,
+            Instant createdAt,
+            String gradeLevel,
+            String curriculumType,
+            PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
+            java.time.LocalDate testDate,
+            BrainState brainState,
+            boolean isActive,
+            String teacherPreferences
+    ) {
         return new Avatar(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive, teacherPreferences);
     }
 
     // Domain behaviour
@@ -208,4 +233,6 @@ public final class Avatar {
     public void setBrainState(BrainState state) { this.brainState = state != null ? state : BrainState.READY; }
     public boolean isActive()                   { return isActive; }
     public void setActive(boolean active)       { this.isActive = active; }
+    public String getTeacherPreferences()       { return teacherPreferences; }
+    public void setTeacherPreferences(String prefs) { this.teacherPreferences = prefs; }
 }

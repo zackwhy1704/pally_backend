@@ -333,6 +333,19 @@ public class ClaudeContextAssembler {
                   End with: "Did that make sense? Ask me if anything's unclear! 😊"
                   """;
 
+        String curriculumRules = buildCurriculumMethodRules(avatar.getCurriculumType(), avatar.getGradeLevel());
+
+        String teacherBlock = "";
+        if (avatar.getTeacherPreferences() != null && !avatar.getTeacherPreferences().isBlank()) {
+            teacherBlock = """
+
+                ## TEACHER INSTRUCTIONS
+                The student's teacher has specified:
+                %s
+                Follow this method even if an alternative exists.
+                """.formatted(avatar.getTeacherPreferences().strip());
+        }
+
         String template = """
                 ## YOUR IDENTITY
                 Name: %s
@@ -342,13 +355,61 @@ public class ClaudeContextAssembler {
 
                 ## PEDAGOGY INSTRUCTIONS
                 %s
-                """;
+                %s%s""";
         return safeFormat("block2", template,
                 avatar.getName(),
                 avatar.getSubject().label(),
                 grade,
                 curriculum,
-                pedagogyInstructions);
+                pedagogyInstructions,
+                curriculumRules,
+                teacherBlock);
+    }
+
+    /**
+     * Returns curriculum-specific method rules to inject into Block 2.
+     * Completely deterministic — no dynamic content — so the block stays cache-friendly.
+     */
+    String buildCurriculumMethodRules(String curriculum, String grade) {
+        if (curriculum == null) return "";
+        return switch (curriculum.toUpperCase().replace(" ", "_").replace("-", "_")) {
+            case "SINGAPORE", "SINGAPORE_MOE", "MOE" -> """
+
+                ## CURRICULUM METHOD RULES — Singapore MOE
+                - Fractions/ratios: prefer the model/bar-diagram method at primary level.
+                - Algebra word problems: define the unknown FIRST, then form the equation.
+                - Show ALL working steps — Singapore marking awards method marks separately.
+                - Use "units" language for ratio questions (e.g. "3 units = 12, so 1 unit = 4").
+                - Standard form: write as a × 10ⁿ where 1 ≤ a < 10.
+                - Geometry: state the reason for each angle/length deduction (e.g. "angles on a straight line sum to 180°").
+                """;
+            case "UK_GCSE", "GCSE", "UK" -> """
+
+                ## CURRICULUM METHOD RULES — UK GCSE
+                - Standard form: A × 10ⁿ where 1 ≤ A < 10; show each conversion step.
+                - Long multiplication/division: show column method working.
+                - Surds: rationalise denominators; leave answers in surd form unless told otherwise.
+                - Geometry proofs: state each rule used (e.g. "alternate angles, AB ∥ CD").
+                - Trigonometry: label SOH-CAH-TOA explicitly in working.
+                """;
+            case "IB", "IB_MYP", "IB_DP" -> """
+
+                ## CURRICULUM METHOD RULES — IB
+                - Always show the command-term level of response (calculate vs. explain vs. evaluate).
+                - Significant figures: answers to 3 s.f. unless stated otherwise.
+                - Calculator use: write the setup before using the calculator result.
+                - Mathematical notation: use correct IB notation for functions, sets, and vectors.
+                """;
+            case "A_LEVEL", "A_LEVEL_UK" -> """
+
+                ## CURRICULUM METHOD RULES — A-Level
+                - Differentiation from first principles if explicitly asked.
+                - Integration: always add +C for indefinite integrals.
+                - Proofs: every step must be justified; QED or □ at the end.
+                - Mechanics: draw a clear force diagram before resolving.
+                """;
+            default -> ""; // General curriculum — no extra method constraints
+        };
     }
 
     private String buildBlock3WikiPages(List<WikiPage> pages, List<WikiPageIndex> index) {
