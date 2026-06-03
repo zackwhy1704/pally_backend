@@ -49,15 +49,18 @@ public class ModelRouter {
     // ── Standard task routing ─────────────────────────────────────────────────
 
     public String forChat(String userMessage) {
-        if (isComplexQuestion(userMessage)) {
-            log.info("[ModelRouter] SONNET for complex chat: \"{}\"",
-                    userMessage.substring(0, Math.min(80, userMessage.length())));
-            return sonnet;
-        }
+        // All chat on Haiku — Sonnet cost is ~15x higher and Haiku handles
+        // kids' homework questions (the actual workload) well. The complexity
+        // heuristic previously routed most messages to Sonnet (>200 chars,
+        // "how", "why", math) — nearly everything a child types. Removed.
         return haiku;
     }
 
-    public String forWikiCompile()    { return sonnet; }
+    // Wiki compile: Haiku produces equivalent structured wiki pages from
+    // extracted PDF/image text. Sonnet is only marginally better at
+    // synthesis but costs ~15x more. Switch saves the most money per
+    // upload because compile is the highest-token call in the system.
+    public String forWikiCompile()    { return haiku; }
     // Haiku generates 5 MCQs from structured wiki notes in 3-8s vs 30-60s
     // for Sonnet. Quality is equivalent for factual recall questions from
     // known material. Sonnet was causing consistent 30s Flutter timeout failures.
@@ -70,10 +73,10 @@ public class ModelRouter {
     /** Non-visual / plain-text photo questions. Routes to vision-standard (default: Haiku). */
     public String forPhotoQuestion() { return visionStandardModel(); }
 
-    /** Simple visual (TABLE, CHART, MEDIUM confidence). Routes to vision-heavy (default: Sonnet). */
+    /** Simple visual (TABLE, CHART, MEDIUM confidence). Routes to vision-heavy (default: Haiku). */
     public String forPhotoQuestionHeavy() { return visionHeavyModel(); }
 
-    /** Hard visual (GRAPH, GEOMETRY) or LOW confidence. Routes to vision-max (default: Sonnet). */
+    /** Hard visual (GRAPH, GEOMETRY) or LOW confidence. Routes to vision-max (default: Haiku). */
     public String forPhotoQuestionMax() { return visionMaxModel(); }
 
     // ── Accessors ─────────────────────────────────────────────────────────────
@@ -88,32 +91,14 @@ public class ModelRouter {
     }
 
     private String visionHeavyModel() {
-        return (visionHeavy != null && !visionHeavy.isBlank()) ? visionHeavy : sonnet;
+        // Default changed haiku — Sonnet vision is not needed for kids'
+        // homework photos. Override with CLAUDE_VISION_HEAVY env var if quality suffers.
+        return (visionHeavy != null && !visionHeavy.isBlank()) ? visionHeavy : haiku;
     }
 
     private String visionMaxModel() {
-        return (visionMax != null && !visionMax.isBlank()) ? visionMax : sonnet;
+        // Default changed to haiku — override with CLAUDE_VISION_MAX if quality suffers.
+        return (visionMax != null && !visionMax.isBlank()) ? visionMax : haiku;
     }
 
-    private boolean isComplexQuestion(String message) {
-        if (message == null || message.isBlank()) return false;
-        String lower = message.toLowerCase().trim();
-        if (lower.length() > 200) return true;
-        String[] complex = {
-            "explain why", "explain how", "prove that", "prove this",
-            "compare and contrast", "what's the difference between",
-            "what is the difference between",
-            "step by step", "show your work", "show me how",
-            "how does", "how do", "how would",
-            "derive", "analyze", "analyse", "evaluate",
-            "calculate", "solve for", "find the value",
-            "what would happen if", "what if",
-            "in what way", "to what extent",
-            "critically", "justify", "argue",
-        };
-        for (String kw : complex) { if (lower.contains(kw)) return true; }
-        if (lower.startsWith("why ")) return true;
-        if (lower.matches(".*\\d+\\s*[+\\-*/×÷=]\\s*\\d+.*")) return true;
-        return false;
-    }
 }
