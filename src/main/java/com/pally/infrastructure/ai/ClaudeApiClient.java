@@ -48,9 +48,11 @@ public class ClaudeApiClient {
     private static final String MESSAGES_PATH = "/v1/messages";
 
     /// Bound every blocking Claude call so a hung Anthropic response can
-    /// never park a server worker thread forever. Matches the
-    /// WebClientConfig response-timeout with a small safety margin.
-    private static final Duration UNARY_BLOCK_TIMEOUT = Duration.ofSeconds(70);
+    /// never park a server worker thread forever. Must exceed
+    /// WebClientConfig.RESPONSE_TIMEOUT (180s) so Netty surfaces a clean
+    /// ReadTimeoutException before the block() defensive ceiling fires.
+    /// Wiki compilation of large PDFs can take 90-120s on Sonnet 4.6.
+    private static final Duration UNARY_BLOCK_TIMEOUT = Duration.ofSeconds(200);
     /// Short timeout for latency-sensitive micro-tasks (moderation, relevance).
     /// These must NOT block the request thread for 70s — fail fast and fall back.
     private static final Duration MICRO_BLOCK_TIMEOUT = Duration.ofSeconds(8);

@@ -30,8 +30,13 @@ import java.util.concurrent.TimeUnit;
 public class WebClientConfig {
 
     private static final int CONNECT_TIMEOUT_MS = 10_000;
-    private static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(60);
-    private static final int READ_TIMEOUT_S = 90;
+    // 3-minute ceiling. Wiki compilation for large PDFs (e.g. full curriculum
+    // documents) can take 90-120s on Sonnet 4.6 under normal Anthropic load.
+    // Fast-fail tasks (relevance, moderation) are bounded at 8s by
+    // ClaudeApiClient.completeFast()'s .block(MICRO_BLOCK_TIMEOUT), so raising
+    // the global ceiling here doesn't hurt those paths.
+    private static final Duration RESPONSE_TIMEOUT = Duration.ofSeconds(180);
+    private static final int READ_TIMEOUT_S = 200;
     private static final int WRITE_TIMEOUT_S = 30;
     /// 4MB — wiki compile responses + photo OCR payloads need headroom
     /// over the WebFlux default of 256KB.

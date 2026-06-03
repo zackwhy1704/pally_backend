@@ -150,16 +150,33 @@ public class WikiRecompileScheduler {
     }
 
     private void runCompile(String avatarId) {
+        boolean failed = false;
         try {
             compileWikiUseCase.execute(avatarId);
         } catch (Exception e) {
-            log.error("[Debounce] recompile failed avatar={}", avatarId, e);
+            failed = true;
+            boolean isTimeout = e.getMessage() == null
+                    || e.getMessage().toLowerCase().contains("timeout")
+                    || e.getCause() instanceof io.netty.handler.timeout.ReadTimeoutException
+                    || (e.getCause() != null && e.getCause().getMessage() != null
+                        && e.getCause().getMessage().toLowerCase().contains("timeout"));
+            if (isTimeout) {
+                log.warn("[Debounce] recompile timed out for avatar={} — scheduling retry in 2min", avatarId);
+            } else {
+                log.error("[Debounce] recompile failed avatar={}", avatarId, e);
+            }
         } finally {
             inFlight.remove(avatarId);
             safeMarkReady(avatarId);
             if (dirtyAgain.remove(avatarId)) {
                 log.info("[Debounce] Follow-up recompile queued for avatar={}", avatarId);
                 requestRecompile(avatarId);
+            } else if (failed) {
+                // Schedule a single retry after 2 minutes so a transient Anthropic
+                // timeout or slow response doesn't permanently leave the brain empty.
+                // Uses timer (not aiTaskExecutor) to avoid blocking the pool.
+                timer.schedule(() -> requestRecompile(avatarId), 2, java.util.concurrent.TimeUnit.MINUTES);
+                log.info("[Debounce] Retry scheduled in 2min for avatar={}", avatarId);
             }
         }
     }
