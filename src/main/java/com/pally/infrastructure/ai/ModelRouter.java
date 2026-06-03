@@ -58,7 +58,10 @@ public class ModelRouter {
     }
 
     public String forWikiCompile()    { return sonnet; }
-    public String forQuizGeneration() { return sonnet; }
+    // Haiku generates 5 MCQs from structured wiki notes in 3-8s vs 30-60s
+    // for Sonnet. Quality is equivalent for factual recall questions from
+    // known material. Sonnet was causing consistent 30s Flutter timeout failures.
+    public String forQuizGeneration() { return haiku; }
     public String forRelevanceCheck() { return haiku; }
     public String forCacheKeepalive() { return haiku; }
 

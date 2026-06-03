@@ -11,8 +11,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -30,9 +34,29 @@ public class GetDailyQuizUseCase {
     private final QuizGeneratorPort quizGeneratorPort;
     private final AvatarSlotGuard avatarSlotGuard;
 
+    /// In-memory daily quiz cache: avatarId → (date → questions).
+    /// Single Railway instance → no distributed state needed. Cache evicts
+    /// naturally when the date rolls over (new key = no hit). A redeploy
+    /// clears it — users get a fresh quiz on first tap after restart, which
+    /// is acceptable. This avoids calling Claude repeatedly when the user
+    /// taps Quiz multiple times in a session.
+    private final Map<String, Map<LocalDate, List<QuizQuestion>>> dailyCache =
+            new ConcurrentHashMap<>();
+
     public List<QuizQuestion> execute(String avatarId, String userId) {
         // Fix 2: Slot guard — locked avatars cannot be quizzed.
         avatarSlotGuard.requireActive(avatarId, userId);
+
+        // Return today's cached quiz if it was already generated — avoids a
+        // repeated Claude call when the user taps Quiz multiple times per session.
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Map<LocalDate, List<QuizQuestion>> avatarCache =
+                dailyCache.computeIfAbsent(avatarId, k -> new ConcurrentHashMap<>());
+        List<QuizQuestion> cached = avatarCache.get(today);
+        if (cached != null && !cached.isEmpty()) {
+            log.info("[Pipeline:Quiz] Cache HIT avatarId={} questions={}", avatarId, cached.size());
+            return cached;
+        }
 
         List<WikiPage> allPages = wikiRepository.findByAvatarId(avatarId);
         List<WikiPage> pages = allPages.stream()
@@ -68,6 +92,13 @@ public class GetDailyQuizUseCase {
 
         List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised);
         log.info("[Pipeline:Quiz] Generated {} questions for avatarId={}", questions.size(), avatarId);
+
+        // Store in daily cache so repeat taps are instant
+        if (!questions.isEmpty()) {
+            avatarCache.put(today, questions);
+            // Evict yesterday's entry to keep memory bounded (at most 2 dates per avatar)
+            avatarCache.entrySet().removeIf(e -> e.getKey().isBefore(today));
+        }
         return questions;
     }
 }
