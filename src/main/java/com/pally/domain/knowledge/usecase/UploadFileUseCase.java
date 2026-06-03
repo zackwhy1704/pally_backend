@@ -171,9 +171,23 @@ public class UploadFileUseCase {
             log.warn("[Upload] Zero text extracted from fileId={} type={}", fileId, uploadType);
             kf.markFailed();
             knowledgeRepository.save(kf);
-            return new UploadResult.Failure(
-                    "Couldn't read any text from this file. "
-                    + "Make sure it's a text-based PDF or a clear photo of notes.", null);
+            String ocrFailMsg = uploadType == KnowledgeFile.UploadType.PDF
+                    ? "Couldn't read any text from this PDF. It may contain only scanned images with no selectable text. "
+                      + "Try: (1) use a text-based PDF, (2) copy-paste the text instead, "
+                      + "or (3) take a clear photo of the pages."
+                    : "Couldn't read text from this photo. Common causes: "
+                      + "(1) too dark or blurry — retake in good lighting, "
+                      + "(2) the page is at a steep angle — hold the camera directly above, "
+                      + "(3) handwriting is very light — try higher contrast. "
+                      + "Tip: crop to just the notes before uploading.";
+            return new UploadResult.Failure(ocrFailMsg, null);
+        }
+
+        // Short-text warning for image uploads: valid but may produce limited wiki pages.
+        // Do NOT fail — a single equation or definition is perfectly useful content.
+        if (uploadType == KnowledgeFile.UploadType.PHOTO && extractedText.length() < 50) {
+            log.warn("[Upload] Very short text extracted from photo fileId={} chars={} — proceeding but may produce limited wiki pages",
+                    fileId, extractedText.length());
         }
 
         // Save extracted text + content hash for deduplication.

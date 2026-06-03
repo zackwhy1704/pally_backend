@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.chat.AssembledContext;
+import com.pally.domain.chat.ChatMessage;
+import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.knowledge.DetectedTopic;
 import com.pally.domain.knowledge.WikiPage;
@@ -60,6 +62,32 @@ public class ClaudeContextAssembler {
             Pattern.UNICODE_CHARACTER_CLASS
     );
 
+    // Fix 2 — extended algebra patterns
+    // Quadratic: matches "x^2 + 5x + 6 = 0" or "x² - 5x + 6 = 0"
+    // Groups: (1) a-coeff, (2) b-coeff, (3) c-value
+    private static final Pattern QUADRATIC = Pattern.compile(
+            "([+-]?\\s*\\d*\\.?\\d*)\\s*x(?:\\^2|²)\\s*([+-]\\s*\\d*\\.?\\d*)\\s*x\\s*([+-]\\s*\\d+\\.?\\d*)\\s*=\\s*0",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CHARACTER_CLASS);
+
+    // Derivative intent: captures everything after the trigger phrase
+    private static final Pattern DERIVATIVE = Pattern.compile(
+            "(?:d/dx|dy/dx|derivative\\s+of|differentiate)\\s*(.{5,60})",
+            Pattern.CASE_INSENSITIVE);
+
+    // Vector magnitude: "magnitude of (3, 4)" or "3i + 4j" or "|F| of (3,4)"
+    private static final Pattern VECTOR_MAGNITUDE = Pattern.compile(
+            "(?:magnitude|\\|[A-Za-z]\\|)\\s*(?:of\\s+)?\\(?([+-]?\\d+\\.?\\d*)\\s*[,i]\\s*([+-]?\\d+\\.?\\d*)\\s*j?\\)?",
+            Pattern.CASE_INSENSITIVE);
+
+    // Fix 3 — frustration signals that trigger the Socratic unlock note
+    private static final List<Pattern> FRUSTRATION_PATTERNS = List.of(
+            Pattern.compile("don.{0,4}t understand", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("still confused", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("tell me", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("just give", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("what is the answer", Pattern.CASE_INSENSITIVE)
+    );
+
     // Extended cache TTL requires this header value sent with every request
     // Switched from extended-cache-ttl-2025-04-11 (1h TTL beta) to the stable
     // prompt-caching-2024-07-31 header (5-min TTL, no extended-TTL beta).
@@ -71,9 +99,11 @@ public class ClaudeContextAssembler {
 
     private final TopicRouter topicRouter;
     private final WikiRepository wikiRepository;
+    private final ChatRepository chatRepository;
     private final ObjectMapper objectMapper;
     private final ChatSessionSummariser sessionSummariser;
     private final CalculatorTool calculatorTool;
+    private final AlgebraTool algebraTool;
 
     // ── String-based assembly (existing, kept for harness + tests) ────────────
 
@@ -205,7 +235,9 @@ public class ClaudeContextAssembler {
         // Fix 4: include recently-archived slugs so the tutor is honest about deletions.
         List<String> recentlyArchived = wikiRepository.findRecentlyArchivedSlugs(
                 avatar.getId(), Instant.now().minus(Duration.ofDays(7)));
-        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived, userMessage);
+        // Fix 3: pass recent chat history so the socratic-unlock check can read it.
+        List<ChatMessage> recentHistory = loadRecentHistoryForBlock4(avatar.getId());
+        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived, userMessage, recentHistory);
         Map<String, Object> b4 = new HashMap<>();
         b4.put("type", "text");
         b4.put("text", block4);
@@ -392,8 +424,24 @@ public class ClaudeContextAssembler {
                 .orElse("");
     }
 
+    /** Loads the last 10 chat messages for the avatar to feed the frustration detector. */
+    private List<ChatMessage> loadRecentHistoryForBlock4(String avatarId) {
+        try {
+            return chatRepository.findByAvatarId(avatarId, 10);
+        } catch (Exception e) {
+            log.debug("[Block4] Could not load recent history for avatarId={}: {}", avatarId, e.getMessage());
+            return List.of();
+        }
+    }
+
     private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages,
                                            List<String> recentlyArchivedSlugs, String userMessage) {
+        return buildBlock4DynamicTail(relevantPages, prereqPages, recentlyArchivedSlugs, userMessage, List.of());
+    }
+
+    private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages,
+                                           List<String> recentlyArchivedSlugs, String userMessage,
+                                           List<ChatMessage> recentHistory) {
         // Dynamic per-message context — NEVER add cache_control here.
         // Contains topic-routed page highlights when available.
         var sb = new StringBuilder();
@@ -425,42 +473,174 @@ public class ClaudeContextAssembler {
             sb.append("but it won't be from your personal study material.\"\n");
         }
 
-        // FIX 3 — Arithmetic verification: pre-compute any arithmetic in the user's
-        // message and inject the verified result so Haiku doesn't guess the answer.
+        // FIX 3 — Arithmetic + algebra verification: pre-compute any maths in the
+        // user's message and inject the verified result so Claude doesn't guess.
         String calcHint = injectArithmeticVerification(userMessage);
         if (!calcHint.isEmpty()) {
             sb.append("\n## Verified calculation\n").append(calcHint).append("\n");
+        }
+
+        // Fix 3 — Socratic unlock: if the student appears frustrated after several
+        // tries, allow the tutor to be more direct rather than continuing to guide.
+        if (isFrustrationTriggered(recentHistory, userMessage)) {
+            sb.append("""
+
+                ## STUDENT SUPPORT NOTE
+                This student has asked about this topic multiple times and may be frustrated.
+                It is okay to be more direct — give the answer clearly, then explain step by step.
+                Do not continue the Socratic approach if the student asks you directly for the answer.
+                """);
+            log.debug("[Block4] Socratic unlock triggered — appended student support note");
         }
 
         return sb.toString();
     }
 
     /**
-     * Finds the first simple arithmetic expression in the user message,
-     * evaluates it via the deterministic {@link CalculatorTool}, and returns
-     * a one-liner hint for Block 4. Returns empty string if no expression
-     * is found or evaluation fails.
+     * Returns true when:
+     * <ul>
+     *   <li>The current session has ≥ 4 user-turn messages, AND</li>
+     *   <li>The last 2 user messages (including the current one) contain at least
+     *       one frustration signal keyword.</li>
+     * </ul>
+     */
+    boolean isFrustrationTriggered(List<ChatMessage> recentHistory, String currentMessage) {
+        if (recentHistory == null || recentHistory.isEmpty()) return false;
+
+        List<String> userMessages = recentHistory.stream()
+                .filter(m -> m.getRole() == ChatMessage.Role.USER)
+                .map(ChatMessage::getContent)
+                .filter(c -> c != null && !c.isBlank())
+                .toList();
+
+        if (userMessages.size() < 4) return false;
+
+        // Check the last 2 user turns (the most recent and the one before)
+        int size = userMessages.size();
+        List<String> last2 = new ArrayList<>();
+        last2.add(userMessages.get(size - 1));
+        if (size >= 2) last2.add(userMessages.get(size - 2));
+        // Also include the current message being sent
+        if (currentMessage != null && !currentMessage.isBlank()) last2.add(currentMessage);
+
+        for (String msg : last2) {
+            for (Pattern p : FRUSTRATION_PATTERNS) {
+                if (p.matcher(msg).find()) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Finds ALL verifiable maths expressions in the user message —
+     * arithmetic, quadratic equations, polynomial derivatives, and vector
+     * magnitudes — evaluates each deterministically, and returns the verified
+     * facts joined by newlines. Returns empty string if nothing is found.
      */
     String injectArithmeticVerification(String userMessage) {
         if (userMessage == null || userMessage.isBlank()) return "";
-        Matcher m = ARITHMETIC.matcher(userMessage);
-        if (!m.find()) return "";
+        List<String> hints = new ArrayList<>();
 
-        // Normalise Unicode operators to ASCII for the calculator
-        String op = m.group(2)
-                .replace("×", "*")
-                .replace("÷", "/")
-                .replace("−", "-");
-        String expr = m.group(1) + op + m.group(3);
-        try {
-            String result = calculatorTool.evaluate(expr);
-            String display = m.group(1) + " " + m.group(2) + " " + m.group(3);
-            log.debug("[ArithVerify] {} = {}", display, result);
-            return display + " = " + result;
-        } catch (CalculatorTool.CalculatorException e) {
-            log.debug("[ArithVerify] Cannot evaluate '{}': {}", expr, e.getMessage());
-            return "";
+        // ── 1. Simple arithmetic (existing behaviour) ─────────────────────────
+        Matcher m = ARITHMETIC.matcher(userMessage);
+        if (m.find()) {
+            String op = m.group(2)
+                    .replace("×", "*")
+                    .replace("÷", "/")
+                    .replace("−", "-");
+            String expr = m.group(1) + op + m.group(3);
+            try {
+                String result = calculatorTool.evaluate(expr);
+                String display = m.group(1) + " " + m.group(2) + " " + m.group(3);
+                log.debug("[ArithVerify] {} = {}", display, result);
+                hints.add(display + " = " + result);
+            } catch (CalculatorTool.CalculatorException e) {
+                log.debug("[ArithVerify] Cannot evaluate '{}': {}", expr, e.getMessage());
+            }
         }
+
+        // ── 2. Quadratic equation ax² + bx + c = 0 ────────────────────────────
+        try {
+            Matcher qm = QUADRATIC.matcher(userMessage);
+            if (qm.find()) {
+                String aStr = qm.group(1).replaceAll("\\s+", "");
+                String bStr = qm.group(2).replaceAll("\\s+", "");
+                String cStr = qm.group(3).replaceAll("\\s+", "");
+                double a = parseAlgebraCoeff(aStr, 1.0);
+                double b = parseAlgebraCoeff(bStr, 0.0);
+                double c = parseAlgebraCoeff(cStr, 0.0);
+                String roots = algebraTool.quadraticRoots(a, b, c);
+                if (!roots.isBlank()) {
+                    // Build a human-readable equation display
+                    String eqDisplay = buildQuadraticDisplay(a, b, c);
+                    log.debug("[AlgebraVerify] Quadratic {} → {}", eqDisplay, roots);
+                    hints.add("Quadratic " + eqDisplay + " = 0 → " + roots);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[AlgebraVerify] Quadratic check failed: {}", e.getMessage());
+        }
+
+        // ── 3. Polynomial derivative ───────────────────────────────────────────
+        try {
+            Matcher dm = DERIVATIVE.matcher(userMessage);
+            if (dm.find()) {
+                String expr = dm.group(1).trim()
+                        .replaceAll("[?,.!].*", "") // strip trailing punctuation/question
+                        .trim();
+                String deriv = algebraTool.derivative(expr);
+                if (!deriv.isBlank()) {
+                    log.debug("[AlgebraVerify] d/dx({}) = {}", expr, deriv);
+                    hints.add("d/dx(" + expr + ") = " + deriv);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[AlgebraVerify] Derivative check failed: {}", e.getMessage());
+        }
+
+        // ── 4. Vector magnitude ────────────────────────────────────────────────
+        try {
+            Matcher vm = VECTOR_MAGNITUDE.matcher(userMessage);
+            if (vm.find()) {
+                double a = Double.parseDouble(vm.group(1).trim());
+                double b = Double.parseDouble(vm.group(2).trim());
+                String mag = algebraTool.vectorMagnitude(a, b);
+                if (!mag.isBlank()) {
+                    log.debug("[AlgebraVerify] Vector magnitude ({},{}) = {}", a, b, mag);
+                    hints.add(mag);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[AlgebraVerify] Vector magnitude check failed: {}", e.getMessage());
+        }
+
+        return String.join("\n", hints);
+    }
+
+    /** Parses a possibly-signed coefficient string; uses {@code defaultValue} for blank/sign-only. */
+    private double parseAlgebraCoeff(String s, double defaultValue) {
+        if (s == null || s.isBlank() || s.equals("+")) return defaultValue;
+        if (s.equals("-")) return -defaultValue;
+        try { return Double.parseDouble(s); }
+        catch (NumberFormatException e) { return defaultValue; }
+    }
+
+    /** Builds a readable quadratic string like "x² + 5x + 6". */
+    private String buildQuadraticDisplay(double a, double b, double c) {
+        StringBuilder sb = new StringBuilder();
+        if (a == 1) sb.append("x²");
+        else if (a == -1) sb.append("-x²");
+        else sb.append(formatCoeffDisplay(a)).append("x²");
+        if (b > 0) sb.append(" + ").append(b == 1 ? "" : formatCoeffDisplay(b)).append("x");
+        else if (b < 0) sb.append(" - ").append(b == -1 ? "" : formatCoeffDisplay(-b)).append("x");
+        if (c > 0) sb.append(" + ").append(formatCoeffDisplay(c));
+        else if (c < 0) sb.append(" - ").append(formatCoeffDisplay(-c));
+        return sb.toString();
+    }
+
+    private String formatCoeffDisplay(double d) {
+        if (d == (long) d) return String.valueOf((long) d);
+        return String.valueOf(d);
     }
 
     // ── Existing tier builders (kept for string-based assemble) ──────────────

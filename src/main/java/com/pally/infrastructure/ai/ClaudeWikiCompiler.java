@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Claude-backed implementation of {@link WikiCompilerPort}.
@@ -85,9 +87,62 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
         return new ArrayList<>(bySlug.values());
     }
 
+    // Heading patterns: markdown ## headings, numbered sections, ALL CAPS lines
+    private static final Pattern HEADING_PATTERN = Pattern.compile(
+            "^(#{1,3} .+|\\d+\\.\\s+[A-Z].+|[A-Z][A-Z ]{4,})$",
+            Pattern.MULTILINE);
+
+    /**
+     * Splits text at heading boundaries. Returns an empty list when no headings
+     * are detected (caller falls back to {@link #chunkPlain}).
+     */
+    private List<String> splitByHeadings(String text) {
+        Matcher m = HEADING_PATTERN.matcher(text);
+        List<Integer> splits = new ArrayList<>();
+        splits.add(0);
+        while (m.find()) {
+            if (m.start() > 0) splits.add(m.start());
+        }
+        splits.add(text.length());
+        if (splits.size() <= 2) return List.of(); // no headings found
+        List<String> sections = new ArrayList<>();
+        for (int i = 0; i < splits.size() - 1; i++) {
+            String section = text.substring(splits.get(i), splits.get(i + 1)).strip();
+            if (!section.isBlank()) sections.add(section);
+        }
+        return sections;
+    }
+
     private List<String> chunkText(String text) {
         if (text == null || text.isBlank()) return List.of();
         if (text.length() <= MAX_FILE_CHARS) return List.of(text);
+
+        // Fix 4 — try heading-aware split first
+        List<String> headingSections = splitByHeadings(text);
+        if (!headingSections.isEmpty()) {
+            List<String> result = new ArrayList<>();
+            for (String section : headingSections) {
+                if (section.length() <= CHUNK_SIZE) {
+                    result.add(section);
+                } else {
+                    result.addAll(chunkPlain(section));
+                }
+                if (result.size() >= MAX_CHUNKS_PER_FILE) break;
+            }
+            log.info("[WikiCompiler] Heading-split produced {} chunks (sections={})",
+                    result.size(), headingSections.size());
+            return result;
+        }
+
+        // No headings — fall through to character-window chunking
+        return chunkPlain(text);
+    }
+
+    /**
+     * Character-window chunking (existing logic, extracted from the old chunkText).
+     * Prefers paragraph then sentence boundaries. Applies CHUNK_OVERLAP between windows.
+     */
+    private List<String> chunkPlain(String text) {
         List<String> out = new ArrayList<>();
         int pos = 0;
         while (pos < text.length() && out.size() < MAX_CHUNKS_PER_FILE) {
