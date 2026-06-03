@@ -62,6 +62,17 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         this.claudeFallback = claudeFallback;
     }
 
+    @jakarta.annotation.PostConstruct
+    void logConfig() {
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("[Gemini] ⚠️  GEMINI_API_KEY is NOT SET — wiki compile will use Claude Haiku fallback");
+        } else {
+            log.info("[Gemini] ✅ Wiki compiler ACTIVE model={} key={}…{}",
+                    model, apiKey.substring(0, Math.min(8, apiKey.length())),
+                    apiKey.length() > 8 ? apiKey.substring(apiKey.length() - 4) : "");
+        }
+    }
+
     @Override
     public List<WikiPageDraft> compile(Avatar avatar, List<KnowledgeFile> files,
                                        List<WikiPage> existingPages) {
@@ -70,17 +81,35 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             return claudeFallback.compile(avatar, files, existingPages);
         }
 
-        log.info("[Gemini] Compiling wiki avatarId={} files={} model={}",
-                avatar.getId(), files.size(), model);
+        int totalChars = files.stream()
+                .mapToInt(f -> f.getExtractedText() != null ? f.getExtractedText().length() : 0)
+                .sum();
+        log.info("[Gemini] ──► COMPILE START avatarId={} files={} totalChars={} model={}",
+                avatar.getId(), files.size(), totalChars, model);
+        files.forEach(f -> log.info("[Gemini]   file: {} status={} chars={}",
+                f.getFileName(), f.getStatus(),
+                f.getExtractedText() != null ? f.getExtractedText().length() : 0));
+
+        long start = System.currentTimeMillis();
         try {
             String prompt = buildPrompt(avatar, files, existingPages);
+            log.debug("[Gemini] Prompt length: {} chars (~{} tokens)", prompt.length(), prompt.length() / 4);
             String raw = callGemini(prompt);
+            long ms = System.currentTimeMillis() - start;
             List<WikiPageDraft> drafts = parseResponse(raw);
-            log.info("[Gemini] Compiled {} pages for avatarId={}", drafts.size(), avatar.getId());
+            log.info("[Gemini] ◄── COMPILE DONE avatarId={} pages={} latency={}ms",
+                    avatar.getId(), drafts.size(), ms);
+            drafts.forEach(d -> log.info("[Gemini]   page: slug={} title={} contentLen={} prereqs={}",
+                    d.slug(), d.title(), d.content().length(), d.prerequisites()));
+            if (drafts.isEmpty()) {
+                log.warn("[Gemini] ⚠️  0 pages produced for avatarId={}. Raw response preview: {}",
+                        avatar.getId(), raw.substring(0, Math.min(300, raw.length())));
+            }
             return drafts;
         } catch (Exception e) {
-            log.warn("[Gemini] Call failed ({}), falling back to Claude Haiku: {}",
-                    e.getClass().getSimpleName(), e.getMessage());
+            long ms = System.currentTimeMillis() - start;
+            log.warn("[Gemini] ✗ COMPILE FAILED after {}ms ({}): {} — falling back to Claude Haiku",
+                    ms, e.getClass().getSimpleName(), e.getMessage());
             return claudeFallback.compile(avatar, files, existingPages);
         }
     }
@@ -101,6 +130,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 )
         );
 
+        log.debug("[Gemini] POST {} (promptChars={})", url.replaceAll("key=.*", "key=[REDACTED]"), prompt.length());
+        long callStart = System.currentTimeMillis();
+
         String responseBody = webClient.post()
                 .uri(url)
                 .header("Content-Type", "application/json")
@@ -108,6 +140,10 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 .retrieve()
                 .bodyToMono(String.class)
                 .block(java.time.Duration.ofSeconds(180));
+
+        log.debug("[Gemini] HTTP response received in {}ms, bodyLen={}",
+                System.currentTimeMillis() - callStart,
+                responseBody != null ? responseBody.length() : 0);
 
         if (responseBody == null) {
             throw new RuntimeException("Gemini returned null response");
@@ -122,15 +158,20 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                     .path("content").path("parts").path(0)
                     .path("text");
             if (text.isMissingNode() || text.asText().isBlank()) {
-                // Check for blocking
                 JsonNode finishReason = root.path("candidates").path(0).path("finishReason");
-                log.warn("[Gemini] Empty text response, finishReason={}", finishReason.asText("unknown"));
+                JsonNode promptFeedback = root.path("promptFeedback");
+                log.warn("[Gemini] Empty text response. finishReason={} promptFeedback={}",
+                        finishReason.asText("unknown"), promptFeedback);
+                log.warn("[Gemini] Full response (first 800 chars): {}",
+                        responseBody.substring(0, Math.min(800, responseBody.length())));
                 throw new RuntimeException("Gemini returned empty text, finishReason=" + finishReason.asText());
             }
-            return text.asText();
+            String textStr = text.asText();
+            log.debug("[Gemini] Extracted text length={} preview={}",
+                    textStr.length(), textStr.substring(0, Math.min(200, textStr.length())));
+            return textStr;
         } catch (Exception e) {
-            // Log first 500 chars of raw response for debugging
-            log.error("[Gemini] Failed to parse response: {}",
+            log.error("[Gemini] Failed to parse response. First 500 chars: {}",
                     responseBody.substring(0, Math.min(500, responseBody.length())));
             throw new RuntimeException("Failed to parse Gemini response: " + e.getMessage(), e);
         }

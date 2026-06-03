@@ -244,7 +244,10 @@ public class ClaudeApiClient {
      * The circuit breaker wraps the full loop.
      */
     private static final int MAX_TOOL_ITERATIONS = 3;
-    private static final Duration TOOL_LOOP_TIMEOUT = Duration.ofSeconds(30);
+    // Raised from 30s: Haiku + tool_use schema overhead can take 35-45s,
+    // causing the old 30s ceiling to fire before the first response arrived,
+    // returning empty text → 503 in the quiz generator.
+    private static final Duration TOOL_LOOP_TIMEOUT = Duration.ofSeconds(90);
 
     @Retry(name = "claude")
     @CircuitBreaker(name = "claude", fallbackMethod = "completeWithToolsFallback")
