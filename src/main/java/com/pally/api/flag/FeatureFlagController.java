@@ -41,6 +41,7 @@ import java.util.Map;
 public class FeatureFlagController {
 
     private final UserFeatureFlagJpaRepository flagRepo;
+    private final com.pally.infrastructure.persistence.progress.UserJpaRepository userRepo;
 
     @GetMapping("/me/flags")
     @Transactional(readOnly = true)
@@ -50,6 +51,14 @@ public class FeatureFlagController {
         for (var row : flagRepo.findByUserId(userId)) {
             flags.put(row.getFlagName(), row.isEnabled());
         }
+        // Expose admin role as a synthetic flag so Flutter can gate the Tuition tab
+        // without a separate endpoint.
+        boolean isAdmin = userRepo.findById(userId)
+                .map(u -> "ADMIN".equalsIgnoreCase(u.getRole()))
+                .orElse(false);
+        flags.put("is_admin", isAdmin);
+        // Groups are now open to all users — always return true
+        flags.put("groups_enabled", true);
         return ResponseEntity.ok(ApiResponse.success(flags));
     }
 
