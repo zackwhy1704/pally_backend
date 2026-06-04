@@ -30,7 +30,7 @@ class LevelRewardsTest {
         var r = LevelRewards.atLevel(5);
         assertThat(r).isNotNull();
         assertThat(r.kind()).isEqualTo(LevelRewards.Reward.Kind.FUNCTIONAL);
-        assertThat(r.label()).contains("tutor slot");
+        assertThat(r.label()).contains("Mochi slot");
     }
 
     @Test

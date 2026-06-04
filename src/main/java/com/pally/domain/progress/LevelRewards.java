@@ -51,13 +51,13 @@ public final class LevelRewards {
         Map<Integer, Reward> m = new LinkedHashMap<>();
         m.put(2,  new Reward(2,  "New Mochi colour",            Reward.Kind.COSMETIC));
         m.put(3,  new Reward(3,  "Cloud background unlocked",   Reward.Kind.COSMETIC));
-        m.put(5,  new Reward(5,  "Extra free tutor slot",       Reward.Kind.FUNCTIONAL));
-        m.put(8,  new Reward(8,  "Sparkle avatar effect",       Reward.Kind.COSMETIC));
+        m.put(5,  new Reward(5,  "Extra free Mochi slot",        Reward.Kind.FUNCTIONAL));
+        m.put(8,  new Reward(8,  "Sparkle avatar effect",        Reward.Kind.COSMETIC));
         m.put(10, new Reward(10, "Mystery box + Level 10 badge", Reward.Kind.MYSTERY));
-        m.put(15, new Reward(15, "Golden name plate",           Reward.Kind.COSMETIC));
+        m.put(15, new Reward(15, "Golden name plate",            Reward.Kind.COSMETIC));
         m.put(20, new Reward(20, "Streak freeze cap raised to 5", Reward.Kind.FUNCTIONAL));
-        m.put(25, new Reward(25, "Legendary tutor frame",       Reward.Kind.COSMETIC));
-        m.put(30, new Reward(30, "Max level title — Pally Master", Reward.Kind.BADGE));
+        m.put(25, new Reward(25, "Legendary Mochi frame",        Reward.Kind.COSMETIC));
+        m.put(30, new Reward(30, "Max level title — Memoly Master", Reward.Kind.BADGE));
         REWARDS = Map.copyOf(m);
     }
 
