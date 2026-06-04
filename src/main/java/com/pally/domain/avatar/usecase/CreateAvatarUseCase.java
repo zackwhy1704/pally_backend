@@ -8,6 +8,8 @@ import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionLimits;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.UpgradeRequiredException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -46,16 +48,20 @@ public class CreateAvatarUseCase {
         // PDPA gate: creating a personal tutor (which persists data) requires ACTIVE.
         consentGuard.requireActive(userId, "CREATE_TUTOR");
 
-        // Free-tier cap. Read existing count BEFORE the save so we don't
-        // off-by-one on the call that's trying to create the second tutor.
-        // L5+ gets an extra slot per LevelRewards.freeTutorCap — turns the
-        // freemium wall into a goal, not a hard block.
-        if (!premiumService.resolve(userId).isPremium()) {
+        // Tier-aware Mochi cap. Read existing count BEFORE the save so we don't
+        // off-by-one on the call that's trying to create the next tutor.
+        // FREE users: L5+ gets an extra slot per LevelRewards.freeTutorCap.
+        // PRO users: 5 tutors.
+        // MAX / FAMILY / CENTRE: unlimited.
+        SubscriptionTier tier = premiumService.resolveTier(userId);
+        if (tier != SubscriptionTier.MAX
+                && tier != SubscriptionTier.FAMILY
+                && tier != SubscriptionTier.CENTRE) {
             int existing = avatarRepository.findByUserId(userId).size();
             int level = userRepository.findById(userId)
                     .map(u -> u.level())
                     .orElse(1);
-            int cap = LevelRewards.freeTutorCap(level);
+            int cap = SubscriptionLimits.mochiCap(tier, level);
             if (existing >= cap) {
                 throw new UpgradeRequiredException("CREATE_TUTOR");
             }

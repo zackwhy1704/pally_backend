@@ -3,6 +3,7 @@ package com.pally.api.subscription;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import com.pally.infrastructure.stripe.StripeService;
@@ -109,13 +110,19 @@ public class SubscriptionController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> status(
             @AuthenticationPrincipal String userId) {
         SubscriptionJpaEntity sub = subRepo.findById(userId).orElse(null);
+        SubscriptionTier tier = premiumService.resolveTier(userId);
+        PremiumService.Entitlement ent = premiumService.resolve(userId);
         Map<String, Object> body = new HashMap<>();
         body.put("userId", userId);
         body.put("mode", isLive() ? "live" : "mock");
+        body.put("tier", tier.name());
+        body.put("isPremium", ent.isPremium());
         if (sub == null) {
             body.put("status", "free");
             body.put("plan", null);
             body.put("currentPeriodEnd", null);
+            body.put("cancelAtPeriodEnd", false);
+            body.put("canceledAt", null);
         } else {
             body.put("status", sub.getStatus());
             body.put("plan", sub.getPlan());
@@ -123,6 +130,9 @@ public class SubscriptionController {
                     sub.getCurrentPeriodEnd() == null
                             ? null
                             : sub.getCurrentPeriodEnd().toString());
+            body.put("cancelAtPeriodEnd", sub.isCancelAtPeriodEnd());
+            body.put("canceledAt",
+                    sub.getCanceledAt() == null ? null : sub.getCanceledAt().toString());
         }
         return ResponseEntity.ok(ApiResponse.success(body));
     }
@@ -325,11 +335,18 @@ public class SubscriptionController {
                 SubscriptionJpaEntity sub = subRepo.findById(userId).orElse(null);
                 if (sub != null) {
                     sub.setStatus("canceled");
+                    sub.setCanceledAt(Instant.now());
+                    sub.setCancelAtPeriodEnd(false); // already cancelled — clear the flag
                     sub.setUpdatedAt(Instant.now());
                     subRepo.save(sub);
+                    // Evict cache so the user loses premium access immediately
+                    premiumService.evictEntitlement(userId);
                     premiumService.refreshFlag(userId);
+                    log.info("[Stripe] sub.deleted user={} — premium revoked", userId);
+                } else {
+                    log.warn("[Stripe] sub.deleted — no subscription row found for stripeSubId={}",
+                            s.getId());
                 }
-                log.info("[Stripe] sub.deleted user={}", userId);
             }
             default -> log.debug("[Stripe] ignored event type={}", event.getType());
         }
@@ -343,6 +360,16 @@ public class SubscriptionController {
         sub.setStatus(s.getStatus());
         if (s.getCurrentPeriodEnd() != null) {
             sub.setCurrentPeriodEnd(Instant.ofEpochSecond(s.getCurrentPeriodEnd()));
+        }
+        // Capture cancel_at_period_end so the UI can show "ends on [date]"
+        // rather than cutting off immediately (the sub stays active until the
+        // period end; subscription.deleted fires when it actually terminates).
+        if (s.getCancelAtPeriodEnd() != null) {
+            sub.setCancelAtPeriodEnd(s.getCancelAtPeriodEnd());
+            if (s.getCancelAtPeriodEnd()) {
+                log.info("[Stripe] sub.cancel_at_period_end=true user={} ends={}",
+                        userId, sub.getCurrentPeriodEnd());
+            }
         }
         sub.setUpdatedAt(Instant.now());
         subRepo.save(sub);

@@ -2,6 +2,8 @@ package com.pally.api.usage;
 
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionLimits;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.ratelimit.ChatRateLimiter;
 import com.pally.shared.response.ApiResponse;
@@ -43,9 +45,16 @@ public class UsageController {
         }
 
         boolean premium = ent.isPremium();
+        SubscriptionTier tier;
+        try {
+            tier = premiumService.resolveTier(userId);
+        } catch (Exception ignored) {
+            tier = SubscriptionTier.FREE;
+        }
         Map<String, Object> body = new HashMap<>();
         body.put("isPremium", premium);
         body.put("source", ent.source());
+        body.put("subscriptionTier", tier.name());
         body.put("date", LocalDate.now(ZoneOffset.UTC).toString());
 
         // Trial info — always expose so the countdown banner can show
@@ -57,10 +66,12 @@ public class UsageController {
         body.put("trialDaysLeft",  trial.trialDaysLeft());
         body.put("trialHoursLeft", trial.trialHoursLeft());
 
-        // Free-tier cap + slot cooldown info
+        // Tutor cap + slot cooldown info
         var userEntityOpt = userRepo.findById(userId);
         int userLevel = userEntityOpt.map(u -> u.getLevel() > 0 ? u.getLevel() : 1).orElse(1);
         body.put("freeTutorCap", premium ? null : LevelRewards.freeTutorCap(userLevel));
+        int rawMochiCap = SubscriptionLimits.mochiCap(tier, userLevel);
+        body.put("mochiCap", rawMochiCap == Integer.MAX_VALUE ? -1 : rawMochiCap);
 
         // Slot swap cooldown: expose seconds remaining so Flutter can show a timer.
         // For premium users this is always 0 (no cooldown).
@@ -77,17 +88,15 @@ public class UsageController {
         }
         body.put("slotCooldownSecondsRemaining", slotCooldownSecondsRemaining);
 
-        if (premium) {
-            body.put("chatUsed", 0);
-            body.put("chatLimit", null);
-            body.put("chatRemaining", null);
-        } else {
-            int used  = chatRateLimiter.dailyHitsToday(userId);
-            int limit = ChatRateLimiter.FREE_DAILY_LIMIT;
-            body.put("chatUsed", used);
-            body.put("chatLimit", limit);
-            body.put("chatRemaining", Math.max(0, limit - used));
-        }
+        int chatUsed  = chatRateLimiter.dailyHitsToday(userId);
+        int chatLimit = switch (tier) {
+            case FREE                -> ChatRateLimiter.FREE_DAILY_LIMIT;
+            case PRO                 -> ChatRateLimiter.PRO_DAILY_LIMIT;
+            case MAX, FAMILY, CENTRE -> -1; // unlimited
+        };
+        body.put("chatUsed", chatUsed);
+        body.put("chatLimit", chatLimit);
+        body.put("chatRemaining", chatLimit == -1 ? -1 : Math.max(0, chatLimit - chatUsed));
         return ResponseEntity.ok(ApiResponse.success(body));
     }
 }

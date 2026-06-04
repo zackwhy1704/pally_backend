@@ -48,8 +48,20 @@ public class ClaudeChatProxy implements ChatPort {
             List<ChatMessage> history,
             String userMessage,
             Consumer<CacheMetrics> onMetrics) {
+        return streamChat(systemBlocks, history, userMessage, onMetrics, null);
+    }
 
-        String model = modelRouter.forChat(userMessage);
+    @Override
+    public Flux<ChatStreamEvent> streamChat(
+            List<Map<String, Object>> systemBlocks,
+            List<ChatMessage> history,
+            String userMessage,
+            Consumer<CacheMetrics> onMetrics,
+            String modelOverride) {
+
+        String model = (modelOverride != null && !modelOverride.isBlank())
+                ? modelOverride
+                : modelRouter.forChat(userMessage);
         List<Map<String, String>> messages = buildMessages(history, userMessage);
         AtomicBoolean metricsEmitted = new AtomicBoolean(false);
         // Accumulate the full assistant text so we can parse the trailing

@@ -18,6 +18,8 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
 
     List<UserJpaEntity> findByParentId(String parentId);
 
+    int countByParentId(String parentId);
+
     Optional<UserJpaEntity> findByReferralCode(String referralCode);
 
     List<UserJpaEntity> findByCentreId(String centreId);

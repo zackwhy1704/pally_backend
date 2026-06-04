@@ -1,6 +1,7 @@
 package com.pally.infrastructure.ratelimit;
 
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import org.junit.jupiter.api.Test;
@@ -25,10 +26,6 @@ class ChatRateLimiterTest {
         return new ChatRateLimiter(premiumService);
     }
 
-    private PremiumService.Entitlement free() {
-        return new PremiumService.Entitlement(false, "NONE", null, "free", null);
-    }
-
     @Test
     void dailyHits_startsAtZero() {
         var limiter = newLimiter();
@@ -36,8 +33,8 @@ class ChatRateLimiterTest {
     }
 
     @Test
-    void dailyHits_incrementsOnCheck() {
-        when(premiumService.resolve("u1")).thenReturn(free());
+    void dailyHits_incrementsOnCheck_forFreeUser() {
+        when(premiumService.resolveTier("u1")).thenReturn(SubscriptionTier.FREE);
         var limiter = newLimiter();
         limiter.check("u1");
         assertThat(limiter.dailyHitsToday("u1")).isEqualTo(1);
@@ -46,15 +43,13 @@ class ChatRateLimiterTest {
     }
 
     @Test
-    void dailyHits_throwsUpgradeRequired_pastDailyCap() {
-        when(premiumService.resolve("u1")).thenReturn(free());
+    void dailyHits_throwsUpgradeRequired_pastFreeDailyCap() {
+        when(premiumService.resolveTier("u1")).thenReturn(SubscriptionTier.FREE);
         var limiter = newLimiter();
         // The burst limit (30/min) fires before the daily limit when calling
         // check() rapidly, so we seed the daily counter just below the cap,
         // then call check() once more to confirm the daily gate fires.
         limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT);
-        // The exception's feature() is the typed signal — the message itself
-        // is a kid-friendly sentence, not the code.
         assertThatThrownBy(() -> limiter.check("u1"))
                 .isInstanceOf(UpgradeRequiredException.class)
                 .satisfies(e ->
@@ -62,16 +57,34 @@ class ChatRateLimiterTest {
                                 .isEqualTo("CHAT_DAILY"));
     }
 
-    /// Premium bypass — daily-cap doesn't fire. Keep well under burst (30/min).
     @Test
-    void premium_bypassesDailyLimit() {
-        when(premiumService.resolve("u1"))
-                .thenReturn(new PremiumService.Entitlement(
-                        true, "SELF", "family_monthly", "active", null));
+    void proUser_hasHigherDailyCap_thenBlocks() {
+        when(premiumService.resolveTier("u_pro")).thenReturn(SubscriptionTier.PRO);
         var limiter = newLimiter();
-        // Seed daily counter above the free limit to confirm premium ignores it.
-        limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT);
-        limiter.check("u1"); // must not throw
+        // Seed at PRO limit — next call should throw
+        limiter.seedDailyCountForTest("u_pro", ChatRateLimiter.PRO_DAILY_LIMIT);
+        assertThatThrownBy(() -> limiter.check("u_pro"))
+                .isInstanceOf(UpgradeRequiredException.class)
+                .satisfies(e ->
+                        assertThat(((UpgradeRequiredException) e).getFeature())
+                                .isEqualTo("CHAT_DAILY"));
+    }
+
+    @Test
+    void maxUser_bypassesDailyLimit_entirely() {
+        when(premiumService.resolveTier("u_max")).thenReturn(SubscriptionTier.MAX);
+        var limiter = newLimiter();
+        // Seed daily counter far above free limit — MAX tier ignores it
+        limiter.seedDailyCountForTest("u_max", 999);
+        limiter.check("u_max"); // must not throw
+    }
+
+    @Test
+    void familyUser_bypassesDailyLimit_entirely() {
+        when(premiumService.resolveTier("u_fam")).thenReturn(SubscriptionTier.FAMILY);
+        var limiter = newLimiter();
+        limiter.seedDailyCountForTest("u_fam", 999);
+        limiter.check("u_fam"); // must not throw
     }
 
     /// Burst limiter (30/min) throws plain BusinessException, NOT
@@ -81,10 +94,8 @@ class ChatRateLimiterTest {
     /// the parent would let a regression slip past.
     @Test
     void burst_throwsBusinessException_notUpgradeRequired() {
-        // Premium bypass leaves only the burst limit active.
-        when(premiumService.resolve("u1"))
-                .thenReturn(new PremiumService.Entitlement(
-                        true, "SELF", "family_monthly", "active", null));
+        // MAX tier: bypass daily cap so only the burst limit fires.
+        when(premiumService.resolveTier("u1")).thenReturn(SubscriptionTier.MAX);
         var limiter = newLimiter();
         for (int i = 0; i < 30; i++) {
             limiter.check("u1");

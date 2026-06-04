@@ -42,4 +42,14 @@ public class SubscriptionJpaEntity {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
+
+    /// Set to true when Stripe sends cancel_at_period_end=true on a
+    /// subscription.updated event. The subscription stays ACTIVE until
+    /// currentPeriodEnd, then Stripe fires subscription.deleted.
+    @Column(name = "cancel_at_period_end", nullable = false)
+    private boolean cancelAtPeriodEnd;
+
+    /// Timestamp of the subscription.deleted event — null for active subs.
+    @Column(name = "canceled_at")
+    private Instant canceledAt;
 }

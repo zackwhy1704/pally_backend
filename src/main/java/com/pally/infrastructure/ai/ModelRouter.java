@@ -1,5 +1,6 @@
 package com.pally.infrastructure.ai;
 
+import com.pally.domain.subscription.SubscriptionTier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,11 @@ public class ModelRouter {
     @Value("${claude.api.model}")
     private String haiku;
 
+    /// Sonnet model ID used for Max/Family/Centre tier on complex questions.
+    /// Defaults to claude-sonnet-4-5 but can be overridden in Railway.
+    @Value("${claude.model.sonnet:claude-sonnet-4-5}")
+    private String sonnet;
+
     // Vision escalation ladder — override per tier via Railway env vars:
     //   CLAUDE_VISION_STANDARD / CLAUDE_VISION_HEAVY / CLAUDE_VISION_MAX
     // All default to Haiku. Set to a different Anthropic model ID if a
@@ -39,15 +45,38 @@ public class ModelRouter {
 
     @jakarta.annotation.PostConstruct
     void log() {
-        log.info("[ModelRouter] Model (all tasks): {}", haiku);
+        log.info("[ModelRouter] Haiku model (default): {}", haiku);
+        log.info("[ModelRouter] Sonnet model (Max/Family/Centre complex): {}", sonnet);
         log.info("[ModelRouter] Vision standard:   {}", visionModel(visionStandard));
         log.info("[ModelRouter] Vision heavy:      {}", visionModel(visionHeavy));
         log.info("[ModelRouter] Vision max:        {}", visionModel(visionMax));
     }
 
-    // ── Task routing (all Haiku) ──────────────────────────────────────────
+    // ── Task routing ──────────────────────────────────────────────────────
 
-    public String forChat(String ignoredUserMessage) { return haiku; }
+    /**
+     * Selects the chat model for the given user message and subscription tier.
+     *
+     * <p>MAX / FAMILY / CENTRE users are routed to Sonnet for complex questions
+     * so they get meaningfully better answers on hard maths/science problems.
+     * FREE and PRO users always get Haiku (cost control).
+     */
+    public String forChat(String userMessage, SubscriptionTier tier) {
+        if ((tier == SubscriptionTier.MAX || tier == SubscriptionTier.FAMILY
+                || tier == SubscriptionTier.CENTRE) && isComplexQuestion(userMessage)) {
+            log.info("[ModelRouter] SONNET for Max-tier complex chat: \"{}\"",
+                    userMessage == null ? "" :
+                    userMessage.substring(0, Math.min(60, userMessage.length())));
+            return sonnet;
+        }
+        return haiku;
+    }
+
+    /**
+     * Backward-compatible overload — treats as FREE tier (always Haiku).
+     * Used by code paths that don't yet have a tier context.
+     */
+    public String forChat(String userMessage) { return haiku; }
     public String forWikiCompile()    { return haiku; }
     public String forQuizGeneration() { return haiku; }
     public String forRelevanceCheck() { return haiku; }
@@ -62,13 +91,38 @@ public class ModelRouter {
     /** GRAPH, GEOMETRY, LOW-confidence visual. */
     public String forPhotoQuestionMax()   { return visionModel(visionMax); }
 
-    // ── Accessor ─────────────────────────────────────────────────────────
+    // ── Accessors ────────────────────────────────────────────────────────
 
-    public String getHaikuModel() { return haiku; }
+    public String getHaikuModel()  { return haiku; }
+    public String getSonnetModel() { return sonnet; }
 
     // ── Private ───────────────────────────────────────────────────────────
 
     private String visionModel(String override) {
         return (override != null && !override.isBlank()) ? override : haiku;
+    }
+
+    /**
+     * Heuristic: returns true if the question is likely to benefit from Sonnet's
+     * stronger reasoning. Gated behind Max tier so cost impact is bounded.
+     *
+     * <p>Triggers: long messages (>300 chars), multi-step arithmetic patterns,
+     * or presence of known "deep reasoning" keywords.
+     */
+    private boolean isComplexQuestion(String message) {
+        if (message == null || message.isBlank()) return false;
+        String lower = message.toLowerCase().trim();
+        if (lower.length() > 300) return true;
+        String[] complexKeywords = {
+            "prove", "derive", "integrate", "differentiate", "explain why",
+            "compare and contrast", "step by step", "show working",
+            "evaluate", "critically", "in what way", "justify",
+            "how does", "what would happen if",
+        };
+        for (String kw : complexKeywords) {
+            if (lower.contains(kw)) return true;
+        }
+        // Multi-step arithmetic: "3 * 4 + 5" style patterns
+        return lower.matches(".*\\d+\\s*[*/÷×]\\s*\\d+.*\\d+.*");
     }
 }

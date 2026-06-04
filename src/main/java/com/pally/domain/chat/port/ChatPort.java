@@ -28,4 +28,19 @@ public interface ChatPort {
             List<ChatMessage> history,
             String userMessage,
             Consumer<CacheMetrics> onMetrics);
+
+    /**
+     * Overload that allows the caller to specify the model explicitly.
+     * Used by {@code SendMessageUseCase} to route Max-tier users to Sonnet.
+     */
+    default Flux<ChatStreamEvent> streamChat(
+            List<Map<String, Object>> systemBlocks,
+            List<ChatMessage> history,
+            String userMessage,
+            Consumer<CacheMetrics> onMetrics,
+            String modelOverride) {
+        // Default implementation ignores the override — subclasses that
+        // support per-request model selection should override this method.
+        return streamChat(systemBlocks, history, userMessage, onMetrics);
+    }
 }

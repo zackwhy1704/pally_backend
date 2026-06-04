@@ -1,6 +1,7 @@
 package com.pally.infrastructure.ratelimit;
 
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,21 @@ public class ChatRateLimiter {
     /// Premium users are unlimited. Mochi count also gated via LevelRewards.freeTutorCap.
     public static final int FREE_DAILY_LIMIT = 20;
 
+    /// Pro-tier daily chat cap: 100 messages/day.
+    public static final int PRO_DAILY_LIMIT = 100;
+
+    /**
+     * Returns the daily chat limit for the given tier.
+     * {@link Integer#MAX_VALUE} signals "unlimited" — callers should treat it as no cap.
+     */
+    public static int dailyLimitForTier(SubscriptionTier tier) {
+        return switch (tier) {
+            case FREE                    -> FREE_DAILY_LIMIT;
+            case PRO                     -> PRO_DAILY_LIMIT;
+            case MAX, FAMILY, CENTRE     -> Integer.MAX_VALUE;
+        };
+    }
+
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
     private final Map<String, DailyCount> dailyHits = new ConcurrentHashMap<>();
 
@@ -67,16 +83,18 @@ public class ChatRateLimiter {
             deque.addLast(now);
         }
 
-        // Daily cap only applies to free tier; premium users skip the
-        // entitlement-recompute too so chat stays cheap.
-        boolean premium;
+        // Daily cap is tier-based. Resolve tier once per call; MAX/FAMILY/CENTRE
+        // skip the counter entirely (unlimited). FREE and PRO increment and
+        // compare against their respective daily cap.
+        SubscriptionTier tier;
         try {
-            premium = premiumService.resolve(userId).isPremium();
+            tier = premiumService.resolveTier(userId);
         } catch (Exception ignored) {
             // Never deny chat because a premium check blipped.
             return;
         }
-        if (premium) return;
+        int dailyLimit = dailyLimitForTier(tier);
+        if (dailyLimit == Integer.MAX_VALUE) return; // unlimited — skip counter
 
         LocalDate today = Instant.ofEpochMilli(now)
                 .atOffset(ZoneOffset.UTC).toLocalDate();
@@ -84,7 +102,7 @@ public class ChatRateLimiter {
         int nextCount = (prev != null && prev.day.equals(today))
                 ? prev.count + 1
                 : 1;
-        if (nextCount > FREE_DAILY_LIMIT) {
+        if (nextCount > dailyLimit) {
             throw new UpgradeRequiredException("CHAT_DAILY");
         }
         dailyHits.put(userId, new DailyCount(today, nextCount));

@@ -5,6 +5,8 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.TeachingMode;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.chat.AssembledContext;
+import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSession;
@@ -67,12 +69,23 @@ public class SendMessageUseCase {
     private final ConsentGuard consentGuard;
     private final ModerationService moderationService;
     private final AvatarSlotGuard avatarSlotGuard;
+    private final PremiumService premiumService;
 
     public record StreamEvent(String type, String payload) {}
 
     public Flux<StreamEvent> executeStream(String avatarId, String userId, String userMessage) {
         // Fix 2: Slot guard — locked avatars cannot be chatted with.
         avatarSlotGuard.requireActive(avatarId, userId);
+
+        // Resolve tier once at the start of the turn so the model selection
+        // and logging are consistent within the same request.
+        SubscriptionTier userTier;
+        try {
+            userTier = premiumService.resolveTier(userId);
+        } catch (Exception ignored) {
+            userTier = SubscriptionTier.FREE;
+        }
+        final SubscriptionTier tier = userTier;
 
         Avatar avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
@@ -175,7 +188,8 @@ public class SendMessageUseCase {
         AtomicReference<CacheMetrics> capturedMetrics = new AtomicReference<>();
         AtomicReference<String> capturedSourceFile = new AtomicReference<>();
 
-        return chatProxy.streamChat(systemBlocks, history, userMessage, capturedMetrics::set)
+        String selectedModel = modelRouter.forChat(userMessage, tier);
+        return chatProxy.streamChat(systemBlocks, history, userMessage, capturedMetrics::set, selectedModel)
                 .doOnNext(event -> {
                     if (event instanceof ChatStreamEvent.Token token) {
                         replyBuffer.append(token.text());
@@ -214,8 +228,7 @@ public class SendMessageUseCase {
                         assistantMessageId.set(saved.getId());
 
                         try {
-                            chatRepository.updateModelUsed(
-                                    saved.getId(), modelRouter.forChat(userMessage));
+                            chatRepository.updateModelUsed(saved.getId(), selectedModel);
                         } catch (Exception e) {
                             log.warn("[Chat] Failed to save model_used for message={}", saved.getId());
                         }
