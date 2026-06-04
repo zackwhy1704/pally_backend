@@ -25,7 +25,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -43,6 +45,21 @@ public class UploadFileUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(UploadFileUseCase.class);
     private static final double RELEVANCE_THRESHOLD = 0.30;
+
+    // Explicit allowlist of MIME types we accept. Anything not on this list is
+    // rejected with a clear 400 before any processing or storage occurs.
+    private static final Set<String> ALLOWED_MIME_TYPES = Set.of(
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "text/x-markdown",
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/webp",
+            "image/heic",
+            "image/heif"
+    );
 
     // Uploads are the core value loop — no cap. The gate is Mochi count,
     // not how much a student can teach a single Mochi.
@@ -111,7 +128,17 @@ public class UploadFileUseCase {
 
 
         String contentType = file.getContentType();
-        KnowledgeFile.UploadType uploadType = resolveUploadType(contentType);
+
+        // MIME allowlist — reject unsupported types before any storage or LLM call.
+        String normalised = contentType != null ? contentType.toLowerCase().split(";")[0].trim() : "";
+        if (!ALLOWED_MIME_TYPES.contains(normalised)) {
+            log.warn("[Pipeline:Upload] Rejected unsupported MIME type={} avatarId={}", contentType, avatarId);
+            return new UploadResult.Failure(
+                    "Unsupported file type '" + contentType + "'. "
+                    + "Please upload a PDF, plain text (.txt), or a photo (JPEG/PNG/WEBP).", null);
+        }
+
+        KnowledgeFile.UploadType uploadType = resolveUploadType(normalised);
         String storageKey = buildStorageKey(avatarId, file.getOriginalFilename());
 
         // Read bytes ONCE — MultipartFile.getInputStream() returns the same
@@ -156,6 +183,11 @@ public class UploadFileUseCase {
                 pageCount = result.pageCount();
                 log.info("[Pipeline:Upload] PDF extracted fileId={} chars={} pages={}",
                         fileId, extractedText.length(), pageCount);
+            } else if (uploadType == KnowledgeFile.UploadType.TEXT) {
+                // Plain text / markdown — decode bytes directly, no LLM call needed.
+                extractedText = new String(fileBytes, StandardCharsets.UTF_8);
+                pageCount = 1;
+                log.info("[Pipeline:Upload] TEXT decoded fileId={} chars={}", fileId, extractedText.length());
             } else {
                 extractedText = ocrService.extractText(fileBytes, contentType);
                 pageCount = 1;
@@ -257,11 +289,12 @@ public class UploadFileUseCase {
         return new UploadResult.Success(fileId, pageCount, List.of());
     }
 
-    private KnowledgeFile.UploadType resolveUploadType(String contentType) {
-        if (contentType != null && contentType.equalsIgnoreCase("application/pdf")) {
-            return KnowledgeFile.UploadType.PDF;
-        }
-        return KnowledgeFile.UploadType.PHOTO;
+    private KnowledgeFile.UploadType resolveUploadType(String normalisedMime) {
+        return switch (normalisedMime) {
+            case "application/pdf" -> KnowledgeFile.UploadType.PDF;
+            case "text/plain", "text/markdown", "text/x-markdown" -> KnowledgeFile.UploadType.TEXT;
+            default -> KnowledgeFile.UploadType.PHOTO;
+        };
     }
 
     private String buildStorageKey(String avatarId, String originalFilename) {

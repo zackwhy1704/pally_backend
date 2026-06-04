@@ -59,7 +59,7 @@ class WebhookIdempotencyTest {
         when(stripeService.verifyWebhook("{}", "sig"))
                 .thenReturn(event);
 
-        var response = controller.webhook("{}", "sig");
+        var response = controller.webhook("{}", "sig", null);
 
         verify(processedEventRepo, times(1))
                 .saveAndFlush(any(ProcessedStripeEventJpaEntity.class));
@@ -81,7 +81,7 @@ class WebhookIdempotencyTest {
         when(processedEventRepo.saveAndFlush(any()))
                 .thenThrow(new DataIntegrityViolationException("PK violation"));
 
-        var response = controller.webhook("{}", "sig");
+        var response = controller.webhook("{}", "sig", null);
 
         @SuppressWarnings("unchecked")
         Map<String, Object> body =
@@ -101,7 +101,7 @@ class WebhookIdempotencyTest {
         // isn't deserialisable from a hand-rolled Event. That's the
         // failure path we want to test.
 
-        controller.webhook("{}", "sig");
+        controller.webhook("{}", "sig", null);
 
         verify(processedEventRepo, times(1)).deleteById("evt_123");
     }
@@ -121,8 +121,8 @@ class WebhookIdempotencyTest {
             throw new DataIntegrityViolationException("PK violation");
         });
 
-        var first = controller.webhook("{}", "sig");
-        var second = controller.webhook("{}", "sig");
+        var first = controller.webhook("{}", "sig", null);
+        var second = controller.webhook("{}", "sig", null);
 
         @SuppressWarnings("unchecked")
         Map<String, Object> b1 = (Map<String, Object>) first.getBody().data();

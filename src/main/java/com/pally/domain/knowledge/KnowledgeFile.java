@@ -9,7 +9,7 @@ import java.time.Instant;
  */
 public final class KnowledgeFile {
 
-    public enum UploadType { PHOTO, PDF }
+    public enum UploadType { PHOTO, PDF, TEXT }
 
     public enum Status { PROCESSING, READY, FAILED, IRRELEVANT }
 

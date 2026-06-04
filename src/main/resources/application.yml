@@ -121,6 +121,9 @@ auth:
 stripe:
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  # Mock webhook secret for QA/dev only. Set MOCK_WEBHOOK_SECRET in Railway for dev environments.
+  # Leave blank in production to disable the mock path entirely.
+  mock-webhook-secret: ${MOCK_WEBHOOK_SECRET:}
   return:
     success-url: ${STRIPE_SUCCESS_URL:pally://subscription/return?status=success}
     cancel-url: ${STRIPE_CANCEL_URL:pally://subscription/return?status=cancel}

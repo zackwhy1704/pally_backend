@@ -64,8 +64,18 @@ public class SubscriptionController {
     @Value("${stripe.secret-key:}")
     private String stripeSecretKey;
 
+    // Secret required to call the mock webhook in dev/QA. Set MOCK_WEBHOOK_SECRET
+    // in Railway or local env. Blank = mock webhook is completely disabled.
+    @Value("${stripe.mock-webhook-secret:}")
+    private String mockWebhookSecret;
+
     private boolean isLive() {
         return stripeSecretKey != null && !stripeSecretKey.isBlank();
+    }
+
+    private boolean isMockAllowed(String providedSecret) {
+        return mockWebhookSecret != null && !mockWebhookSecret.isBlank()
+                && mockWebhookSecret.equals(providedSecret);
     }
 
     /// HTTPS landing page for Stripe's success/cancel redirect. Stripe
@@ -195,10 +205,19 @@ public class SubscriptionController {
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> webhook(
             @RequestBody String rawBody,
-            @RequestHeader(value = "Stripe-Signature", required = false)
-                    String sigHeader) {
-        boolean live = isLive() && sigHeader != null && !sigHeader.isBlank();
-        if (!live) {
+            @RequestHeader(value = "Stripe-Signature", required = false) String sigHeader,
+            @RequestHeader(value = "X-Mock-Secret", required = false) String mockSecret) {
+
+        // Mock path: only allowed when MOCK_WEBHOOK_SECRET is configured AND the caller
+        // provides the matching secret in X-Mock-Secret header. Never reachable in
+        // production if MOCK_WEBHOOK_SECRET is left blank (the default).
+        if (sigHeader == null || sigHeader.isBlank()) {
+            if (!isMockAllowed(mockSecret)) {
+                log.warn("[Subscription] Unauthenticated webhook call rejected — "
+                        + "no Stripe-Signature and no valid X-Mock-Secret");
+                return ResponseEntity.status(401)
+                        .body(ApiResponse.error("Webhook authentication required", 401));
+            }
             return handleMockWebhook(rawBody);
         }
         Event event = stripeService.verifyWebhook(rawBody, sigHeader);
