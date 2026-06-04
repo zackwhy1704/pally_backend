@@ -123,9 +123,10 @@ claude:
 gemini:
   api:
     key: ${GEMINI_API_KEY:}
-    # Paid key (AQ prefix) has access to both 1.5 and 2.0 Flash.
-    # Default: gemini-2.0-flash (cheaper output, faster). Falls back to
-    # gemini-1.5-flash-latest if the model isn't accessible.
+    # Confirmed working (smoke tested 2026-06-04):
+    #   gemini-2.0-flash        ✅ 21s, paid plan required (AQ key)
+    #   gemini-1.5-flash-latest ✅ 16s, free tier + paid
+    # Using 2.0-flash as default (same price tier, newer model).
     # Override with GEMINI_MODEL env var in Railway to pin a specific version.
     model: ${GEMINI_MODEL:gemini-2.0-flash}
     base-url: https://generativelanguage.googleapis.com
