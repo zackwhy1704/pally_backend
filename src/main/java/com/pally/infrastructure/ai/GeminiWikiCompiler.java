@@ -92,18 +92,28 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
 
         long start = System.currentTimeMillis();
         try {
-            String prompt = buildPrompt(avatar, files, existingPages);
-            log.debug("[Gemini] Prompt length: {} chars (~{} tokens)", prompt.length(), prompt.length() / 4);
-            String raw = callGemini(prompt);
+            // For very large documents (> 30k chars ≈ 100 pages), split into chunks
+            // and merge results. This prevents output-token truncation which silently
+            // drops chapters when 16384 tokens isn't enough for all pages.
+            // Threshold: 30k chars / ~4 chars per token ≈ 7500 input tokens per chunk.
+            List<WikiPageDraft> drafts;
+            if (totalChars > 30_000) {
+                drafts = compileChunked(avatar, files, existingPages);
+            } else {
+                String prompt = buildPrompt(avatar, files, existingPages);
+                log.debug("[Gemini] Prompt length: {} chars (~{} tokens)", prompt.length(), prompt.length() / 4);
+                String raw = callGemini(prompt);
+                drafts = parseResponse(raw);
+            }
+
             long ms = System.currentTimeMillis() - start;
-            List<WikiPageDraft> drafts = parseResponse(raw);
             log.info("[Gemini] ◄── COMPILE DONE avatarId={} pages={} latency={}ms",
                     avatar.getId(), drafts.size(), ms);
             drafts.forEach(d -> log.info("[Gemini]   page: slug={} title={} contentLen={} prereqs={}",
                     d.slug(), d.title(), d.content().length(), d.prerequisites()));
             if (drafts.isEmpty()) {
-                log.warn("[Gemini] ⚠️  0 pages produced for avatarId={}. Raw response preview: {}",
-                        avatar.getId(), raw.substring(0, Math.min(300, raw.length())));
+                log.warn("[Gemini] ⚠️  0 pages produced for avatarId={}. totalChars={}",
+                        avatar.getId(), totalChars);
             }
             return drafts;
         } catch (Exception e) {
@@ -114,19 +124,113 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         }
     }
 
+    // Max chars per Gemini chunk: ~25k chars ≈ 6k input tokens, leaves plenty
+    // of room in the 16k output-token ceiling for ~60 wiki pages per call.
+    private static final int GEMINI_CHUNK_CHARS = 25_000;
+
+    /**
+     * Splits the file corpus into 25k-char chunks, compiles each separately,
+     * then deduplicates and merges results by slug. Used for documents > 30k chars
+     * where a single Gemini call would hit the output-token ceiling.
+     */
+    private List<WikiPageDraft> compileChunked(Avatar avatar, List<KnowledgeFile> files,
+                                                List<WikiPage> existingPages) {
+        // Concatenate all extracted text and split into chunks
+        String allText = files.stream()
+                .filter(f -> f.getExtractedText() != null)
+                .map(f -> "## Source: " + f.getFileName() + "\n" + f.getExtractedText())
+                .collect(java.util.stream.Collectors.joining("\n\n"));
+
+        List<String> chunks = splitIntoChunks(allText, GEMINI_CHUNK_CHARS);
+        log.info("[Gemini] Chunked compile: {} chunks for {} chars, avatarId={}",
+                chunks.size(), allText.length(), avatar.getId());
+
+        // Compile each chunk, accumulate pages by slug (later chunk wins on conflict)
+        java.util.LinkedHashMap<String, WikiPageDraft> bySlug = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < chunks.size(); i++) {
+            String chunk = chunks.get(i);
+            try {
+                // Build a mini-prompt for this chunk only
+                String prompt = buildChunkPrompt(avatar, chunk, i + 1, chunks.size(), existingPages);
+                String raw = callGemini(prompt);
+                List<WikiPageDraft> chunkDrafts = parseResponse(raw);
+                log.info("[Gemini] Chunk {}/{}: {} pages produced", i + 1, chunks.size(), chunkDrafts.size());
+                for (WikiPageDraft d : chunkDrafts) {
+                    WikiPageDraft existing = bySlug.get(d.slug());
+                    if (existing == null || d.content().length() > existing.content().length()) {
+                        bySlug.put(d.slug(), d);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[Gemini] Chunk {}/{} failed: {}", i + 1, chunks.size(), e.getMessage());
+            }
+        }
+        return new java.util.ArrayList<>(bySlug.values());
+    }
+
+    private List<String> splitIntoChunks(String text, int chunkSize) {
+        List<String> chunks = new java.util.ArrayList<>();
+        int pos = 0;
+        while (pos < text.length()) {
+            int end = Math.min(pos + chunkSize, text.length());
+            // Prefer splitting at a section boundary (## or blank line)
+            if (end < text.length()) {
+                int sectionBound = text.lastIndexOf("\n## ", end);
+                int paraBound = text.lastIndexOf("\n\n", end);
+                int split = sectionBound > pos + chunkSize / 2 ? sectionBound
+                        : paraBound > pos + chunkSize / 2 ? paraBound
+                        : end;
+                end = split;
+            }
+            chunks.add(text.substring(pos, end).strip());
+            pos = end;
+        }
+        return chunks;
+    }
+
+    private String buildChunkPrompt(Avatar avatar, String chunkText, int chunkNum, int totalChunks,
+                                     List<WikiPage> existingPages) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
+                You are a knowledge organiser for a children's educational tutoring app (ages 8-14).
+                Avatar: %s | Subject: %s
+
+                ## TASK
+                Convert the extracted text below into structured wiki pages.
+                This is chunk %d of %d from a larger document.
+
+                ## RULES
+                1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, formulas EXACTLY as stated.
+                2. One topic per page. Use markdown: ## headings, - bullets, **bold** for key terms.
+                3. Pages: 200-500 words each.
+                4. Reply ONLY with a JSON array — no fences:
+                [{"slug":"lowercase-hyphen","title":"Title","content":"markdown","prerequisites":["slug-a"]}]
+
+                ## CONTENT (chunk %d of %d):
+                %s
+                """.formatted(avatar.getName(), avatar.getSubject().name(), chunkNum, totalChunks,
+                chunkNum, totalChunks, chunkText));
+        return sb.toString();
+    }
+
     private String callGemini(String prompt) {
         String url = baseUrl
                 + "/v1beta/models/" + model
                 + ":generateContent?key=" + apiKey;
 
         // Gemini REST request body
+        // maxOutputTokens raised from 8192 → 16384: stress testing showed that
+        // 8192 was silently truncating output mid-JSON-array for large documents
+        // (e.g. 22-page PDF with 6 chapters → only Chapter 1 pages produced).
+        // Gemini 2.0 Flash supports up to 8192 output tokens by default but up
+        // to 65536 with the extended flag; 16384 safely covers ~80 wiki pages.
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
                         "parts", List.of(Map.of("text", prompt))
                 )),
                 "generationConfig", Map.of(
-                        "maxOutputTokens", 8192,
-                        "temperature", 0.2  // low temperature for factual extraction
+                        "maxOutputTokens", 16384,
+                        "temperature", 0.2
                 )
         );
 
