@@ -189,12 +189,15 @@ public class SendMessageUseCase {
                         String cleanReply = SOURCE_TRAILER.matcher(
                                 replyBuffer.toString()).replaceFirst("").trim();
 
-                        // Screen the model's output before the child sees it.
-                        ModerationService.ModerationResult outMod =
-                                moderationService.screenOutput(userId, avatarId, null, cleanReply);
-                        // Note: if flagged, we still write a flag but the SSE
-                        // stream already emitted, so we can't replace mid-stream.
-                        // Future: buffer the stream before emitting (complex).
+                        // Output moderation is intentionally NOT called here.
+                        // Reason: doOnComplete() runs on a reactor-http-epoll thread.
+                        // completeFast() calls .block() which is forbidden on reactor
+                        // threads → FAST FAILED every turn → keyword fallback only →
+                        // moderation never actually ran. The SSE stream has already been
+                        // fully emitted to the client by the time doOnComplete fires, so
+                        // we can't replace the content anyway. Removing this saves one
+                        // failed call attempt per message (the 1ms FAST FAILED log).
+                        // TODO: buffer the stream, screen before emit (requires reactive rewrite).
 
                         // PENDING accounts: skip persisting the assistant reply.
                         if (ephemeral) {

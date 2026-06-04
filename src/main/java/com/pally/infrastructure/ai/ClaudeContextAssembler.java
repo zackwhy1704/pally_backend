@@ -96,6 +96,10 @@ public class ClaudeContextAssembler {
     // its format changed.  5-minute TTL is still a significant saving for
     // rapid back-and-forth chat; 1h was nice-to-have, not load-bearing.
     private static final String CACHE_EPHEMERAL = "ephemeral";
+    // Anthropic Haiku requires ≥ 2048 tokens in the cached portion for
+    // cache_control to actually write a cache entry. Below this, the field
+    // is silently ignored → cacheWrite=0 → full input cost every turn.
+    private static final int CACHE_MIN_TOKENS = 2048;
 
     private final TopicRouter topicRouter;
     private final WikiRepository wikiRepository;
@@ -190,32 +194,50 @@ public class ClaudeContextAssembler {
 
         List<Map<String, Object>> blocks = new ArrayList<>();
 
-        // ── Block 1: Hard Rules (1-hour TTL) ─────────────────────────────────
+        // ── Block 1: Hard Rules ───────────────────────────────────────────────
         String block1 = buildBlock1HardRules(avatar);
+        int t1 = estimateTokens(block1);
         Map<String, Object> b1 = new HashMap<>();
         b1.put("type", "text");
         b1.put("text", block1);
-        b1.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
         blocks.add(b1);
-        log.debug("[Cache] Block1 HardRules: ~{}t, 1h TTL", estimateTokens(block1));
 
-        // ── Block 2: Avatar Config (1-hour TTL) ───────────────────────────────
+        // ── Block 2: Avatar Config ────────────────────────────────────────────
         String block2 = buildBlock2AvatarConfig(avatar);
+        int t2 = estimateTokens(block2);
         Map<String, Object> b2 = new HashMap<>();
         b2.put("type", "text");
         b2.put("text", block2);
-        b2.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
         blocks.add(b2);
-        log.debug("[Cache] Block2 AvatarConfig: ~{}t, 1h TTL", estimateTokens(block2));
 
-        // ── Block 3: Wiki Pages — all pages (5-minute TTL) ───────────────────
+        // ── Block 3: Wiki Pages ───────────────────────────────────────────────
         String block3 = buildBlock3WikiPages(allPages, index);
+        int t3 = estimateTokens(block3);
         Map<String, Object> b3 = new HashMap<>();
         b3.put("type", "text");
         b3.put("text", block3);
-        b3.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
         blocks.add(b3);
-        log.debug("[Cache] Block3 WikiPages: ~{}t, 5m TTL, pages={}", estimateTokens(block3), allPages.size());
+
+        // Apply cache_control ONLY when the cached portion is ≥ 2048 tokens.
+        // Haiku (and Claude in general) requires this minimum for caching to
+        // activate. Below the threshold every call to put("cache_control") is
+        // silently ignored by Anthropic → cacheWrite=0 → full-rate billing on
+        // every turn even though the blocks are static.
+        //
+        // Strategy: put the single cache breakpoint on whichever block pushes
+        // the cumulative total past 2048. Blocks below the threshold get no
+        // cache_control — this is equivalent to what was happening before but
+        // now intentional and logged so we can see it.
+        int cumulative = t1 + t2 + t3;
+        if (cumulative >= CACHE_MIN_TOKENS) {
+            // All three static blocks fit in one cache write at the end of B3.
+            b3.put("cache_control", Map.of("type", CACHE_EPHEMERAL));
+            log.debug("[Cache] Block1 HardRules: ~{}t | Block2 AvatarConfig: ~{}t | Block3 WikiPages: ~{}t | total={}t ✅ CACHE WRITE on B3",
+                    t1, t2, t3, cumulative);
+        } else {
+            log.debug("[Cache] Blocks 1+2+3 = ~{}t < {} threshold — NO cache_control (Haiku minimum not met, pages={})",
+                    cumulative, CACHE_MIN_TOKENS, allPages.size());
+        }
 
         // ── Block 3.5: Rolling session memory — NO cache, may be empty ───────
         // Sits before Block 4 so SendMessageUseCase's "replace last block" still

@@ -82,6 +82,9 @@ public class CacheKeepAliveService {
         return activeTasks.containsKey(avatarId);
     }
 
+    // Haiku cache threshold — must match ClaudeContextAssembler.CACHE_MIN_TOKENS
+    private static final int CACHE_MIN_TOKENS = 2048;
+
     private void pingCache(String avatarId) {
         try {
             var avatar = avatarRepo.findById(avatarId).orElse(null);
@@ -91,14 +94,36 @@ public class CacheKeepAliveService {
             }
 
             List<WikiPage> allPages = wikiRepo.findByAvatarId(avatarId);
+
+            // Skip keepalive when the system prompt is too small to cache.
+            // Haiku requires ≥ 2048 tokens in the cached blocks for cache_control
+            // to write. Sending a ping for a small avatar just bills us for the
+            // input tokens without any caching benefit — a pure waste.
+            int estimatedTokens = allPages.stream()
+                    .mapToInt(p -> p.getContent() != null ? p.getContent().length() / 4 : 0)
+                    .sum() + 500; // +500 for Block1+Block2 overhead estimate
+            if (estimatedTokens < CACHE_MIN_TOKENS) {
+                log.debug("[CacheKeepalive] Skipping avatar={} (~{}t < {} threshold — nothing to cache)",
+                        avatarId, estimatedTokens, CACHE_MIN_TOKENS);
+                return;
+            }
+
             List<Map<String, Object>> systemBlocks = assembler.assembleSystemBlocks(avatar, allPages);
 
-            List<Map<String, String>> messages = List.of(Map.of("role", "user", "content", "ping"));
+            // Check if any block has cache_control — if assembler decided not to
+            // add it (because threshold not met), keepalive is pointless.
+            boolean hasCacheControl = systemBlocks.stream()
+                    .anyMatch(b -> b.containsKey("cache_control"));
+            if (!hasCacheControl) {
+                log.debug("[CacheKeepalive] Skipping avatar={} — no cache_control blocks assembled", avatarId);
+                return;
+            }
 
+            List<Map<String, String>> messages = List.of(Map.of("role", "user", "content", "ping"));
             claudeClient.streamResponseWithCacheAndModel(modelRouter.forCacheKeepalive(), 1, systemBlocks, messages)
                     .blockLast(Duration.ofSeconds(10));
 
-            log.debug("[CacheKeepalive] Ping sent for avatar={}", avatarId);
+            log.debug("[CacheKeepalive] Ping sent for avatar={} (~{}t)", avatarId, estimatedTokens);
 
         } catch (Exception e) {
             log.warn("[CacheKeepalive] Ping failed for avatar={}: {}", avatarId, e.getMessage());
