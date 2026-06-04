@@ -33,9 +33,11 @@ public class ChatRateLimiter {
 
     private static final int PER_USER_LIMIT = 30;
     private static final long WINDOW_MS = 60_000;
-    /// Free-tier daily cap. High enough for real exam-prep sessions;
-    /// unlimited on Premium. Gate is Mochi count, not chat depth.
-    public static final int FREE_DAILY_LIMIT = 80;
+    /// Free-tier daily chat cap: 20 messages/day.
+    /// Enough to experience the product meaningfully every day;
+    /// creates a natural upgrade trigger once students want deeper sessions.
+    /// Premium users are unlimited. Mochi count also gated via LevelRewards.freeTutorCap.
+    public static final int FREE_DAILY_LIMIT = 20;
 
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
     private final Map<String, DailyCount> dailyHits = new ConcurrentHashMap<>();
