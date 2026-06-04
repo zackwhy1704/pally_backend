@@ -1,6 +1,7 @@
 package com.pally.infrastructure.persistence.progress;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -11,6 +12,11 @@ import java.util.Set;
 @Repository
 public interface StudyPlanCompletionJpaRepository
         extends JpaRepository<StudyPlanCompletionJpaEntity, StudyPlanCompletionJpaEntity.PK> {
+
+    /// Deletes all study plan completion rows for a given user. Used by account deletion.
+    @Modifying
+    @Query(value = "DELETE FROM study_plan_completions WHERE user_id = :userId", nativeQuery = true)
+    void deleteAllByUserId(@Param("userId") String userId);
 
     @Query(value = """
             SELECT task_key FROM study_plan_completions

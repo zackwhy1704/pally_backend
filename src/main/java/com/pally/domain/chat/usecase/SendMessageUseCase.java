@@ -77,6 +77,10 @@ public class SendMessageUseCase {
         // Fix 2: Slot guard — locked avatars cannot be chatted with.
         avatarSlotGuard.requireActive(avatarId, userId);
 
+        // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
+        // Feature-flagged OFF by default — see ConsentGuard.requireAiConsent Javadoc.
+        consentGuard.requireAiConsent(userId);
+
         // Resolve tier once at the start of the turn so the model selection
         // and logging are consistent within the same request.
         SubscriptionTier userTier;

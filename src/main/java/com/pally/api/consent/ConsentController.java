@@ -204,4 +204,41 @@ public class ConsentController {
         log.info("[Consent] Self-consent recorded user={}", userId);
         return ResponseEntity.ok(ApiResponse.success(Map.of("status", "CONSENTED")));
     }
+
+    /**
+     * Records the user's explicit consent to their notes and chat messages being
+     * sent to third-party overseas AI processors (Anthropic Claude, Google Gemini)
+     * for the purpose of answering homework questions.
+     *
+     * <p>Required by Apple App Store guideline 5.1.2 and PDPA overseas transfer rules.
+     * The frontend must show a plain-language disclosure BEFORE calling this endpoint.
+     *
+     * <p>This endpoint is a no-op when {@code app.ai-consent.enabled=false} but it
+     * always records the grant so that enabling the flag later doesn't lose prior consents.
+     *
+     * <p>TODO (LEGAL/PRODUCT): before launching, supply plain-language disclosure copy
+     * naming Anthropic (Claude) and Google (Gemini) as overseas AI processors and the
+     * purpose (answering homework questions). This must appear on screen BEFORE the user
+     * uploads their first note or sends their first chat message.
+     */
+    @PostMapping("/ai-data-transfer")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> grantAiDataTransferConsent(
+            @AuthenticationPrincipal String userId) {
+        ConsentRecordJpaEntity record = new ConsentRecordJpaEntity();
+        record.setId(IdGenerator.newId());
+        record.setUserId(userId);
+        record.setConsenter("SELF");
+        record.setMethod("AI_TRANSFER_DISCLOSURE");
+        record.setPurposes("[\"AI_DATA_TRANSFER\",\"tutoring\",\"quiz\"]");
+        record.setPolicyVersion(POLICY_VERSION);
+        record.setCreatedAt(Instant.now());
+        recordRepo.save(record);
+
+        log.info("[Consent] AI_DATA_TRANSFER consent granted user={}", userId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "status", "AI_CONSENT_GRANTED",
+                "reason", "AI_DATA_TRANSFER"
+        )));
+    }
 }

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 public class JwtService {
@@ -35,6 +36,10 @@ public class JwtService {
                 .subject(userId)
                 .claim("role",
                         role == null || role.isBlank() ? DEFAULT_ROLE : role)
+                // jti (JWT ID) is used for revocation on account deletion.
+                // Tokens minted before this change have no jti — they are
+                // treated as non-revocable (backward compat) with a warning log.
+                .id(UUID.randomUUID().toString())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + EXPIRY_MS))
                 .signWith(key)
@@ -52,6 +57,17 @@ public class JwtService {
         if (raw == null) return DEFAULT_ROLE;
         String s = raw.toString().trim();
         return s.isEmpty() ? DEFAULT_ROLE : s;
+    }
+
+    /// Reads the jti (JWT ID) claim. Returns null for legacy tokens minted
+    /// before the jti was added — callers must handle null gracefully.
+    public String extractJti(String token) {
+        return parse(token).getId();
+    }
+
+    /// Returns the token expiration as an Instant.
+    public java.time.Instant extractExpiration(String token) {
+        return parse(token).getExpiration().toInstant();
     }
 
     private Claims parse(String token) {

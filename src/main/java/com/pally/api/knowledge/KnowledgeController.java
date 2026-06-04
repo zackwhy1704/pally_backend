@@ -117,6 +117,11 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        // Ownership guard: confirm the avatar belongs to this user before returning files.
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
         List<KnowledgeFile> files = knowledgeRepository.findByAvatarId(avatarId);
         return ResponseEntity.ok(ApiResponse.success(knowledgeMapper.toResponseList(files)));
     }
@@ -186,6 +191,11 @@ public class KnowledgeController {
             @PathVariable String avatarId,
             @Valid @RequestBody RelevanceCheckRequest request
     ) {
+        // Ownership guard: prevent cross-user subject inference from relevance scores.
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
         CheckRelevanceUseCase.RelevanceResult result =
                 checkRelevanceUseCase.execute(avatarId, request.contentSample());
         RelevanceCheckResponse response = new RelevanceCheckResponse(
@@ -290,9 +300,16 @@ public class KnowledgeController {
 
     @GetMapping("/wiki/pages/{slug}")
     public ResponseEntity<ApiResponse<WikiPageResponse>> getWikiPage(
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @PathVariable String slug
     ) {
+        // Ownership guard: same pattern as listWikiPages — prevents User B from
+        // reading User A's notes by guessing an avatarId + slug.
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
         WikiPage page = wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
         return ResponseEntity.ok(ApiResponse.success(WikiPageResponse.from(page)));
@@ -300,10 +317,16 @@ public class KnowledgeController {
 
     @PatchMapping("/wiki/pages/{slug}/correction")
     public ResponseEntity<ApiResponse<WikiPageResponse>> applyCorrection(
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @PathVariable String slug,
             @RequestBody HumanCorrectionRequest request
     ) {
+        // Ownership guard: prevents User B from editing User A's wiki pages.
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
         WikiPage page = wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
         page.applyHumanCorrection(request.correction());

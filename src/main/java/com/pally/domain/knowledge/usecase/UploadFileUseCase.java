@@ -101,6 +101,10 @@ public class UploadFileUseCase {
         // PDPA gate: uploading personal notes requires an ACTIVE account.
         consentGuard.requireActive(userId, "UPLOAD");
 
+        // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
+        // Feature-flagged OFF by default — see ConsentGuard.requireAiConsent Javadoc.
+        consentGuard.requireAiConsent(userId);
+
         // Fix 2: Slot guard — locked avatars cannot receive new knowledge.
         // NOTE: DELETE paths are exempt (AvatarSlotGuard Javadoc).
         avatarSlotGuard.requireActive(avatarId, userId);

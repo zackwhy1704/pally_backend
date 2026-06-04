@@ -1,5 +1,6 @@
 package com.pally.infrastructure.auth;
 
+import com.pally.infrastructure.persistence.auth.RevokedTokenJpaRepository;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -23,6 +24,7 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final RevokedTokenJpaRepository revokedTokenRepo;
 
     @Override
     protected void doFilterInternal(
@@ -43,6 +45,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String userId = jwtService.extractUserId(token);
 
             if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+
+                // Revocation check: tokens issued before account deletion must be
+                // rejected immediately, even within their remaining validity window.
+                // Tokens without a jti (minted before V55) are non-revocable —
+                // log a warning but allow through for backward compatibility.
+                String jti = jwtService.extractJti(token);
+                if (jti == null) {
+                    log.debug("[JWT] Token for user={} has no jti — cannot revoke; treating as valid", userId);
+                } else if (revokedTokenRepo.existsById(jti)) {
+                    log.warn("[JWT] Rejected revoked token jti={} user={}", jti, userId);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 // Grant ROLE_<role> from the JWT claim so hasRole('ADMIN')
                 // in SecurityConfig fires correctly. Defaults to USER for
                 // legacy tokens minted before V36 — fail-closed because

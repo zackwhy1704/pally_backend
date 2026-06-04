@@ -1,14 +1,19 @@
 package com.pally.api.account;
 
+import com.pally.domain.account.usecase.DeleteAccountUseCase;
+import com.pally.infrastructure.auth.JwtService;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
+import io.jsonwebtoken.JwtException;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -56,6 +61,8 @@ public class AccountController {
 
     private final UserJpaRepository userRepo;
     private final com.pally.domain.subscription.PremiumService premiumService;
+    private final DeleteAccountUseCase deleteAccountUseCase;
+    private final JwtService jwtService;
 
     @PostMapping("/link-code")
     @Transactional
@@ -211,6 +218,36 @@ public class AccountController {
             body.put("parent", Map.of());
         }
         return ResponseEntity.ok(ApiResponse.success(body));
+    }
+
+    /**
+     * Permanently deletes the authenticated user's account and all their data.
+     *
+     * <p>Required by Apple App Store guideline 5.1.1 and PDPA.
+     * Only the authenticated user can delete their own account.
+     * Returns 409 Conflict if the user is a PARENT with linked children.
+     */
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteAccount(
+            @AuthenticationPrincipal String userId,
+            HttpServletRequest request) {
+
+        // Extract jti and expiry from the current token so we can revoke it.
+        String jti = null;
+        java.time.Instant tokenExpiry = null;
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            try {
+                jti = jwtService.extractJti(token);
+                tokenExpiry = jwtService.extractExpiration(token);
+            } catch (JwtException e) {
+                log.warn("[DeleteAccount] Could not extract jti from token: {}", e.getMessage());
+            }
+        }
+
+        deleteAccountUseCase.execute(userId, jti, tokenExpiry);
+        return ResponseEntity.noContent().build();
     }
 
     private String generateUniqueCode() {

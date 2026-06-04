@@ -249,6 +249,27 @@ public class StripeService {
         }
     }
 
+    /// Cancels the Stripe subscription immediately for the given user, looked up
+    /// via the subscriptions table. Intended for account deletion flows.
+    ///
+    /// <p>Fails silently if Stripe is not configured or the subscription ID is
+    /// absent — account deletion must proceed regardless of Stripe state.
+    public void cancelSubscriptionForUser(String stripeSubscriptionId) {
+        if (!isLive() || stripeSubscriptionId == null || stripeSubscriptionId.isBlank()) {
+            log.info("[Stripe] cancelSubscriptionForUser skipped — not live or no sub id");
+            return;
+        }
+        try {
+            var subscription = com.stripe.model.Subscription.retrieve(stripeSubscriptionId);
+            subscription.cancel();
+            log.info("[Stripe] Subscription cancelled id={}", stripeSubscriptionId);
+        } catch (StripeException e) {
+            // Log and swallow — account deletion must not be blocked by Stripe failures.
+            log.warn("[Stripe] cancelSubscription failed id={}: {} ({})",
+                    stripeSubscriptionId, e.getMessage(), e.getCode());
+        }
+    }
+
     /// Throws {@link BusinessException} 400 on a bad signature — webhook
     /// caller catches and returns 400 so Stripe retries.
     public Event verifyWebhook(String payload, String sigHeader) {

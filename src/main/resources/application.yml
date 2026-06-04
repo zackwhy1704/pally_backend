@@ -50,6 +50,15 @@ server:
   port: ${PORT:8080}  # Railway injects PORT; local dev must set it explicitly
   shutdown: graceful
 
+# ── Third-party AI consent gate ──────────────────────────────────────────────
+# Feature flag: OFF by default. Set to true ONLY after the legal/product team
+# has supplied the plain-language disclosure copy naming Anthropic (Claude) and
+# Google (Gemini) as overseas AI processors and the disclosure is shown in the UI
+# BEFORE the user's first upload or chat. See ConsentGuard.requireAiConsent().
+app:
+  ai-consent:
+    enabled: false
+
 management:
   endpoints:
     web:
