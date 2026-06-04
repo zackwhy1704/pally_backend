@@ -37,8 +37,8 @@ public class ChatSessionSummariser {
     private static final int MAX_TOKENS = 256;
 
     private final ChatSessionSummaryJpaRepository summaryRepo;
-    private final ClaudeApiClient apiClient;
-    private final ModelRouter modelRouter;
+    // Routed to Gemini 1.5 Flash (13.3× cheaper output than Haiku for summarise calls)
+    private final com.pally.infrastructure.ai.GeminiCompletionService geminiCompletion;
 
     /** Returns the latest stored summary for {@code avatarId}, or empty. */
     @Transactional(readOnly = true)
@@ -64,8 +64,7 @@ public class ChatSessionSummariser {
                     .orElse("");
 
             String prompt = buildPrompt(prior, userMessage, assistantReply);
-            String newSummary = apiClient.complete(
-                    modelRouter.getHaikuModel(), MAX_TOKENS, prompt);
+            String newSummary = geminiCompletion.complete(MAX_TOKENS, prompt, "summarizer");
             if (newSummary == null || newSummary.isBlank()) return;
 
             ChatSessionSummaryJpaEntity entity = summaryRepo

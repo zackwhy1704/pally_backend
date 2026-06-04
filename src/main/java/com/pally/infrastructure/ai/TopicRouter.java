@@ -25,11 +25,9 @@ public class TopicRouter {
     private static final int MAX_INDEX_ENTRIES = 40;
     private static final int ROUTER_MAX_TOKENS = 256;
 
-    private final ClaudeApiClient apiClient;
+    // Routed to Gemini 1.5 Flash (10.7× cheaper than Haiku for simple classify calls)
+    private final GeminiCompletionService geminiCompletion;
     private final ObjectMapper objectMapper;
-
-    @Value("${claude.api.model}")
-    private String model;
 
     public List<DetectedTopic> route(String userMessage, String subject, List<WikiPageIndex> index) {
         if (index.isEmpty()) {
@@ -41,7 +39,7 @@ public class TopicRouter {
         String prompt = buildPrompt(userMessage, subject, indexText);
 
         try {
-            String response = apiClient.complete(model, ROUTER_MAX_TOKENS, prompt);
+            String response = geminiCompletion.complete(ROUTER_MAX_TOKENS, prompt, "topic-router");
             return parseTopics(response);
         } catch (Exception e) {
             log.warn("[TopicRouter] Routing failed, falling back to empty: {}", e.getMessage());

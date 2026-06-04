@@ -31,9 +31,9 @@ public class ClaudeTeachEvaluator {
     private static final int XP_PER_COVERED = 5;
     private static final int PERFECT_BONUS = 10;
 
-    private final ClaudeApiClient apiClient;
+    // Routed to Gemini 1.5 Flash (10.7× cheaper for evaluate/score tasks)
+    private final GeminiCompletionService geminiCompletion;
     private final ObjectMapper objectMapper;
-    private final ModelRouter modelRouter;
 
     public TeachResponse evaluate(WikiPage page, String explanation) {
         if (explanation == null || explanation.trim().length() < 10) {
@@ -47,8 +47,7 @@ public class ClaudeTeachEvaluator {
         long start = System.currentTimeMillis();
         String raw;
         try {
-            raw = apiClient.complete(
-                    modelRouter.getHaikuModel(), MAX_TOKENS, prompt);
+            raw = geminiCompletion.complete(MAX_TOKENS, prompt, "teach-eval");
         } catch (Exception e) {
             log.warn("[Teach] Claude call failed: {}", e.getMessage());
             return new TeachResponse(0, 0, 0, List.of(), List.of(),
