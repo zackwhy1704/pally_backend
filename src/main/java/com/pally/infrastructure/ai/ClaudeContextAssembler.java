@@ -389,48 +389,72 @@ public class ClaudeContextAssembler {
     }
 
     /**
-     * Returns curriculum-specific method rules to inject into Block 2.
+     * Returns goal-specific method rules to inject into Block 2.
+     * Driven by the user's selected study goal (EXAM_PREP, UNIVERSITY,
+     * CODING_INTERVIEW, PROFESSIONAL, OTHER). Legacy geography-based keys
+     * (CAMBRIDGE, IB, UK_GCSE etc.) still map gracefully — existing avatar
+     * records are not invalidated.
      * Completely deterministic — no dynamic content — so the block stays cache-friendly.
      */
     String buildCurriculumMethodRules(String curriculum, String grade) {
         if (curriculum == null) return "";
         return switch (curriculum.toUpperCase().replace(" ", "_").replace("-", "_")) {
-            case "SINGAPORE", "SINGAPORE_MOE", "MOE" -> """
+            // ── New goal-oriented keys ────────────────────────────────────────
+            case "EXAM_PREP" -> """
 
-                ## CURRICULUM METHOD RULES — Singapore MOE
-                - Fractions/ratios: prefer the model/bar-diagram method at primary level.
-                - Algebra word problems: define the unknown FIRST, then form the equation.
-                - Show ALL working steps — Singapore marking awards method marks separately.
-                - Use "units" language for ratio questions (e.g. "3 units = 12, so 1 unit = 4").
-                - Standard form: write as a × 10ⁿ where 1 ≤ a < 10.
-                - Geometry: state the reason for each angle/length deduction (e.g. "angles on a straight line sum to 180°").
+                ## STUDY GOAL — Examination Preparation
+                - Always show full working steps; examiners award method marks.
+                - Flag which part of a multi-part question each step addresses.
+                - After explaining a concept, ask a Socratic follow-up to check understanding.
+                - Highlight common exam traps and mark-scheme keywords.
+                - Keep answers concise and structured (Point → Evidence → Explanation).
                 """;
-            case "UK_GCSE", "GCSE", "UK" -> """
+            case "UNIVERSITY" -> """
 
-                ## CURRICULUM METHOD RULES — UK GCSE
-                - Standard form: A × 10ⁿ where 1 ≤ A < 10; show each conversion step.
-                - Long multiplication/division: show column method working.
-                - Surds: rationalise denominators; leave answers in surd form unless told otherwise.
-                - Geometry proofs: state each rule used (e.g. "alternate angles, AB ∥ CD").
-                - Trigonometry: label SOH-CAH-TOA explicitly in working.
+                ## STUDY GOAL — University Midterms / Finals
+                - Expect university-level rigour: proofs, derivations, and edge cases matter.
+                - Use precise academic terminology; explain it the first time it appears.
+                - Prioritise conceptual understanding over rote formulas.
+                - Where relevant, note the difference between lecture-slide shortcuts and full proofs.
+                - Integration: always include +C for indefinite integrals; state domain restrictions.
                 """;
-            case "IB", "IB_MYP", "IB_DP" -> """
+            case "CODING_INTERVIEW" -> """
 
-                ## CURRICULUM METHOD RULES — IB
-                - Always show the command-term level of response (calculate vs. explain vs. evaluate).
-                - Significant figures: answers to 3 s.f. unless stated otherwise.
-                - Calculator use: write the setup before using the calculator result.
-                - Mathematical notation: use correct IB notation for functions, sets, and vectors.
+                ## STUDY GOAL — Coding Interview Preparation
+                - For every problem: clarify constraints → brute force → optimise → code → test.
+                - State time and space complexity (Big-O) for every solution.
+                - Prefer clean, readable code; name variables descriptively.
+                - Walk through at least one example input/output trace after each solution.
+                - When stuck, guide with hints rather than giving the full answer immediately.
+                - Cover edge cases: empty input, single element, duplicates, overflow.
                 """;
-            case "A_LEVEL", "A_LEVEL_UK" -> """
+            case "PROFESSIONAL" -> """
 
-                ## CURRICULUM METHOD RULES — A-Level
-                - Differentiation from first principles if explicitly asked.
-                - Integration: always add +C for indefinite integrals.
-                - Proofs: every step must be justified; QED or □ at the end.
-                - Mechanics: draw a clear force diagram before resolving.
+                ## STUDY GOAL — Professional Examinations (CFA / ACCA / CPA / Bar…)
+                - Use official terminology from the relevant professional body's curriculum.
+                - Structure answers using the exam's standard format (e.g. IFRS vs. GAAP distinction for ACCA).
+                - Emphasise precision: professional exams penalise vague answers.
+                - After each concept, connect it to a realistic exam question or scenario.
+                - Flag any area where candidates commonly lose marks.
                 """;
-            default -> ""; // General curriculum — no extra method constraints
+            // ── Legacy geography-based keys (kept for backward compat) ───────
+            case "CAMBRIDGE", "SINGAPORE", "SINGAPORE_MOE", "MOE", "MY_SPM" -> """
+
+                ## STUDY GOAL — Examination Preparation
+                - Always show full working steps; examiners award method marks.
+                - Flag which part of a multi-part question each step addresses.
+                - After explaining a concept, ask a Socratic follow-up to check understanding.
+                - Highlight common exam traps and mark-scheme keywords.
+                """;
+            case "UK_GCSE", "GCSE", "UK", "IB", "IB_MYP", "IB_DP",
+                 "A_LEVEL", "A_LEVEL_UK", "US_AP", "AU_ATAR" -> """
+
+                ## STUDY GOAL — Examination Preparation
+                - Always show full working steps and state the rule or theorem used.
+                - Significant figures / standard form: follow the convention specified in the question.
+                - After explaining a concept, ask a Socratic follow-up to check understanding.
+                """;
+            default -> ""; // OTHER or unrecognised — no extra constraints
         };
     }
 

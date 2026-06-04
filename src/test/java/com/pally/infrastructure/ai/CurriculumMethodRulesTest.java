@@ -21,18 +21,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 
 /**
- * FIX A — Curriculum-specific method rules injected into Block 2.
+ * Goal-specific study rules injected into Block 2 of the system prompt.
  *
- * <p>Verifies:
- * <ul>
- *   <li>Singapore MOE curriculum → contains "bar-diagram" and "units".</li>
- *   <li>UK GCSE curriculum → contains "SOH-CAH-TOA".</li>
- *   <li>null curriculum → returns empty string (no extra rules).</li>
- *   <li>Teacher preferences → "TEACHER INSTRUCTIONS" section present when set.</li>
- *   <li>Teacher preferences absent → no "TEACHER INSTRUCTIONS" section when null.</li>
- * </ul>
- *
- * <p>Zero real Claude API calls — all dependencies mocked.
+ * <p>Verifies each of the 5 canonical goal keys (EXAM_PREP, UNIVERSITY,
+ * CODING_INTERVIEW, PROFESSIONAL, OTHER) produces the expected instructions,
+ * plus backward-compat checks that legacy geography keys still produce
+ * non-empty exam-prep rules without breaking.
  */
 @ExtendWith(MockitoExtension.class)
 class CurriculumMethodRulesTest {
@@ -50,41 +44,52 @@ class CurriculumMethodRulesTest {
                 topicRouter, wikiRepository, chatRepository, new ObjectMapper(),
                 sessionSummariser, new CalculatorTool(), new AlgebraTool());
 
-        // Minimal stubs required for assembleSystemBlocks / buildBlock2AvatarConfig
         lenient().when(wikiRepository.getIndex(any())).thenReturn(List.of());
         lenient().when(wikiRepository.findActiveByAvatarId(any())).thenReturn(List.of());
         lenient().when(wikiRepository.findRecentlyArchivedSlugs(any(), any())).thenReturn(List.of());
         lenient().when(sessionSummariser.findSummary(any())).thenReturn(Optional.empty());
     }
 
-    // ── buildCurriculumMethodRules unit tests ─────────────────────────────────
+    // ── New canonical goal keys ───────────────────────────────────────────────
 
     @Test
-    void buildCurriculumMethodRules_singapore_containsBarDiagram() {
-        String result = assembler.buildCurriculumMethodRules("SINGAPORE", "P5");
+    void examPrep_containsMarkingKeywords() {
+        String result = assembler.buildCurriculumMethodRules("EXAM_PREP", null);
         assertThat(result)
-                .as("Singapore MOE rules should mention bar-diagram method")
-                .contains("bar-diagram");
+                .as("EXAM_PREP rules should mention exam traps and method marks")
+                .contains("method marks")
+                .contains("Socratic");
     }
 
     @Test
-    void buildCurriculumMethodRules_singapore_containsUnitsLanguage() {
-        String result = assembler.buildCurriculumMethodRules("Singapore MOE", "P6");
+    void university_containsUniversityRigour() {
+        String result = assembler.buildCurriculumMethodRules("UNIVERSITY", null);
         assertThat(result)
-                .as("Singapore MOE rules should include units-language guidance")
-                .contains("units");
+                .as("UNIVERSITY rules should mention university-level rigour and integration +C")
+                .contains("university-level")
+                .contains("+C");
     }
 
     @Test
-    void buildCurriculumMethodRules_gcse_containsSohCahToa() {
-        String result = assembler.buildCurriculumMethodRules("GCSE", null);
+    void codingInterview_containsBigO() {
+        String result = assembler.buildCurriculumMethodRules("CODING_INTERVIEW", null);
         assertThat(result)
-                .as("UK GCSE rules should mention SOH-CAH-TOA")
-                .contains("SOH-CAH-TOA");
+                .as("CODING_INTERVIEW rules should mention Big-O complexity")
+                .contains("Big-O")
+                .contains("edge cases");
     }
 
     @Test
-    void buildCurriculumMethodRules_nullCurriculum_returnsEmpty() {
+    void professional_containsProfessionalBody() {
+        String result = assembler.buildCurriculumMethodRules("PROFESSIONAL", null);
+        assertThat(result)
+                .as("PROFESSIONAL rules should mention professional body terminology")
+                .contains("professional body")
+                .contains("CFA");
+    }
+
+    @Test
+    void nullCurriculum_returnsEmpty() {
         String result = assembler.buildCurriculumMethodRules(null, null);
         assertThat(result)
                 .as("null curriculum should produce empty rules string")
@@ -92,36 +97,64 @@ class CurriculumMethodRulesTest {
     }
 
     @Test
-    void buildCurriculumMethodRules_unknownCurriculum_returnsEmpty() {
-        String result = assembler.buildCurriculumMethodRules("CUSTOM_SCHOOL_SYSTEM", "Year 7");
+    void other_returnsEmpty() {
+        String result = assembler.buildCurriculumMethodRules("OTHER", null);
         assertThat(result)
-                .as("Unrecognised curriculum should produce empty rules string (no constraints)")
+                .as("OTHER / unrecognised curriculum produces no constraints")
                 .isEmpty();
     }
 
     @Test
-    void buildCurriculumMethodRules_ib_containsSignificantFigures() {
-        String result = assembler.buildCurriculumMethodRules("IB", "Grade 10");
+    void unknownCurriculum_returnsEmpty() {
+        String result = assembler.buildCurriculumMethodRules("CUSTOM_SCHOOL_SYSTEM", "Year 7");
         assertThat(result)
-                .as("IB rules should mention significant figures")
-                .contains("s.f.");
+                .as("Unrecognised curriculum should produce empty rules string")
+                .isEmpty();
+    }
+
+    // ── Legacy geography keys — backward compat (non-empty, mention exam prep) ─
+
+    @Test
+    void legacyCambridge_producesExamPrepRules() {
+        String result = assembler.buildCurriculumMethodRules("CAMBRIDGE", "O-Level");
+        assertThat(result)
+                .as("Legacy CAMBRIDGE key should fall through to exam-prep rules")
+                .isNotEmpty()
+                .contains("method marks");
     }
 
     @Test
-    void buildCurriculumMethodRules_aLevel_containsIntegrationPlusC() {
-        String result = assembler.buildCurriculumMethodRules("A-LEVEL", null);
+    void legacyGcse_producesExamPrepRules() {
+        String result = assembler.buildCurriculumMethodRules("GCSE", null);
         assertThat(result)
-                .as("A-Level rules should mention +C for indefinite integrals")
-                .contains("+C");
+                .as("Legacy GCSE key should fall through to exam-prep rules")
+                .isNotEmpty()
+                .contains("working steps");
     }
 
-    // ── Teacher preferences injection tests ───────────────────────────────────
+    @Test
+    void legacyIb_producesExamPrepRules() {
+        String result = assembler.buildCurriculumMethodRules("IB", "Grade 10");
+        assertThat(result)
+                .as("Legacy IB key should fall through to exam-prep rules")
+                .isNotEmpty();
+    }
+
+    @Test
+    void legacySingapore_producesExamPrepRules() {
+        String result = assembler.buildCurriculumMethodRules("SINGAPORE", "P5");
+        assertThat(result)
+                .as("Legacy SINGAPORE key should fall through to exam-prep rules")
+                .isNotEmpty()
+                .contains("method marks");
+    }
+
+    // ── Teacher preferences injection ─────────────────────────────────────────
 
     @Test
     void block2_withTeacherPreferences_containsTeacherInstructionsSection() {
-        Avatar avatar = buildAvatar("SINGAPORE", "P5", "Always use the model method. No shortcuts.");
+        Avatar avatar = buildAvatar("EXAM_PREP", "P5", "Always use the model method. No shortcuts.");
 
-        // Build system blocks and extract block 2 (index 1 — block 0 is hard rules)
         List<java.util.Map<String, Object>> blocks = assembler.assembleSystemBlocks(avatar, List.of());
         String block2Text = (String) blocks.get(1).get("text");
 
@@ -133,7 +166,7 @@ class CurriculumMethodRulesTest {
 
     @Test
     void block2_withNullTeacherPreferences_noTeacherInstructionsSection() {
-        Avatar avatar = buildAvatar("SINGAPORE", "P5", null);
+        Avatar avatar = buildAvatar("EXAM_PREP", "P5", null);
 
         List<java.util.Map<String, Object>> blocks = assembler.assembleSystemBlocks(avatar, List.of());
         String block2Text = (String) blocks.get(1).get("text");
@@ -144,27 +177,26 @@ class CurriculumMethodRulesTest {
     }
 
     @Test
-    void block2_singaporeCurriculum_containsMethodRules() {
-        Avatar avatar = buildAvatar("SINGAPORE", "P4", null);
+    void block2_examPrepGoal_containsGoalRules() {
+        Avatar avatar = buildAvatar("EXAM_PREP", "Form 4", null);
 
         List<java.util.Map<String, Object>> blocks = assembler.assembleSystemBlocks(avatar, List.of());
         String block2Text = (String) blocks.get(1).get("text");
 
         assertThat(block2Text)
-                .as("Block 2 should contain Singapore curriculum method rules")
-                .contains("Singapore MOE")
-                .contains("bar-diagram");
+                .as("Block 2 should contain Examination Preparation goal rules")
+                .contains("Examination Preparation")
+                .contains("method marks");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Avatar buildAvatar(String curriculum, String grade, String teacherPreferences) {
-        Avatar avatar = Avatar.reconstitute(
+        return Avatar.reconstitute(
                 "avatar-curriculum-test", "user-1", "Nomi", Subject.MATHS,
                 CharacterType.MOCHI, 0, Instant.now(),
                 grade, curriculum, Avatar.PedagogyMode.SOCRATIC,
                 com.pally.domain.avatar.TeachingMode.TEACHING, null,
                 Avatar.BrainState.READY, true, teacherPreferences);
-        return avatar;
     }
 }
