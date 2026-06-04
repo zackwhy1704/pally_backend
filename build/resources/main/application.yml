@@ -21,6 +21,10 @@ spring:
       leak-detection-threshold: ${DB_LEAK_MS:20000}
       connection-test-query: SELECT 1
   jpa:
+    # OSIV disabled: DB connections are only held during @Transactional methods,
+    # never across the full HTTP request. Without this, a 60s Claude call holds
+    # a Hikari connection → connection leak → pool exhaustion → quiz/compile hangs.
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     show-sql: false
@@ -102,19 +106,44 @@ stripe:
   return:
     success-url: ${STRIPE_SUCCESS_URL:pally://subscription/return?status=success}
     cancel-url: ${STRIPE_CANCEL_URL:pally://subscription/return?status=cancel}
+  # Stripe Price IDs — created 2026-06-04, Pally account acct_1TcIvuE1t2gQ3tvL
+  # Set these in Railway Variables; leave blank in dev (mock mode).
   price:
+    # Legacy (kept for backward-compat if any existing subscribers use old keys)
     individual-monthly: ${STRIPE_PRICE_INDIVIDUAL_MONTHLY:}
     family-monthly: ${STRIPE_PRICE_FAMILY_MONTHLY:}
+    # New tiers
+    pro-monthly: ${STRIPE_PRICE_PRO_MONTHLY:price_1TeXmGE1t2gQ3tvLecfxvkBz}
+    pro-annual: ${STRIPE_PRICE_PRO_ANNUAL:price_1TeXmNE1t2gQ3tvLKkWwUvZP}
+    max-monthly: ${STRIPE_PRICE_MAX_MONTHLY:price_1TeXmTE1t2gQ3tvLUsnoOSkR}
+    max-annual: ${STRIPE_PRICE_MAX_ANNUAL:price_1TeXmaE1t2gQ3tvLLcex7STR}
+    family-monthly-new: ${STRIPE_PRICE_FAMILY_MONTHLY_NEW:price_1TeXmiE1t2gQ3tvLjl0AbsfL}
+    family-annual: ${STRIPE_PRICE_FAMILY_ANNUAL:price_1TeXmnE1t2gQ3tvLLF9V3xbk}
+    centre-monthly: ${STRIPE_PRICE_CENTRE_MONTHLY:price_1TeXmuE1t2gQ3tvLITC8K12D}
+    centre-annual: ${STRIPE_PRICE_CENTRE_ANNUAL:price_1TeXn1E1t2gQ3tvL1YUOpb7m}
 
 claude:
   api:
     key: ${CLAUDE_API_KEY:}
     base-url: https://api.anthropic.com
     model: claude-haiku-4-5-20251001
-    sonnet-model: ${CLAUDE_SONNET_MODEL:claude-sonnet-4-6}
+    # sonnet-model removed — all calls use Haiku (claude.api.model)
     relevance-max-tokens: 128
     chat-max-tokens: 1024
     version: "2023-06-01"
+
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    # Fallback chain (smoke tested 2026-06-04 with paid AQ key):
+    #   Tier 1: gemini-1.5-flash-latest → fastest (16s), free + paid
+    #   Tier 2: gemini-2.0-flash        → paid only (21s), better reasoning
+    #   Tier 3: Claude Haiku (chunked)  → always available, batched for large files
+    # Override individual tiers via GEMINI_MODEL_PRIMARY / GEMINI_MODEL_SECONDARY.
+    model:
+      primary: ${GEMINI_MODEL_PRIMARY:gemini-1.5-flash-latest}
+      secondary: ${GEMINI_MODEL_SECONDARY:gemini-2.0-flash}
+    base-url: https://generativelanguage.googleapis.com
 
 storage:
   type: ${STORAGE_TYPE:local}

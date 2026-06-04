@@ -27,6 +27,8 @@ public class UpgradeRequiredException extends PallyException {
             case "PARENT_DASHBOARD" -> "open the parent dashboard";
             case "CURRICULUM" -> "follow the curriculum journey";
             case "EXTRA_FREEZE" -> "stack more streak freezes";
+            case "GROUPS" -> "create or join study groups";
+            case "ADD_STUDENT" -> "add more students to your account";
             default -> "use this feature";
         };
     }

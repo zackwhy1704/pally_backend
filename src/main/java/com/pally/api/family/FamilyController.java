@@ -1,8 +1,10 @@
 package com.pally.api.family;
 
+import com.pally.domain.subscription.Entitlements;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionLimits;
 import com.pally.domain.subscription.SubscriptionTier;
+import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.response.ApiResponse;
@@ -104,6 +106,15 @@ public class FamilyController {
     /**
      * Allows a child account to join a family by redeeming a link code issued
      * by the parent. The code is single-use and cleared after claim.
+     *
+     * <p>Enforces the per-tier maxStudents cap from {@link Entitlements}:
+     * <ul>
+     *   <li>FREE (SPARK): maxStudents=1 — payer only, no children allowed →
+     *       immediately throws UpgradeRequiredException("ADD_STUDENT")</li>
+     *   <li>PRO/MAX: maxStudents=1 — same as above</li>
+     *   <li>FAMILY: maxStudents=4</li>
+     *   <li>CENTRE: maxStudents=15</li>
+     * </ul>
      */
     @PostMapping("/join/{linkCode}")
     @Transactional
@@ -118,6 +129,15 @@ public class FamilyController {
                     .body(ApiResponse.error(
                             "Link code has expired. Ask your parent to generate a new one.", 410));
         }
+
+        // Enforce maxStudents cap for the PAYER (parent / centre owner).
+        SubscriptionTier payerTier = premiumService.resolveTier(parent.getId());
+        int maxStudents = Entitlements.forTier(payerTier).maxStudents();
+        int currentChildren = userRepo.countByParentId(parent.getId());
+        if (currentChildren >= maxStudents) {
+            throw new UpgradeRequiredException("ADD_STUDENT");
+        }
+
         UserJpaEntity child = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         child.setParentId(parent.getId());

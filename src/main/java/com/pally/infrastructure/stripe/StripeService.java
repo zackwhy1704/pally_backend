@@ -46,11 +46,37 @@ public class StripeService {
     @Value("${stripe.return.cancel-url:https://pallybackend-production.up.railway.app/api/v1/subscription/return?status=cancel}")
     private String cancelUrl;
 
+    // ── Legacy price IDs ────────────────────────────────────────────────────
     @Value("${stripe.price.individual-monthly:}")
     private String priceIndividualMonthly;
 
     @Value("${stripe.price.family-monthly:}")
-    private String priceFamilyMonthly;
+    private String priceFamilyMonthlyLegacy;
+
+    // ── Current price IDs (all 8 canonical plan keys) ───────────────────────
+    @Value("${stripe.price.pro-monthly:}")
+    private String priceProMonthly;
+
+    @Value("${stripe.price.pro-annual:}")
+    private String priceProAnnual;
+
+    @Value("${stripe.price.max-monthly:}")
+    private String priceMaxMonthly;
+
+    @Value("${stripe.price.max-annual:}")
+    private String priceMaxAnnual;
+
+    @Value("${stripe.price.family-monthly-new:}")
+    private String priceFamilyMonthlyNew;
+
+    @Value("${stripe.price.family-annual:}")
+    private String priceFamilyAnnual;
+
+    @Value("${stripe.price.centre-monthly:}")
+    private String priceCentreMonthly;
+
+    @Value("${stripe.price.centre-annual:}")
+    private String priceCentreAnnual;
 
     @PostConstruct
     void init() {
@@ -66,10 +92,29 @@ public class StripeService {
         return secretKey != null && !secretKey.isBlank();
     }
 
+    // Canonical allowed plan keys. All others are rejected at checkout time.
+    private static final java.util.Set<String> ALLOWED_PLANS = java.util.Set.of(
+            "pro_monthly", "pro_annual",
+            "max_monthly", "max_annual",
+            "family_monthly", "family_monthly_new", "family_annual",
+            "centre_monthly", "centre_annual",
+            // Legacy — kept for backward compat
+            "individual_monthly"
+    );
+
     /// Creates a hosted Checkout Session and returns the URL the client
     /// should open. {@code userId} flows through as client_reference_id
     /// so the webhook can resolve the subscription back to the user.
+    ///
+    /// <p>Validates that {@code plan} is a recognised canonical key before
+    /// building Stripe params, so unknown plan strings don't create orphaned
+    /// checkout sessions.
     public String createCheckoutSession(String userId, String plan) {
+        // Validate plan BEFORE isLive check so clients get a clear 400 for
+        // bad plan keys regardless of whether Stripe is configured.
+        if (plan == null || !ALLOWED_PLANS.contains(plan)) {
+            throw new BusinessException("Unknown plan: " + plan, 400);
+        }
         if (!isLive()) {
             throw new BusinessException("Stripe is not configured", 503);
         }
@@ -98,8 +143,7 @@ public class StripeService {
     }
 
     /// Build a line item — prefer real price IDs once configured; fall back
-    /// to ad-hoc priceData for the pre-Dashboard pilot so the flow can be
-    /// exercised end-to-end without leaving placeholder products lying around.
+    /// to ad-hoc priceData with correct amounts for each plan.
     private com.stripe.param.checkout.SessionCreateParams.LineItem buildLineItem(
             String plan) {
         String priceId = resolvePriceId(plan);
@@ -109,29 +153,75 @@ public class StripeService {
                     .setQuantity(1L)
                     .build();
         }
-        long amount = "family_monthly".equals(plan) ? 1499L : 799L;
-        String name = "family_monthly".equals(plan)
-                ? "Pally Family Monthly"
-                : "Pally Premium Monthly";
+        // Fallback priceData with correct amounts per plan (cents, USD).
+        long amount = fallbackAmount(plan);
+        Recurring.Interval interval = plan.endsWith("_annual")
+                ? Recurring.Interval.YEAR
+                : Recurring.Interval.MONTH;
+        String productName = "Pally " + planDisplayName(plan);
         return com.stripe.param.checkout.SessionCreateParams.LineItem.builder()
                 .setQuantity(1L)
                 .setPriceData(PriceData.builder()
                         .setCurrency("usd")
                         .setUnitAmount(amount)
                         .setRecurring(Recurring.builder()
-                                .setInterval(Recurring.Interval.MONTH)
+                                .setInterval(interval)
                                 .build())
                         .setProductData(PriceData.ProductData.builder()
-                                .setName(name)
+                                .setName(productName)
                                 .build())
                         .build())
                 .build();
     }
 
-    private String resolvePriceId(String plan) {
-        return "family_monthly".equals(plan)
-                ? priceFamilyMonthly
-                : priceIndividualMonthly;
+    /**
+     * Resolves a canonical (or legacy) plan key to a Stripe Price ID.
+     * Returns null/blank if not configured — caller falls back to priceData.
+     */
+    String resolvePriceId(String plan) {
+        return switch (plan) {
+            case "pro_monthly"                    -> priceProMonthly;
+            case "pro_annual"                     -> priceProAnnual;
+            case "max_monthly"                    -> priceMaxMonthly;
+            case "max_annual"                     -> priceMaxAnnual;
+            case "family_monthly", "family_monthly_new" -> priceFamilyMonthlyNew;
+            case "family_annual"                  -> priceFamilyAnnual;
+            case "centre_monthly"                 -> priceCentreMonthly;
+            case "centre_annual"                  -> priceCentreAnnual;
+            // Legacy plan → route to PRO price
+            case "individual_monthly"             ->
+                    priceProMonthly != null && !priceProMonthly.isBlank()
+                            ? priceProMonthly
+                            : priceIndividualMonthly;
+            default -> null;
+        };
+    }
+
+    private long fallbackAmount(String plan) {
+        return switch (plan) {
+            case "pro_monthly"                         ->  999L;
+            case "pro_annual"                          -> 7900L;
+            case "max_monthly"                         -> 1999L;
+            case "max_annual"                          -> 15900L;
+            case "family_monthly", "family_monthly_new"-> 3499L;
+            case "family_annual"                       -> 27900L;
+            case "centre_monthly"                      -> 8999L;
+            case "centre_annual"                       -> 72000L;
+            // Legacy
+            case "individual_monthly"                  ->  999L;
+            default                                    ->  999L;
+        };
+    }
+
+    private String planDisplayName(String plan) {
+        return switch (plan) {
+            case "pro_monthly", "pro_annual"             -> "Pro";
+            case "max_monthly", "max_annual"             -> "Max";
+            case "family_monthly", "family_monthly_new",
+                 "family_annual"                         -> "Family";
+            case "centre_monthly", "centre_annual"       -> "Centre";
+            default                                      -> "Premium";
+        };
     }
 
     /// Opens a Billing Portal session so the user can manage / cancel / swap

@@ -3,7 +3,8 @@ package com.pally.api.group;
 import com.pally.domain.knowledge.RelevanceScore;
 import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.progress.XpService;
-import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaRepository;
+import com.pally.domain.subscription.Entitlements;
+import com.pally.domain.subscription.PremiumService;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupReportJpaEntity;
@@ -16,6 +17,7 @@ import com.pally.infrastructure.persistence.knowledge.WikiPageJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
+import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -40,22 +42,15 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Pilot-gated collaborative study groups. The {@code groups_enabled}
- * feature flag (V24) controls visibility client-side; backend stays open
- * to any authenticated caller so we can pilot without admin gating logic.
- *
- * <p>Free tier caps at 1 group membership; premium gating is server-side
- * intent and currently only enforced as a hard cap of {@link #FREE_GROUP_CAP}
- * for any non-flagged user. Flagged users (pilot/premium) bypass the cap.
+ * Entitlement-gated collaborative study groups. Groups are available to PRO
+ * and above tiers. FREE (SPARK) users receive an UPGRADE_REQUIRED 402 when
+ * they attempt to create or join a group.
  */
 @RestController
 @RequestMapping("/api/v1/groups")
 @RequiredArgsConstructor
 @Slf4j
 public class StudyGroupController {
-
-    private static final int FREE_GROUP_CAP = 1;
-    private static final String PILOT_FLAG = "groups_enabled";
 
     private static final int SHARE_XP = 10;
 
@@ -66,7 +61,7 @@ public class StudyGroupController {
     private final WikiPageJpaRepository wikiPageRepo;
     private final RelevancePort relevancePort;
     private final UserJpaRepository userRepo;
-    private final UserFeatureFlagJpaRepository flagRepo;
+    private final PremiumService premiumService;
     private final XpService xpService;
 
     /// Relevance thresholds — share is hard-blocked below BLOCK, soft-warned
@@ -95,7 +90,7 @@ public class StudyGroupController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> createGroup(
             @AuthenticationPrincipal String userId,
             @RequestBody Map<String, String> body) {
-        ensureWithinCap(userId);
+        ensureGroupsEntitled(userId);
         String name = body.getOrDefault("name", "").trim();
         if (name.isBlank() || name.length() > 100) {
             throw new BusinessException(
@@ -127,7 +122,7 @@ public class StudyGroupController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> join(
             @AuthenticationPrincipal String userId,
             @RequestBody Map<String, String> body) {
-        ensureWithinCap(userId);
+        ensureGroupsEntitled(userId);
         String inviteCode = body.getOrDefault("inviteCode", "").trim()
                 .toUpperCase();
         if (inviteCode.isBlank()) {
@@ -457,20 +452,16 @@ public class StudyGroupController {
         }
     }
 
-    private void ensureWithinCap(String userId) {
-        if (isPilotUser(userId)) return;
-        long current = memberRepo.countByUserId(userId);
-        if (current >= FREE_GROUP_CAP) {
-            throw new BusinessException(
-                    "Free tier is capped at " + FREE_GROUP_CAP
-                            + " group. Upgrade to join more.", 402);
+    /**
+     * Enforces the groups entitlement gate. FREE (SPARK) tier users cannot
+     * create or join groups — they receive a 402 UPGRADE_REQUIRED directing
+     * them to upgrade to Pro or above.
+     */
+    private void ensureGroupsEntitled(String userId) {
+        var tier = premiumService.resolveTier(userId);
+        if (!Entitlements.forTier(tier).groups()) {
+            throw new UpgradeRequiredException("GROUPS");
         }
-    }
-
-    private boolean isPilotUser(String userId) {
-        return flagRepo.findByUserIdAndFlagName(userId, PILOT_FLAG)
-                .map(r -> r.isEnabled())
-                .orElse(false);
     }
 
     private Map<String, Object> toSummary(StudyGroupJpaEntity g) {
