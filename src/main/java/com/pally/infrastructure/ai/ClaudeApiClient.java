@@ -489,6 +489,11 @@ public class ClaudeApiClient {
                 .uri(baseUrl + MESSAGES_PATH)
                 .header("x-api-key", apiKey)
                 .header("anthropic-version", ANTHROPIC_VERSION)
+                // THIS IS THE FIX FOR THE $1.50/DAY COST BUG:
+                // Without this header Anthropic silently ignores every cache_control
+                // field in system blocks → cacheWrite=0 cacheRead=0 on every turn →
+                // full wiki input cost re-billed on every single message forever.
+                .header("anthropic-beta", "prompt-caching-2024-07-31")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(body.toString())
@@ -547,6 +552,11 @@ public class ClaudeApiClient {
                 .uri(baseUrl + MESSAGES_PATH)
                 .header("x-api-key", apiKey)
                 .header("anthropic-version", ANTHROPIC_VERSION)
+                // THIS IS THE FIX FOR THE $1.50/DAY COST BUG:
+                // Without this header Anthropic silently ignores every cache_control field
+                // in the system blocks → cacheWrite=0 cacheRead=0 on EVERY turn →
+                // full input price re-billed for the entire wiki on every message forever.
+                .header("anthropic-beta", "prompt-caching-2024-07-31")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(body.toString())
@@ -554,7 +564,7 @@ public class ClaudeApiClient {
                     if (resp.statusCode().isError()) {
                         return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
                                 .flatMapMany(errBody -> {
-                                    log.error("[Claude-{}] STREAM (legacy) {} from Anthropic: {}",
+                                    log.error("[Claude-{}] STREAM (non-cache) {} from Anthropic: {}",
                                             callId, resp.statusCode(), errBody);
                                     return Flux.<String>error(new RuntimeException(
                                             "Anthropic " + resp.statusCode() + ": " + errBody));

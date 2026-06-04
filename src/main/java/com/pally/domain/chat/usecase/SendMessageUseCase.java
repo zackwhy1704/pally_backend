@@ -241,10 +241,17 @@ public class SendMessageUseCase {
 
                         log.debug("[Chat] Saved reply avatarId={} chars={}", avatarId, replyBuffer.length());
 
-                        // Fire-and-forget rolling-summary update so the
-                        // tutor remembers this exchange on the next turn.
-                        sessionSummariser.updateSummary(
-                                avatarId, userMessage, cleanReply);
+                        // Rolling-summary — throttled to every 3 turns.
+                        // Previously ran every turn: ~600-2700 input tokens/call
+                        // → pure cost leak (~$0.0005/turn wasted). history.size()
+                        // is the number of prior messages; (size+1) is the turn
+                        // index. Runs on turns 0, 3, 6, 9 … (multiples of 3).
+                        // Keeps memory fresh within a few exchanges while cutting
+                        // summary cost by ~67%.
+                        if (history.size() % 3 == 0) {
+                            sessionSummariser.updateSummary(
+                                    avatarId, userMessage, cleanReply);
+                        }
                     }
                 })
                 .map(event -> switch (event) {
