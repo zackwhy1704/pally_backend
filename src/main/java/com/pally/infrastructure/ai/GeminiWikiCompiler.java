@@ -43,8 +43,15 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     @Value("${gemini.api.key:}")
     private String apiKey;
 
-    @Value("${gemini.api.model:gemini-2.0-flash}")
-    private String model;
+    // Fallback chain: 1.5-flash-latest → 2.0-flash → Claude Haiku
+    // The primary model is faster and available on free tier.
+    // The secondary is paid-only but has better reasoning.
+    // Override either via GEMINI_MODEL_PRIMARY / GEMINI_MODEL_SECONDARY.
+    @Value("${gemini.api.model.primary:gemini-1.5-flash-latest}")
+    private String modelPrimary;
+
+    @Value("${gemini.api.model.secondary:gemini-2.0-flash}")
+    private String modelSecondary;
 
     @Value("${gemini.api.base-url:https://generativelanguage.googleapis.com}")
     private String baseUrl;
@@ -65,10 +72,11 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     @jakarta.annotation.PostConstruct
     void logConfig() {
         if (apiKey == null || apiKey.isBlank()) {
-            log.warn("[Gemini] ⚠️  GEMINI_API_KEY is NOT SET — wiki compile will use Claude Haiku fallback");
+            log.warn("[Gemini] ⚠️  GEMINI_API_KEY is NOT SET — compile will use Claude Haiku (chunked)");
         } else {
-            log.info("[Gemini] ✅ Wiki compiler ACTIVE model={} key={}…{}",
-                    model, apiKey.substring(0, Math.min(8, apiKey.length())),
+            log.info("[Gemini] ✅ Compiler chain: {} → {} → Claude Haiku (chunked) | key={}…{}",
+                    modelPrimary, modelSecondary,
+                    apiKey.substring(0, Math.min(8, apiKey.length())),
                     apiKey.length() > 8 ? apiKey.substring(apiKey.length() - 4) : "");
         }
     }
@@ -77,51 +85,77 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     public List<WikiPageDraft> compile(Avatar avatar, List<KnowledgeFile> files,
                                        List<WikiPage> existingPages) {
         if (apiKey == null || apiKey.isBlank()) {
-            log.warn("[Gemini] GEMINI_API_KEY not set — falling back to Claude Haiku");
+            log.warn("[Gemini] No API key — using Claude Haiku with chunked compile");
             return claudeFallback.compile(avatar, files, existingPages);
         }
 
         int totalChars = files.stream()
                 .mapToInt(f -> f.getExtractedText() != null ? f.getExtractedText().length() : 0)
                 .sum();
-        log.info("[Gemini] ──► COMPILE START avatarId={} files={} totalChars={} model={}",
-                avatar.getId(), files.size(), totalChars, model);
         files.forEach(f -> log.info("[Gemini]   file: {} status={} chars={}",
                 f.getFileName(), f.getStatus(),
                 f.getExtractedText() != null ? f.getExtractedText().length() : 0));
 
-        long start = System.currentTimeMillis();
+        // ── Tier 1: Gemini 1.5 Flash (primary — fast, free tier) ─────────
+        log.info("[Gemini] ──► Tier 1 ({}) avatarId={} files={} totalChars={}",
+                modelPrimary, avatar.getId(), files.size(), totalChars);
         try {
-            // For very large documents (> 30k chars ≈ 100 pages), split into chunks
-            // and merge results. This prevents output-token truncation which silently
-            // drops chapters when 16384 tokens isn't enough for all pages.
-            // Threshold: 30k chars / ~4 chars per token ≈ 7500 input tokens per chunk.
-            List<WikiPageDraft> drafts;
-            if (totalChars > 30_000) {
-                drafts = compileChunked(avatar, files, existingPages);
-            } else {
-                String prompt = buildPrompt(avatar, files, existingPages);
-                log.debug("[Gemini] Prompt length: {} chars (~{} tokens)", prompt.length(), prompt.length() / 4);
-                String raw = callGemini(prompt);
-                drafts = parseResponse(raw);
+            List<WikiPageDraft> drafts = compileWithModel(modelPrimary, avatar, files, existingPages, totalChars);
+            if (!drafts.isEmpty()) {
+                log.info("[Gemini] ◄── Tier 1 SUCCESS: {} pages", drafts.size());
+                return drafts;
             }
-
-            long ms = System.currentTimeMillis() - start;
-            log.info("[Gemini] ◄── COMPILE DONE avatarId={} pages={} latency={}ms",
-                    avatar.getId(), drafts.size(), ms);
-            drafts.forEach(d -> log.info("[Gemini]   page: slug={} title={} contentLen={} prereqs={}",
-                    d.slug(), d.title(), d.content().length(), d.prerequisites()));
-            if (drafts.isEmpty()) {
-                log.warn("[Gemini] ⚠️  0 pages produced for avatarId={}. totalChars={}",
-                        avatar.getId(), totalChars);
-            }
-            return drafts;
+            log.warn("[Gemini] Tier 1 returned 0 pages — trying Tier 2");
         } catch (Exception e) {
-            long ms = System.currentTimeMillis() - start;
-            log.warn("[Gemini] ✗ COMPILE FAILED after {}ms ({}): {} — falling back to Claude Haiku",
-                    ms, e.getClass().getSimpleName(), e.getMessage());
-            return claudeFallback.compile(avatar, files, existingPages);
+            log.warn("[Gemini] Tier 1 FAILED ({}): {} — trying Tier 2 ({})",
+                    e.getClass().getSimpleName(), e.getMessage(), modelSecondary);
         }
+
+        // ── Tier 2: Gemini 2.0 Flash (secondary — paid, better reasoning) ─
+        log.info("[Gemini] ──► Tier 2 ({}) avatarId={}", modelSecondary, avatar.getId());
+        try {
+            List<WikiPageDraft> drafts = compileWithModel(modelSecondary, avatar, files, existingPages, totalChars);
+            if (!drafts.isEmpty()) {
+                log.info("[Gemini] ◄── Tier 2 SUCCESS: {} pages", drafts.size());
+                return drafts;
+            }
+            log.warn("[Gemini] Tier 2 returned 0 pages — falling back to Claude Haiku (chunked)");
+        } catch (Exception e) {
+            log.warn("[Gemini] Tier 2 FAILED ({}): {} — falling back to Claude Haiku (chunked)",
+                    e.getClass().getSimpleName(), e.getMessage());
+        }
+
+        // ── Tier 3: Claude Haiku (with chunked compilation for large files) ─
+        // ClaudeWikiCompiler already handles chunking: files > 4k chars are
+        // split into 2k-char windows with 200-char overlap, compiled per chunk,
+        // and merged by slug. Large PDFs always go through batched Haiku calls.
+        log.info("[Gemini] ──► Tier 3 (Claude Haiku + chunked) avatarId={} totalChars={}",
+                avatar.getId(), totalChars);
+        List<WikiPageDraft> haikuDrafts = claudeFallback.compile(avatar, files, existingPages);
+        log.info("[Gemini] ◄── Tier 3 result: {} pages", haikuDrafts.size());
+        return haikuDrafts;
+    }
+
+    private List<WikiPageDraft> compileWithModel(String modelName, Avatar avatar,
+                                                  List<KnowledgeFile> files,
+                                                  List<WikiPage> existingPages,
+                                                  int totalChars) {
+        long start = System.currentTimeMillis();
+        List<WikiPageDraft> drafts;
+        if (totalChars > 30_000) {
+            drafts = compileChunked(modelName, avatar, files, existingPages);
+        } else {
+            String prompt = buildPrompt(avatar, files, existingPages);
+            log.debug("[Gemini] {} prompt: {} chars (~{} tokens)",
+                    modelName, prompt.length(), prompt.length() / 4);
+            String raw = callGemini(modelName, prompt);
+            drafts = parseResponse(raw);
+        }
+        log.info("[Gemini] {} done in {}ms: {} pages",
+                modelName, System.currentTimeMillis() - start, drafts.size());
+        drafts.forEach(d -> log.info("[Gemini]   page: slug={} title={} chars={}",
+                d.slug(), d.title(), d.content().length()));
+        return drafts;
     }
 
     // Max chars per Gemini chunk: ~25k chars ≈ 6k input tokens, leaves plenty
@@ -133,28 +167,26 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
      * then deduplicates and merges results by slug. Used for documents > 30k chars
      * where a single Gemini call would hit the output-token ceiling.
      */
-    private List<WikiPageDraft> compileChunked(Avatar avatar, List<KnowledgeFile> files,
+    private List<WikiPageDraft> compileChunked(String modelName, Avatar avatar,
+                                                List<KnowledgeFile> files,
                                                 List<WikiPage> existingPages) {
-        // Concatenate all extracted text and split into chunks
         String allText = files.stream()
                 .filter(f -> f.getExtractedText() != null)
                 .map(f -> "## Source: " + f.getFileName() + "\n" + f.getExtractedText())
                 .collect(java.util.stream.Collectors.joining("\n\n"));
 
         List<String> chunks = splitIntoChunks(allText, GEMINI_CHUNK_CHARS);
-        log.info("[Gemini] Chunked compile: {} chunks for {} chars, avatarId={}",
-                chunks.size(), allText.length(), avatar.getId());
+        log.info("[Gemini] {} chunked: {} chunks for {} chars, avatarId={}",
+                modelName, chunks.size(), allText.length(), avatar.getId());
 
-        // Compile each chunk, accumulate pages by slug (later chunk wins on conflict)
         java.util.LinkedHashMap<String, WikiPageDraft> bySlug = new java.util.LinkedHashMap<>();
         for (int i = 0; i < chunks.size(); i++) {
             String chunk = chunks.get(i);
             try {
-                // Build a mini-prompt for this chunk only
                 String prompt = buildChunkPrompt(avatar, chunk, i + 1, chunks.size(), existingPages);
-                String raw = callGemini(prompt);
+                String raw = callGemini(modelName, prompt);
                 List<WikiPageDraft> chunkDrafts = parseResponse(raw);
-                log.info("[Gemini] Chunk {}/{}: {} pages produced", i + 1, chunks.size(), chunkDrafts.size());
+                log.info("[Gemini] {} chunk {}/{}: {} pages", modelName, i + 1, chunks.size(), chunkDrafts.size());
                 for (WikiPageDraft d : chunkDrafts) {
                     WikiPageDraft existing = bySlug.get(d.slug());
                     if (existing == null || d.content().length() > existing.content().length()) {
@@ -162,7 +194,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                     }
                 }
             } catch (Exception e) {
-                log.warn("[Gemini] Chunk {}/{} failed: {}", i + 1, chunks.size(), e.getMessage());
+                log.warn("[Gemini] {} chunk {}/{} failed: {}", modelName, i + 1, chunks.size(), e.getMessage());
             }
         }
         return new java.util.ArrayList<>(bySlug.values());
@@ -213,9 +245,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         return sb.toString();
     }
 
-    private String callGemini(String prompt) {
+    private String callGemini(String modelName, String prompt) {
         String url = baseUrl
-                + "/v1beta/models/" + model
+                + "/v1beta/models/" + modelName
                 + ":generateContent?key=" + apiKey;
 
         // Gemini REST request body

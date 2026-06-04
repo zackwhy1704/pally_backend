@@ -123,12 +123,14 @@ claude:
 gemini:
   api:
     key: ${GEMINI_API_KEY:}
-    # Confirmed working (smoke tested 2026-06-04):
-    #   gemini-2.0-flash        ✅ 21s, paid plan required (AQ key)
-    #   gemini-1.5-flash-latest ✅ 16s, free tier + paid
-    # Using 2.0-flash as default (same price tier, newer model).
-    # Override with GEMINI_MODEL env var in Railway to pin a specific version.
-    model: ${GEMINI_MODEL:gemini-2.0-flash}
+    # Fallback chain (smoke tested 2026-06-04 with paid AQ key):
+    #   Tier 1: gemini-1.5-flash-latest → fastest (16s), free + paid
+    #   Tier 2: gemini-2.0-flash        → paid only (21s), better reasoning
+    #   Tier 3: Claude Haiku (chunked)  → always available, batched for large files
+    # Override individual tiers via GEMINI_MODEL_PRIMARY / GEMINI_MODEL_SECONDARY.
+    model:
+      primary: ${GEMINI_MODEL_PRIMARY:gemini-1.5-flash-latest}
+      secondary: ${GEMINI_MODEL_SECONDARY:gemini-2.0-flash}
     base-url: https://generativelanguage.googleapis.com
 
 storage:
