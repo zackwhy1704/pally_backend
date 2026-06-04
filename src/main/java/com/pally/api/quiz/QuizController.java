@@ -17,7 +17,9 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
+import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
+import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +44,7 @@ public class QuizController {
     private final RateFlashcardUseCase rateFlashcardUseCase;
     private final QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
     private final QuizQuestionResultJpaRepository quizQuestionResultRepository;
+    private final AvatarJpaRepository avatarRepository;
     private final WikiRepository wikiRepository;
     private final FlashcardRepository flashcardRepository;
     private final ClaudeFlashcardGenerator flashcardGenerator;
@@ -135,8 +138,12 @@ public class QuizController {
 
     @GetMapping("/quiz/error-patterns")
     public ResponseEntity<ApiResponse<Map<String, Long>>> getErrorPatterns(
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
         List<Object[]> rows = quizAnswerRecordRepository.findTopErrorTopics(avatarId);
         Map<String, Long> result = new LinkedHashMap<>();
         for (Object[] row : rows) {

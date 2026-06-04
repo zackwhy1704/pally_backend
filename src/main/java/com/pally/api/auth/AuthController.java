@@ -7,6 +7,7 @@ import com.pally.api.auth.dto.RegisterRequest;
 import com.pally.api.auth.dto.SetupRequest;
 import com.pally.api.auth.dto.SocialAuthRequest;
 import com.pally.infrastructure.auth.AuthService;
+import com.pally.infrastructure.auth.SocialTokenVerifier;
 import com.pally.infrastructure.ratelimit.SlidingWindowRateLimiter;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
@@ -14,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -45,6 +47,16 @@ public class AuthController {
 
     private final AuthService authService;
     private final SlidingWindowRateLimiter rateLimiter;
+    private final SocialTokenVerifier socialTokenVerifier;
+
+    // Client IDs for audience validation — set in Railway Variables.
+    // Comma-separated for multi-platform (iOS + Android may have different client IDs).
+    // Leave blank to skip audience validation (not recommended for production).
+    @Value("${auth.google.client-ids:}")
+    private String googleClientIds;
+
+    @Value("${auth.apple.client-ids:}")
+    private String appleClientIds;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
@@ -84,41 +96,52 @@ public class AuthController {
     }
 
     /**
-     * Google sign-in: client sends the idToken obtained from google_sign_in package.
-     * For MVP, we decode the JWT payload to extract the email claim without full
-     * signature verification. Production must verify against Google's JWKS endpoint.
+     * Google sign-in: client sends the idToken from the google_sign_in package.
+     * Verifies the RS256 signature against Google's JWKS endpoint, checks iss/aud/exp.
      */
     @PostMapping("/google")
     public ResponseEntity<ApiResponse<AuthResponse>> googleSignIn(
             @RequestBody SocialAuthRequest request
     ) {
-        String email = extractEmailFromJwt(request.idToken());
-        if (email == null) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Invalid Google token", 400));
+        try {
+            List<String> audiences = parseClientIds(googleClientIds);
+            SocialTokenVerifier.VerifiedClaims claims =
+                    socialTokenVerifier.verifyGoogle(request.idToken(), audiences);
+            if (claims.email() == null) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Google token missing email claim", 400));
+            }
+            AuthResponse result = authService.signInWithSocial(claims.email(), claims.name());
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } catch (SecurityException e) {
+            log.warn("[Auth] Google token verification failed: {}", e.getMessage());
+            return ResponseEntity.status(401).body(ApiResponse.error("Invalid Google token", 401));
         }
-        String name = extractNameFromJwt(request.idToken());
-        AuthResponse result = authService.signInWithSocial(email, name);
-        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     /**
-     * Apple sign-in: client sends the identityToken obtained from sign_in_with_apple package.
-     * For MVP, we decode the JWT payload to extract the email claim without full
-     * signature verification. Production must verify against Apple's JWKS endpoint.
+     * Apple sign-in: client sends the identityToken from sign_in_with_apple package.
+     * Verifies the RS256 signature against Apple's JWKS endpoint, checks iss/aud/exp.
      */
     @PostMapping("/apple")
     public ResponseEntity<ApiResponse<AuthResponse>> appleSignIn(
             @RequestBody SocialAuthRequest request
     ) {
-        String token = request.identityToken() != null ? request.identityToken() : request.idToken();
-        String email = extractEmailFromJwt(token);
-        if (email == null) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error("Invalid Apple token", 400));
+        try {
+            String token = request.identityToken() != null ? request.identityToken() : request.idToken();
+            List<String> audiences = parseClientIds(appleClientIds);
+            SocialTokenVerifier.VerifiedClaims claims =
+                    socialTokenVerifier.verifyApple(token, audiences);
+            // Apple omits email on repeated logins — use sub as the stable identifier.
+            String email = claims.email() != null
+                    ? claims.email()
+                    : claims.subject() + "@privaterelay.appleid.com";
+            AuthResponse result = authService.signInWithSocial(email, null);
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } catch (SecurityException e) {
+            log.warn("[Auth] Apple token verification failed: {}", e.getMessage());
+            return ResponseEntity.status(401).body(ApiResponse.error("Invalid Apple token", 401));
         }
-        AuthResponse result = authService.signInWithSocial(email, null);
-        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @PostMapping("/setup")
@@ -211,44 +234,9 @@ public class AuthController {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
-    private String extractEmailFromJwt(String jwt) {
-        try {
-            Map<String, Object> payload = decodeJwtPayload(jwt);
-            return (String) payload.get("email");
-        } catch (Exception e) {
-            log.warn("[Auth] Failed to decode JWT: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private String extractNameFromJwt(String jwt) {
-        try {
-            Map<String, Object> payload = decodeJwtPayload(jwt);
-            Object name = payload.get("name");
-            return name != null ? name.toString() : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> decodeJwtPayload(String jwt) {
-        if (jwt == null) throw new IllegalArgumentException("JWT is null");
-        String[] parts = jwt.split("\\.");
-        if (parts.length < 2) throw new IllegalArgumentException("Not a JWT");
-        byte[] decoded = Base64.getUrlDecoder().decode(padBase64(parts[1]));
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            return mapper.readValue(decoded, Map.class);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to parse JWT payload", e);
-        }
-    }
-
-    private String padBase64(String base64Url) {
-        int padding = (4 - base64Url.length() % 4) % 4;
-        return base64Url + "=".repeat(padding);
+    private List<String> parseClientIds(String commaSeparated) {
+        if (commaSeparated == null || commaSeparated.isBlank()) return List.of();
+        return List.of(commaSeparated.split(",")).stream()
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 }

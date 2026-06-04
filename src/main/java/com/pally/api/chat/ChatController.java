@@ -145,6 +145,9 @@ public class ChatController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
         List<ChatMessage> messages = chatRepository.findByAvatarId(avatarId, HISTORY_PAGE_SIZE);
         return chatMapper.toResponseList(messages);
     }

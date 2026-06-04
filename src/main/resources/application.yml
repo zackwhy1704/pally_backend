@@ -105,6 +105,15 @@ resilience4j:
 jwt:
   secret: ${JWT_SECRET:dev-secret-min-32-chars-long-here-!!}
 
+# Social auth client IDs for audience validation (Google/Apple idTokens).
+# Set GOOGLE_CLIENT_IDS and APPLE_CLIENT_IDS in Railway Variables.
+# Comma-separated for multiple platforms (iOS / Android have different IDs).
+auth:
+  google:
+    client-ids: ${GOOGLE_CLIENT_IDS:}
+  apple:
+    client-ids: ${APPLE_CLIENT_IDS:}
+
 # Stripe — leave blank in dev so SubscriptionController stays in mock mode.
 # Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET on Railway to flip to live.
 # Register the webhook URL in the Stripe Dashboard as:
