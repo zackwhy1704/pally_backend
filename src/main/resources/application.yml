@@ -123,10 +123,11 @@ claude:
 gemini:
   api:
     key: ${GEMINI_API_KEY:}
-    # gemini-1.5-flash-latest: globally available, 1M context, $0.075/M input.
-    # gemini-2.0-flash caused 404 NotFound errors (API key access restriction).
-    # Override with GEMINI_MODEL env var if a newer model becomes available.
-    model: ${GEMINI_MODEL:gemini-1.5-flash-latest}
+    # Paid key (AQ prefix) has access to both 1.5 and 2.0 Flash.
+    # Default: gemini-2.0-flash (cheaper output, faster). Falls back to
+    # gemini-1.5-flash-latest if the model isn't accessible.
+    # Override with GEMINI_MODEL env var in Railway to pin a specific version.
+    model: ${GEMINI_MODEL:gemini-2.0-flash}
     base-url: https://generativelanguage.googleapis.com
 
 storage:
