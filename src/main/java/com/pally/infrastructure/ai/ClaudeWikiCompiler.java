@@ -29,7 +29,10 @@ import java.util.regex.Pattern;
 public class ClaudeWikiCompiler implements WikiCompilerPort {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeWikiCompiler.class);
-    private static final int MAX_TOKENS = 4096;
+    // 2048 tokens ≈ 6 wiki pages at 300 tokens each — enough for any single
+    // compile call. 4096 caused consistent truncation (out=4096 exactly) which
+    // left the JSON array incomplete and crashed parseResponse every time.
+    private static final int MAX_TOKENS = 2048;
     /// Largest single-file body we'll send Claude in one call. Anything
     /// bigger is map-reduced: split into ~CHUNK_SIZE windows, compile each,
     /// then merge drafts by slug. Was a silent truncation before B1 — long
@@ -325,38 +328,84 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
     }
 
     private List<WikiPageDraft> parseResponse(String raw) {
-        try {
-            String json = raw.strip();
-            if (json.startsWith("```")) {
-                int start = json.indexOf('[');
-                int end = json.lastIndexOf(']');
-                if (start >= 0 && end > start) {
-                    json = json.substring(start, end + 1);
-                }
+        String json = raw.strip();
+        // Strip markdown fences
+        if (json.startsWith("```")) {
+            int start = json.indexOf('[');
+            int end = json.lastIndexOf(']');
+            if (start >= 0 && end > start) {
+                json = json.substring(start, end + 1);
             }
-            JsonNode array = objectMapper.readTree(json);
-            List<WikiPageDraft> drafts = new ArrayList<>();
-            for (JsonNode node : array) {
-                String slug = node.path("slug").asText();
-                String title = node.path("title").asText();
-                String content = node.path("content").asText();
-                List<String> prereqs = new ArrayList<>();
-                JsonNode pre = node.path("prerequisites");
-                if (pre.isArray()) {
-                    for (JsonNode p : pre) {
-                        String ps = p.asText("").trim();
-                        if (!ps.isBlank()) prereqs.add(ps);
-                    }
-                }
-                if (!slug.isBlank() && !title.isBlank()) {
-                    drafts.add(new WikiPageDraft(slug, title, content, prereqs));
-                }
-            }
-            log.debug("Parsed {} wiki page drafts from Claude response", drafts.size());
-            return drafts;
-        } catch (Exception e) {
-            log.error("Failed to parse wiki compile response", e);
-            throw new RuntimeException("Failed to parse wiki compilation result from Claude", e);
         }
+        // Find the JSON array boundaries
+        int arrayStart = json.indexOf('[');
+        if (arrayStart < 0) {
+            log.error("[WikiCompiler] No JSON array found in response ({}chars)", raw.length());
+            throw new RuntimeException("No JSON array in wiki compilation response");
+        }
+        json = json.substring(arrayStart);
+
+        // Primary parse: try the full JSON array
+        try {
+            return extractDrafts(objectMapper.readTree(json));
+        } catch (Exception e) {
+            // Truncation recovery: the response was cut at maxTokens (out==maxTokens).
+            // Scan backwards for the last complete object boundary so we can
+            // still return the pages that were fully generated.
+            log.warn("[WikiCompiler] Full JSON parse failed (likely truncated at {} chars): {} — attempting partial recovery",
+                    raw.length(), e.getMessage());
+            return recoverPartialDrafts(json);
+        }
+    }
+
+    private List<WikiPageDraft> extractDrafts(JsonNode array) {
+        List<WikiPageDraft> drafts = new ArrayList<>();
+        for (JsonNode node : array) {
+            String slug = node.path("slug").asText();
+            String title = node.path("title").asText();
+            String content = node.path("content").asText();
+            List<String> prereqs = new ArrayList<>();
+            JsonNode pre = node.path("prerequisites");
+            if (pre.isArray()) {
+                for (JsonNode p : pre) {
+                    String ps = p.asText("").trim();
+                    if (!ps.isBlank()) prereqs.add(ps);
+                }
+            }
+            if (!slug.isBlank() && !title.isBlank()) {
+                drafts.add(new WikiPageDraft(slug, title, content, prereqs));
+            }
+        }
+        log.debug("[WikiCompiler] Parsed {} wiki page drafts", drafts.size());
+        return drafts;
+    }
+
+    /**
+     * Recovers as many complete page objects as possible from a truncated JSON array.
+     * Scans backward from the end of the string looking for a closing brace that
+     * marks the end of a complete object, then closes the array and parses what it can.
+     */
+    private List<WikiPageDraft> recoverPartialDrafts(String truncatedJson) {
+        // Walk backward looking for "}," or "}" that closes the last complete object
+        String attempt = truncatedJson;
+        for (int i = attempt.length() - 1; i > 0; i--) {
+            char c = attempt.charAt(i);
+            if (c == '}') {
+                String candidate = attempt.substring(0, i + 1) + "]";
+                try {
+                    JsonNode array = objectMapper.readTree(candidate);
+                    List<WikiPageDraft> drafts = extractDrafts(array);
+                    if (!drafts.isEmpty()) {
+                        log.info("[WikiCompiler] Partial recovery: salvaged {} pages from truncated JSON",
+                                drafts.size());
+                        return drafts;
+                    }
+                } catch (Exception ignored) {
+                    // Keep scanning backward
+                }
+            }
+        }
+        log.error("[WikiCompiler] Partial recovery failed — no complete objects found in truncated response");
+        throw new RuntimeException("Failed to parse wiki compilation result from Claude (truncated + no recovery)");
     }
 }
