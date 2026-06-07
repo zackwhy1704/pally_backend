@@ -106,6 +106,88 @@ public interface QuizQuestionResultJpaRepository
             @Param("cohort") String cohortLabel,
             @Param("limit") int limit);
 
+    // ── Centre analytics queries ──────────────────────────────────────────
+
+    /// Per-user-per-topic grasp (quiz accuracy) for a cohort — used to build
+    /// the teacher heatmap. Only topics with ≥ 2 attempts included to reduce
+    /// noise from a single lucky/unlucky answer.
+    @Query(nativeQuery = true, value = """
+            SELECT r.user_id, r.topic_slug,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp,
+                   COUNT(*) AS n
+            FROM quiz_question_results r
+            JOIN users u ON u.id = r.user_id
+            WHERE u.centre_id = :centreId
+              AND u.cohort_label = :cohort
+              AND r.topic_slug IS NOT NULL
+            GROUP BY r.user_id, r.topic_slug
+            HAVING COUNT(*) >= 2
+            """)
+    List<Object[]> findHeatmapData(@Param("centreId") String centreId,
+                                   @Param("cohort") String cohort);
+
+    /// Weekly average grasp (quiz accuracy) for the whole centre, optionally
+    /// filtered to one cohort. Returns up to 12 weeks of data, oldest first.
+    /// Cohort filter is "match-or-skip": pass NULL to span the whole centre.
+    @Query(nativeQuery = true, value = """
+            SELECT DATE_TRUNC('week', r.created_at) AS week,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp
+            FROM quiz_question_results r
+            JOIN users u ON u.id = r.user_id
+            WHERE u.centre_id = :centreId
+              AND (CAST(:cohort AS varchar) IS NULL OR u.cohort_label = :cohort)
+              AND r.created_at >= NOW() - INTERVAL '12 weeks'
+            GROUP BY DATE_TRUNC('week', r.created_at)
+            ORDER BY week ASC
+            """)
+    List<Object[]> findWeeklyGraspTrend(@Param("centreId") String centreId,
+                                        @Param("cohort") String cohort);
+
+    /// Per-student overall grasp (quiz accuracy) + recent activity for at-risk
+    /// detection. LEFT JOIN ensures students with no recent attempts still appear
+    /// (last_active will be null → classified as inactive).
+    @Query(nativeQuery = true, value = """
+            SELECT u.id, u.display_name, u.cohort_label,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp_14d,
+                   COUNT(r.id) AS attempts_14d,
+                   MAX(r.created_at) AS last_active
+            FROM users u
+            LEFT JOIN quiz_question_results r
+              ON r.user_id = u.id AND r.created_at >= NOW() - INTERVAL '14 days'
+            WHERE u.centre_id = :centreId
+              AND (CAST(:cohort AS varchar) IS NULL OR u.cohort_label = :cohort)
+            GROUP BY u.id, u.display_name, u.cohort_label
+            """)
+    List<Object[]> findStudentActivity(@Param("centreId") String centreId,
+                                       @Param("cohort") String cohort);
+
+    /// Per-student weekly grasp trend for the student progress detail page.
+    /// Returns up to 12 weeks, oldest first.
+    @Query(nativeQuery = true, value = """
+            SELECT DATE_TRUNC('week', r.created_at) AS week,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp
+            FROM quiz_question_results r
+            WHERE r.user_id = :userId
+              AND r.created_at >= NOW() - INTERVAL '12 weeks'
+            GROUP BY DATE_TRUNC('week', r.created_at)
+            ORDER BY week ASC
+            """)
+    List<Object[]> findWeeklyGraspForStudent(@Param("userId") String userId);
+
+    /// Per-student per-topic grasp for the topic-bars section of the student
+    /// progress page. Only topics with ≥ 2 attempts. Sorted weakest-first so
+    /// the teacher sees the most actionable gaps at the top.
+    @Query(nativeQuery = true, value = """
+            SELECT r.topic_slug,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp,
+                   COUNT(*) AS n
+            FROM quiz_question_results r
+            WHERE r.user_id = :userId AND r.topic_slug IS NOT NULL
+            GROUP BY r.topic_slug HAVING COUNT(*) >= 2
+            ORDER BY grasp ASC
+            """)
+    List<Object[]> findTopicGraspForStudent(@Param("userId") String userId);
+
     /// Total correct answers across all the user's quizzes — drives the
     /// QUIZ_CORRECT_50 / 250 achievements.
     @Query("""

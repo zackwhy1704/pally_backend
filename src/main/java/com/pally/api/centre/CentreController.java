@@ -1,5 +1,6 @@
 package com.pally.api.centre;
 
+import com.pally.domain.centre.CentreAccessService;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -53,6 +54,7 @@ public class CentreController {
             "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
     private static final int CODE_LEN = 6;
 
+    private final CentreAccessService accessService;
     private final OrganizationJpaRepository orgRepo;
     private final CentreEnrollCodeJpaRepository codeRepo;
     private final UserJpaRepository userRepo;
@@ -106,7 +108,7 @@ public class CentreController {
             @RequestParam(defaultValue = "50") int size) {
         // Local var avoids the standard "org" name because it shadows the
         // org.springframework.* package below.
-        OrganizationJpaEntity orgEntity = ensureOwner(userId, orgId);
+        OrganizationJpaEntity orgEntity = accessService.ensureOwner(userId, orgId);
         // Page-size cap protects a misbehaving caller from yanking the
         // whole roster in one shot; default 50 fits a typical cohort.
         int safeSize = Math.max(1, Math.min(size, 200));
@@ -148,7 +150,7 @@ public class CentreController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId,
             @RequestParam(required = false) String cohort) {
-        ensureOwner(userId, orgId);
+        accessService.ensureOwner(userId, orgId);
         // One cohort-scoped aggregate replaces the previous per-student
         // loop: a 40-student class now hits the DB once instead of 40+
         // times. Cohort filter is "match-or-skip" — null spans the centre.
@@ -187,7 +189,7 @@ public class CentreController {
             @PathVariable String orgId,
             @RequestParam(required = false) String cohort,
             @RequestParam(defaultValue = "csv") String format) {
-        ensureOwner(userId, orgId);
+        accessService.ensureOwner(userId, orgId);
         if (!"csv".equalsIgnoreCase(format)) {
             // PDF is a follow-up; honest 501 here keeps the contract clean.
             throw new BusinessException(
@@ -221,7 +223,7 @@ public class CentreController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId,
             @RequestBody Map<String, Object> body) {
-        ensureOwner(userId, orgId);
+        accessService.ensureOwner(userId, orgId);
         String cohortLabel = body == null ? null
                 : (String) body.get("cohortLabel");
         if (cohortLabel == null || cohortLabel.isBlank()) {
@@ -289,16 +291,6 @@ public class CentreController {
                 "id", org.getId(),
                 "name", org.getName(),
                 "ownerUserId", org.getOwnerUserId())));
-    }
-
-    private OrganizationJpaEntity ensureOwner(String userId, String orgId) {
-        OrganizationJpaEntity org = orgRepo.findById(orgId).orElseThrow(
-                () -> new BusinessException("Organization not found", 404));
-        if (!org.getOwnerUserId().equals(userId)) {
-            throw new BusinessException(
-                    "You don't own this organization", 403);
-        }
-        return org;
     }
 
     private String generateCode() {

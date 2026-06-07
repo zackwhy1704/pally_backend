@@ -75,6 +75,18 @@ public class AvatarJpaEntity {
     @Column(name = "teacher_preferences", columnDefinition = "TEXT")
     private String teacherPreferences;
 
+    /// Set to true when the avatar was created by centre enrolment (not by the student).
+    @Column(name = "centre_avatar", nullable = false)
+    private boolean centreAvatar;
+
+    /// FK to the centre_enrolments row that created this avatar. Null for non-centre avatars.
+    @Column(name = "centre_enrolment_id", length = 36)
+    private String centreEnrolmentId;
+
+    /// When true the student cannot chat with this avatar — set by centre lapse/leave.
+    @Column(name = "avatar_locked", nullable = false)
+    private boolean avatarLocked;
+
     public static AvatarJpaEntity fromDomain(Avatar avatar) {
         AvatarJpaEntity entity = new AvatarJpaEntity();
         entity.id = avatar.getId();
