@@ -83,6 +83,28 @@ public class AvatarJpaEntity {
     @Column(name = "avatar_locked", nullable = false)
     private boolean avatarLocked;
 
+    // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
+    @Column(name = "class_id", length = 36)
+    private String classId;
+
+    @Column(name = "corpus_avatar_id", length = 36)
+    private String corpusAvatarId;
+
+    @Column(name = "centre_brand_name", length = 120)
+    private String centreBrandName;
+
+    @Column(name = "centre_accent_color", length = 9)
+    private String centreAccentColor;
+
+    @Column(name = "cosmetic_eyewear", length = 40)
+    private String cosmeticEyewear;
+
+    @Column(name = "cosmetic_clothes", length = 40)
+    private String cosmeticClothes;
+
+    @Column(name = "cosmetic_shoes", length = 40)
+    private String cosmeticShoes;
+
     public static AvatarJpaEntity fromDomain(Avatar avatar) {
         AvatarJpaEntity entity = new AvatarJpaEntity();
         entity.id = avatar.getId();
@@ -100,6 +122,13 @@ public class AvatarJpaEntity {
         entity.brainState = avatar.getBrainState().name();
         entity.isActive = avatar.isActive();
         entity.teacherPreferences = avatar.getTeacherPreferences();
+        entity.classId = avatar.getClassId();
+        entity.corpusAvatarId = avatar.getCorpusAvatarId();
+        entity.centreBrandName = avatar.getCentreBrandName();
+        entity.centreAccentColor = avatar.getCentreAccentColor();
+        entity.cosmeticEyewear = avatar.getCosmeticEyewear();
+        entity.cosmeticClothes = avatar.getCosmeticClothes();
+        entity.cosmeticShoes = avatar.getCosmeticShoes();
         return entity;
     }
 
@@ -110,8 +139,16 @@ public class AvatarJpaEntity {
         } catch (IllegalArgumentException e) {
             bs = Avatar.BrainState.READY;
         }
-        return Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
+        Avatar a = Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
                 gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs, isActive, teacherPreferences,
                 centreAvatar, avatarLocked);
+        a.setClassId(classId);
+        a.setCorpusAvatarId(corpusAvatarId);
+        a.setCentreBrandName(centreBrandName);
+        a.setCentreAccentColor(centreAccentColor);
+        a.setCosmeticEyewear(cosmeticEyewear);
+        a.setCosmeticClothes(cosmeticClothes);
+        a.setCosmeticShoes(cosmeticShoes);
+        return a;
     }
 }

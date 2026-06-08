@@ -20,5 +20,14 @@ public enum CharacterType {
     LUNCHBOX,
     LIBRARY,
     HEADMASTER,
-    GOLDSTAR
+    GOLDSTAR,
+    // ── Around the World series — exclusive Centre Mochis ────────────────────
+    ATWBERET,
+    ATWGLOBERIDER,
+    ATWKEBAYA,
+    ATWLIONCITY,
+    ATWPHARAOH,
+    ATWSAKURA,
+    ATWSOMBRERO,
+    ATWKILT
 }

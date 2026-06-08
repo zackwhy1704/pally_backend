@@ -35,6 +35,15 @@ public final class Avatar {
     private boolean centreAvatar;
     // true = centre has paused student access to this avatar
     private boolean avatarLocked;
+    // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
+    // Set post-construction from the JPA row (not part of reconstitute()).
+    private String classId;            // the class whose corpus this Mochi reads
+    private String corpusAvatarId;     // avatar holding the class's shared wiki corpus
+    private String centreBrandName;    // display name override, e.g. "ABC P4 Math"
+    private String centreAccentColor;  // hex accent for the Mochi card/ring
+    private String cosmeticEyewear;    // accessory slot ids — inert until layered art
+    private String cosmeticClothes;
+    private String cosmeticShoes;
 
     private Avatar(
             String id,
@@ -292,4 +301,23 @@ public final class Avatar {
     public void setTeacherPreferences(String prefs) { this.teacherPreferences = prefs; }
     public boolean isCentreAvatar()             { return centreAvatar; }
     public boolean isAvatarLocked()             { return avatarLocked; }
+    public void markCentreAvatar()              { this.centreAvatar = true; }
+    public void lockAvatar()                    { this.avatarLocked = true; }
+    public void unlockAvatar()                  { this.avatarLocked = false; }
+
+    // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
+    public String getClassId()                  { return classId; }
+    public void setClassId(String v)            { this.classId = v; }
+    public String getCorpusAvatarId()           { return corpusAvatarId; }
+    public void setCorpusAvatarId(String v)     { this.corpusAvatarId = v; }
+    public String getCentreBrandName()          { return centreBrandName; }
+    public void setCentreBrandName(String v)    { this.centreBrandName = v; }
+    public String getCentreAccentColor()        { return centreAccentColor; }
+    public void setCentreAccentColor(String v)  { this.centreAccentColor = v; }
+    public String getCosmeticEyewear()          { return cosmeticEyewear; }
+    public void setCosmeticEyewear(String v)    { this.cosmeticEyewear = v; }
+    public String getCosmeticClothes()          { return cosmeticClothes; }
+    public void setCosmeticClothes(String v)    { this.cosmeticClothes = v; }
+    public String getCosmeticShoes()            { return cosmeticShoes; }
+    public void setCosmeticShoes(String v)      { this.cosmeticShoes = v; }
 }

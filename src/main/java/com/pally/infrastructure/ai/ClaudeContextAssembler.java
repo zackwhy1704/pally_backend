@@ -114,20 +114,26 @@ public class ClaudeContextAssembler {
     public AssembledContext assemble(Avatar avatar, String userMessage) {
         long assembleStart = System.currentTimeMillis();
 
-        List<WikiPageIndex> index = wikiRepository.getIndex(avatar.getId());
+        // Centre avatars read the shared class corpus (held on the class's corpus
+        // avatar); personal avatars read their own wiki. Session memory and chat
+        // history below always stay on the student's own avatar id.
+        String wikiAvatarId = avatar.getCorpusAvatarId() != null
+                ? avatar.getCorpusAvatarId() : avatar.getId();
+
+        List<WikiPageIndex> index = wikiRepository.getIndex(wikiAvatarId);
 
         long routerStart = System.currentTimeMillis();
         List<DetectedTopic> topics = topicRouter.route(userMessage, avatar.getSubject().name(), index);
         long routerMs = System.currentTimeMillis() - routerStart;
 
         List<String> keywords = topics.stream().map(DetectedTopic::slugKeyword).toList();
-        List<WikiPage> tier3Pages = wikiRepository.findByKeywords(avatar.getId(), keywords, MAX_TIER3_PAGES);
-        List<WikiPage> tier4Pages = loadPrerequisites(avatar.getId(), tier3Pages);
+        List<WikiPage> tier3Pages = wikiRepository.findByKeywords(wikiAvatarId, keywords, MAX_TIER3_PAGES);
+        List<WikiPage> tier4Pages = loadPrerequisites(wikiAvatarId, tier3Pages);
 
         List<String> allSlugs = Stream.concat(tier3Pages.stream(), tier4Pages.stream())
                 .map(WikiPage::getSlug).distinct().toList();
         if (!allSlugs.isEmpty()) {
-            wikiRepository.recordRetrieval(avatar.getId(), allSlugs);
+            wikiRepository.recordRetrieval(wikiAvatarId, allSlugs);
         }
 
         String tier1 = buildTier1(avatar);
@@ -161,7 +167,7 @@ public class ClaudeContextAssembler {
                 avatar.getId(), tier3Pages.size(), tier4Pages.size(), routerMs, assemblyMs);
 
         // Fix 1: Use only ACTIVE pages so archived (deleted-file) pages never reach chat.
-        List<WikiPage> allPages = wikiRepository.findActiveByAvatarId(avatar.getId());
+        List<WikiPage> allPages = wikiRepository.findActiveByAvatarId(wikiAvatarId);
         List<Map<String, Object>> systemBlocks = buildCacheBlocks(avatar, index, allPages, tier3Pages, tier4Pages, userMessage);
 
         return new AssembledContext(systemPrompt, harnessTrace, systemBlocks);
@@ -179,7 +185,9 @@ public class ClaudeContextAssembler {
             Avatar avatar,
             List<WikiPage> allPages) {
 
-        List<WikiPageIndex> index = wikiRepository.getIndex(avatar.getId());
+        String wikiAvatarId = avatar.getCorpusAvatarId() != null
+                ? avatar.getCorpusAvatarId() : avatar.getId();
+        List<WikiPageIndex> index = wikiRepository.getIndex(wikiAvatarId);
         // Fix 1: caller should pass only ACTIVE pages; rebuild from active list here too
         return buildCacheBlocks(avatar, index, allPages, List.of(), List.of(), null);
     }
@@ -255,8 +263,11 @@ public class ClaudeContextAssembler {
 
         // ── Block 4: Dynamic tail — NO cache ──────────────────────────────────
         // Fix 4: include recently-archived slugs so the tutor is honest about deletions.
+        // Centre avatars track the class corpus's archived pages, not their own.
+        String archivedAvatarId = avatar.getCorpusAvatarId() != null
+                ? avatar.getCorpusAvatarId() : avatar.getId();
         List<String> recentlyArchived = wikiRepository.findRecentlyArchivedSlugs(
-                avatar.getId(), Instant.now().minus(Duration.ofDays(7)));
+                archivedAvatarId, Instant.now().minus(Duration.ofDays(7)));
         // Fix 3: pass recent chat history so the socratic-unlock check can read it.
         List<ChatMessage> recentHistory = loadRecentHistoryForBlock4(avatar.getId());
         String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived, userMessage, recentHistory);

@@ -31,5 +31,17 @@ public record AvatarResponse(
         boolean isActive,
         /// Optional teacher-specified method preferences (max 500 chars).
         /// Injected into Block 2 of the system prompt.
-        String teacherPreferences
+        String teacherPreferences,
+        // ── Centre-mode fields (V59) — null/false for personal avatars ───────
+        /// True when this avatar is a centre-provisioned, closed-book Mochi.
+        boolean centreManaged,
+        /// True when centre access is paused (lapse/leave) — chat blocked.
+        boolean avatarLocked,
+        /// Display name override + accent colour from the class config.
+        String centreBrandName,
+        String centreAccentColor,
+        /// Cosmetic accessory slot ids — null until layered art exists.
+        String cosmeticEyewear,
+        String cosmeticClothes,
+        String cosmeticShoes
 ) {}

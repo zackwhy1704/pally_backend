@@ -45,7 +45,14 @@ public class AvatarMapper {
                 avatar.getTestDate(),
                 avatar.getBrainState().name(),
                 avatar.isActive(),
-                avatar.getTeacherPreferences()
+                avatar.getTeacherPreferences(),
+                avatar.isCentreAvatar(),
+                avatar.isAvatarLocked(),
+                avatar.getCentreBrandName(),
+                avatar.getCentreAccentColor(),
+                avatar.getCosmeticEyewear(),
+                avatar.getCosmeticClothes(),
+                avatar.getCosmeticShoes()
         );
     }
 

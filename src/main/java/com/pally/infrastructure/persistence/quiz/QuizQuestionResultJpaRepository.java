@@ -209,6 +209,45 @@ public interface QuizQuestionResultJpaRepository
     long countResultsForCentreSince(@Param("centreId") String centreId,
                                     @Param("since") java.time.Instant since);
 
+    // ── Class-scoped analytics (V59) ──────────────────────────────────────
+    // Group by avatars.class_id instead of users.cohort_label, so a student in
+    // multiple classes contributes independently to each class's analytics.
+
+    /// Per-student grasp + recent activity for one class's roster. LEFT JOIN so
+    /// assigned students with no recent attempts still appear (last_active null).
+    @Query(nativeQuery = true, value = """
+            SELECT u.id, u.display_name,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp_14d,
+                   COUNT(r.id) AS attempts_14d,
+                   MAX(r.created_at) AS last_active
+            FROM class_membership m
+            JOIN users u ON u.id = m.user_id
+            LEFT JOIN quiz_question_results r
+              ON r.user_id = u.id
+              AND r.created_at >= NOW() - INTERVAL '14 days'
+              AND EXISTS (
+                SELECT 1 FROM avatars a
+                WHERE a.id = r.avatar_id AND a.class_id = :classId
+              )
+            WHERE m.class_id = :classId AND m.status = 'ACTIVE'
+            GROUP BY u.id, u.display_name
+            """)
+    List<Object[]> findStudentActivityByClass(@Param("classId") String classId);
+
+    /// Per-user-per-topic grasp for one class — drives the per-class heatmap.
+    /// Only topics with ≥ 2 attempts to reduce single-answer noise.
+    @Query(nativeQuery = true, value = """
+            SELECT r.user_id, r.topic_slug,
+                   AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp,
+                   COUNT(*) AS n
+            FROM quiz_question_results r
+            JOIN avatars a ON a.id = r.avatar_id AND a.class_id = :classId
+            WHERE r.topic_slug IS NOT NULL
+            GROUP BY r.user_id, r.topic_slug
+            HAVING COUNT(*) >= 2
+            """)
+    List<Object[]> findHeatmapDataByClass(@Param("classId") String classId);
+
     /// Total correct answers across all the user's quizzes — drives the
     /// QUIZ_CORRECT_50 / 250 achievements.
     @Query("""

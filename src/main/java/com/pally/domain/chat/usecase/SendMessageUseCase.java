@@ -153,7 +153,11 @@ public class SendMessageUseCase {
         // ── Centre avatar: closed-book gate ──────────────────────────────
         // Deterministic refuse — NO LLM call for off-corpus turns.
         if (closedBookEnabled && avatar.isCentreAvatar()) {
-            List<WikiPage> pages = wikiRepository.findActiveByAvatarId(avatarId);
+            // Centre avatars read the shared class corpus (held on the class's
+            // corpus avatar), falling back to their own wiki if unlinked.
+            String corpusId = avatar.getCorpusAvatarId() != null
+                    ? avatar.getCorpusAvatarId() : avatarId;
+            List<WikiPage> pages = wikiRepository.findActiveByAvatarId(corpusId);
             double relevance = computeKeywordRelevance(userMessage, pages);
             if (pages.isEmpty() || relevance < closedBookThreshold) {
                 String brand = avatar.getName();

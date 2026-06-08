@@ -227,13 +227,16 @@ public class CentreAnalyticsController {
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
-    // ── GET /organizations/{orgId}/classes ────────────────────────────────
+    // ── GET /organizations/{orgId}/cohorts ────────────────────────────────
+    // NOTE: renamed from /classes — the canonical class list is now owned by
+    // ClassController (the first-class org_class CRUD). This legacy endpoint
+    // still summarises by users.cohort_label for backward compatibility.
 
     /**
      * Lists all cohorts in the org with their student count and average
      * grasp (quiz accuracy) over the last 14 days.
      */
-    @GetMapping("/organizations/{orgId}/classes")
+    @GetMapping("/organizations/{orgId}/cohorts")
     @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> classes(
             @AuthenticationPrincipal String userId,
