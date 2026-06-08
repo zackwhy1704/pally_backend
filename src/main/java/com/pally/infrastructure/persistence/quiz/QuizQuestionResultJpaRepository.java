@@ -93,6 +93,7 @@ public interface QuizQuestionResultJpaRepository
                    COUNT(*)                                           AS attempts
             FROM quiz_question_results r
             JOIN users u ON u.id = r.user_id
+            JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE
             WHERE u.centre_id = :centreId
               AND (CAST(:cohort AS varchar) IS NULL OR u.cohort_label = :cohort)
               AND r.topic_slug IS NOT NULL
@@ -117,6 +118,7 @@ public interface QuizQuestionResultJpaRepository
                    COUNT(*) AS n
             FROM quiz_question_results r
             JOIN users u ON u.id = r.user_id
+            JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE
             WHERE u.centre_id = :centreId
               AND u.cohort_label = :cohort
               AND r.topic_slug IS NOT NULL
@@ -134,6 +136,7 @@ public interface QuizQuestionResultJpaRepository
                    AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp
             FROM quiz_question_results r
             JOIN users u ON u.id = r.user_id
+            JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE
             WHERE u.centre_id = :centreId
               AND (CAST(:cohort AS varchar) IS NULL OR u.cohort_label = :cohort)
               AND r.created_at >= NOW() - INTERVAL '12 weeks'
@@ -153,7 +156,12 @@ public interface QuizQuestionResultJpaRepository
                    MAX(r.created_at) AS last_active
             FROM users u
             LEFT JOIN quiz_question_results r
-              ON r.user_id = u.id AND r.created_at >= NOW() - INTERVAL '14 days'
+              ON r.user_id = u.id
+              AND r.created_at >= NOW() - INTERVAL '14 days'
+              AND EXISTS (
+                SELECT 1 FROM avatars a
+                WHERE a.id = r.avatar_id AND a.centre_avatar = TRUE
+              )
             WHERE u.centre_id = :centreId
               AND (CAST(:cohort AS varchar) IS NULL OR u.cohort_label = :cohort)
             GROUP BY u.id, u.display_name, u.cohort_label
@@ -187,6 +195,19 @@ public interface QuizQuestionResultJpaRepository
             ORDER BY grasp ASC
             """)
     List<Object[]> findTopicGraspForStudent(@Param("userId") String userId);
+
+    /// Count of quiz results for a centre since a given instant — used by the
+    /// lightweight /activity endpoint. Only counts results from centre avatars.
+    @Query(value = """
+            SELECT COUNT(r.id)
+            FROM quiz_question_results r
+            JOIN users u ON u.id = r.user_id
+            JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE
+            WHERE u.centre_id = :centreId
+              AND r.created_at >= :since
+            """, nativeQuery = true)
+    long countResultsForCentreSince(@Param("centreId") String centreId,
+                                    @Param("since") java.time.Instant since);
 
     /// Total correct answers across all the user's quizzes — drives the
     /// QUIZ_CORRECT_50 / 250 achievements.

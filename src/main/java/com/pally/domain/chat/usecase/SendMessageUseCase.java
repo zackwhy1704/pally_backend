@@ -5,6 +5,8 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.TeachingMode;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.chat.AssembledContext;
+import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.domain.chat.ChatMessage;
@@ -27,16 +29,20 @@ import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Use case: send a message to an avatar and receive a streaming response.
@@ -45,7 +51,6 @@ import java.util.regex.Pattern;
  * Block 4 is dynamically modified based on teaching mode, hint trees, and attempt count.
  */
 @Service
-@RequiredArgsConstructor
 public class SendMessageUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(SendMessageUseCase.class);
@@ -70,6 +75,50 @@ public class SendMessageUseCase {
     private final ModerationService moderationService;
     private final AvatarSlotGuard avatarSlotGuard;
     private final PremiumService premiumService;
+    private final WikiRepository wikiRepository;
+
+    @Value("${centre.closedbook.enabled:true}")
+    private boolean closedBookEnabled;
+
+    @Value("${centre.closedbook.relevance-threshold:0.55}")
+    private double closedBookThreshold;
+
+    @Value("${centre.closedbook.refusal-template:That's outside what {brand} covers in your materials. I can only answer from what your centre has uploaded. Ask your tutor, or try asking me about topics from your notes!}")
+    private String closedBookRefusal;
+
+    public SendMessageUseCase(
+            AvatarRepository avatarRepository,
+            ChatRepository chatRepository,
+            ChatPort chatProxy,
+            ClaudeContextAssembler contextAssembler,
+            HintTreeRepository hintTreeRepository,
+            ChatSessionRepository chatSessionRepository,
+            TopicClassifier topicClassifier,
+            SocraticPromptBuilder socraticPromptBuilder,
+            ModelRouter modelRouter,
+            ChatSessionSummariser sessionSummariser,
+            ConsentGuard consentGuard,
+            ModerationService moderationService,
+            AvatarSlotGuard avatarSlotGuard,
+            PremiumService premiumService,
+            WikiRepository wikiRepository
+    ) {
+        this.avatarRepository = avatarRepository;
+        this.chatRepository = chatRepository;
+        this.chatProxy = chatProxy;
+        this.contextAssembler = contextAssembler;
+        this.hintTreeRepository = hintTreeRepository;
+        this.chatSessionRepository = chatSessionRepository;
+        this.topicClassifier = topicClassifier;
+        this.socraticPromptBuilder = socraticPromptBuilder;
+        this.modelRouter = modelRouter;
+        this.sessionSummariser = sessionSummariser;
+        this.consentGuard = consentGuard;
+        this.moderationService = moderationService;
+        this.avatarSlotGuard = avatarSlotGuard;
+        this.premiumService = premiumService;
+        this.wikiRepository = wikiRepository;
+    }
 
     public record StreamEvent(String type, String payload) {}
 
@@ -94,6 +143,37 @@ public class SendMessageUseCase {
         Avatar avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
+
+        // ── Centre avatar: locked check ──────────────────────────────────
+        if (avatar.isAvatarLocked()) {
+            String msg = "Your access to this Mochi has paused — check with your centre.";
+            return Flux.just(new StreamEvent("token", msg), new StreamEvent("done", ""));
+        }
+
+        // ── Centre avatar: closed-book gate ──────────────────────────────
+        // Deterministic refuse — NO LLM call for off-corpus turns.
+        if (closedBookEnabled && avatar.isCentreAvatar()) {
+            List<WikiPage> pages = wikiRepository.findActiveByAvatarId(avatarId);
+            double relevance = computeKeywordRelevance(userMessage, pages);
+            if (pages.isEmpty() || relevance < closedBookThreshold) {
+                String brand = avatar.getName();
+                String refusal = closedBookRefusal.replace("{brand}", brand);
+                log.info("[ClosedBook] REFUSED orgAvatar={} userId={} relevance={} msg={}",
+                        avatarId, userId, String.format("%.3f", relevance),
+                        userMessage.substring(0, Math.min(60, userMessage.length())));
+                // Persist both sides even for refused turns (ephemeral = pending-consent accounts)
+                boolean ephemeralCheck = consentGuard.isPending(userId);
+                if (!ephemeralCheck) {
+                    ChatMessage refusedUserMsg = ChatMessage.create(avatarId, userId,
+                            ChatMessage.Role.USER, userMessage, null);
+                    chatRepository.save(refusedUserMsg);
+                    ChatMessage refusalMsg = ChatMessage.create(avatarId, userId,
+                            ChatMessage.Role.ASSISTANT, refusal, null);
+                    chatRepository.save(refusalMsg);
+                }
+                return Flux.just(new StreamEvent("delta", refusal), new StreamEvent("done", ""));
+            }
+        }
 
         // PDPA: PENDING accounts chat ephemerally — skip persist to chat_message.
         boolean ephemeral = consentGuard.isPending(userId);
@@ -170,6 +250,22 @@ public class SendMessageUseCase {
         // Replace Block 4 in the system blocks list
         List<Map<String, Object>> systemBlocks = buildBlocksWithSocraticTail(
                 context.systemBlocks(), block4);
+
+        // ── Centre avatar: prepend closed-book constraint as Block 0 ────
+        if (avatar.isCentreAvatar()) {
+            Map<String, Object> closedBookBlock = Map.of("type", "text", "text",
+                    """
+                    CENTRE TUTOR CONSTRAINT — NON-NEGOTIABLE:
+                    You are %s, a centre tutor. Answer ONLY from the KNOWLEDGE BASE provided in this prompt.
+                    If the answer is not clearly in the knowledge base: say "That's outside what I've been given to teach — ask your tutor!" and stop.
+                    Do NOT use outside knowledge. Do NOT guess. Do NOT answer from training data.
+                    Cite which topic/page your answer comes from.
+                    """.formatted(avatar.getName()));
+            List<Map<String, Object>> withConstraint = new ArrayList<>();
+            withConstraint.add(closedBookBlock);
+            withConstraint.addAll(systemBlocks);
+            systemBlocks = withConstraint;
+        }
 
         // ── Chat context diagnostic log ────────────────────────────────────
         // INFO so it shows up in Railway on every turn. Tells you what the
@@ -291,5 +387,32 @@ public class SendMessageUseCase {
         List<Map<String, Object>> result = new ArrayList<>(existing.subList(0, existing.size() - 1));
         result.add(block4);
         return result;
+    }
+
+    /**
+     * Lightweight keyword-overlap relevance score between a query and a wiki corpus.
+     * Returns a value in [0.0, 1.0] where 1.0 means every query token appears in at
+     * least one wiki page. Used for deterministic closed-book gating — never calls LLM.
+     */
+    double computeKeywordRelevance(String query, List<WikiPage> pages) {
+        if (pages.isEmpty() || query == null || query.isBlank()) return 0.0;
+        Set<String> queryTokens = tokenise(query);
+        if (queryTokens.isEmpty()) return 0.0;
+        return pages.stream().mapToDouble(page -> {
+            Set<String> pageTokens = tokenise(page.getContent() + " " + page.getTitle());
+            long matches = queryTokens.stream().filter(pageTokens::contains).count();
+            return (double) matches / queryTokens.size();
+        }).max().orElse(0.0);
+    }
+
+    /**
+     * Lowercases, strips punctuation, splits on whitespace, and removes tokens
+     * shorter than 3 characters (noise stopwords).
+     */
+    private Set<String> tokenise(String text) {
+        if (text == null || text.isBlank()) return Set.of();
+        return Arrays.stream(text.toLowerCase().replaceAll("[^a-z0-9\\s]", " ").split("\\s+"))
+                .filter(w -> w.length() > 2)
+                .collect(Collectors.toSet());
     }
 }

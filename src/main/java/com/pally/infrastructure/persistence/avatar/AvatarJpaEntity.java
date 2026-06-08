@@ -79,10 +79,6 @@ public class AvatarJpaEntity {
     @Column(name = "centre_avatar", nullable = false)
     private boolean centreAvatar;
 
-    /// FK to the centre_enrolments row that created this avatar. Null for non-centre avatars.
-    @Column(name = "centre_enrolment_id", length = 36)
-    private String centreEnrolmentId;
-
     /// When true the student cannot chat with this avatar — set by centre lapse/leave.
     @Column(name = "avatar_locked", nullable = false)
     private boolean avatarLocked;
@@ -115,6 +111,7 @@ public class AvatarJpaEntity {
             bs = Avatar.BrainState.READY;
         }
         return Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs, isActive, teacherPreferences);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs, isActive, teacherPreferences,
+                centreAvatar, avatarLocked);
     }
 }

@@ -143,6 +143,12 @@ stripe:
     centre-monthly: ${STRIPE_PRICE_CENTRE_MONTHLY:price_1TeXmuE1t2gQ3tvLITC8K12D}
     centre-annual: ${STRIPE_PRICE_CENTRE_ANNUAL:price_1TeXn1E1t2gQ3tvL1YUOpb7m}
 
+centre:
+  closedbook:
+    enabled: true
+    relevance-threshold: 0.55
+    refusal-template: "That's outside what {brand} covers in your materials. I can only answer from what your centre has uploaded. Ask your tutor, or try asking me about topics from your notes!"
+
 claude:
   api:
     key: ${CLAUDE_API_KEY:}

@@ -345,6 +345,55 @@ class CentreAnalyticsControllerTest {
                 .hasMessageContaining("don't own");
     }
 
+    // ── centre_avatar=false exclusion ─────────────────────────────────────
+
+    @Test
+    void overview_emptyCentre_returns200WithEmptyAtRisk() {
+        // An org with no students (or all students inactive) should still return 200
+        stubActivityRows(Collections.emptyList());
+        stubWeeklyTrend(Collections.emptyList());
+        stubWeakestTopics(Collections.emptyList());
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(0L);
+
+        var response = controller.overview(OWNER_ID, ORG_ID, null);
+
+        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+        Map<String, Object> body = response.getBody().data();
+        assertThat(body.get("totalStudents")).isEqualTo(0L);
+        @SuppressWarnings("unchecked")
+        List<?> atRisk = (List<?>) body.get("atRisk");
+        assertThat(atRisk).isEmpty();
+    }
+
+    @Test
+    void classes_emptyOrg_returns200EmptyList() {
+        // Empty centre — no activity rows at all
+        stubActivityRows(Collections.emptyList());
+
+        var response = controller.classes(OWNER_ID, ORG_ID);
+
+        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+        assertThat(response.getBody().data()).isEmpty();
+    }
+
+    @Test
+    void heatmap_nonCentreAvatarStudent_appearsInHeatmapStructureButQueriesExcludeThem() {
+        // The heatmap query itself is responsible for filtering out non-centre-avatar results
+        // (JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE).
+        // At the controller level: if the repo returns empty (because only personal avatars
+        // had results), the heatmap should return 200 with empty shapes.
+        when(quizResultRepo.findHeatmapData(eq(ORG_ID), anyString()))
+                .thenReturn(Collections.emptyList());
+
+        var response = controller.heatmap(OWNER_ID, ORG_ID, "Sec3A");
+
+        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+        Map<String, Object> body = response.getBody().data();
+        assertThat((List<?>) body.get("students")).isEmpty();
+        assertThat((List<?>) body.get("topics")).isEmpty();
+        assertThat((List<?>) body.get("cells")).isEmpty();
+    }
+
     // ── Row builder helpers ────────────────────────────────────────────────
 
     /**

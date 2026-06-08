@@ -1,6 +1,7 @@
 package com.pally.api.centre;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.format.DateTimeParseException;
 
 /**
  * Centre (B2B) endpoints. The Flutter app only consumes
@@ -59,6 +61,7 @@ public class CentreController {
     private final CentreEnrollCodeJpaRepository codeRepo;
     private final UserJpaRepository userRepo;
     private final QuizQuestionResultJpaRepository quizResultRepo;
+    private final AvatarJpaRepository avatarJpaRepository;
 
     // ── Student-side: redeem an enrollment code ───────────────────────
 
@@ -291,6 +294,93 @@ public class CentreController {
                 "id", org.getId(),
                 "name", org.getName(),
                 "ownerUserId", org.getOwnerUserId())));
+    }
+
+    // ── Owner dashboard: which centre am I managing? ──────────────────
+
+    /**
+     * Returns the org owned by the calling user together with seat usage
+     * and the sorted list of distinct cohort labels.
+     * Intended for the first "boot" call from the admin dashboard.
+     */
+    @GetMapping("/me")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> me(
+            @AuthenticationPrincipal String userId) {
+        OrganizationJpaEntity org = orgRepo.findFirstByOwnerUserId(userId)
+                .orElseThrow(() -> new BusinessException("No centre access", 403));
+        long seats = userRepo.countByCentreId(org.getId());
+        List<String> cohorts = userRepo.findByCentreId(org.getId())
+                .stream()
+                .map(u -> u.getCohortLabel() == null ? "" : u.getCohortLabel())
+                .filter(s -> !s.isBlank())
+                .distinct().sorted().toList();
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "orgId",      org.getId(),
+                "orgName",    org.getName(),
+                "seatsUsed",  seats,
+                "seatLimit",  org.getSeatLimit(),
+                "cohorts",    cohorts
+        )));
+    }
+
+    // ── Per-centre observability: quick activity summary ──────────────
+
+    /**
+     * Returns a lightweight count of centre-avatar quiz results since {@code since}
+     * (ISO-8601 instant, e.g. {@code 2026-06-01T00:00:00Z}).
+     * Defaults to 7 days ago if the param is absent or unparseable.
+     * Single DB query — fast enough to poll every 30 s from a dashboard.
+     */
+    @GetMapping("/organizations/{orgId}/activity")
+    @Transactional(readOnly = true)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> activity(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @RequestParam(required = false) String since) {
+        accessService.ensureOwner(userId, orgId);
+        Instant sinceInstant;
+        try {
+            sinceInstant = (since != null && !since.isBlank())
+                    ? Instant.parse(since)
+                    : Instant.now().minus(7, ChronoUnit.DAYS);
+        } catch (DateTimeParseException e) {
+            sinceInstant = Instant.now().minus(7, ChronoUnit.DAYS);
+        }
+        long count = quizResultRepo.countResultsForCentreSince(orgId, sinceInstant);
+        log.info("[Centre] activity org={} since={} count={}", orgId, sinceInstant, count);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "quizResultCount", count,
+                "activeSince",     sinceInstant.toString()
+        )));
+    }
+
+    // ── Admin-side: mark an avatar as a centre Mochi ──────────────────
+
+    /**
+     * Flags {@code avatarId} as a centre avatar ({@code centre_avatar=true}).
+     * The avatar must belong to a student already enrolled in {@code orgId}.
+     * Owner-gated: 403 if the caller is not the org's owner.
+     */
+    @PostMapping("/organizations/{orgId}/avatars/{avatarId}/mark-centre")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> markCentre(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String avatarId) {
+        accessService.ensureOwner(userId, orgId);
+        var avatarOpt = avatarJpaRepository.findById(avatarId);
+        if (avatarOpt.isEmpty()) throw new BusinessException("Avatar not found", 404);
+        var avatar = avatarOpt.get();
+        boolean inOrg = userRepo.findById(avatar.getUserId())
+                .map(u -> orgId.equals(u.getCentreId())).orElse(false);
+        if (!inOrg) throw new BusinessException("Avatar not in this org", 403);
+        avatar.setCentreAvatar(true);
+        avatarJpaRepository.save(avatar);
+        log.info("[Centre] Marked avatar={} as centre_avatar for org={}", avatarId, orgId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "avatarId",    avatarId,
+                "centreAvatar", true)));
     }
 
     private String generateCode() {

@@ -31,6 +31,10 @@ public final class Avatar {
     private boolean isActive;
     // Optional teacher-specified method preferences (max 500 chars), injected into Block 2
     private String teacherPreferences;
+    // true = this avatar was provisioned by a centre (closed-book rules apply)
+    private boolean centreAvatar;
+    // true = centre has paused student access to this avatar
+    private boolean avatarLocked;
 
     private Avatar(
             String id,
@@ -49,6 +53,30 @@ public final class Avatar {
             boolean isActive,
             String teacherPreferences
     ) {
+        this(id, userId, name, subject, characterType, wikiPageCount, createdAt,
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate,
+                brainState, isActive, teacherPreferences, false, false);
+    }
+
+    private Avatar(
+            String id,
+            String userId,
+            String name,
+            Subject subject,
+            CharacterType characterType,
+            int wikiPageCount,
+            Instant createdAt,
+            String gradeLevel,
+            String curriculumType,
+            PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
+            java.time.LocalDate testDate,
+            BrainState brainState,
+            boolean isActive,
+            String teacherPreferences,
+            boolean centreAvatar,
+            boolean avatarLocked
+    ) {
         this.id = id;
         this.userId = userId;
         this.name = name;
@@ -64,6 +92,8 @@ public final class Avatar {
         this.brainState = brainState != null ? brainState : BrainState.READY;
         this.isActive = isActive;
         this.teacherPreferences = teacherPreferences;
+        this.centreAvatar = centreAvatar;
+        this.avatarLocked = avatarLocked;
     }
 
     /**
@@ -176,7 +206,32 @@ public final class Avatar {
             String teacherPreferences
     ) {
         return new Avatar(id, userId, name, subject, characterType, wikiPageCount, createdAt,
-                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive, teacherPreferences);
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive, teacherPreferences,
+                false, false);
+    }
+
+    public static Avatar reconstitute(
+            String id,
+            String userId,
+            String name,
+            Subject subject,
+            CharacterType characterType,
+            int wikiPageCount,
+            Instant createdAt,
+            String gradeLevel,
+            String curriculumType,
+            PedagogyMode pedagogyMode,
+            TeachingMode teachingMode,
+            java.time.LocalDate testDate,
+            BrainState brainState,
+            boolean isActive,
+            String teacherPreferences,
+            boolean centreAvatar,
+            boolean avatarLocked
+    ) {
+        return new Avatar(id, userId, name, subject, characterType, wikiPageCount, createdAt,
+                gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, brainState, isActive, teacherPreferences,
+                centreAvatar, avatarLocked);
     }
 
     // Domain behaviour
@@ -235,4 +290,6 @@ public final class Avatar {
     public void setActive(boolean active)       { this.isActive = active; }
     public String getTeacherPreferences()       { return teacherPreferences; }
     public void setTeacherPreferences(String prefs) { this.teacherPreferences = prefs; }
+    public boolean isCentreAvatar()             { return centreAvatar; }
+    public boolean isAvatarLocked()             { return avatarLocked; }
 }
