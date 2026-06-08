@@ -50,6 +50,15 @@ server:
   port: ${PORT:8080}  # Railway injects PORT; local dev must set it explicitly
   shutdown: graceful
 
+# ── Third-party AI consent gate ──────────────────────────────────────────────
+# Feature flag: OFF by default. Set to true ONLY after the legal/product team
+# has supplied the plain-language disclosure copy naming Anthropic (Claude) and
+# Google (Gemini) as overseas AI processors and the disclosure is shown in the UI
+# BEFORE the user's first upload or chat. See ConsentGuard.requireAiConsent().
+app:
+  ai-consent:
+    enabled: false
+
 management:
   endpoints:
     web:
@@ -96,6 +105,15 @@ resilience4j:
 jwt:
   secret: ${JWT_SECRET:dev-secret-min-32-chars-long-here-!!}
 
+# Social auth client IDs for audience validation (Google/Apple idTokens).
+# Set GOOGLE_CLIENT_IDS and APPLE_CLIENT_IDS in Railway Variables.
+# Comma-separated for multiple platforms (iOS / Android have different IDs).
+auth:
+  google:
+    client-ids: ${GOOGLE_CLIENT_IDS:}
+  apple:
+    client-ids: ${APPLE_CLIENT_IDS:}
+
 # Stripe — leave blank in dev so SubscriptionController stays in mock mode.
 # Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET on Railway to flip to live.
 # Register the webhook URL in the Stripe Dashboard as:
@@ -103,6 +121,9 @@ jwt:
 stripe:
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  # Mock webhook secret for QA/dev only. Set MOCK_WEBHOOK_SECRET in Railway for dev environments.
+  # Leave blank in production to disable the mock path entirely.
+  mock-webhook-secret: ${MOCK_WEBHOOK_SECRET:}
   return:
     success-url: ${STRIPE_SUCCESS_URL:pally://subscription/return?status=success}
     cancel-url: ${STRIPE_CANCEL_URL:pally://subscription/return?status=cancel}
@@ -121,6 +142,12 @@ stripe:
     family-annual: ${STRIPE_PRICE_FAMILY_ANNUAL:price_1TeXmnE1t2gQ3tvLLF9V3xbk}
     centre-monthly: ${STRIPE_PRICE_CENTRE_MONTHLY:price_1TeXmuE1t2gQ3tvLITC8K12D}
     centre-annual: ${STRIPE_PRICE_CENTRE_ANNUAL:price_1TeXn1E1t2gQ3tvL1YUOpb7m}
+
+centre:
+  closedbook:
+    enabled: true
+    relevance-threshold: 0.55
+    refusal-template: "That's outside what {brand} covers in your materials. I can only answer from what your centre has uploaded. Ask your tutor, or try asking me about topics from your notes!"
 
 claude:
   api:
