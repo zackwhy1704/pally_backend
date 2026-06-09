@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -205,6 +206,54 @@ class CentreControllerTest {
         assertThatThrownBy(() -> controller.activity("intruder", ORG_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("don't own");
+    }
+
+    // ── Self-serve onboarding ────────────────────────────────────────────
+
+    @Test
+    void onboard_createsOrg_whenCallerOwnsNone_andPromotesOwner() {
+        when(orgRepo.findFirstByOwnerUserId("u-new")).thenReturn(Optional.empty());
+        UserJpaEntity user = new UserJpaEntity();
+        user.setId("u-new");
+        when(userRepo.findById("u-new")).thenReturn(Optional.of(user));
+        when(orgRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
+                controller.onboard("u-new", Map.of("centreName", "ABC Learning"));
+
+        Map<String, Object> body = resp.getBody().data();
+        assertThat(body.get("orgName")).isEqualTo("ABC Learning");
+        assertThat(body.get("alreadyOwned")).isEqualTo(false);
+        assertThat(body.get("orgId")).isNotNull();
+        // Promoted to centre admin, but NOT seated as a student (centreId stays null).
+        assertThat(user.getAccountType()).isEqualTo("CENTRE_ADMIN");
+        assertThat(user.getCentreId()).isNull();
+        verify(orgRepo).save(any(OrganizationJpaEntity.class));
+    }
+
+    @Test
+    void onboard_isIdempotent_whenCallerAlreadyOwnsOrg() {
+        OrganizationJpaEntity existing = new OrganizationJpaEntity();
+        existing.setId("org-x");
+        existing.setName("Existing Centre");
+        existing.setOwnerUserId("u1");
+        when(orgRepo.findFirstByOwnerUserId("u1")).thenReturn(Optional.of(existing));
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
+                controller.onboard("u1", Map.of("centreName", "Ignored"));
+
+        Map<String, Object> body = resp.getBody().data();
+        assertThat(body.get("orgId")).isEqualTo("org-x");
+        assertThat(body.get("alreadyOwned")).isEqualTo(true);
+        verify(orgRepo, never()).save(any());
+    }
+
+    @Test
+    void onboard_blankName_isRejected() {
+        when(orgRepo.findFirstByOwnerUserId("u2")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> controller.onboard("u2", Map.of("centreName", "  ")))
+                .isInstanceOf(BusinessException.class);
+        verify(orgRepo, never()).save(any());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

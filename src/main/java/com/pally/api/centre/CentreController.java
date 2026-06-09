@@ -296,6 +296,60 @@ public class CentreController {
                 "ownerUserId", org.getOwnerUserId())));
     }
 
+    // ── Self-serve web onboarding: create my centre ───────────────────
+
+    /**
+     * Self-serve centre creation for the web dashboard. The authenticated caller
+     * becomes the owner of a brand-new organization and is promoted to
+     * {@code CENTRE_ADMIN}. Idempotent: if the caller already owns an org, that
+     * org is returned untouched (so a double-submit or re-onboard is safe).
+     *
+     * <p>Unlike {@code /admin/organizations} this is NOT secret-gated — any
+     * signed-in user may create exactly their own centre. They never gain access
+     * to anyone else's org (every other centre route is owner-checked).
+     */
+    @PostMapping("/onboard")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> onboard(
+            @AuthenticationPrincipal String userId,
+            @RequestBody(required = false) Map<String, Object> body) {
+
+        var existing = orgRepo.findFirstByOwnerUserId(userId);
+        if (existing.isPresent()) {
+            OrganizationJpaEntity org = existing.get();
+            return ResponseEntity.ok(ApiResponse.success(Map.of(
+                    "orgId", org.getId(),
+                    "orgName", org.getName(),
+                    "alreadyOwned", true)));
+        }
+
+        String name = body == null ? null : (String) body.get("centreName");
+        if (name == null || name.isBlank()) {
+            throw new BusinessException("centreName is required", 400);
+        }
+        UserJpaEntity owner = userRepo.findById(userId).orElseThrow(
+                () -> new BusinessException("User not found", 404));
+
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId(com.pally.shared.util.IdGenerator.newId());
+        org.setName(name.trim());
+        org.setOwnerUserId(userId);
+        org.setSeatLimit(30);
+        org.setCreatedAt(Instant.now());
+        orgRepo.save(org);
+
+        // Promote to centre admin. Do NOT set centreId on the owner — that field
+        // marks a student membership and would make the owner count as a seat.
+        owner.setAccountType("CENTRE_ADMIN");
+        userRepo.save(owner);
+
+        log.info("[Centre] self-serve onboard org={} owner={}", org.getId(), userId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "orgId", org.getId(),
+                "orgName", org.getName(),
+                "alreadyOwned", false)));
+    }
+
     // ── Owner dashboard: which centre am I managing? ──────────────────
 
     /**
