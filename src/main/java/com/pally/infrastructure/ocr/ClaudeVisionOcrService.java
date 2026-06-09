@@ -6,7 +6,6 @@ import com.pally.domain.knowledge.port.OcrPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -33,7 +32,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Cost: ~$0.002 per image (Haiku vision, ~1K input tokens).
  */
 @Component
-@Primary
 public class ClaudeVisionOcrService implements OcrPort {
 
     private static final Logger log =

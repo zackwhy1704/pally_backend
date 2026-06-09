@@ -46,6 +46,7 @@ class CompileWikiOrphanPruneTest {
     @Mock CacheKeepAliveService cacheKeepAliveService;
     @Mock WikiPagePersistenceService persistenceService;
     @Mock com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository wikiPageSourceRepo;
+    @Mock CompileJobStore compileJobStore;
 
     private CompileWikiUseCase useCase;
 
@@ -57,7 +58,8 @@ class CompileWikiOrphanPruneTest {
         useCase = new CompileWikiUseCase(
                 avatarRepository, knowledgeRepository, wikiRepository,
                 wikiCompiler, cacheInvalidationService, cacheKeepAliveService,
-                persistenceService, wikiPageSourceRepo, executor);
+                persistenceService, wikiPageSourceRepo, compileJobStore, executor);
+        ReflectionTestUtils.setField(useCase, "maxSyncChars", 50000);
     }
 
     @Test

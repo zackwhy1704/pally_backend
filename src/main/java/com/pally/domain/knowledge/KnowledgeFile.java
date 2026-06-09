@@ -24,6 +24,8 @@ public final class KnowledgeFile {
     private final Instant createdAt;
     private String extractedText;
     private String contentHash;  // SHA-256 of normalised extracted text
+    private String ocrEngine;    // which OCR engine served (e.g. "claude-vision", "gemini-vision")
+    private String compiledBy;   // which compiler tier served (e.g. "gemini-tier1-...", "haiku-chunked")
 
     private KnowledgeFile(
             String id, String avatarId, String userId, String fileName,
@@ -97,4 +99,8 @@ public final class KnowledgeFile {
 
     public void setExtractedText(String text) { this.extractedText = text; }
     public void setContentHash(String hash)   { this.contentHash = hash; }
+    public String getOcrEngine()              { return ocrEngine; }
+    public void setOcrEngine(String engine)   { this.ocrEngine = engine; }
+    public String getCompiledBy()             { return compiledBy; }
+    public void setCompiledBy(String tier)    { this.compiledBy = tier; }
 }

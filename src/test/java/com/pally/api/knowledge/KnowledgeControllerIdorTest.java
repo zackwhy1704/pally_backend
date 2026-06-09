@@ -45,6 +45,7 @@ class KnowledgeControllerIdorTest {
     @Mock DeleteFileUseCase deleteFileUseCase;
     @Mock CheckRelevanceUseCase checkRelevanceUseCase;
     @Mock CompileWikiUseCase compileWikiUseCase;
+    @Mock com.pally.domain.knowledge.usecase.CompileJobStore compileJobStore;
     @Mock WikiRecompileScheduler recompileScheduler;
     @Mock KnowledgeRepository knowledgeRepository;
     @Mock KnowledgeMapper knowledgeMapper;
@@ -70,6 +71,7 @@ class KnowledgeControllerIdorTest {
                 deleteFileUseCase,
                 checkRelevanceUseCase,
                 compileWikiUseCase,
+                compileJobStore,
                 recompileScheduler,
                 knowledgeRepository,
                 knowledgeMapper,

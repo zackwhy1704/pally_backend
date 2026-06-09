@@ -13,6 +13,7 @@ import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.usecase.CheckRelevanceUseCase;
+import com.pally.domain.knowledge.usecase.CompileJobStore;
 import com.pally.domain.knowledge.usecase.CompileWikiUseCase;
 import com.pally.domain.knowledge.usecase.DeleteFileUseCase;
 import com.pally.domain.knowledge.usecase.UploadFileUseCase;
@@ -53,6 +54,7 @@ public class KnowledgeController {
     private final DeleteFileUseCase deleteFileUseCase;
     private final CheckRelevanceUseCase checkRelevanceUseCase;
     private final CompileWikiUseCase compileWikiUseCase;
+    private final CompileJobStore compileJobStore;
     private final WikiRecompileScheduler recompileScheduler;
     private final KnowledgeRepository knowledgeRepository;
     private final KnowledgeMapper knowledgeMapper;
@@ -212,12 +214,21 @@ public class KnowledgeController {
      * @return 200 OK with number of pages compiled
      */
     @PostMapping("/wiki/compile")
-    public ResponseEntity<ApiResponse<WikiCompileResponse>> compileWiki(
+    public ResponseEntity<ApiResponse<Object>> compileWiki(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
-        // Bounded path — capped concurrent compiles so a burst can't
-        // exhaust the web tier or the Claude token budget.
+        // Check if content exceeds sync cap — if so, run async and return 202
+        if (compileWikiUseCase.shouldCompileAsync(avatarId)) {
+            String jobId = compileWikiUseCase.executeAsync(avatarId);
+            java.util.Map<String, Object> asyncBody = new java.util.HashMap<>();
+            asyncBody.put("compileJobId", jobId);
+            asyncBody.put("message", "Content is large — compiling in background. Poll /wiki/compile/status for progress.");
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(ApiResponse.success(asyncBody));
+        }
+
+        // Bounded synchronous path — capped concurrent compiles
         CompileWikiUseCase.CompileResult result =
                 compileWikiUseCase.executeBounded(avatarId);
         int total = result.pagesCreated() + result.pagesUpdated();
@@ -225,9 +236,37 @@ public class KnowledgeController {
                 total,
                 result.pageTitles(),
                 "Wiki compiled: %d page(s) created, %d page(s) updated"
-                        .formatted(result.pagesCreated(), result.pagesUpdated())
+                        .formatted(result.pagesCreated(), result.pagesUpdated()),
+                result.tierServed()
         );
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Poll endpoint for async compile job status.
+     */
+    @GetMapping("/wiki/compile/status")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> compileStatus(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId
+    ) {
+        CompileJobStore.JobStatus status = compileJobStore.findByAvatarId(avatarId);
+        if (status == null) {
+            return ResponseEntity.ok(ApiResponse.success(java.util.Map.of(
+                    "state", "NONE",
+                    "message", "No compile job found for this avatar"
+            )));
+        }
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("jobId", status.jobId());
+        body.put("state", status.state().name());
+        body.put("pagesCompiled", status.pagesCompiled());
+        body.put("pagesTotal", status.pagesTotal());
+        body.put("compiledBy", status.compiledBy());
+        if (status.errorMessage() != null) {
+            body.put("error", status.errorMessage());
+        }
+        return ResponseEntity.ok(ApiResponse.success(body));
     }
 
     /**

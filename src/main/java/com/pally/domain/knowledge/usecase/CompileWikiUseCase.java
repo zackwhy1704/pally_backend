@@ -18,9 +18,12 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
@@ -45,9 +48,13 @@ public class CompileWikiUseCase {
     private final CacheKeepAliveService cacheKeepAliveService;
     private final WikiPagePersistenceService persistenceService;
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
+    private final CompileJobStore compileJobStore;
 
     @Qualifier(AiTaskExecutorConfig.AI_TASK_EXECUTOR)
     private final ThreadPoolExecutor aiTaskExecutor;
+
+    @Value("${compile.max-sync-chars:50000}")
+    private int maxSyncChars;
 
     public record CompileResult(
             int pagesCreated,
@@ -217,9 +224,210 @@ public class CompileWikiUseCase {
         // Best-effort cache work stays outside the persistence transaction.
         cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
 
+        // Set compiledBy on each file for provenance tracking
+        for (KnowledgeFile f : newFiles) {
+            f.setCompiledBy(tierServed);
+            knowledgeRepository.save(f);
+        }
+
         return new CompileResult(
                 outcome.created(), outcome.updated(), outcome.pageTitles(),
                 tierServed, newFiles.size(), totalChars);
+    }
+
+    /**
+     * Returns true if the total chars exceed the sync cap and should be
+     * compiled asynchronously. Called by the controller to decide 200 vs 202.
+     */
+    public boolean shouldCompileAsync(String avatarId) {
+        List<KnowledgeFile> readyFiles = knowledgeRepository.findByAvatarId(avatarId).stream()
+                .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
+                .toList();
+
+        java.util.Set<String> compiled;
+        try {
+            compiled = new java.util.HashSet<>(
+                    wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId));
+        } catch (Exception e) {
+            compiled = java.util.Set.of();
+        }
+        final java.util.Set<String> alreadyCompiledIds = compiled;
+
+        int totalChars = readyFiles.stream()
+                .filter(f -> !alreadyCompiledIds.contains(f.getId()))
+                .mapToInt(f -> f.getExtractedText() != null ? f.getExtractedText().length() : 0)
+                .sum();
+
+        return totalChars > maxSyncChars;
+    }
+
+    /**
+     * Starts an async compile job. Returns the job ID immediately.
+     * The compile runs on the bounded AI pool with batch splitting.
+     */
+    public String executeAsync(String avatarId) {
+        String jobId = UUID.randomUUID().toString().substring(0, 12);
+        CompileJobStore.JobStatus initial = new CompileJobStore.JobStatus(
+                jobId, avatarId, CompileJobStore.JobState.RUNNING,
+                0, 0, null, null, java.time.Instant.now());
+        compileJobStore.put(jobId, initial);
+
+        try {
+            aiTaskExecutor.submit(() -> {
+                try {
+                    CompileResult result = executeBatched(avatarId, jobId);
+                    compileJobStore.put(jobId,
+                            compileJobStore.get(jobId).withDone(
+                                    result.pagesCreated() + result.pagesUpdated(),
+                                    result.pagesCreated() + result.pagesUpdated(),
+                                    result.tierServed()));
+                } catch (Exception e) {
+                    log.error("[Pipeline:AsyncCompile] Job {} failed for avatarId={}",
+                            jobId, avatarId, e);
+                    CompileJobStore.JobStatus current = compileJobStore.get(jobId);
+                    if (current != null) {
+                        compileJobStore.put(jobId, current.withFailed(e.getMessage()));
+                    }
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            compileJobStore.put(jobId, initial.withFailed("Queue full — try again in a moment"));
+            throw new BusinessException(
+                    "Mochi's busy compiling other brains — try again in a moment.", 503);
+        }
+
+        return jobId;
+    }
+
+    /**
+     * Batched compile: splits files into batches under the char budget,
+     * compiles each batch separately, and persists pages after each batch
+     * so a failure on batch 3 doesn't lose batches 1-2.
+     */
+    CompileResult executeBatched(String avatarId, String jobId) {
+        Avatar avatar = avatarRepository.findById(avatarId)
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
+
+        List<KnowledgeFile> readyFiles = knowledgeRepository.findByAvatarId(avatarId).stream()
+                .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
+                .toList();
+
+        java.util.Set<String> compiled;
+        try {
+            compiled = new java.util.HashSet<>(
+                    wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId));
+        } catch (Exception e) {
+            compiled = java.util.Set.of();
+        }
+        final java.util.Set<String> alreadyCompiledIds = compiled;
+
+        List<KnowledgeFile> newFiles = readyFiles.stream()
+                .filter(f -> !alreadyCompiledIds.contains(f.getId()))
+                .toList();
+
+        if (newFiles.isEmpty()) {
+            return new CompileResult(0, 0, List.of(), "skipped-all-compiled", 0, 0);
+        }
+
+        // Split into batches
+        List<List<KnowledgeFile>> batches = splitIntoBatches(newFiles, maxSyncChars);
+        log.info("[Pipeline:BatchCompile] avatarId={} totalFiles={} batches={}",
+                avatarId, newFiles.size(), batches.size());
+
+        int totalCreated = 0;
+        int totalUpdated = 0;
+        List<String> allTitles = new ArrayList<>();
+        String lastTier = "unknown";
+        int totalFilesCompiled = 0;
+        int totalCharsCompiled = 0;
+
+        for (int i = 0; i < batches.size(); i++) {
+            List<KnowledgeFile> batch = batches.get(i);
+            int batchChars = batch.stream()
+                    .mapToInt(f -> f.getExtractedText() != null ? f.getExtractedText().length() : 0)
+                    .sum();
+
+            log.info("[Pipeline:BatchCompile] Batch {}/{}: {} files, {} chars",
+                    i + 1, batches.size(), batch.size(), batchChars);
+
+            try {
+                List<WikiPage> existingWikiPages = wikiRepository.findByAvatarId(avatarId);
+                WikiCompilerPort.CompileOutput output =
+                        wikiCompiler.compileWithTier(avatar, batch, existingWikiPages);
+
+                WikiPagePersistenceService.PersistOutcome outcome =
+                        persistenceService.persistDrafts(avatar, output.drafts(), batch);
+
+                totalCreated += outcome.created();
+                totalUpdated += outcome.updated();
+                allTitles.addAll(outcome.pageTitles());
+                lastTier = output.tierServed();
+                totalFilesCompiled += batch.size();
+                totalCharsCompiled += batchChars;
+
+                // Set compiledBy on each file
+                for (KnowledgeFile f : batch) {
+                    f.setCompiledBy(output.tierServed());
+                    knowledgeRepository.save(f);
+                }
+
+                // Update job progress
+                if (jobId != null) {
+                    CompileJobStore.JobStatus current = compileJobStore.get(jobId);
+                    if (current != null) {
+                        compileJobStore.put(jobId, current.withProgress(
+                                totalCreated + totalUpdated,
+                                totalCreated + totalUpdated,
+                                lastTier));
+                    }
+                }
+
+                log.info("[Pipeline:BatchCompile] Batch {}/{} DONE: created={} updated={}",
+                        i + 1, batches.size(), outcome.created(), outcome.updated());
+
+            } catch (Exception e) {
+                log.error("[Pipeline:BatchCompile] Batch {}/{} FAILED: {} — " +
+                          "previous batches ({} pages) are safe",
+                        i + 1, batches.size(), e.getMessage(),
+                        totalCreated + totalUpdated);
+                // Continue — partial persist: previous batches are already saved
+            }
+        }
+
+        // Cache invalidation
+        cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
+
+        return new CompileResult(totalCreated, totalUpdated, allTitles,
+                lastTier, totalFilesCompiled, totalCharsCompiled);
+    }
+
+    /**
+     * Splits files into batches where each batch's total chars is under the budget.
+     */
+    static List<List<KnowledgeFile>> splitIntoBatches(List<KnowledgeFile> files, int maxCharsPerBatch) {
+        List<List<KnowledgeFile>> batches = new ArrayList<>();
+        List<KnowledgeFile> currentBatch = new ArrayList<>();
+        int currentChars = 0;
+
+        for (KnowledgeFile file : files) {
+            int fileChars = file.getExtractedText() != null ? file.getExtractedText().length() : 0;
+
+            // If a single file exceeds the budget, it gets its own batch
+            if (!currentBatch.isEmpty() && currentChars + fileChars > maxCharsPerBatch) {
+                batches.add(currentBatch);
+                currentBatch = new ArrayList<>();
+                currentChars = 0;
+            }
+
+            currentBatch.add(file);
+            currentChars += fileChars;
+        }
+
+        if (!currentBatch.isEmpty()) {
+            batches.add(currentBatch);
+        }
+
+        return batches;
     }
 
 }

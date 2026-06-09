@@ -19,12 +19,17 @@ public class KnowledgeMapper {
      * @return response DTO
      */
     public KnowledgeFileResponse toResponse(KnowledgeFile file) {
+        String ocrEngine = file.getOcrEngine();
+        boolean degraded = ocrEngine != null && !ocrEngine.startsWith("claude");
         return new KnowledgeFileResponse(
                 file.getId(),
                 file.getFileName(),
                 file.getPageCount(),
                 file.getStatus(),
-                file.getCreatedAt()
+                file.getCreatedAt(),
+                ocrEngine,
+                file.getCompiledBy(),
+                degraded
         );
     }
 

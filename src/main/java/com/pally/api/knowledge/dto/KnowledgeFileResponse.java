@@ -18,5 +18,8 @@ public record KnowledgeFileResponse(
         String fileName,
         int pageCount,
         KnowledgeFile.Status status,
-        Instant createdAt
+        Instant createdAt,
+        String ocrEngine,
+        String compiledBy,
+        boolean degraded
 ) {}

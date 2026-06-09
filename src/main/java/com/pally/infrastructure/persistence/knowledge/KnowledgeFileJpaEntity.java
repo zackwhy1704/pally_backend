@@ -51,6 +51,12 @@ public class KnowledgeFileJpaEntity {
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
+    @Column(name = "ocr_engine", length = 30)
+    private String ocrEngine;
+
+    @Column(name = "compiled_by", length = 30)
+    private String compiledBy;
+
     public static KnowledgeFileJpaEntity fromDomain(KnowledgeFile kf) {
         KnowledgeFileJpaEntity e = new KnowledgeFileJpaEntity();
         e.id = kf.getId();
@@ -64,6 +70,8 @@ public class KnowledgeFileJpaEntity {
         e.createdAt = kf.getCreatedAt();
         e.extractedText = kf.getExtractedText();
         e.contentHash   = kf.getContentHash();
+        e.ocrEngine     = kf.getOcrEngine();
+        e.compiledBy    = kf.getCompiledBy();
         return e;
     }
 
@@ -72,6 +80,8 @@ public class KnowledgeFileJpaEntity {
                 id, avatarId, userId, fileName, storageKey, pageCount, uploadType,
                 status, createdAt, extractedText);
         kf.setContentHash(contentHash);
+        kf.setOcrEngine(ocrEngine);
+        kf.setCompiledBy(compiledBy);
         return kf;
     }
 

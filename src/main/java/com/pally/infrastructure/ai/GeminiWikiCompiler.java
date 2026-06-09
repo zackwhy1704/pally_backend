@@ -14,10 +14,15 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Gemini 2.0 Flash implementation of {@link WikiCompilerPort}.
@@ -57,6 +62,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     @Value("${gemini.api.base-url:https://generativelanguage.googleapis.com}")
     private String baseUrl;
 
+    @Value("${compile.haiku-fallback.enabled:true}")
+    private boolean haikuFallbackEnabled;
+
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final ClaudeWikiCompiler claudeFallback;
@@ -66,6 +74,15 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     private final AtomicLong tier2Count = new AtomicLong();
     private final AtomicLong haikuFallbackCount = new AtomicLong();
 
+    // ── Quota counter + cooldown ────────────────────────────────────────────
+    private static final int QUOTA_WARN_THRESHOLD = 1200;
+    private static final long COOLDOWN_DURATION_MS = 5 * 60 * 1000L; // 5 minutes
+    private static final ZoneId QUOTA_TIMEZONE = ZoneId.of("Asia/Singapore");
+
+    private final AtomicInteger dailyRequestCount = new AtomicInteger(0);
+    private volatile LocalDate quotaResetDate = LocalDate.now(QUOTA_TIMEZONE);
+    private final AtomicReference<Instant> cooldownUntil = new AtomicReference<>(Instant.EPOCH);
+
     public GeminiWikiCompiler(
             WebClient webClient,
             ObjectMapper objectMapper,
@@ -74,6 +91,12 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         this.objectMapper = objectMapper;
         this.claudeFallback = claudeFallback;
     }
+
+    // ── package-private for testing ─────────────────────────────────────────
+    int getDailyRequestCount() { return dailyRequestCount.get(); }
+    Instant getCooldownUntil() { return cooldownUntil.get(); }
+    void setCooldownUntil(Instant until) { cooldownUntil.set(until); }
+    void resetDailyCounter() { dailyRequestCount.set(0); quotaResetDate = LocalDate.now(QUOTA_TIMEZONE); }
 
     @jakarta.annotation.PostConstruct
     void logConfig() {
@@ -99,8 +122,14 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         if (apiKey == null || apiKey.isBlank()) {
             log.warn("[Gemini] No API key — using Claude Haiku with chunked compile");
             haikuFallbackCount.incrementAndGet();
-            return new CompileOutput(claudeFallback.compile(avatar, files, existingPages),
-                    "haiku-chunked (no Gemini key)");
+            return fallbackToHaiku(avatar, files, existingPages, "no Gemini key");
+        }
+
+        // ── Cooldown check: skip Gemini entirely if we hit a 429 recently ───
+        if (isInCooldown()) {
+            log.warn("[Gemini] In cooldown until {} — skipping Gemini",
+                    cooldownUntil.get());
+            return fallbackToHaiku(avatar, files, existingPages, "Gemini cooldown active");
         }
 
         int totalChars = files.stream()
@@ -142,15 +171,30 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         }
 
         // ── Tier 3: Claude Haiku (with chunked compilation for large files) ─
+        return fallbackToHaiku(avatar, files, existingPages,
+                "Tier 1+2 failed for avatarId=" + avatar.getId() + " totalChars=" + totalChars);
+    }
+
+    private CompileOutput fallbackToHaiku(Avatar avatar, List<KnowledgeFile> files,
+                                           List<WikiPage> existingPages, String reason) {
+        if (!haikuFallbackEnabled) {
+            throw new RuntimeException(
+                    "Gemini compile failed and Haiku fallback is disabled. Reason: " + reason);
+        }
         long fallbacks = haikuFallbackCount.incrementAndGet();
-        log.warn("[Gemini] ⚠️ HAIKU FALLBACK (total={}): Tier 1+2 failed for avatarId={} totalChars={} — " +
-                 "this costs ~10× more than Gemini. Check Gemini quota/key.",
-                 fallbacks, avatar.getId(), totalChars);
-        log.info("[Gemini] ──► Tier 3 (Claude Haiku + chunked) avatarId={} totalChars={}",
-                avatar.getId(), totalChars);
+        log.warn("[Gemini] HAIKU FALLBACK (total={}): {} — this costs ~10x more than Gemini.",
+                fallbacks, reason);
+        log.info("[Gemini] ──► Tier 3 (Claude Haiku + chunked) avatarId={}", avatar.getId());
         List<WikiPageDraft> haikuDrafts = claudeFallback.compile(avatar, files, existingPages);
         log.info("[Gemini] ◄── Tier 3 result: {} pages", haikuDrafts.size());
         return new CompileOutput(haikuDrafts, "haiku-chunked-fallback");
+    }
+
+    /**
+     * Check if we're in a cooldown period after a 429 response.
+     */
+    boolean isInCooldown() {
+        return Instant.now().isBefore(cooldownUntil.get());
     }
 
     private List<WikiPageDraft> compileWithModel(String modelName, Avatar avatar,
@@ -263,16 +307,18 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     }
 
     private String callGemini(String modelName, String prompt) {
+        // ── Daily quota reset at midnight Asia/Singapore ─────────────────────
+        LocalDate today = LocalDate.now(QUOTA_TIMEZONE);
+        if (!today.equals(quotaResetDate)) {
+            int prev = dailyRequestCount.getAndSet(0);
+            quotaResetDate = today;
+            log.info("[Gemini] Daily quota counter reset (previous day total={})", prev);
+        }
+
         String url = baseUrl
                 + "/v1beta/models/" + modelName
                 + ":generateContent?key=" + apiKey;
 
-        // Gemini REST request body
-        // maxOutputTokens raised from 8192 → 16384: stress testing showed that
-        // 8192 was silently truncating output mid-JSON-array for large documents
-        // (e.g. 22-page PDF with 6 chapters → only Chapter 1 pages produced).
-        // Gemini 2.0 Flash supports up to 8192 output tokens by default but up
-        // to 65536 with the extended flag; 16384 safely covers ~80 wiki pages.
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
                         "parts", List.of(Map.of("text", prompt))
@@ -286,13 +332,29 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         log.debug("[Gemini] POST {} (promptChars={})", url.replaceAll("key=.*", "key=[REDACTED]"), prompt.length());
         long callStart = System.currentTimeMillis();
 
-        String responseBody = webClient.post()
-                .uri(url)
-                .header("Content-Type", "application/json")
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(String.class)
-                .block(java.time.Duration.ofSeconds(180));
+        // Track the request for quota purposes
+        int count = dailyRequestCount.incrementAndGet();
+        if (count > QUOTA_WARN_THRESHOLD) {
+            log.warn("[Gemini] Daily request count {} approaching 1,500/day free tier cap", count);
+        }
+
+        String responseBody;
+        try {
+            responseBody = webClient.post()
+                    .uri(url)
+                    .header("Content-Type", "application/json")
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(java.time.Duration.ofSeconds(180));
+        } catch (org.springframework.web.reactive.function.client.WebClientResponseException e) {
+            if (e.getStatusCode().value() == 429) {
+                Instant until = Instant.now().plusMillis(COOLDOWN_DURATION_MS);
+                cooldownUntil.set(until);
+                log.warn("[Gemini] 429 Rate limited — entering 5min cooldown until {}", until);
+            }
+            throw new RuntimeException("Gemini API error " + e.getStatusCode() + ": " + e.getMessage(), e);
+        }
 
         log.debug("[Gemini] HTTP response received in {}ms, bodyLen={}",
                 System.currentTimeMillis() - callStart,

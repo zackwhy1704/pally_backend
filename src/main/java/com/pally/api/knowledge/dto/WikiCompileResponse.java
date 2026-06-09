@@ -13,5 +13,11 @@ import java.util.List;
 public record WikiCompileResponse(
         int pagesCompiled,
         List<String> pageTitles,
-        String message
-) {}
+        String message,
+        String compiledBy
+) {
+    /** Backward-compat constructor for callers that don't supply compiledBy. */
+    public WikiCompileResponse(int pagesCompiled, List<String> pageTitles, String message) {
+        this(pagesCompiled, pageTitles, message, null);
+    }
+}

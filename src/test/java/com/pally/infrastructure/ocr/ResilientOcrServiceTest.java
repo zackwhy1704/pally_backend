@@ -1,0 +1,150 @@
+package com.pally.infrastructure.ocr;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests for the OCR fallback chain logic in ResilientOcrService.
+ * Verifies: Claude -> Gemini -> Tesseract cascade, quality guard,
+ * and servedBy/degraded metadata.
+ */
+@ExtendWith(MockitoExtension.class)
+class ResilientOcrServiceTest {
+
+    @Mock ClaudeVisionOcrService claudeOcr;
+    @Mock GeminiVisionOcrService geminiOcr;
+    @Mock TesseractOcrService tesseractOcr;
+
+    private ResilientOcrService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new ResilientOcrService(claudeOcr, geminiOcr, tesseractOcr);
+    }
+
+    @Test
+    void extractText_claudeSucceeds_returnsClaudeResult() {
+        when(claudeOcr.extractText(any(), eq("image/jpeg")))
+                .thenReturn("Hello world from Claude OCR");
+
+        String result = service.extractText(new byte[100], "image/jpeg");
+
+        assertThat(result).isEqualTo("Hello world from Claude OCR");
+        OcrResult meta = service.getLastResult();
+        assertThat(meta.servedBy()).isEqualTo("claude-vision");
+        assertThat(meta.degraded()).isFalse();
+        verify(geminiOcr, never()).extractText(any(), any());
+    }
+
+    @Test
+    void extractText_claudeFails_geminiSucceeds_returnsDegraded() {
+        when(claudeOcr.extractText(any(), any()))
+                .thenThrow(new RuntimeException("Claude down"));
+        when(geminiOcr.isAvailable()).thenReturn(true);
+        when(geminiOcr.extractText(any(), eq("image/png")))
+                .thenReturn("Gemini extracted text here");
+
+        String result = service.extractText(new byte[100], "image/png");
+
+        assertThat(result).isEqualTo("Gemini extracted text here");
+        OcrResult meta = service.getLastResult();
+        assertThat(meta.servedBy()).isEqualTo("gemini-vision");
+        assertThat(meta.degraded()).isTrue();
+    }
+
+    @Test
+    void extractText_claudeAndGeminiFail_tesseractServes() {
+        when(claudeOcr.extractText(any(), any()))
+                .thenReturn(""); // empty = unacceptable
+        when(geminiOcr.isAvailable()).thenReturn(true);
+        when(geminiOcr.extractText(any(), any()))
+                .thenReturn(""); // also empty
+        when(tesseractOcr.extractText(any(byte[].class), any()))
+                .thenReturn("Tesseract text");
+
+        String result = service.extractText(new byte[100], "image/jpeg");
+
+        assertThat(result).isEqualTo("Tesseract text");
+        OcrResult meta = service.getLastResult();
+        assertThat(meta.servedBy()).isEqualTo("tesseract");
+        assertThat(meta.degraded()).isTrue();
+    }
+
+    @Test
+    void extractText_qualityGuard_claudeReturnsTooShort_triesGemini() {
+        // Large image (>10KB) but Claude only extracts 5 chars
+        byte[] largeImage = new byte[20_000];
+        when(claudeOcr.extractText(any(), any())).thenReturn("abcde");
+        when(geminiOcr.isAvailable()).thenReturn(true);
+        when(geminiOcr.extractText(any(), any()))
+                .thenReturn("A much longer and proper extraction from Gemini");
+
+        String result = service.extractText(largeImage, "image/jpeg");
+
+        assertThat(result).isEqualTo("A much longer and proper extraction from Gemini");
+        assertThat(service.getLastResult().servedBy()).isEqualTo("gemini-vision");
+    }
+
+    @Test
+    void extractText_smallImage_shortTextAccepted() {
+        // Small image (<10KB) — short text is OK
+        byte[] smallImage = new byte[5_000];
+        when(claudeOcr.extractText(any(), any())).thenReturn("A=5");
+
+        String result = service.extractText(smallImage, "image/jpeg");
+
+        assertThat(result).isEqualTo("A=5");
+        assertThat(service.getLastResult().servedBy()).isEqualTo("claude-vision");
+        assertThat(service.getLastResult().degraded()).isFalse();
+    }
+
+    @Test
+    void extractText_geminiNotAvailable_skipsToTesseract() {
+        when(claudeOcr.extractText(any(), any())).thenReturn("");
+        when(geminiOcr.isAvailable()).thenReturn(false);
+        when(tesseractOcr.extractText(any(byte[].class), any()))
+                .thenReturn("Tesseract only");
+
+        String result = service.extractText(new byte[100], "image/jpeg");
+
+        assertThat(result).isEqualTo("Tesseract only");
+        verify(geminiOcr, never()).extractText(any(byte[].class), any());
+    }
+
+    @Test
+    void extractText_allEnginesFail_returnsEmpty() {
+        when(claudeOcr.extractText(any(), any())).thenReturn("");
+        when(geminiOcr.isAvailable()).thenReturn(true);
+        when(geminiOcr.extractText(any(), any())).thenReturn("");
+        when(tesseractOcr.extractText(any(byte[].class), any())).thenReturn("");
+
+        String result = service.extractText(new byte[100], "image/jpeg");
+
+        assertThat(result).isEmpty();
+        assertThat(service.getLastResult().servedBy()).isEqualTo("tesseract");
+    }
+
+    @Test
+    void extractText_nullBytes_returnsEmpty() {
+        String result = service.extractText(null, "image/jpeg");
+
+        assertThat(result).isEmpty();
+        assertThat(service.getLastResult().servedBy()).isEqualTo("none");
+    }
+
+    @Test
+    void extractText_emptyBytes_returnsEmpty() {
+        String result = service.extractText(new byte[0], "image/jpeg");
+
+        assertThat(result).isEmpty();
+        assertThat(service.getLastResult().servedBy()).isEqualTo("none");
+    }
+}
