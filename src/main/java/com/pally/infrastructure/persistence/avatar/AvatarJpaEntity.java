@@ -122,6 +122,10 @@ public class AvatarJpaEntity {
         entity.brainState = avatar.getBrainState().name();
         entity.isActive = avatar.isActive();
         entity.teacherPreferences = avatar.getTeacherPreferences();
+        // Centre flags — must round-trip or provisioned avatars persist as
+        // non-centre (breaking centre-mode UI, the closed-book gate, and locks).
+        entity.centreAvatar = avatar.isCentreAvatar();
+        entity.avatarLocked = avatar.isAvatarLocked();
         entity.classId = avatar.getClassId();
         entity.corpusAvatarId = avatar.getCorpusAvatarId();
         entity.centreBrandName = avatar.getCentreBrandName();
