@@ -17,6 +17,19 @@ public interface WikiPageSourceJpaRepository
     void deleteByWikiPageId(@Param("wikiPageId") String wikiPageId);
 
     /**
+     * Returns knowledge_file_ids that already have at least one provenance entry
+     * (i.e. they've been successfully compiled into wiki pages before). Used for
+     * incremental compile — these files can be skipped.
+     */
+    @Query(value =
+           "SELECT DISTINCT wps.knowledge_file_id " +
+           "FROM wiki_page_sources wps " +
+           "JOIN knowledge_files kf ON kf.id = wps.knowledge_file_id " +
+           "WHERE kf.avatar_id = :avatarId AND kf.status = 'READY'",
+           nativeQuery = true)
+    List<String> findCompiledFileIdsByAvatarId(@Param("avatarId") String avatarId);
+
+    /**
      * Returns the file names of knowledge files that contributed to a wiki page.
      * Joins {@code wiki_page_sources → knowledge_files} in a native query to
      * avoid pulling in the full KnowledgeFile JPA entity hierarchy.

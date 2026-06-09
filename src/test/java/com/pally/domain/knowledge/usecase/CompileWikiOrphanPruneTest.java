@@ -45,6 +45,7 @@ class CompileWikiOrphanPruneTest {
     @Mock CacheInvalidationService cacheInvalidationService;
     @Mock CacheKeepAliveService cacheKeepAliveService;
     @Mock WikiPagePersistenceService persistenceService;
+    @Mock com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository wikiPageSourceRepo;
 
     private CompileWikiUseCase useCase;
 
@@ -56,7 +57,7 @@ class CompileWikiOrphanPruneTest {
         useCase = new CompileWikiUseCase(
                 avatarRepository, knowledgeRepository, wikiRepository,
                 wikiCompiler, cacheInvalidationService, cacheKeepAliveService,
-                persistenceService, executor);
+                persistenceService, wikiPageSourceRepo, executor);
     }
 
     @Test
@@ -81,7 +82,8 @@ class CompileWikiOrphanPruneTest {
         // Compile produces ONLY slug-a
         WikiCompilerPort.WikiPageDraft draftA = new WikiCompilerPort.WikiPageDraft(
                 "slug-a", "Page A", "Content A updated", List.of());
-        when(wikiCompiler.compile(any(), any(), any())).thenReturn(List.of(draftA));
+        when(wikiCompiler.compileWithTier(any(), any(), any())).thenReturn(
+                new WikiCompilerPort.CompileOutput(List.of(draftA), "test-tier"));
 
         // PersistOutcome returns slug-a as the only produced slug
         when(persistenceService.persistDrafts(any(), any(), any()))

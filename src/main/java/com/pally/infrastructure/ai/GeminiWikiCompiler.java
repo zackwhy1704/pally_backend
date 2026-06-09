@@ -17,6 +17,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Gemini 2.0 Flash implementation of {@link WikiCompilerPort}.
@@ -60,6 +61,11 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     private final ObjectMapper objectMapper;
     private final ClaudeWikiCompiler claudeFallback;
 
+    // Observable counters — exposed via logs so Railway can be dashboarded.
+    private final AtomicLong tier1Count = new AtomicLong();
+    private final AtomicLong tier2Count = new AtomicLong();
+    private final AtomicLong haikuFallbackCount = new AtomicLong();
+
     public GeminiWikiCompiler(
             WebClient webClient,
             ObjectMapper objectMapper,
@@ -84,9 +90,17 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     @Override
     public List<WikiPageDraft> compile(Avatar avatar, List<KnowledgeFile> files,
                                        List<WikiPage> existingPages) {
+        return compileWithTier(avatar, files, existingPages).drafts();
+    }
+
+    @Override
+    public CompileOutput compileWithTier(Avatar avatar, List<KnowledgeFile> files,
+                                          List<WikiPage> existingPages) {
         if (apiKey == null || apiKey.isBlank()) {
             log.warn("[Gemini] No API key — using Claude Haiku with chunked compile");
-            return claudeFallback.compile(avatar, files, existingPages);
+            haikuFallbackCount.incrementAndGet();
+            return new CompileOutput(claudeFallback.compile(avatar, files, existingPages),
+                    "haiku-chunked (no Gemini key)");
         }
 
         int totalChars = files.stream()
@@ -102,8 +116,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         try {
             List<WikiPageDraft> drafts = compileWithModel(modelPrimary, avatar, files, existingPages, totalChars);
             if (!drafts.isEmpty()) {
-                log.info("[Gemini] ◄── Tier 1 SUCCESS: {} pages", drafts.size());
-                return drafts;
+                long count = tier1Count.incrementAndGet();
+                log.info("[Gemini] ◄── Tier 1 SUCCESS: {} pages (tier1Total={})", drafts.size(), count);
+                return new CompileOutput(drafts, "gemini-tier1-" + modelPrimary);
             }
             log.warn("[Gemini] Tier 1 returned 0 pages — trying Tier 2");
         } catch (Exception e) {
@@ -116,8 +131,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         try {
             List<WikiPageDraft> drafts = compileWithModel(modelSecondary, avatar, files, existingPages, totalChars);
             if (!drafts.isEmpty()) {
-                log.info("[Gemini] ◄── Tier 2 SUCCESS: {} pages", drafts.size());
-                return drafts;
+                long count = tier2Count.incrementAndGet();
+                log.info("[Gemini] ◄── Tier 2 SUCCESS: {} pages (tier2Total={})", drafts.size(), count);
+                return new CompileOutput(drafts, "gemini-tier2-" + modelSecondary);
             }
             log.warn("[Gemini] Tier 2 returned 0 pages — falling back to Claude Haiku (chunked)");
         } catch (Exception e) {
@@ -126,14 +142,15 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         }
 
         // ── Tier 3: Claude Haiku (with chunked compilation for large files) ─
-        // ClaudeWikiCompiler already handles chunking: files > 4k chars are
-        // split into 2k-char windows with 200-char overlap, compiled per chunk,
-        // and merged by slug. Large PDFs always go through batched Haiku calls.
+        long fallbacks = haikuFallbackCount.incrementAndGet();
+        log.warn("[Gemini] ⚠️ HAIKU FALLBACK (total={}): Tier 1+2 failed for avatarId={} totalChars={} — " +
+                 "this costs ~10× more than Gemini. Check Gemini quota/key.",
+                 fallbacks, avatar.getId(), totalChars);
         log.info("[Gemini] ──► Tier 3 (Claude Haiku + chunked) avatarId={} totalChars={}",
                 avatar.getId(), totalChars);
         List<WikiPageDraft> haikuDrafts = claudeFallback.compile(avatar, files, existingPages);
         log.info("[Gemini] ◄── Tier 3 result: {} pages", haikuDrafts.size());
-        return haikuDrafts;
+        return new CompileOutput(haikuDrafts, "haiku-chunked-fallback");
     }
 
     private List<WikiPageDraft> compileWithModel(String modelName, Avatar avatar,

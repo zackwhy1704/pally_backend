@@ -18,15 +18,19 @@ import java.net.http.HttpResponse;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * OCR via Claude Haiku vision — no native binaries, works on Railway out
  * of the box. Replaces {@link TesseractOcrService} (which was a stub) for
  * every {@link OcrPort} injection point because of {@link Primary}.
  *
- * <p>Cost: ~$0.002 per image (Haiku vision, ~1K input tokens). Falls back
- * to an empty string on any failure so the upload flow can carry on with
- * its "no readable text" handling instead of crashing.
+ * <p>Retries 429 (rate-limit) and 5xx (server error) up to 3 times with
+ * exponential backoff (2s → 4s → 8s). This is the single point of failure
+ * for every image upload — without retry, a brief Anthropic rate-limit
+ * spike kills all image ingestion.
+ *
+ * <p>Cost: ~$0.002 per image (Haiku vision, ~1K input tokens).
  */
 @Component
 @Primary
@@ -34,6 +38,9 @@ public class ClaudeVisionOcrService implements OcrPort {
 
     private static final Logger log =
             LoggerFactory.getLogger(ClaudeVisionOcrService.class);
+
+    private static final int MAX_RETRIES = 3;
+    private static final long BASE_BACKOFF_MS = 2_000;
 
     @Value("${claude.api.key}")
     private String apiKey;
@@ -44,8 +51,10 @@ public class ClaudeVisionOcrService implements OcrPort {
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /// Legacy entry point kept for {@code UploadFileUseCase} which still
-    /// calls the InputStream overload directly.
+    // Observable counters — log.warn when retries fire so Railway logs surface it.
+    private final AtomicLong retryCount = new AtomicLong();
+    private final AtomicLong failCount = new AtomicLong();
+
     public String extractText(InputStream inputStream) {
         try {
             return extractText(inputStream.readAllBytes(), "image/jpeg");
@@ -98,15 +107,12 @@ public class ClaudeVisionOcrService implements OcrPort {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
-            HttpResponse<String> res =
-                    http.send(req, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> res = sendWithRetry(req);
             if (res.statusCode() != 200) {
-                log.error("[VisionOCR] API error {}: {}",
-                        res.statusCode(),
-                        res.body() == null
-                                ? ""
-                                : res.body().substring(
-                                        0, Math.min(300, res.body().length())));
+                failCount.incrementAndGet();
+                log.error("[VisionOCR] API error {} after retries (total fails={}): {}",
+                        res.statusCode(), failCount.get(),
+                        truncate(res.body(), 300));
                 return "";
             }
 
@@ -119,9 +125,39 @@ public class ClaudeVisionOcrService implements OcrPort {
                     text.length(), mime);
             return text;
         } catch (Exception e) {
-            log.error("[VisionOCR] Vision OCR failed", e);
+            failCount.incrementAndGet();
+            log.error("[VisionOCR] Vision OCR failed (total fails={})", failCount.get(), e);
             return "";
         }
+    }
+
+    /**
+     * Retries on 429 (rate-limit) and 5xx (server error) with exponential
+     * backoff. Non-retryable status codes (400, 401, etc.) return immediately.
+     */
+    private HttpResponse<String> sendWithRetry(HttpRequest req) throws Exception {
+        HttpResponse<String> res = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            int status = res.statusCode();
+            boolean retryable = status == 429 || status >= 500;
+            if (!retryable || attempt == MAX_RETRIES) return res;
+
+            long retries = retryCount.incrementAndGet();
+            long backoff = BASE_BACKOFF_MS * (1L << attempt); // 2s, 4s, 8s
+            // Parse retry-after header if present (Anthropic sends it on 429)
+            String retryAfter = res.headers().firstValue("retry-after").orElse(null);
+            if (retryAfter != null) {
+                try {
+                    long hinted = (long) (Double.parseDouble(retryAfter) * 1000);
+                    if (hinted > 0 && hinted < 30_000) backoff = hinted;
+                } catch (NumberFormatException ignored) {}
+            }
+            log.warn("[VisionOCR] HTTP {} — retry {}/{} after {}ms (total retries={})",
+                    status, attempt + 1, MAX_RETRIES, backoff, retries);
+            Thread.sleep(backoff);
+        }
+        return res;
     }
 
     private String normaliseMime(String mimeType) {
@@ -133,5 +169,10 @@ public class ClaudeVisionOcrService implements OcrPort {
             case "image/webp" -> "image/webp";
             default -> "image/jpeg";
         };
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 }

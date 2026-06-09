@@ -22,6 +22,24 @@ public interface WikiCompilerPort {
     List<WikiPageDraft> compile(Avatar avatar, List<KnowledgeFile> files, List<WikiPage> existingPages);
 
     /**
+     * Wraps the compiler output with metadata about which tier served the request.
+     * Lets callers (and the compile response) surface cost/tier visibility.
+     */
+    record CompileOutput(List<WikiPageDraft> drafts, String tierServed) {
+        public CompileOutput(List<WikiPageDraft> drafts) {
+            this(drafts, "unknown");
+        }
+    }
+
+    /**
+     * Compiles with tier visibility. Default implementation delegates to
+     * {@link #compile} and wraps in an "unknown" tier.
+     */
+    default CompileOutput compileWithTier(Avatar avatar, List<KnowledgeFile> files, List<WikiPage> existingPages) {
+        return new CompileOutput(compile(avatar, files, existingPages));
+    }
+
+    /**
      * Intermediate draft produced by the AI compiler before being persisted as a {@link WikiPage}.
      *
      * @param slug          URL-safe identifier for the page (e.g. "photosynthesis")

@@ -10,6 +10,7 @@ import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.infrastructure.ai.CacheInvalidationService;
 import com.pally.infrastructure.ai.CacheKeepAliveService;
 import com.pally.infrastructure.config.AiTaskExecutorConfig;
+import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.WikiCompileException;
@@ -43,6 +44,7 @@ public class CompileWikiUseCase {
     private final CacheInvalidationService cacheInvalidationService;
     private final CacheKeepAliveService cacheKeepAliveService;
     private final WikiPagePersistenceService persistenceService;
+    private final WikiPageSourceJpaRepository wikiPageSourceRepo;
 
     @Qualifier(AiTaskExecutorConfig.AI_TASK_EXECUTOR)
     private final ThreadPoolExecutor aiTaskExecutor;
@@ -50,8 +52,15 @@ public class CompileWikiUseCase {
     public record CompileResult(
             int pagesCreated,
             int pagesUpdated,
-            List<String> pageTitles
-    ) {}
+            List<String> pageTitles,
+            String tierServed,
+            int filesCompiled,
+            int totalCharsCompiled
+    ) {
+        public CompileResult(int pagesCreated, int pagesUpdated, List<String> pageTitles) {
+            this(pagesCreated, pagesUpdated, pageTitles, "unknown", 0, 0);
+        }
+    }
 
     /// Bounded variant — runs the compile on the {@link AiTaskExecutorConfig}
     /// pool so concurrent compiles can never exhaust the web tier or the
@@ -133,32 +142,60 @@ public class CompileWikiUseCase {
             return new CompileResult(0, 0, List.of());
         }
 
-        log.info("[Pipeline:Compile] START avatarId={} files={} names={}",
-                avatarId, readyFiles.size(),
-                readyFiles.stream().map(KnowledgeFile::getFileName).toList());
+        // ── Incremental compile: only feed NEW files to the AI compiler ──────
+        // Files that already have wiki_page_sources entries have been successfully
+        // compiled before — their content is already in wiki pages. Sending them
+        // again wastes tokens, and on the Haiku fallback with a large corpus, it
+        // causes the chunk explosion that trips the 4-minute timeout.
+        java.util.Set<String> compiled;
+        try {
+            compiled = new java.util.HashSet<>(
+                    wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId));
+        } catch (Exception e) {
+            log.warn("[Pipeline:Compile] Could not load compiled file IDs (compiling all): {}", e.getMessage());
+            compiled = java.util.Set.of();
+        }
+        final java.util.Set<String> alreadyCompiledIds = compiled;
+
+        List<KnowledgeFile> newFiles = readyFiles.stream()
+                .filter(f -> !alreadyCompiledIds.contains(f.getId()))
+                .toList();
+        int skippedCount = readyFiles.size() - newFiles.size();
+
+        if (newFiles.isEmpty() && !readyFiles.isEmpty()) {
+            log.info("[Pipeline:Compile] All {} READY files already compiled — nothing new for avatarId={}",
+                    readyFiles.size(), avatarId);
+            return new CompileResult(0, 0, List.of(), "skipped-all-compiled",
+                    0, 0);
+        }
+
+        int totalChars = newFiles.stream()
+                .mapToInt(f -> f.getExtractedText() != null ? f.getExtractedText().length() : 0)
+                .sum();
+        log.info("[Pipeline:Compile] START avatarId={} newFiles={} skipped={} totalChars={} names={}",
+                avatarId, newFiles.size(), skippedCount, totalChars,
+                newFiles.stream().map(KnowledgeFile::getFileName).toList());
 
         List<WikiPage> existingWikiPages = wikiRepository.findByAvatarId(avatarId);
 
-        List<WikiCompilerPort.WikiPageDraft> drafts;
+        WikiCompilerPort.CompileOutput compileOutput;
         try {
-            drafts = wikiCompiler.compile(avatar, readyFiles, existingWikiPages);
+            compileOutput = wikiCompiler.compileWithTier(avatar, newFiles, existingWikiPages);
         } catch (Exception e) {
-            log.error("[Pipeline:Compile] Claude compile FAILED for avatarId={}: {} — " +
-                      "Check the [Claude-xxx] log line above for the Anthropic error body.",
+            log.error("[Pipeline:Compile] Compile FAILED for avatarId={}: {} — " +
+                      "Check the [Gemini]/[Claude-xxx] log above for the error body.",
                       avatarId, e.getMessage());
             throw new WikiCompileException("Wiki compilation failed for avatar " + avatarId, e);
         }
 
-        log.info("[Pipeline:Compile] Claude produced {} draft pages for avatarId={}: titles={}",
-                drafts.size(), avatarId, drafts.stream().map(WikiCompilerPort.WikiPageDraft::title).toList());
+        List<WikiCompilerPort.WikiPageDraft> drafts = compileOutput.drafts();
+        String tierServed = compileOutput.tierServed();
+        log.info("[Pipeline:Compile] {} produced {} draft pages (tier={}) for avatarId={}: titles={}",
+                tierServed, drafts.size(), tierServed, avatarId,
+                drafts.stream().map(WikiCompilerPort.WikiPageDraft::title).toList());
 
-        // The Claude compile above is the slow part (often 30-60s). The
-        // persistence below runs in a short @Transactional block in a
-        // dedicated service so a DB transaction is never held open
-        // across an AI call.
-        // Fix 3: pass readyFiles so provenance rows are written in wiki_page_sources.
         WikiPagePersistenceService.PersistOutcome outcome =
-                persistenceService.persistDrafts(avatar, drafts, readyFiles);
+                persistenceService.persistDrafts(avatar, drafts, newFiles);
 
         log.info("[Pipeline:Compile] DONE avatarId={} created={} updated={} titles={}",
                 avatarId, outcome.created(), outcome.updated(), outcome.pageTitles());
@@ -181,7 +218,8 @@ public class CompileWikiUseCase {
         cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
 
         return new CompileResult(
-                outcome.created(), outcome.updated(), outcome.pageTitles());
+                outcome.created(), outcome.updated(), outcome.pageTitles(),
+                tierServed, newFiles.size(), totalChars);
     }
 
 }
