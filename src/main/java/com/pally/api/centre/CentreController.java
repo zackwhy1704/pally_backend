@@ -287,8 +287,9 @@ public class CentreController {
         org.setSeatLimit(seatLimit);
         org.setCreatedAt(Instant.now());
         orgRepo.save(org);
-        owner.setAccountType("CENTRE_ADMIN");
-        userRepo.save(owner);
+        // Do NOT write account_type = "CENTRE_ADMIN" — it overflows the
+        // VARCHAR(10) column and centre access is gated by owner_user_id, not
+        // account_type. (This latent bug is why this endpoint 500'd.)
         log.info("[Centre] admin created org={} owner={}", org.getId(), owner.getId());
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "id", org.getId(),
@@ -327,7 +328,8 @@ public class CentreController {
         if (name == null || name.isBlank()) {
             throw new BusinessException("centreName is required", 400);
         }
-        UserJpaEntity owner = userRepo.findById(userId).orElseThrow(
+        // Validate the caller exists; ownership is recorded on the org itself.
+        userRepo.findById(userId).orElseThrow(
                 () -> new BusinessException("User not found", 404));
 
         OrganizationJpaEntity org = new OrganizationJpaEntity();
@@ -338,11 +340,12 @@ public class CentreController {
         org.setCreatedAt(Instant.now());
         orgRepo.save(org);
 
-        // Promote to centre admin. Do NOT set centreId on the owner — that field
-        // marks a student membership and would make the owner count as a seat.
-        owner.setAccountType("CENTRE_ADMIN");
-        userRepo.save(owner);
-
+        // NOTE: we deliberately do NOT write account_type = "CENTRE_ADMIN".
+        // That column is VARCHAR(10) (SOLO/PARENT/CHILD) and "CENTRE_ADMIN"
+        // overflows it; more importantly centre authorization is purely the
+        // organizations.owner_user_id check in CentreAccessService — account_type
+        // is never read for it. The owner's centreId is left null so they aren't
+        // counted as a student seat.
         log.info("[Centre] self-serve onboard org={} owner={}", org.getId(), userId);
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "orgId", org.getId(),

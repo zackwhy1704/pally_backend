@@ -211,7 +211,7 @@ class CentreControllerTest {
     // ── Self-serve onboarding ────────────────────────────────────────────
 
     @Test
-    void onboard_createsOrg_whenCallerOwnsNone_andPromotesOwner() {
+    void onboard_createsOrg_whenCallerOwnsNone_seatingThemAsOwner() {
         when(orgRepo.findFirstByOwnerUserId("u-new")).thenReturn(Optional.empty());
         UserJpaEntity user = new UserJpaEntity();
         user.setId("u-new");
@@ -225,10 +225,11 @@ class CentreControllerTest {
         assertThat(body.get("orgName")).isEqualTo("ABC Learning");
         assertThat(body.get("alreadyOwned")).isEqualTo(false);
         assertThat(body.get("orgId")).isNotNull();
-        // Promoted to centre admin, but NOT seated as a student (centreId stays null).
-        assertThat(user.getAccountType()).isEqualTo("CENTRE_ADMIN");
-        assertThat(user.getCentreId()).isNull();
+        // Ownership is recorded on the org; we must NOT overflow the VARCHAR(10)
+        // account_type column, and the owner is not seated as a student.
         verify(orgRepo).save(any(OrganizationJpaEntity.class));
+        assertThat(user.getAccountType()).isEqualTo("SOLO"); // unchanged
+        assertThat(user.getCentreId()).isNull();
     }
 
     @Test
