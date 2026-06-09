@@ -329,8 +329,7 @@ public class ClassController {
             String name = row[1] != null ? (String) row[1] : "";
             double grasp = row[2] != null ? round(((Number) row[2]).doubleValue()) : 0.0;
             long attempts = row[3] != null ? ((Number) row[3]).longValue() : 0L;
-            String lastActive = row[4] != null
-                    ? ((java.sql.Timestamp) row[4]).toInstant().toString() : null;
+            String lastActive = toIsoString(row[4]);
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("studentId", studentId);
             m.put("displayName", name);
@@ -458,6 +457,14 @@ public class ClassController {
 
     private static double round(double v) {
         return Math.round(v * 10000.0) / 10000.0;
+    }
+
+    private static String toIsoString(Object value) {
+        if (value == null) return null;
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant().toString();
+        if (value instanceof java.time.OffsetDateTime odt) return odt.toInstant().toString();
+        if (value instanceof java.time.Instant inst) return inst.toString();
+        return value.toString();
     }
 
     private OrgClassJpaEntity requireClass(String orgId, String classId) {
