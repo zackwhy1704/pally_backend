@@ -108,7 +108,7 @@ public class CentreAnalyticsController {
             double grasp14d         = row[3] != null ? ((Number) row[3]).doubleValue() : 0.0;
             long   attempts14d      = row[4] != null ? ((Number) row[4]).longValue()   : 0L;
             Instant lastActive      = row[5] != null
-                    ? ((java.sql.Timestamp) row[5]).toInstant() : null;
+                    ? toInstantSafe(row[5]) : null;
 
             // Active-this-week count
             if (lastActive != null && lastActive.isAfter(sevenDaysAgo)) {
@@ -197,15 +197,15 @@ public class CentreAnalyticsController {
         List<Map<String, Object>> recentActivity = activityRows.stream()
                 .filter(r -> r[5] != null)
                 .sorted((a, b) -> {
-                    Instant ia = ((java.sql.Timestamp) a[5]).toInstant();
-                    Instant ib = ((java.sql.Timestamp) b[5]).toInstant();
+                    Instant ia = toInstantSafe(a[5]);
+                    Instant ib = toInstantSafe(b[5]);
                     return ib.compareTo(ia);
                 })
                 .limit(8)
                 .map(r -> {
                     Map<String, Object> m = new HashMap<>();
                     m.put("studentName", r[1] != null ? r[1] : "");
-                    m.put("at", ((java.sql.Timestamp) r[5]).toInstant().toString());
+                    m.put("at", toInstantSafe(r[5]).toString());
                     return m;
                 })
                 .collect(Collectors.toList());
@@ -492,7 +492,7 @@ public class CentreAnalyticsController {
                 if (Objects.equals(row[0], studentUserId)) {
                     long   questions = row[4] != null ? ((Number) row[4]).longValue() : 0L;
                     Instant lastAct  = row[5] != null
-                            ? ((java.sql.Timestamp) row[5]).toInstant() : null;
+                            ? toInstantSafe(row[5]) : null;
                     lastActiveStr = lastAct != null ? lastAct.toString().substring(0, 10) : null;
                     Map<String, Object> eng = new LinkedHashMap<>();
                     eng.put("questions",  (int) questions);
@@ -538,6 +538,14 @@ public class CentreAnalyticsController {
         String[] parts = displayName.trim().split("\\s+");
         if (parts.length == 1) return parts[0].substring(0, Math.min(2, parts[0].length())).toUpperCase();
         return ("" + parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    }
+
+    private static Instant toInstantSafe(Object value) {
+        if (value == null) return null;
+        if (value instanceof java.sql.Timestamp ts) return ts.toInstant();
+        if (value instanceof java.time.OffsetDateTime odt) return odt.toInstant();
+        if (value instanceof Instant inst) return inst;
+        return Instant.parse(value.toString());
     }
 
     /** Trims and nullifies blank cohort param; null signals "whole centre" to native queries. */

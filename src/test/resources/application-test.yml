@@ -1,0 +1,64 @@
+# Test profile configuration — used by integration tests with @ActiveProfiles("test")
+spring:
+  servlet:
+    multipart:
+      max-file-size: 30MB
+      max-request-size: 30MB
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+# Disable Stripe in tests
+stripe:
+  secret-key: ""
+  webhook-secret: ""
+  mock-webhook-secret: ""
+
+# Disable AI consent gate
+app:
+  ai-consent:
+    enabled: false
+
+# Use local storage
+storage:
+  type: local
+  local:
+    base-path: /tmp/pally-test
+
+# Fixed JWT secret for deterministic test tokens
+jwt:
+  secret: test-secret-must-be-at-least-32-chars-long!!
+
+# Claude/Gemini keys blank — all AI ports are mocked
+claude:
+  api:
+    key: ""
+    model: test-model
+    relevance-max-tokens: 128
+    chat-max-tokens: 1024
+    version: "2023-06-01"
+
+gemini:
+  api:
+    key: ""
+
+# Centre config
+centre:
+  closedbook:
+    enabled: true
+    relevance-threshold: 0.55
+
+# Quiet logging
+logging:
+  level:
+    root: WARN
+    com.pally: INFO
+    org.testcontainers: INFO
+    org.springframework.test: WARN
