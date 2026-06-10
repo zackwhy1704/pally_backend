@@ -62,6 +62,13 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
     @Override
     public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages,
                                                    List<String> questions) {
+        return solveQuestions(avatar, wikiPages, questions, null, null);
+    }
+
+    @Override
+    public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages,
+                                                   List<String> questions,
+                                                   byte[] imageBytes, String mimeType) {
         String wikiContext = buildWikiContext(wikiPages);
 
         // Step 1 — quick visual classification (Haiku, cheap)
@@ -93,17 +100,40 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
         }
 
         String prompt = buildPrompt(avatar, wikiContext, questions, classifications);
-        log.debug("[PhotoSolver] Solving {} questions for avatar={} model={}",
-                questions.size(), avatar.getId(), model);
+        log.debug("[PhotoSolver] Solving {} questions for avatar={} model={} hasImage={}",
+                questions.size(), avatar.getId(), model, imageBytes != null);
 
         try {
-            String raw = apiClient.completeWithTools(
-                    model,
-                    MAX_TOKENS,
-                    prompt,
-                    List.of(calculatorTool),
-                    "photo-solver"
-            );
+            String raw;
+            if (imageBytes != null && imageBytes.length > 0) {
+                // Vision path: send the original image directly to the model
+                log.info("[PhotoSolver] Using VISION path with image ({} bytes, {})",
+                        imageBytes.length, mimeType);
+                try {
+                    raw = apiClient.completeVisionWithTools(
+                            model, MAX_TOKENS, prompt,
+                            imageBytes, mimeType,
+                            List.of(calculatorTool),
+                            "photo-solver-vision"
+                    );
+                } catch (Exception visionEx) {
+                    // Fallback to text-only if vision call fails
+                    log.warn("[PhotoSolver] Vision call failed — falling back to text-only: {}",
+                            visionEx.getMessage());
+                    raw = apiClient.completeWithTools(
+                            model, MAX_TOKENS, prompt,
+                            List.of(calculatorTool),
+                            "photo-solver"
+                    );
+                }
+            } else {
+                // Text-only path (existing behavior)
+                raw = apiClient.completeWithTools(
+                        model, MAX_TOKENS, prompt,
+                        List.of(calculatorTool),
+                        "photo-solver"
+                );
+            }
             return parseAnswers(questions, classifications, raw);
         } catch (Exception e) {
             log.error("[PhotoSolver] Failed: {}", e.getMessage(), e);

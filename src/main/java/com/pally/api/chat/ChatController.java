@@ -152,6 +152,14 @@ public class ChatController {
         return chatMapper.toResponseList(messages);
     }
 
+    /**
+     * Solves photo homework questions. Accepts either:
+     * <ul>
+     *   <li>JSON body with {@code questions} array (text-only, legacy path)</li>
+     *   <li>Multipart with {@code file} (image) + {@code questions} (JSON array string)
+     *       — the image is sent directly to the vision model for STEM accuracy</li>
+     * </ul>
+     */
     @PostMapping("/photo-question")
     public PhotoQuestionResponse solvePhotoQuestion(
             @AuthenticationPrincipal String userId,
@@ -160,6 +168,40 @@ public class ChatController {
     ) {
         chatRateLimiter.check(userId);
         return solvePhotoQuestionsUseCase.execute(avatarId, userId, request.questions());
+    }
+
+    /**
+     * Multipart variant: sends the original image to the vision model alongside
+     * OCR-extracted questions, dramatically improving STEM/math accuracy.
+     */
+    @PostMapping(value = "/photo-question-vision", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public PhotoQuestionResponse solvePhotoQuestionWithImage(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @org.springframework.web.bind.annotation.RequestPart("file") org.springframework.web.multipart.MultipartFile file,
+            @org.springframework.web.bind.annotation.RequestPart("questions") String questionsJson
+    ) {
+        chatRateLimiter.check(userId);
+        List<String> questions;
+        try {
+            questions = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(questionsJson, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            throw new com.pally.shared.exception.BusinessException(
+                    "Invalid questions format — expected a JSON array of strings", 400);
+        }
+        if (questions.isEmpty()) {
+            throw new com.pally.shared.exception.BusinessException(
+                    "questions must not be empty", 400);
+        }
+        try {
+            byte[] imageBytes = file.getBytes();
+            String mimeType = file.getContentType();
+            return solvePhotoQuestionsUseCase.execute(avatarId, userId, questions, imageBytes, mimeType);
+        } catch (java.io.IOException e) {
+            throw new com.pally.shared.exception.BusinessException(
+                    "Could not read the uploaded image", 400);
+        }
     }
 
     @PostMapping("/chat/sync")

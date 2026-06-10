@@ -32,6 +32,7 @@ class GeminiQuotaAndCooldownTest {
 
     @Mock ClaudeWikiCompiler claudeFallback;
     @Mock WebClient webClient;
+    @Mock com.pally.domain.knowledge.port.StoragePort storagePort;
 
     private GeminiWikiCompiler compiler;
 
@@ -39,7 +40,7 @@ class GeminiQuotaAndCooldownTest {
 
     @BeforeEach
     void setUp() {
-        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback);
+        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort);
         // Set an API key so it doesn't skip to haiku immediately
         ReflectionTestUtils.setField(compiler, "apiKey", "test-key");
         ReflectionTestUtils.setField(compiler, "modelPrimary", "gemini-1.5-flash-latest");

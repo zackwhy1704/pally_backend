@@ -33,17 +33,31 @@ public class SolvePhotoQuestionsUseCase {
     private final BadgeService badgeService;
     private final XpService xpService;
 
+    /**
+     * Text-only path (backward-compatible).
+     */
     public PhotoQuestionResponse execute(String avatarId, String userId, List<String> questions) {
+        return execute(avatarId, userId, questions, null, null);
+    }
+
+    /**
+     * Vision-capable path: when {@code imageBytes} is non-null, the solver
+     * sends the original image alongside the OCR text so the model can SEE
+     * equations, diagrams, and charts directly.
+     */
+    public PhotoQuestionResponse execute(String avatarId, String userId, List<String> questions,
+                                          byte[] imageBytes, String mimeType) {
         Avatar avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
         List<WikiPage> wikiPages = wikiRepository.findByAvatarId(avatarId);
 
-        log.debug("Solving {} photo questions for avatarId={}", questions.size(), avatarId);
+        log.debug("Solving {} photo questions for avatarId={} hasImage={}",
+                questions.size(), avatarId, imageBytes != null);
 
         List<QuestionAnswerDto> answers = photoQuestionPort.solveQuestions(
-                avatar, wikiPages, questions
+                avatar, wikiPages, questions, imageBytes, mimeType
         );
 
         int baseXp = questions.size() * XP_PER_QUESTION;

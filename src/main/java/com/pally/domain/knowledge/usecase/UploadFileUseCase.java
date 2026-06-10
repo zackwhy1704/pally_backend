@@ -237,6 +237,13 @@ public class UploadFileUseCase {
         deduplicator.check(avatarId, extractedText, file.getOriginalFilename());
 
         // Relevance check (skippable when user explicitly opts in via "Add Anyway")
+        // Fix 2: Skip relevance for STEM image uploads — OCR garbles math notation
+        // so the relevance model can't judge content quality from text alone.
+        if (!skipRelevance && isStemImageUpload(uploadType, avatarId)) {
+            log.info("[Upload] Skipping relevance check for STEM image upload fileId={}", fileId);
+            skipRelevance = true;
+        }
+
         if (!skipRelevance) {
             var avatar = avatarRepository.findById(avatarId)
                     .orElseThrow(() -> new AvatarNotFoundException(avatarId));
@@ -300,5 +307,22 @@ public class UploadFileUseCase {
     private String buildStorageKey(String avatarId, String originalFilename) {
         String safeName = originalFilename != null ? originalFilename.replaceAll("[^a-zA-Z0-9._-]", "_") : "file";
         return "avatars/" + avatarId + "/uploads/" + System.currentTimeMillis() + "_" + safeName;
+    }
+
+    /**
+     * Returns true if the upload is an image AND the avatar's subject is STEM.
+     * STEM image OCR garbles equations, making relevance scores unreliable.
+     */
+    private boolean isStemImageUpload(KnowledgeFile.UploadType uploadType, String avatarId) {
+        if (uploadType != KnowledgeFile.UploadType.PHOTO) return false;
+        return avatarRepository.findById(avatarId)
+                .map(a -> isStemSubject(a.getSubject()))
+                .orElse(false);
+    }
+
+    static boolean isStemSubject(com.pally.domain.avatar.Subject subject) {
+        return subject == com.pally.domain.avatar.Subject.MATHS
+            || subject == com.pally.domain.avatar.Subject.SCIENCE
+            || subject == com.pally.domain.avatar.Subject.CODING;
     }
 }

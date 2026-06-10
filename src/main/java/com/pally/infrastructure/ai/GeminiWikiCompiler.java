@@ -8,6 +8,8 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.pally.domain.avatar.Subject;
+import com.pally.domain.knowledge.port.StoragePort;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
@@ -18,6 +20,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -68,11 +72,16 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final ClaudeWikiCompiler claudeFallback;
+    private final StoragePort storagePort;
 
     // Observable counters — exposed via logs so Railway can be dashboarded.
     private final AtomicLong tier1Count = new AtomicLong();
     private final AtomicLong tier2Count = new AtomicLong();
     private final AtomicLong haikuFallbackCount = new AtomicLong();
+
+    // Max images to include in a single STEM compile call to avoid token bloat.
+    // Each image costs ~260 tokens; 10 images ≈ 2,600 tokens — well within 1M.
+    static final int MAX_STEM_IMAGES = 10;
 
     // ── Quota counter + cooldown ────────────────────────────────────────────
     private static final int QUOTA_WARN_THRESHOLD = 1200;
@@ -86,10 +95,12 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     public GeminiWikiCompiler(
             WebClient webClient,
             ObjectMapper objectMapper,
-            ClaudeWikiCompiler claudeFallback) {
+            ClaudeWikiCompiler claudeFallback,
+            StoragePort storagePort) {
         this.webClient = webClient;
         this.objectMapper = objectMapper;
         this.claudeFallback = claudeFallback;
+        this.storagePort = storagePort;
     }
 
     // ── package-private for testing ─────────────────────────────────────────
@@ -202,14 +213,18 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                                                   List<WikiPage> existingPages,
                                                   int totalChars) {
         long start = System.currentTimeMillis();
+
+        // For STEM subjects, collect original images to send alongside text
+        List<ImageData> stemImages = collectStemImages(avatar, files);
+
         List<WikiPageDraft> drafts;
         if (totalChars > 30_000) {
             drafts = compileChunked(modelName, avatar, files, existingPages);
         } else {
             String prompt = buildPrompt(avatar, files, existingPages);
-            log.debug("[Gemini] {} prompt: {} chars (~{} tokens)",
-                    modelName, prompt.length(), prompt.length() / 4);
-            String raw = callGemini(modelName, prompt);
+            log.debug("[Gemini] {} prompt: {} chars (~{} tokens) stemImages={}",
+                    modelName, prompt.length(), prompt.length() / 4, stemImages.size());
+            String raw = callGemini(modelName, prompt, stemImages);
             drafts = parseResponse(raw);
         }
         log.info("[Gemini] {} done in {}ms: {} pages",
@@ -217,6 +232,49 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         drafts.forEach(d -> log.info("[Gemini]   page: slug={} title={} chars={}",
                 d.slug(), d.title(), d.content().length()));
         return drafts;
+    }
+
+    /**
+     * For STEM avatars with PHOTO uploads, loads the original images from storage
+     * so Gemini can see equations/diagrams directly. Capped at {@link #MAX_STEM_IMAGES}.
+     */
+    List<ImageData> collectStemImages(Avatar avatar, List<KnowledgeFile> files) {
+        if (!isStemSubject(avatar.getSubject())) return List.of();
+
+        List<ImageData> images = new ArrayList<>();
+        for (KnowledgeFile file : files) {
+            if (images.size() >= MAX_STEM_IMAGES) break;
+            if (file.getUploadType() != KnowledgeFile.UploadType.PHOTO) continue;
+            try {
+                byte[] bytes = storagePort.download(file.getStorageKey());
+                if (bytes != null && bytes.length > 0) {
+                    String mime = inferMimeType(file.getFileName());
+                    images.add(new ImageData(bytes, mime));
+                    log.debug("[Gemini] Loaded STEM image: {} ({} bytes)", file.getFileName(), bytes.length);
+                }
+            } catch (Exception e) {
+                log.warn("[Gemini] Failed to load image for STEM compile: {} — {}", file.getFileName(), e.getMessage());
+            }
+        }
+        if (!images.isEmpty()) {
+            log.info("[Gemini] Including {} STEM images in compile for avatar={}", images.size(), avatar.getId());
+        }
+        return images;
+    }
+
+    record ImageData(byte[] bytes, String mimeType) {}
+
+    static boolean isStemSubject(Subject subject) {
+        return subject == Subject.MATHS || subject == Subject.SCIENCE || subject == Subject.CODING;
+    }
+
+    private static String inferMimeType(String fileName) {
+        if (fileName == null) return "image/jpeg";
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".gif")) return "image/gif";
+        return "image/jpeg";
     }
 
     // Max chars per Gemini chunk: ~25k chars ≈ 6k input tokens, leaves plenty
@@ -306,7 +364,18 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         return sb.toString();
     }
 
+    /**
+     * Text-only Gemini call (backward-compatible).
+     */
     private String callGemini(String modelName, String prompt) {
+        return callGemini(modelName, prompt, List.of());
+    }
+
+    /**
+     * Gemini call with optional inline images for STEM subjects.
+     * Images are included as {@code inlineData} parts before the text prompt.
+     */
+    private String callGemini(String modelName, String prompt, List<ImageData> images) {
         // ── Daily quota reset at midnight Asia/Singapore ─────────────────────
         LocalDate today = LocalDate.now(QUOTA_TIMEZONE);
         if (!today.equals(quotaResetDate)) {
@@ -319,9 +388,19 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 + "/v1beta/models/" + modelName
                 + ":generateContent?key=" + apiKey;
 
+        // Build parts: images first (if any), then text prompt
+        List<Map<String, Object>> parts = new ArrayList<>();
+        for (ImageData img : images) {
+            Map<String, Object> inlineData = new HashMap<>();
+            inlineData.put("mimeType", img.mimeType());
+            inlineData.put("data", Base64.getEncoder().encodeToString(img.bytes()));
+            parts.add(Map.of("inlineData", inlineData));
+        }
+        parts.add(Map.of("text", prompt));
+
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
-                        "parts", List.of(Map.of("text", prompt))
+                        "parts", parts
                 )),
                 "generationConfig", Map.of(
                         "maxOutputTokens", 16384,

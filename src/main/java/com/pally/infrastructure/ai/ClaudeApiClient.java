@@ -230,6 +230,180 @@ public class ClaudeApiClient {
         }
     }
 
+    // ── Vision + Tool-use (multimodal) ──────────────────────────────────────────
+
+    /**
+     * Sends a multimodal completion with an image (base64) + text prompt and
+     * optional tools. Used by the photo-question solver to let the model SEE
+     * the original homework image instead of relying on OCR-only text.
+     *
+     * <p>Falls back to text-only {@link #completeWithTools} if the image is null.
+     *
+     * @param modelStr   Anthropic model identifier
+     * @param maxTokens  max output tokens
+     * @param textPrompt text portion of the user message
+     * @param imageBytes raw image bytes (JPEG/PNG/WEBP)
+     * @param mimeType   image MIME type (e.g. "image/jpeg")
+     * @param tools      deterministic tools (e.g. calculator)
+     * @param task       metrics tag
+     * @return assistant text response after tool-use loop
+     */
+    public String completeVisionWithTools(String modelStr, int maxTokens, String textPrompt,
+                                          byte[] imageBytes, String mimeType,
+                                          List<ClaudeTool> tools, String task) {
+        if (imageBytes == null || imageBytes.length == 0) {
+            log.info("[Claude] completeVisionWithTools: no image bytes — falling back to text-only");
+            return completeWithTools(modelStr, maxTokens, textPrompt, tools, task);
+        }
+
+        String callId = UUID.randomUUID().toString().substring(0, 8);
+        Instant deadline = Instant.now().plus(TOOL_LOOP_TIMEOUT);
+        Timer.Sample sample = metrics.startLatency();
+
+        String b64 = java.util.Base64.getEncoder().encodeToString(imageBytes);
+        String safeMime = normaliseMimeType(mimeType);
+
+        log.info("[Claude-{}] VISION TOOL-USE REQUEST model={} task={} imageBytes={} mime={} promptChars={}",
+                callId, modelStr, task, imageBytes.length, safeMime, textPrompt.length());
+
+        // Build tools array
+        ArrayNode toolsArray = objectMapper.createArrayNode();
+        for (ClaudeTool tool : tools) {
+            ObjectNode toolNode = toolsArray.addObject();
+            toolNode.put("name", tool.name());
+            toolNode.put("description", tool.description());
+            toolNode.set("input_schema", objectMapper.valueToTree(tool.inputSchema()));
+        }
+
+        // Initial messages: user message with image + text content blocks
+        ArrayNode messages = objectMapper.createArrayNode();
+        ObjectNode userMsg = messages.addObject();
+        userMsg.put("role", "user");
+        ArrayNode contentBlocks = userMsg.putArray("content");
+
+        // Image block
+        ObjectNode imageBlock = contentBlocks.addObject();
+        imageBlock.put("type", "image");
+        ObjectNode imageSource = imageBlock.putObject("source");
+        imageSource.put("type", "base64");
+        imageSource.put("media_type", safeMime);
+        imageSource.put("data", b64);
+
+        // Text block
+        ObjectNode textBlock = contentBlocks.addObject();
+        textBlock.put("type", "text");
+        textBlock.put("text", textPrompt);
+
+        String lastText = null;
+        int iterations = 0;
+
+        try {
+            while (iterations < MAX_TOOL_ITERATIONS) {
+                if (Instant.now().isAfter(deadline)) {
+                    log.warn("[Claude-{}] Vision tool loop time-boxed after {}ms (iteration {})",
+                            callId, TOOL_LOOP_TIMEOUT.toMillis(), iterations);
+                    break;
+                }
+                iterations++;
+
+                ObjectNode body = objectMapper.createObjectNode();
+                body.put("model", modelStr);
+                body.put("max_tokens", maxTokens);
+                body.set("tools", toolsArray);
+                body.set("messages", messages);
+
+                String responseJson = webClient.post()
+                        .uri(baseUrl + MESSAGES_PATH)
+                        .header("x-api-key", apiKey)
+                        .header("anthropic-version", ANTHROPIC_VERSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(body.toString())
+                        .exchangeToMono(resp -> {
+                            if (resp.statusCode().isError()) {
+                                return resp.bodyToMono(String.class).defaultIfEmpty("<empty body>")
+                                        .flatMap(errBody -> {
+                                            log.error("[Claude-{}] VISION TOOL {} from Anthropic: {}",
+                                                    callId, resp.statusCode(), errBody);
+                                            return Mono.<String>error(new RuntimeException(
+                                                    "Anthropic " + resp.statusCode() + ": " + errBody));
+                                        });
+                            }
+                            return resp.bodyToMono(String.class);
+                        })
+                        .block(UNARY_BLOCK_TIMEOUT);
+
+                JsonNode root = objectMapper.readTree(responseJson);
+                String stopReason = root.path("stop_reason").asText("end_turn");
+
+                ArrayNode contentArray = (ArrayNode) root.path("content");
+                StringBuilder textAccum = new StringBuilder();
+                List<JsonNode> toolUseBlocks = new ArrayList<>();
+
+                for (JsonNode block : contentArray) {
+                    String type = block.path("type").asText();
+                    if ("text".equals(type)) {
+                        textAccum.append(block.path("text").asText());
+                    } else if ("tool_use".equals(type)) {
+                        toolUseBlocks.add(block);
+                    }
+                }
+                if (!textAccum.isEmpty()) lastText = textAccum.toString().strip();
+
+                long inTok = root.path("usage").path("input_tokens").asLong(0);
+                long outTok = root.path("usage").path("output_tokens").asLong(0);
+                metrics.recordTokens(task, modelStr, inTok, outTok);
+
+                if ("end_turn".equals(stopReason) || toolUseBlocks.isEmpty()) {
+                    log.info("[Claude-{}] Vision tool loop done after {} iterations", callId, iterations);
+                    break;
+                }
+
+                // Append assistant turn
+                ObjectNode assistantTurn = messages.addObject();
+                assistantTurn.put("role", "assistant");
+                assistantTurn.set("content", contentArray);
+
+                // Execute tools
+                ArrayNode toolResults = objectMapper.createArrayNode();
+                for (JsonNode toolUse : toolUseBlocks) {
+                    String toolName = toolUse.path("name").asText();
+                    String toolUseId = toolUse.path("id").asText();
+                    JsonNode inputNode = toolUse.path("input");
+                    String toolResult = executeToolCall(tools, toolName, inputNode, callId);
+                    ObjectNode resultBlock = toolResults.addObject();
+                    resultBlock.put("type", "tool_result");
+                    resultBlock.put("tool_use_id", toolUseId);
+                    resultBlock.put("content", toolResult);
+                }
+
+                ObjectNode userResultTurn = messages.addObject();
+                userResultTurn.put("role", "user");
+                userResultTurn.set("content", toolResults);
+            }
+        } catch (Exception e) {
+            metrics.recordError(task, e.getClass().getSimpleName());
+            metrics.stopLatency(sample, task, modelStr);
+            throw new RuntimeException("Vision tool-use loop failed: " + e.getMessage(), e);
+        }
+
+        metrics.stopLatency(sample, task, modelStr);
+        if (lastText == null) lastText = "";
+        log.info("[Claude-{}] Vision tool-use complete text={} chars iterations={}",
+                callId, lastText.length(), iterations);
+        return lastText;
+    }
+
+    private static String normaliseMimeType(String mimeType) {
+        if (mimeType == null) return "image/jpeg";
+        return switch (mimeType.toLowerCase()) {
+            case "image/jpg", "image/jpeg" -> "image/jpeg";
+            case "image/png" -> "image/png";
+            case "image/webp" -> "image/webp";
+            case "image/gif" -> "image/gif";
+            default -> "image/jpeg";
+        };
+    }
+
     // ── Tool-use (agentic loop) ────────────────────────────────────────────────
 
     /**

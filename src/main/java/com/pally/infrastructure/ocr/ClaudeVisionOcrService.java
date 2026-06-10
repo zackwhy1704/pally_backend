@@ -89,6 +89,10 @@ public class ClaudeVisionOcrService implements OcrPort {
                                                     Extract ALL text from this image exactly as written.
                                                     Include every word, number, equation, and symbol.
                                                     Preserve structure: headings, bullet points, numbered lists.
+                                                    For mathematical content: preserve fractions (write as a/b), exponents (write as x^n), \
+                                                    square roots (write as sqrt(x)), Greek letters (write the name, e.g. "theta", "pi"), \
+                                                    and all mathematical operators (+, -, ×, ÷, =, <, >, ≤, ≥).
+                                                    For chemical formulas: preserve subscripts (H2O, CO2) and superscripts.
                                                     Output ONLY the extracted text — no commentary.
                                                     If no readable text, output exactly: (no text found)
                                                     """
