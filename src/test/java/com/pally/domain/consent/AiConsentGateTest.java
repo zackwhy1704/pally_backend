@@ -4,6 +4,7 @@ import com.pally.infrastructure.persistence.consent.ConsentRecordJpaEntity;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -86,7 +87,7 @@ class AiConsentGateTest {
         when(consentRecordRepo.findAll()).thenReturn(List.of());
 
         assertThatThrownBy(() -> guard.requireAiConsent(USER_ID))
-                .isInstanceOf(ConsentRequiredException.class)
+                .isInstanceOf(AiConsentRequiredException.class)
                 .satisfies(ex ->
                         assertThat(((ConsentRequiredException) ex).getReason())
                                 .isEqualTo(ConsentGuard.REASON_AI_DATA_TRANSFER));
@@ -100,7 +101,7 @@ class AiConsentGateTest {
         ));
 
         assertThatThrownBy(() -> guard.requireAiConsent(USER_ID))
-                .isInstanceOf(ConsentRequiredException.class);
+                .isInstanceOf(AiConsentRequiredException.class);
     }
 
     // ── Flag ON, consent granted ───────────────────────────────────────────

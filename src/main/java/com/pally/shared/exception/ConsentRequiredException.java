@@ -28,6 +28,8 @@ public class ConsentRequiredException extends PallyException {
             case "PERSIST_CHAT"-> "Save your conversations after a grown-up approves";
             case "EARN_XP"     -> "Earn rewards after a grown-up approves your account";
             case "SUBSCRIBE"   -> "Subscribe after a grown-up approves your account";
+            case "AI_DATA_TRANSFER" ->
+                "Allow Pally to use AI to help answer your questions to continue";
             default            -> "A grown-up needs to approve your account first";
         };
     }

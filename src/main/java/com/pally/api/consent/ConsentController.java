@@ -63,6 +63,14 @@ public class ConsentController {
                 .orElseThrow(() -> new BusinessException("User not found", 404));
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("accountStatus", user.getAccountStatus());
+        // Whether the user has granted third-party AI data-transfer consent.
+        // The Flutter client reads this to decide whether to show the AI
+        // disclosure screen before the first upload/chat.
+        boolean aiDataTransfer = recordRepo.findAll().stream()
+                .anyMatch(r -> userId.equals(r.getUserId())
+                        && r.getPurposes() != null
+                        && r.getPurposes().contains(ConsentGuard.REASON_AI_DATA_TRANSFER));
+        body.put("aiDataTransfer", aiDataTransfer);
         requestRepo.findFirstByChildUserIdAndStatusOrderByCreatedAtDesc(
                 userId, ConsentRequestJpaEntity.STATUS_PENDING)
                 .ifPresent(r -> {

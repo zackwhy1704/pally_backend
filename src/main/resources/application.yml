@@ -67,7 +67,7 @@ server:
 # BEFORE the user's first upload or chat. See ConsentGuard.requireAiConsent().
 app:
   ai-consent:
-    enabled: false
+    enabled: ${APP_AI_CONSENT_ENABLED:false}
 
 management:
   endpoints:

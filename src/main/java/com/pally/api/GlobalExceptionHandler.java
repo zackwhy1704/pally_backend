@@ -1,5 +1,6 @@
 package com.pally.api;
 
+import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
@@ -52,6 +53,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(402)
                 .body(new ApiResponse<>(payload, ex.getMessage(), 402));
+    }
+
+    /// AI data-transfer consent gate. Distinct code {@code AI_CONSENT_REQUIRED}
+    /// (not the parental {@code CONSENT_REQUIRED}) so the Flutter client routes to
+    /// the AI-disclosure screen rather than the parent-approval gate. Declared
+    /// before {@link #handleConsentRequired} so the more specific subtype wins.
+    @ExceptionHandler(AiConsentRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleAiConsentRequired(
+            AiConsentRequiredException ex) {
+        log.debug("AI consent required: {}", ex.getReason());
+        Map<String, Object> payload = Map.of(
+                "code", "AI_CONSENT_REQUIRED",
+                "reason", ex.getReason());
+        return ResponseEntity
+                .status(403)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 403));
     }
 
     /// Mirrors the UPGRADE_REQUIRED handler — routes the Flutter client to

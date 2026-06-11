@@ -2,6 +2,7 @@ package com.pally.domain.consent;
 
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -114,7 +115,7 @@ public class ConsentGuard {
 
         if (!hasConsented) {
             log.info("[Consent] AI_DATA_TRANSFER consent required for user={}", userId);
-            throw new ConsentRequiredException(REASON_AI_DATA_TRANSFER);
+            throw new AiConsentRequiredException(REASON_AI_DATA_TRANSFER);
         }
     }
 }
