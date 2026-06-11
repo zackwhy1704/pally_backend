@@ -9,9 +9,11 @@ import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
+import com.pally.domain.module.ModuleContentGenerator;
 import com.pally.infrastructure.ai.ClaudeApiClient;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.ai.ModelRouter;
+import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +49,8 @@ class WikiPageProvenanceTest {
     @Mock ClaudeApiClient claudeApiClient;
     @Mock ModelRouter modelRouter;
     @Mock WikiPageSourceJpaRepository wikiPageSourceRepo;
+    @Mock ModuleContentGenerator moduleContentGenerator;
+    @Mock LearningModuleJpaRepository learningModuleRepository;
 
     @Captor ArgumentCaptor<List<WikiPageSourceJpaEntity>> savedRowsCaptor;
 
@@ -63,7 +67,8 @@ class WikiPageProvenanceTest {
     void setUp() {
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator,
-                flashcardGenerator, claudeApiClient, modelRouter, wikiPageSourceRepo);
+                flashcardGenerator, claudeApiClient, modelRouter, wikiPageSourceRepo,
+                moduleContentGenerator, learningModuleRepository);
 
         avatar = Avatar.reconstitute(
                 AVATAR_ID, USER_ID, "Bolt", Subject.SCIENCE, CharacterType.ZAP,

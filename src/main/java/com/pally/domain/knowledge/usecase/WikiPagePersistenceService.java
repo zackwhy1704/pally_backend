@@ -6,10 +6,12 @@ import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
+import com.pally.domain.module.ModuleContentGenerator;
 import com.pally.infrastructure.ai.ClaudeApiClient;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.domain.chat.HintTreeGenerator;
+import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +55,8 @@ public class WikiPagePersistenceService {
     private final ClaudeApiClient claudeApiClient;
     private final ModelRouter modelRouter;
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
+    private final ModuleContentGenerator moduleContentGenerator;
+    private final LearningModuleJpaRepository learningModuleRepository;
 
     public record PersistOutcome(
             int created,
@@ -146,6 +150,9 @@ public class WikiPagePersistenceService {
         int totalPages = wikiRepository.countActiveByAvatarId(avatarId); // ACTIVE only — matches quiz/brain filter
         avatar.setWikiPageCount(totalPages);
         avatarRepository.save(avatar);
+
+        // Post-persist: generate learning modules for new/updated wiki pages (best-effort)
+        queueModuleGeneration(avatar, producedSlugs);
 
         return new PersistOutcome(created, updated, pageTitles, List.copyOf(producedSlugs));
     }
@@ -306,5 +313,29 @@ public class WikiPagePersistenceService {
         Set<String> contentUnion = new HashSet<>(wordsA);
         contentUnion.addAll(wordsB);
         return (double) contentIntersection.size() / contentUnion.size() >= 0.75;
+    }
+
+    /**
+     * Best-effort module generation for newly persisted wiki pages.
+     * Skips pages that already have a module (idempotent).
+     * Failures are logged but never roll back the wiki persist transaction.
+     */
+    private void queueModuleGeneration(Avatar avatar, List<String> producedSlugs) {
+        for (String slug : producedSlugs) {
+            try {
+                if (learningModuleRepository
+                        .findByAvatarIdAndWikiPageSlug(avatar.getId(), slug)
+                        .isPresent()) {
+                    continue; // already has a module
+                }
+                var page = wikiRepository.findByAvatarIdAndSlug(avatar.getId(), slug);
+                if (page.isPresent()) {
+                    moduleContentGenerator.generate(avatar, page.get());
+                }
+            } catch (Exception e) {
+                log.warn("[Wiki] Module generation failed for slug={}: {}",
+                        slug, e.getMessage());
+            }
+        }
     }
 }

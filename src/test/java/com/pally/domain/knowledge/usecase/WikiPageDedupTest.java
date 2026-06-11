@@ -7,9 +7,11 @@ import com.pally.domain.avatar.Subject;
 import com.pally.domain.chat.HintTreeGenerator;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
+import com.pally.domain.module.ModuleContentGenerator;
 import com.pally.infrastructure.ai.ClaudeApiClient;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.ai.ModelRouter;
+import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,8 @@ class WikiPageDedupTest {
     @Mock ClaudeApiClient claudeApiClient;
     @Mock ModelRouter modelRouter;
     @Mock WikiPageSourceJpaRepository wikiPageSourceRepo;
+    @Mock ModuleContentGenerator moduleContentGenerator;
+    @Mock LearningModuleJpaRepository learningModuleRepository;
 
     private WikiPagePersistenceService service;
 
@@ -51,7 +55,8 @@ class WikiPageDedupTest {
     void setUp() {
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
-                claudeApiClient, modelRouter, wikiPageSourceRepo);
+                claudeApiClient, modelRouter, wikiPageSourceRepo,
+                moduleContentGenerator, learningModuleRepository);
     }
 
     // ── areDuplicates() unit tests ────────────────────────────────────────────
