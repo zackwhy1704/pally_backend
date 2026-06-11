@@ -4,6 +4,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.WikiQualityVerifier;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.domain.module.ModuleContentGenerator;
@@ -57,6 +58,7 @@ public class WikiPagePersistenceService {
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
     private final ModuleContentGenerator moduleContentGenerator;
     private final LearningModuleJpaRepository learningModuleRepository;
+    private final WikiQualityVerifier wikiQualityVerifier;
 
     public record PersistOutcome(
             int created,
@@ -141,6 +143,26 @@ public class WikiPagePersistenceService {
             // Fix 3: Write provenance rows — replace on every recompile so they
             // stay in sync with the current READY file set.
             writeProvenanceRows(savedPage.getId(), sourceFiles);
+        }
+
+        // Post-compile quality verification: log quality scores for newly persisted pages.
+        // Best-effort — never blocks the persist outcome.
+        try {
+            String subject = avatar.getSubject() != null ? avatar.getSubject().name() : "GENERAL";
+            List<WikiPage> newPages = producedSlugs.stream()
+                    .map(slug -> wikiRepository.findByAvatarIdAndSlug(avatarId, slug))
+                    .filter(java.util.Optional::isPresent)
+                    .map(java.util.Optional::get)
+                    .toList();
+            for (WikiPage page : newPages) {
+                WikiQualityVerifier.VerificationResult vr = wikiQualityVerifier.verify(page, subject);
+                if (!vr.issues().isEmpty()) {
+                    log.warn("[WikiQuality] page={} score={} issues={}",
+                            vr.pageSlug(), String.format("%.2f", vr.qualityScore()), vr.issues());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[WikiQuality] Post-compile verification failed (non-fatal): {}", e.getMessage());
         }
 
         // Dedup pass: fetch all ACTIVE pages for this avatar and merge near-duplicates.

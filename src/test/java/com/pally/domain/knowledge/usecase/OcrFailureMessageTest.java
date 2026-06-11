@@ -4,6 +4,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.ContentDeduplicator;
+import com.pally.domain.knowledge.OcrQualityGate;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiRepository;
@@ -65,11 +66,13 @@ class OcrFailureMessageTest {
         doNothing().when(consentGuard).requireActive(anyString(), anyString());
         doNothing().when(avatarSlotGuard).requireActive(anyString(), anyString());
 
+        OcrQualityGate ocrQualityGate = new OcrQualityGate();
+
         useCase = new UploadFileUseCase(
                 avatarRepo, knowledgeRepo, wikiRepo, storageService,
                 ocrPort, pdfTextExtractor, relevancePort, recompileScheduler,
                 activityLogService, badgeService, premiumService,
-                consentGuard, deduplicator, avatarSlotGuard
+                consentGuard, deduplicator, avatarSlotGuard, ocrQualityGate
         );
     }
 
@@ -120,12 +123,9 @@ class OcrFailureMessageTest {
     }
 
     @Test
-    void shortTextFromImage_allowedThrough_doesNotFail() throws IOException {
-        // Very short text (< 50 chars) from image — should NOT fail, just log a warning
+    void shortTextFromImage_rejectedByQualityGate() throws IOException {
+        // Very short text (< 30 words) from image — now rejected by OCR quality gate
         when(ocrPort.extractText(any(), anyString())).thenReturn("x = 5");
-        // Avatar needed for relevance check (skipRelevance=true skips it)
-        // Deduplicator — no exception
-        doNothing().when(mock(ContentDeduplicator.class)).check(anyString(), anyString(), anyString());
 
         MockMultipartFile file = new MockMultipartFile(
                 "file", "equation.jpg", "image/jpeg", "dummy".getBytes());
@@ -133,9 +133,11 @@ class OcrFailureMessageTest {
         // skipRelevance=true so we don't need avatar or relevance mocks
         UploadResult result = useCase.execute("avatar-1", "user-1", file, true);
 
-        // Short text should NOT produce a Failure — it should be Success or RelevanceWarning
+        // Short OCR text should now be rejected by the quality gate
         assertThat(result)
-                .as("Short extracted text (< 50 chars) should be allowed through, not failed")
-                .isNotInstanceOf(UploadResult.Failure.class);
+                .as("Very short OCR text should be rejected by quality gate")
+                .isInstanceOf(UploadResult.Failure.class);
+        UploadResult.Failure failure = (UploadResult.Failure) result;
+        assertThat(failure.message()).containsIgnoringCase("words detected");
     }
 }

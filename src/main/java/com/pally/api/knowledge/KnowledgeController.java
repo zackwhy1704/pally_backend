@@ -374,4 +374,61 @@ public class KnowledgeController {
     }
 
     record HumanCorrectionRequest(String correction) {}
+
+    /**
+     * Review an uploaded file's OCR-extracted text.
+     * Action: APPROVE (keep text as-is) or EDIT (replace with user-edited text).
+     * After edit, triggers a wiki recompile so the corrected text is compiled.
+     */
+    @PatchMapping("/files/{fileId}/review")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> reviewFile(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @PathVariable String fileId,
+            @RequestBody java.util.Map<String, Object> body
+    ) {
+        // Ownership guard
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+
+        KnowledgeFile file = knowledgeRepository.findById(fileId)
+                .orElseThrow(() -> new BusinessException("File not found", 404));
+        if (!file.getAvatarId().equals(avatarId)) {
+            throw new BusinessException("File does not belong to this avatar", 403);
+        }
+
+        String action = (String) body.get("action");
+        if (action == null || (!action.equals("APPROVE") && !action.equals("EDIT"))) {
+            throw new BusinessException("action must be APPROVE or EDIT", 400);
+        }
+
+        if ("EDIT".equals(action)) {
+            String editedText = (String) body.get("editedText");
+            if (editedText == null || editedText.isBlank()) {
+                throw new BusinessException("editedText is required for EDIT action", 400);
+            }
+            file.setExtractedText(editedText.strip());
+            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
+                    .info("[Review] File {} text edited by user, {} chars", fileId, editedText.strip().length());
+        } else {
+            org.slf4j.LoggerFactory.getLogger(KnowledgeController.class)
+                    .info("[Review] File {} approved as-is by user", fileId);
+        }
+
+        // Ensure file is in READY status so it gets compiled
+        if (file.getStatus() != KnowledgeFile.Status.READY) {
+            file.markReady(file.getPageCount() > 0 ? file.getPageCount() : 1);
+        }
+        knowledgeRepository.save(file);
+
+        // Trigger recompile to pick up the (possibly edited) text
+        recompileScheduler.requestRecompile(avatarId);
+
+        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        response.put("fileId", fileId);
+        response.put("action", action);
+        response.put("message", "EDIT".equals(action) ? "Text updated — recompiling brain." : "Text approved — recompiling brain.");
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
 }

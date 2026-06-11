@@ -6,6 +6,7 @@ import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.chat.HintTreeGenerator;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.WikiQualityVerifier;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.module.ModuleContentGenerator;
 import com.pally.infrastructure.ai.ClaudeApiClient;
@@ -53,10 +54,11 @@ class WikiPageDedupTest {
 
     @BeforeEach
     void setUp() {
+        WikiQualityVerifier wikiQualityVerifier = new WikiQualityVerifier();
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository);
+                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier);
     }
 
     // ── areDuplicates() unit tests ────────────────────────────────────────────

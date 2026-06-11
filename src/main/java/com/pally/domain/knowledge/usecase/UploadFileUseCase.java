@@ -4,6 +4,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
+import com.pally.domain.knowledge.OcrQualityGate;
 import com.pally.domain.knowledge.RelevanceScore;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
@@ -78,6 +79,7 @@ public class UploadFileUseCase {
     private final ConsentGuard consentGuard;
     private final ContentDeduplicator deduplicator;
     private final AvatarSlotGuard avatarSlotGuard;
+    private final OcrQualityGate ocrQualityGate;
 
     public UploadFileUseCase(
             AvatarRepository avatarRepository,
@@ -93,7 +95,8 @@ public class UploadFileUseCase {
             com.pally.domain.subscription.PremiumService premiumService,
             ConsentGuard consentGuard,
             ContentDeduplicator deduplicator,
-            AvatarSlotGuard avatarSlotGuard) {
+            AvatarSlotGuard avatarSlotGuard,
+            OcrQualityGate ocrQualityGate) {
         this.avatarRepository    = avatarRepository;
         this.knowledgeRepository = knowledgeRepository;
         this.wikiRepository      = wikiRepository;
@@ -108,6 +111,7 @@ public class UploadFileUseCase {
         this.consentGuard        = consentGuard;
         this.deduplicator        = deduplicator;
         this.avatarSlotGuard     = avatarSlotGuard;
+        this.ocrQualityGate      = ocrQualityGate;
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
@@ -219,11 +223,21 @@ public class UploadFileUseCase {
             return new UploadResult.Failure(ocrFailMsg, null);
         }
 
-        // Short-text warning for image uploads: valid but may produce limited wiki pages.
-        // Do NOT fail — a single equation or definition is perfectly useful content.
-        if (uploadType == KnowledgeFile.UploadType.PHOTO && extractedText.length() < 50) {
-            log.warn("[Upload] Very short text extracted from photo fileId={} chars={} — proceeding but may produce limited wiki pages",
-                    fileId, extractedText.length());
+        // ── OCR Quality Gate (image uploads only) ───────────────────────────
+        // Text and PDF uploads bypass the quality gate: their text is clean by definition.
+        OcrQualityGate.QualityResult qualityResult = null;
+        if (uploadType == KnowledgeFile.UploadType.PHOTO) {
+            qualityResult = ocrQualityGate.evaluate(extractedText, fileBytes.length);
+            log.info("[Pipeline:Upload] OCR quality={} fileId={} reason={}",
+                    qualityResult.quality(), fileId, qualityResult.reason());
+
+            if (qualityResult.quality() == OcrQualityGate.Quality.REJECTED) {
+                kf.markFailed();
+                knowledgeRepository.save(kf);
+                return new UploadResult.Failure(qualityResult.reason(), null);
+            }
+            // Use cleaned text from the quality gate
+            extractedText = qualityResult.cleanedText();
         }
 
         // Save extracted text + content hash for deduplication.
@@ -293,7 +307,13 @@ public class UploadFileUseCase {
                 fileId, pageCount);
         // Return immediately with an empty pageTitles list — the wiki viewer
         // will show pages as they're written by the background compile.
-        return new UploadResult.Success(fileId, pageCount, List.of());
+        // Include OCR quality info for image uploads so the client can decide
+        // whether to show a review screen.
+        String quality = qualityResult != null ? qualityResult.quality().name() : "GOOD";
+        String qualityReason = qualityResult != null ? qualityResult.reason() : null;
+        String returnedExtractedText = qualityResult != null ? qualityResult.cleanedText() : null;
+        return new UploadResult.Success(fileId, pageCount, List.of(),
+                quality, qualityReason, returnedExtractedText);
     }
 
     private KnowledgeFile.UploadType resolveUploadType(String normalisedMime) {

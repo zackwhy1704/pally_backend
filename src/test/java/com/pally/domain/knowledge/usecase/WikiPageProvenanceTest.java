@@ -7,6 +7,7 @@ import com.pally.domain.avatar.Subject;
 import com.pally.domain.chat.HintTreeGenerator;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.WikiQualityVerifier;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.domain.module.ModuleContentGenerator;
@@ -65,10 +66,11 @@ class WikiPageProvenanceTest {
 
     @BeforeEach
     void setUp() {
+        WikiQualityVerifier wikiQualityVerifier = new WikiQualityVerifier();
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator,
                 flashcardGenerator, claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository);
+                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier);
 
         avatar = Avatar.reconstitute(
                 AVATAR_ID, USER_ID, "Bolt", Subject.SCIENCE, CharacterType.ZAP,
