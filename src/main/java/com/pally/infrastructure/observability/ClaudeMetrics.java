@@ -84,6 +84,32 @@ public class ClaudeMetrics {
         registry.counter("pally.ai.visual_math.escalation", "tier", safe(tier)).increment();
     }
 
+    // ── Per-user cost tracking ────────────────────────────────────────────────
+
+    /**
+     * Records an estimated cost (in cents) per user + task + model, enabling
+     * per-centre and per-student cost dashboards via Prometheus / Micrometer.
+     */
+    public void recordUserCost(String userId, String task, String model, long inputTokens, long outputTokens) {
+        registry.counter("pally.user.ai_cost",
+                "user_id", safe(userId), "task", safe(task), "model", safe(model))
+                .increment(estimateCostCents(model, inputTokens, outputTokens));
+    }
+
+    /**
+     * Approximate cost in cents for a given model and token counts.
+     * Prices are rough estimates based on published rates as of 2025;
+     * update when Anthropic / Google change pricing.
+     */
+    private double estimateCostCents(String model, long input, long output) {
+        return switch (model) {
+            case String m when m.contains("haiku") -> (input * 0.025 + output * 0.125) / 100_000;
+            case String m when m.contains("sonnet") -> (input * 0.3 + output * 1.5) / 100_000;
+            case String m when m.contains("gemini") -> (input * 0.0075 + output * 0.03) / 100_000;
+            default -> (input * 0.1 + output * 0.5) / 100_000;
+        };
+    }
+
     private String safe(String s) {
         return s == null || s.isBlank() ? "unknown" : s;
     }

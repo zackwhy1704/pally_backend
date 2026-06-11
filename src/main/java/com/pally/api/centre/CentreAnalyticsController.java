@@ -1,11 +1,14 @@
 package com.pally.api.centre;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.infrastructure.observability.ClaudeMetrics;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -64,6 +67,7 @@ public class CentreAnalyticsController {
     private final com.pally.infrastructure.persistence.module.LearningModuleJpaRepository learningModuleRepo;
     private final com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository moduleProgressRepo;
     private final com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository moduleItemRepo;
+    private final MeterRegistry meterRegistry;
 
     // ── GET /organizations/{orgId}/overview?cohort= ────────────────────────
 
@@ -625,6 +629,71 @@ public class CentreAnalyticsController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("classId", classId);
         result.put("concepts", concepts);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ── GET /organizations/{orgId}/cost-summary ───────────────────────────
+
+    /**
+     * Returns an in-process cost summary by aggregating the
+     * {@code pally.user.ai_cost} Micrometer counters. These counters are
+     * incremented by {@link ClaudeMetrics#recordUserCost} on every AI call.
+     *
+     * <p>NOTE: counters reset on deploy. For durable cost history, scrape
+     * Prometheus and query there. This endpoint is best-effort for the
+     * admin dashboard's "since last deploy" view.
+     */
+    @GetMapping("/organizations/{orgId}/cost-summary")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> costSummary(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId) {
+
+        accessService.ensureOwner(userId, orgId);
+
+        // Scan all pally.user.ai_cost counters from the in-process registry.
+        double totalCostCents = 0;
+        Map<String, Double> perTask = new LinkedHashMap<>();
+        Map<String, Double> perModel = new LinkedHashMap<>();
+
+        for (var meter : meterRegistry.getMeters()) {
+            if (!"pally.user.ai_cost".equals(meter.getId().getName())) continue;
+            if (!(meter instanceof Counter counter)) continue;
+
+            double amount = counter.count();
+            if (amount <= 0) continue;
+
+            totalCostCents += amount;
+
+            String task = meter.getId().getTag("task");
+            if (task != null) perTask.merge(task, amount, Double::sum);
+
+            String model = meter.getId().getTag("model");
+            if (model != null) perModel.merge(model, amount, Double::sum);
+        }
+
+        long studentCount = userRepo.countByCentreId(orgId);
+        double perStudentAvg = studentCount > 0 ? totalCostCents / studentCount : 0;
+
+        // Build breakdown list sorted by cost descending.
+        List<Map<String, Object>> breakdown = new ArrayList<>();
+        for (var entry : perTask.entrySet()) {
+            for (var modelEntry : perModel.entrySet()) {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("task", entry.getKey());
+                item.put("model", modelEntry.getKey());
+                item.put("costCents", round(entry.getValue()));
+                breakdown.add(item);
+            }
+        }
+        breakdown.sort(Comparator.<Map<String, Object>, Double>comparing(
+                m -> (Double) m.get("costCents")).reversed());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalCostCents", round(totalCostCents));
+        result.put("perStudentAvg", round(perStudentAvg));
+        result.put("breakdown", breakdown);
+
+        log.info("[Centre] cost-summary org={} total={}", orgId, round(totalCostCents));
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

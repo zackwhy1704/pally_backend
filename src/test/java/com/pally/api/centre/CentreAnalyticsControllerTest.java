@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,6 +41,7 @@ class CentreAnalyticsControllerTest {
     @Mock CentreAccessService accessService;
     @Mock UserJpaRepository userRepo;
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
+    @Mock io.micrometer.core.instrument.MeterRegistry meterRegistry;
 
     @InjectMocks CentreAnalyticsController controller;
 
@@ -475,5 +477,43 @@ class CentreAnalyticsControllerTest {
     private void stubWeakestTopics(List<Object[]> topicRows) {
         lenient().when(quizResultRepo.findWeakestTopicsForCentre(eq(ORG_ID), any(), anyInt())).thenReturn(topicRows);
         lenient().when(quizResultRepo.findWeakestTopicsForCentre(eq(ORG_ID), isNull(), anyInt())).thenReturn(topicRows);
+    }
+
+    // ── Cost summary tests ────────────────────────────────────────────────
+
+    @Test
+    void costSummary_returnsZeroWhenNoMeters() {
+        when(meterRegistry.getMeters()).thenReturn(Collections.emptyList());
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(5L);
+
+        var resp = controller.costSummary(OWNER_ID, ORG_ID);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+
+        Map<String, Object> data = resp.getBody().data();
+        assertThat((Double) data.get("totalCostCents")).isEqualTo(0.0);
+        assertThat((Double) data.get("perStudentAvg")).isEqualTo(0.0);
+        assertThat((List<?>) data.get("breakdown")).isEmpty();
+    }
+
+    @Test
+    void costSummary_computesPerStudentAverage() {
+        // Simulate a counter with a known count
+        var counterId = new io.micrometer.core.instrument.Meter.Id(
+                "pally.user.ai_cost",
+                io.micrometer.core.instrument.Tags.of("user_id", "u1", "task", "chat", "model", "sonnet"),
+                null, null, io.micrometer.core.instrument.Meter.Type.COUNTER);
+        io.micrometer.core.instrument.Counter counter = mock(io.micrometer.core.instrument.Counter.class);
+        when(counter.getId()).thenReturn(counterId);
+        when(counter.count()).thenReturn(10.0);
+
+        when(meterRegistry.getMeters()).thenReturn(List.of(counter));
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(2L);
+
+        var resp = controller.costSummary(OWNER_ID, ORG_ID);
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+
+        Map<String, Object> data = resp.getBody().data();
+        assertThat((Double) data.get("totalCostCents")).isEqualTo(10.0);
+        assertThat((Double) data.get("perStudentAvg")).isEqualTo(5.0);
     }
 }
