@@ -1,20 +1,20 @@
 package com.pally.infrastructure.email;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 /**
- * Thin wrapper around JavaMailSender. Guards against blank password so that
- * tests and dev environments never attempt real SMTP delivery.
+ * Thin wrapper around JavaMailSender. If MAIL_PASSWORD is blank, all sends
+ * are no-ops — safe for dev, test, and Railway without SMTP configured.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class EmailService {
 
@@ -26,14 +26,27 @@ public class EmailService {
     @Value("${spring.mail.password:}")
     private String mailPassword;
 
-    /**
-     * Sends an HTML email. If MAIL_PASSWORD is blank (dev/test), logs a
-     * warning and skips the send — no tests will fail because of mail config.
-     */
+    private boolean enabled;
+
+    public EmailService(@Autowired(required = false) JavaMailSender mailSender) {
+        this.mailSender = mailSender;
+    }
+
+    @PostConstruct
+    void init() {
+        enabled = mailSender != null
+                && mailPassword != null
+                && !mailPassword.isBlank();
+        if (!enabled) {
+            log.warn("[Email] Mail not configured — email sending disabled");
+        } else {
+            log.info("[Email] Mail configured, from={}", fromAddress);
+        }
+    }
+
     public void sendHtml(String to, String subject, String html) {
-        if (mailPassword == null || mailPassword.isBlank()) {
-            log.warn("[Email] MAIL_PASSWORD not configured — skipping email to={} subject='{}'",
-                    to, subject);
+        if (!enabled) {
+            log.debug("[Email] Disabled — skipping email to={} subject='{}'", to, subject);
             return;
         }
         try {
