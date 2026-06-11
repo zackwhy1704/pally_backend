@@ -44,6 +44,16 @@ public class EmailService {
         }
     }
 
+    /** Whether email sending is configured and active. */
+    public boolean isConfigured() {
+        return enabled;
+    }
+
+    /** The configured from-address. */
+    public String getFrom() {
+        return fromAddress;
+    }
+
     public void sendHtml(String to, String subject, String html) {
         if (!enabled) {
             log.debug("[Email] Disabled — skipping email to={} subject='{}'", to, subject);

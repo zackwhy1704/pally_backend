@@ -43,6 +43,7 @@ public class StreakService {
     private final UserJpaRepository userRepo;
     private final DailyActivityDayJpaRepository dayRepo;
     private final BadgeService badgeService;
+    private final com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
 
     public record StreakUpdateResult(
             int streakDays,
@@ -106,6 +107,15 @@ public class StreakService {
                 user.setStars(user.getStars() + starBonus);
                 log.info("[Streak] user={} milestone={} (+{} stars)",
                         userId, m, starBonus);
+                // Notify parent of streak milestones (7+)
+                if (m >= 7) {
+                    try {
+                        milestoneNotifier.onStreakMilestone(userId, m);
+                    } catch (Exception e) {
+                        log.warn("[Streak] push notification failed user={} milestone={}: {}",
+                                userId, m, e.getMessage());
+                    }
+                }
                 break;
             }
         }

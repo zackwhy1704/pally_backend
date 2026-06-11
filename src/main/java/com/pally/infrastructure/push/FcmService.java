@@ -52,6 +52,11 @@ public class FcmService {
         }
     }
 
+    /** Whether Firebase is initialized and push sending is active. */
+    public boolean isConfigured() {
+        return initialized;
+    }
+
     /**
      * Send a push notification to a specific user by looking up their FCM token.
      * No-op if the user has no token or Firebase is not configured.

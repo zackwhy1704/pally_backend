@@ -63,8 +63,6 @@ public class AccountController {
     private final com.pally.domain.subscription.PremiumService premiumService;
     private final DeleteAccountUseCase deleteAccountUseCase;
     private final JwtService jwtService;
-    private final com.pally.infrastructure.email.EmailService emailService;
-    private final com.pally.domain.notification.WeeklyEmailScheduler weeklyEmailScheduler;
 
     /**
      * Saves or updates the user's FCM push notification token.
@@ -293,24 +291,4 @@ public class AccountController {
         return s == null ? "" : s;
     }
 
-    @PostMapping("/test-email")
-    public ResponseEntity<ApiResponse<Map<String, String>>> testEmail(
-            @AuthenticationPrincipal String userId) {
-        UserJpaEntity user = userRepo.findById(userId)
-                .orElseThrow(() -> new BusinessException("User not found", 404));
-        String to = user.getEmail();
-        emailService.sendHtml(to, "Apalchi — Email Test",
-                "<h2 style='color:#7042ED'>Apalchi Email Test</h2>"
-                + "<p>If you're reading this, email delivery via Resend is working.</p>"
-                + "<p style='color:#6B618A;font-size:13px'>Sent at: " + Instant.now() + "</p>");
-        log.info("[Test] Email test sent to {}", to);
-        return ResponseEntity.ok(ApiResponse.success(Map.of("sentTo", to)));
-    }
-
-    @PostMapping("/trigger-weekly-email")
-    public ResponseEntity<ApiResponse<String>> triggerWeeklyEmail(
-            @AuthenticationPrincipal String userId) {
-        weeklyEmailScheduler.sendWeeklyReports();
-        return ResponseEntity.ok(ApiResponse.success("Weekly email triggered"));
-    }
 }

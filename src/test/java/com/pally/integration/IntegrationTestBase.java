@@ -124,6 +124,9 @@ public abstract class IntegrationTestBase {
     @MockBean
     protected com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
 
+    @MockBean
+    protected com.pally.domain.notification.RiskAlertScheduler riskAlertScheduler;
+
     // ── Test helpers ─────────────────────────────────────────────────────────
 
     protected String baseUrl() {

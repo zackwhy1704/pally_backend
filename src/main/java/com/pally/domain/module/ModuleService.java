@@ -46,6 +46,7 @@ public class ModuleService {
     private final AvatarRepository avatarRepository;
     private final WikiRepository wikiRepository;
     private final ObjectMapper objectMapper;
+    private final com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
 
     /**
      * Generate modules for all wiki pages of an avatar. Idempotent — skips
@@ -326,6 +327,17 @@ public class ModuleService {
                     module.setCompletedAt(Instant.now());
                     // Calculate mastery from PROVE scores
                     updateMastery(module, userId);
+                    // Notify parent of module completion
+                    try {
+                        double mastery = module.getMasteryPct() != null
+                                ? module.getMasteryPct().doubleValue() / 100.0
+                                : 0.0;
+                        milestoneNotifier.onModuleCompleted(
+                                userId, module.getTitle(), mastery);
+                    } catch (Exception e) {
+                        log.warn("[Module] push notification failed module={}: {}",
+                                moduleId, e.getMessage());
+                    }
                 }
                 moduleRepository.save(module);
                 log.info("[Module] Advanced module={} from {} to {}",

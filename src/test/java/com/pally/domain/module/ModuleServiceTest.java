@@ -42,6 +42,7 @@ class ModuleServiceTest {
     @Mock private ModuleProveEvaluator proveEvaluator;
     @Mock private AvatarRepository avatarRepository;
     @Mock private WikiRepository wikiRepository;
+    @Mock private com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
 
     private ModuleService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -51,7 +52,7 @@ class ModuleServiceTest {
         service = new ModuleService(
                 moduleRepository, itemRepository, progressRepository,
                 contentGenerator, proveEvaluator, avatarRepository,
-                wikiRepository, objectMapper);
+                wikiRepository, objectMapper, milestoneNotifier);
     }
 
     // ── generateModules ─────────────────────────────────────────────────

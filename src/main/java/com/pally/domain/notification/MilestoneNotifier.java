@@ -79,8 +79,22 @@ public class MilestoneNotifier {
         log.info("[Milestone] Positive push to parent={}: {}", parentId, title);
     }
 
-    // Reserved for future alert-type notifications (unused for now)
-    @SuppressWarnings("unused")
+    /**
+     * Notify parent that their child has been inactive for 6+ days.
+     * Uses the alert path (subject to 3:1 suppression).
+     */
+    public void onInactiveChild(String childId, String childName) {
+        Optional<UserJpaEntity> childOpt = userRepo.findById(childId);
+        if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
+
+        String parentId = childOpt.get().getParentId();
+        String name = childName != null && !childName.isBlank() ? childName : "Your child";
+        String title = name + " hasn't studied in 6 days";
+        String body = "A gentle nudge might help 💪";
+
+        sendAlert(parentId, title, body);
+    }
+
     private void sendAlert(String parentId, String title, String body) {
         WeekCounters c = counters.computeIfAbsent(parentId, k -> new WeekCounters());
         // 3:1 ratio: only send alert if we've sent 3x more positives
