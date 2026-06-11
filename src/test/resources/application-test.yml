@@ -49,6 +49,13 @@ gemini:
   api:
     key: ""
 
+# ElevenLabs TTS — blank in tests, mocked
+elevenlabs:
+  api:
+    key: ""
+  voice:
+    id: "test-voice-id"
+
 # Centre config
 centre:
   closedbook:

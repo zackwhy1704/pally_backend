@@ -5,6 +5,8 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.module.NarrationService;
+
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
@@ -60,6 +62,7 @@ public class ClassController {
     private final UserJpaRepository userRepo;
     private final AvatarRepository avatarRepository;
     private final QuizQuestionResultJpaRepository quizResultRepo;
+    private final NarrationService narrationService;
 
     // Heatmap legibility caps (mirror CentreAnalyticsController).
     private static final int HEATMAP_MAX_STUDENTS = 40;
@@ -515,6 +518,69 @@ public class ClassController {
             return CharacterType.MOCHI;
         }
     }
+
+    // ── Centre narration ───────────────────────────────────────────────────
+
+    /**
+     * Triggers async narration generation for a class module.
+     * Centre access check ensures only admins/teachers can generate narration.
+     */
+    @PostMapping("/classes/{classId}/modules/{moduleId}/narration/generate")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> generateClassNarration(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String moduleId,
+            @RequestBody(required = false) Map<String, String> body
+    ) {
+        accessService.ensureOwner(userId, orgId);
+
+        String voiceId = (body != null) ? body.getOrDefault("voiceId", "default") : "default";
+        log.info("[Narration] Centre generate request user={} class={} module={} voice={}",
+                userId, classId, moduleId, voiceId);
+
+        String narrationId = narrationService.generateAsync(moduleId, voiceId);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("narrationId", narrationId);
+        response.put("status", "GENERATING");
+
+        return ResponseEntity.status(org.springframework.http.HttpStatus.ACCEPTED)
+                .body(new ApiResponse<>(response, null, 202));
+    }
+
+    /**
+     * Returns narration status and segments for a class module.
+     */
+    @GetMapping("/classes/{classId}/modules/{moduleId}/narration")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getClassNarration(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String moduleId
+    ) {
+        accessService.ensureOwner(userId, orgId);
+
+        return narrationService.get(moduleId)
+                .map(n -> {
+                    Map<String, Object> resp = new LinkedHashMap<>();
+                    resp.put("id", n.getId());
+                    resp.put("status", n.getStatus());
+                    resp.put("voiceId", n.getVoiceId());
+                    resp.put("totalDurationMs", n.getTotalDurationMs());
+                    try {
+                        resp.put("segments", new com.fasterxml.jackson.databind.ObjectMapper()
+                                .readValue(n.getSegmentsJson(), List.class));
+                    } catch (Exception e) {
+                        resp.put("segments", List.of());
+                    }
+                    return ResponseEntity.ok(ApiResponse.success(resp));
+                })
+                .orElseGet(() -> ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error("Narration not found for this module", 404)));
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private Subject parseSubject(String s) {
         if (s == null || s.isBlank()) return Subject.GENERAL;

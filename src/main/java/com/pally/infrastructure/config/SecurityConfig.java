@@ -45,6 +45,7 @@ public class SecurityConfig {
                     "/api/v1/auth/forgot-password",
                     "/api/v1/auth/biometric/verify",
                     "/api/v1/auth/verify-email",
+                    "/api/v1/onboard/quick",
                     "/api/v1/subscription/webhook",
                     "/actuator/health",
                     "/actuator/info",
