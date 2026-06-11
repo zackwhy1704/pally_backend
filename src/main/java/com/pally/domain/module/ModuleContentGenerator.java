@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
@@ -39,6 +41,7 @@ public class ModuleContentGenerator {
     private final ObjectMapper objectMapper;
     private final LearningModuleJpaRepository moduleRepository;
     private final ModuleContentItemJpaRepository itemRepository;
+    private final PremiumService premiumService;
 
     /**
      * Generates a learning module with LEARN and TEST items for a wiki page.
@@ -49,7 +52,7 @@ public class ModuleContentGenerator {
      */
     @Transactional
     public LearningModuleJpaEntity generate(Avatar avatar, WikiPage page) {
-        String tier = avatar.isCentreAvatar() ? "CENTRE" : "FREE";
+        String tier = resolveContentTier(avatar);
         String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
         String subject = avatar.getSubject().label();
 
@@ -352,6 +355,29 @@ public class ModuleContentGenerator {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /**
+     * Resolves the content tier for module generation.
+     * Centre avatars always get CENTRE-depth content (the centre pays).
+     * For personal avatars, Pro/Max/Family subscribers get full CENTRE-depth;
+     * Free/Spark subscribers get limited FREE-depth.
+     */
+    String resolveContentTier(Avatar avatar) {
+        if (avatar.isCentreAvatar()) {
+            return "CENTRE";
+        }
+        try {
+            SubscriptionTier subTier = premiumService.resolveTier(avatar.getUserId());
+            return switch (subTier) {
+                case PRO, MAX, FAMILY, CENTRE -> "CENTRE";
+                case FREE -> "FREE";
+            };
+        } catch (Exception e) {
+            log.warn("[Module] Failed to resolve subscription tier for user={}, defaulting to FREE: {}",
+                    avatar.getUserId(), e.getMessage());
+            return "FREE";
+        }
+    }
 
     String extractJson(String raw, char openChar, char closeChar) {
         if (raw == null || raw.isBlank()) return openChar == '[' ? "[]" : "{}";

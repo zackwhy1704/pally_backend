@@ -5,6 +5,8 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
@@ -24,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class ModuleContentGeneratorTest {
@@ -31,6 +34,7 @@ class ModuleContentGeneratorTest {
     @Mock private GeminiCompletionService geminiCompletion;
     @Mock private LearningModuleJpaRepository moduleRepository;
     @Mock private ModuleContentItemJpaRepository itemRepository;
+    @Mock private PremiumService premiumService;
 
     private ModuleContentGenerator generator;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -38,7 +42,11 @@ class ModuleContentGeneratorTest {
     @BeforeEach
     void setUp() {
         generator = new ModuleContentGenerator(
-                geminiCompletion, objectMapper, moduleRepository, itemRepository);
+                geminiCompletion, objectMapper, moduleRepository, itemRepository,
+                premiumService);
+        // Default: FREE tier for personal avatars
+        lenient().when(premiumService.resolveTier(anyString()))
+                .thenReturn(SubscriptionTier.FREE);
     }
 
     @Test

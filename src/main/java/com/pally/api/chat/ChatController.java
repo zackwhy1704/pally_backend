@@ -109,7 +109,7 @@ public class ChatController {
         writer.flush();
 
         try {
-            sendMessageUseCase.executeStream(avatarId, userId, request.message())
+            sendMessageUseCase.executeStream(avatarId, userId, request.message(), request.moduleId())
                     .toIterable()
                     .forEach(event -> {
                         writer.write("event: " + event.type() + "\n");

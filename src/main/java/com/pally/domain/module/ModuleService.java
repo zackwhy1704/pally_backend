@@ -93,6 +93,7 @@ public class ModuleService {
             m.put("title", module.getTitle());
             m.put("wikiSlug", module.getWikiPageSlug());
             m.put("stage", module.getStage());
+            m.put("tier", module.getTier());
             m.put("masteryPct", module.getMasteryPct());
 
             Map<String, Integer> counts = new HashMap<>();

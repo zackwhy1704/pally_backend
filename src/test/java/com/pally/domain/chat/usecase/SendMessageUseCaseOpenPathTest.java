@@ -63,6 +63,8 @@ class SendMessageUseCaseOpenPathTest {
     @Mock private AvatarSlotGuard avatarSlotGuard;
     @Mock private PremiumService premiumService;
     @Mock private WikiRepository wikiRepository;
+    @Mock private com.pally.infrastructure.persistence.module.LearningModuleJpaRepository learningModuleRepo;
+    @Mock private com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository contentGapSignalRepo;
 
     private SendMessageUseCase useCase;
     private Avatar personalAvatar;
@@ -74,7 +76,8 @@ class SendMessageUseCaseOpenPathTest {
                 hintTreeRepository, chatSessionRepository, topicClassifier,
                 socraticPromptBuilder, modelRouter, sessionSummariser,
                 consentGuard, moderationService, avatarSlotGuard,
-                premiumService, wikiRepository);
+                premiumService, wikiRepository,
+                learningModuleRepo, contentGapSignalRepo);
         ReflectionTestUtils.setField(useCase, "closedBookEnabled", true);
         ReflectionTestUtils.setField(useCase, "closedBookThreshold", 0.55);
         ReflectionTestUtils.setField(useCase, "closedBookRefusal",

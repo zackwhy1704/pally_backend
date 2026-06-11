@@ -9,6 +9,9 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
+import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaEntity;
+import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
+import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSession;
@@ -76,6 +79,8 @@ public class SendMessageUseCase {
     private final AvatarSlotGuard avatarSlotGuard;
     private final PremiumService premiumService;
     private final WikiRepository wikiRepository;
+    private final LearningModuleJpaRepository learningModuleRepo;
+    private final ContentGapSignalJpaRepository contentGapSignalRepo;
 
     @Value("${centre.closedbook.enabled:true}")
     private boolean closedBookEnabled;
@@ -101,7 +106,9 @@ public class SendMessageUseCase {
             ModerationService moderationService,
             AvatarSlotGuard avatarSlotGuard,
             PremiumService premiumService,
-            WikiRepository wikiRepository
+            WikiRepository wikiRepository,
+            LearningModuleJpaRepository learningModuleRepo,
+            ContentGapSignalJpaRepository contentGapSignalRepo
     ) {
         this.avatarRepository = avatarRepository;
         this.chatRepository = chatRepository;
@@ -118,11 +125,20 @@ public class SendMessageUseCase {
         this.avatarSlotGuard = avatarSlotGuard;
         this.premiumService = premiumService;
         this.wikiRepository = wikiRepository;
+        this.learningModuleRepo = learningModuleRepo;
+        this.contentGapSignalRepo = contentGapSignalRepo;
     }
 
     public record StreamEvent(String type, String payload) {}
 
+    /**
+     * Backward-compatible overload for callers that do not pass a moduleId.
+     */
     public Flux<StreamEvent> executeStream(String avatarId, String userId, String userMessage) {
+        return executeStream(avatarId, userId, userMessage, null);
+    }
+
+    public Flux<StreamEvent> executeStream(String avatarId, String userId, String userMessage, String moduleId) {
         // Fix 2: Slot guard — locked avatars cannot be chatted with.
         avatarSlotGuard.requireActive(avatarId, userId);
 
@@ -148,6 +164,66 @@ public class SendMessageUseCase {
         if (avatar.isAvatarLocked()) {
             String msg = "Your access to this Mochi has paused — check with your centre.";
             return Flux.just(new StreamEvent("token", msg), new StreamEvent("done", ""));
+        }
+
+        // ── Module-context confidence gate ──────────────────────────────
+        // When chatting within a module context, ground to that module's wiki
+        // page regardless of avatar type (personal or centre).
+        if (moduleId != null && closedBookEnabled) {
+            var moduleOpt = learningModuleRepo.findById(moduleId);
+            if (moduleOpt.isPresent()) {
+                var module = moduleOpt.get();
+                String wikiAvatarId = avatar.getCorpusAvatarId() != null
+                        ? avatar.getCorpusAvatarId() : avatarId;
+                var wikiPageOpt = wikiRepository.findByAvatarIdAndSlug(
+                        wikiAvatarId, module.getWikiPageSlug());
+                if (wikiPageOpt.isPresent()) {
+                    double relevance = computeKeywordRelevance(
+                            userMessage, List.of(wikiPageOpt.get()));
+                    if (relevance < closedBookThreshold) {
+                        String refusal = "That's not covered in this topic's material. "
+                                + "Try asking about " + module.getTitle()
+                                + ", or upload more notes!";
+                        log.info("[ModuleGate] REFUSED moduleId={} avatarId={} userId={} "
+                                        + "relevance={} msg={}",
+                                moduleId, avatarId, userId,
+                                String.format("%.3f", relevance),
+                                userMessage.substring(0, Math.min(60, userMessage.length())));
+
+                        // Log as content gap signal for centre avatars
+                        if (avatar.getClassId() != null) {
+                            try {
+                                ContentGapSignalJpaEntity gap = new ContentGapSignalJpaEntity();
+                                gap.setId(com.pally.shared.util.IdGenerator.newId());
+                                gap.setClassId(avatar.getClassId());
+                                gap.setUserId(userId);
+                                gap.setQueryText(userMessage.substring(
+                                        0, Math.min(1000, userMessage.length())));
+                                gap.setMatchedConfidence(
+                                        java.math.BigDecimal.valueOf(relevance));
+                                gap.setCreatedAt(java.time.Instant.now());
+                                contentGapSignalRepo.save(gap);
+                            } catch (Exception e) {
+                                log.warn("[ModuleGate] Failed to save content gap signal: {}",
+                                        e.getMessage());
+                            }
+                        }
+
+                        boolean ephemeralCheck = consentGuard.isPending(userId);
+                        if (!ephemeralCheck) {
+                            ChatMessage refusedUserMsg = ChatMessage.create(avatarId, userId,
+                                    ChatMessage.Role.USER, userMessage, null);
+                            chatRepository.save(refusedUserMsg);
+                            ChatMessage refusalMsg = ChatMessage.create(avatarId, userId,
+                                    ChatMessage.Role.ASSISTANT, refusal, null);
+                            chatRepository.save(refusalMsg);
+                        }
+                        return Flux.just(
+                                new StreamEvent("delta", refusal),
+                                new StreamEvent("done", ""));
+                    }
+                }
+            }
         }
 
         // ── Centre avatar: closed-book gate ──────────────────────────────
