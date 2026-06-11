@@ -11,6 +11,8 @@ import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.ai.WikiRecompileScheduler;
 import com.pally.infrastructure.auth.JwtService;
 import com.pally.infrastructure.auth.SocialTokenVerifier;
+import com.pally.domain.knowledge.port.StoragePort;
+import com.pally.domain.module.port.TtsPort;
 import com.pally.infrastructure.storage.StorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -100,6 +102,12 @@ public abstract class IntegrationTestBase {
 
     @MockBean
     protected StorageService storageService;
+
+    @MockBean
+    protected StoragePort storagePort;
+
+    @MockBean
+    protected TtsPort ttsPort;
 
     @MockBean
     protected SocialTokenVerifier socialTokenVerifier;
