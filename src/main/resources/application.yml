@@ -48,7 +48,7 @@ spring:
     password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
+      mail.smtp.ssl.enable: true
     from: ${MAIL_FROM:noreply@apalchi.com}
   jackson:
     default-property-inclusion: non_null
@@ -76,6 +76,9 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    mail:
+      enabled: false
   metrics:
     tags:
       application: pally-backend
