@@ -43,12 +43,13 @@ spring:
       enabled: true
   mail:
     host: ${MAIL_HOST:}
-    port: ${MAIL_PORT:465}
+    port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:resend}
     password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
-      mail.smtp.ssl.enable: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
     from: ${MAIL_FROM:noreply@apalchi.com}
   jackson:
     default-property-inclusion: non_null
