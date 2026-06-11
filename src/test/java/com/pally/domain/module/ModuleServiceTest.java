@@ -102,13 +102,32 @@ class ModuleServiceTest {
     // ── startModule ─────────────────────────────────────────────────────
 
     @Test
-    void startModule_completedModule_throws400() {
+    void startModule_completedModule_entersRevisionMode() {
         LearningModuleJpaEntity module = buildModule("mod-1", "COMPLETE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("test-slug");
+        module.setTier("FREE");
+        module.setCompletedAt(Instant.now());
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+        when(moduleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThatThrownBy(() -> service.startModule("mod-1", "user-1"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("already completed");
+        // Revision generates new PROVE items — generateProveItemsAdaptively needs these
+        when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
+                .thenReturn(List.of());
+        WikiPage page = WikiPage.create("avatar-1", "test-slug", "Test", "Content");
+        when(wikiRepository.findByAvatarIdAndSlug("avatar-1", "test-slug"))
+                .thenReturn(Optional.of(page));
+        when(contentGenerator.generateProveQuestions(eq(module), eq(page), anyList(), eq("FREE")))
+                .thenReturn(List.of());
+        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-1", "PROVE"))
+                .thenReturn(List.of());
+
+        Map<String, Object> result = service.startModule("mod-1", "user-1");
+
+        assertThat(result.get("stage")).isEqualTo("PROVE");
+        assertThat(result.get("revision")).isEqualTo(true);
+        // Module stage should be set back to PROVE
+        verify(moduleRepository).save(argThat(m -> "PROVE".equals(m.getStage())));
     }
 
     @Test
@@ -263,6 +282,75 @@ class ModuleServiceTest {
                 List.of(Map.of("response", "test"))))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("itemId is required");
+    }
+
+    // ── getExamPrep ──────────────────────────────────────────────────────
+
+    @Test
+    void getExamPrep_aggregatesConceptMasteryWeakestFirst() {
+        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
+        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
+
+        LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE");
+        mod1.setAvatarId(avatar.getId());
+        mod1.setTitle("Fractions");
+        LearningModuleJpaEntity mod2 = buildModule("mod-2", "COMPLETE");
+        mod2.setAvatarId(avatar.getId());
+        mod2.setTitle("Decimals");
+        when(moduleRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(mod1, mod2));
+
+        // PROVE progress for mod1
+        ModuleProgressJpaEntity p1 = new ModuleProgressJpaEntity();
+        p1.setStage("PROVE");
+        p1.setTargetConcept("addition");
+        p1.setScore(BigDecimal.valueOf(0.9));
+        p1.setCompletedAt(Instant.now());
+
+        ModuleProgressJpaEntity p2 = new ModuleProgressJpaEntity();
+        p2.setStage("PROVE");
+        p2.setTargetConcept("subtraction");
+        p2.setScore(BigDecimal.valueOf(0.4));
+        p2.setCompletedAt(Instant.now());
+
+        when(progressRepository.findByModuleIdAndUserId("mod-1", avatar.getUserId()))
+                .thenReturn(List.of(p1, p2));
+        when(progressRepository.findByModuleIdAndUserId("mod-2", avatar.getUserId()))
+                .thenReturn(List.of());
+
+        Map<String, Object> result = service.getExamPrep(avatar.getId());
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> concepts = (List<Map<String, Object>>) result.get("concepts");
+        assertThat(concepts).hasSize(2);
+        // Weakest first
+        assertThat(concepts.get(0).get("concept")).isEqualTo("subtraction");
+        assertThat((double) concepts.get(0).get("mastery")).isLessThan(50.0);
+        assertThat(concepts.get(1).get("concept")).isEqualTo("addition");
+    }
+
+    @Test
+    void getExamPrep_avatarNotFound_throws() {
+        when(avatarRepository.findById("bad-id")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.getExamPrep("bad-id"))
+                .isInstanceOf(AvatarNotFoundException.class);
+    }
+
+    // ── getClassExamReadiness ──────────────────────────────────────────
+
+    @Test
+    void getClassExamReadiness_returnsSuggestionWhenBelow60() {
+        LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE");
+        mod1.setMasteryPct(BigDecimal.valueOf(45.0));
+        mod1.setClassId("class-1");
+        LearningModuleJpaEntity mod2 = buildModule("mod-2", "COMPLETE");
+        mod2.setMasteryPct(BigDecimal.valueOf(80.0));
+        mod2.setClassId("class-1");
+        when(moduleRepository.findByClassId("class-1")).thenReturn(List.of(mod1, mod2));
+
+        Map<String, Object> result = service.getClassExamReadiness("class-1");
+
+        assertThat((String) result.get("suggestion")).contains("revision");
+        assertThat((int) result.get("completedModules")).isEqualTo(2);
     }
 
     // ── Stage enum ──────────────────────────────────────────────────────

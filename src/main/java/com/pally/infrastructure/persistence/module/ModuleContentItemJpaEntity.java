@@ -44,4 +44,8 @@ public class ModuleContentItemJpaEntity {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /** Publishing status: DRAFT, APPROVED, LIVE, ARCHIVED. Personal avatars default to LIVE. */
+    @Column(nullable = false, length = 20)
+    private String status = "LIVE";
 }

@@ -1,6 +1,7 @@
 package com.pally.api.module;
 
 import com.pally.api.module.dto.SubmitModuleAnswersRequest;
+import com.pally.domain.assignment.AssignmentService;
 import com.pally.domain.module.ModuleService;
 import com.pally.domain.module.NarrationService;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
@@ -35,6 +36,7 @@ public class ModuleController {
 
     private final ModuleService moduleService;
     private final NarrationService narrationService;
+    private final AssignmentService assignmentService;
 
     /**
      * Generate modules for all wiki pages. Idempotent — skips existing slugs.
@@ -111,6 +113,15 @@ public class ModuleController {
     ) {
         Map<String, Object> result = moduleService.submitAnswers(
                 moduleId, userId, request.submissions());
+
+        // After module submit, check if any active assignments are now fulfilled
+        try {
+            assignmentService.checkAndAdvanceCompletions(userId);
+        } catch (Exception e) {
+            log.warn("[Module] Assignment completion check failed for user={}: {}",
+                    userId, e.getMessage());
+        }
+
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
