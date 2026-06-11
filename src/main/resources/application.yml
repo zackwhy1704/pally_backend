@@ -42,7 +42,7 @@ spring:
     virtual:
       enabled: true
   mail:
-    host: ${MAIL_HOST:smtp.resend.com}
+    host: ${MAIL_HOST:}
     port: ${MAIL_PORT:465}
     username: ${MAIL_USERNAME:resend}
     password: ${MAIL_PASSWORD:}
