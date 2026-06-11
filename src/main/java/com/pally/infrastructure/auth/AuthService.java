@@ -63,7 +63,7 @@ public class AuthService {
         // Under-13 (PENDING) trial starts at consent-approval, not here.
         premiumService.grantTrial(user.getId());
         String token = jwtService.generateToken(user.getId(), user.getRole());
-        return new AuthResponse(user.getId(), token, true, false);
+        return new AuthResponse(user.getId(), token, true, false, user.getAccountType());
     }
 
     @Transactional
@@ -86,7 +86,7 @@ public class AuthService {
         log.info("[Auth] Login success id={} streak={}",
                 user.getId(), user.getStreakDays());
         String token = jwtService.generateToken(user.getId(), user.getRole());
-        return new AuthResponse(user.getId(), token, false, user.isSetupComplete());
+        return new AuthResponse(user.getId(), token, false, user.isSetupComplete(), user.getAccountType());
     }
 
     /// Day-roll + freeze + milestone is now owned by StreakService; this
@@ -146,7 +146,7 @@ public class AuthService {
         log.info("[Auth] Social sign-in id={} new={} streak={}",
                 user.getId(), isNew, user.getStreakDays());
         String token = jwtService.generateToken(user.getId(), user.getRole());
-        return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete());
+        return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete(), user.getAccountType());
     }
 
     @Transactional(readOnly = true)
@@ -207,6 +207,6 @@ public class AuthService {
 
         log.info("[Auth] Setup complete id={}", userId);
         String token = jwtService.generateToken(userId, user.getRole());
-        return new AuthResponse(userId, token, false, true);
+        return new AuthResponse(userId, token, false, true, user.getAccountType());
     }
 }

@@ -36,7 +36,7 @@ class QuickOnboardServiceTest {
     @Test
     void execute_newUser_registersAndCreatesAvatar() {
         when(authService.register("kid@test.com", "pass1234", "Kid", null))
-                .thenReturn(new AuthResponse("user-1", "tok-1", true, false));
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, "SOLO"));
         when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
@@ -61,7 +61,7 @@ class QuickOnboardServiceTest {
         when(authService.register("kid@test.com", "pass1234", null, null))
                 .thenThrow(new BusinessException("Email already registered", 409));
         when(authService.login("kid@test.com", "pass1234"))
-                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true));
+                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, "SOLO"));
         when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 

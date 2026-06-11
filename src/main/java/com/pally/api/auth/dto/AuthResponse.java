@@ -4,5 +4,6 @@ public record AuthResponse(
         String userId,
         String token,
         boolean isNewUser,
-        boolean setupComplete
+        boolean setupComplete,
+        String accountType
 ) {}

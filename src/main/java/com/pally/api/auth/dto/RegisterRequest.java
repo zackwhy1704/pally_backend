@@ -15,5 +15,7 @@ public record RegisterRequest(
         String password,
 
         @Size(max = 100, message = "Display name must be 100 characters or fewer")
-        String displayName
+        String displayName,
+
+        String role
 ) {}
