@@ -64,6 +64,26 @@ public class AccountController {
     private final DeleteAccountUseCase deleteAccountUseCase;
     private final JwtService jwtService;
 
+    /**
+     * Saves or updates the user's FCM push notification token.
+     */
+    @PostMapping("/fcm-token")
+    @Transactional
+    public ResponseEntity<ApiResponse<Void>> setFcmToken(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, String> body) {
+        String token = body == null ? null : body.get("token");
+        if (token == null || token.isBlank()) {
+            throw new BusinessException("token is required", 400);
+        }
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        user.setFcmToken(token);
+        userRepo.save(user);
+        log.info("[Account] FCM token updated for user={}", userId);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
     @PostMapping("/link-code")
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> issueLinkCode(

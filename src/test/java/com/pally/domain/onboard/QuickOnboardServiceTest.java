@@ -35,7 +35,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_newUser_registersAndCreatesAvatar() {
-        when(authService.register("kid@test.com", "pass1234", "Kid"))
+        when(authService.register("kid@test.com", "pass1234", "Kid", null))
                 .thenReturn(new AuthResponse("user-1", "tok-1", true, false));
         when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -58,7 +58,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_existingUser_loginAndCreatesAvatar() {
-        when(authService.register("kid@test.com", "pass1234", null))
+        when(authService.register("kid@test.com", "pass1234", null, null))
                 .thenThrow(new BusinessException("Email already registered", 409));
         when(authService.login("kid@test.com", "pass1234"))
                 .thenReturn(new AuthResponse("user-existing", "tok-2", false, true));
@@ -76,7 +76,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_wrongPassword_throwsBusinessException() {
-        when(authService.register("kid@test.com", "wrong", "Kid"))
+        when(authService.register("kid@test.com", "wrong", "Kid", null))
                 .thenThrow(new BusinessException("Email already registered", 409));
         when(authService.login("kid@test.com", "wrong"))
                 .thenThrow(new BusinessException("Invalid email or password", 401));
@@ -89,7 +89,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_nonConflictRegisterError_propagates() {
-        when(authService.register("kid@test.com", "pass1234", "Kid"))
+        when(authService.register("kid@test.com", "pass1234", "Kid", null))
                 .thenThrow(new BusinessException("Rate limited", 429));
 
         assertThatThrownBy(() ->

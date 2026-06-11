@@ -22,5 +22,8 @@ public record QuickOnboardRequest(
         @NotNull(message = "Subject is required")
         Subject subject,
 
-        String level
+        String level,
+
+        /// Optional role — "parent" promotes to PARENT account type on registration.
+        String role
 ) {}

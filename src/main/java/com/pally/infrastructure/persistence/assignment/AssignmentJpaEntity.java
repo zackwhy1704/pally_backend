@@ -27,8 +27,12 @@ public class AssignmentJpaEntity {
     @Column(length = 36)
     private String id;
 
-    @Column(name = "class_id", nullable = false, length = 36)
+    @Column(name = "class_id", length = 36)
     private String classId;
+
+    /// Student ID for parent-assigned revisions (V64). Null for class assignments.
+    @Column(name = "student_id", length = 36)
+    private String studentId;
 
     @Column(nullable = false, length = 500)
     private String title;

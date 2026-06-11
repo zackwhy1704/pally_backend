@@ -35,4 +35,12 @@ public class ConsentRecordJpaEntity {
 
     @Column(name = "withdrawn_at")
     private Instant withdrawnAt;
+
+    /// Child account this consent applies to (V64 — family consent flows).
+    @Column(name = "child_id", length = 36)
+    private String childId;
+
+    /// Parent account that granted or received this consent (V64).
+    @Column(name = "parent_id", length = 36)
+    private String parentId;
 }

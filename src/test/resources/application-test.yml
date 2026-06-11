@@ -10,6 +10,10 @@ spring:
     show-sql: false
   flyway:
     enabled: true
+  mail:
+    host: localhost
+    port: 25
+    password: ""
   jackson:
     default-property-inclusion: non_null
     serialization:

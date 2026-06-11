@@ -9,4 +9,6 @@ public interface AssignmentJpaRepository extends JpaRepository<AssignmentJpaEnti
     List<AssignmentJpaEntity> findByClassId(String classId);
 
     List<AssignmentJpaEntity> findByClassIdOrderByDueDateAsc(String classId);
+
+    List<AssignmentJpaEntity> findByStudentIdOrderByDueDateAsc(String studentId);
 }

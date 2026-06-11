@@ -31,11 +31,11 @@ class OnboardControllerTest {
     @Test
     void quickOnboard_newUser_returns201_withTokenAndIds() {
         QuickOnboardRequest request = new QuickOnboardRequest(
-                "kid@example.com", "password123", "Kid", Subject.MATHS, "primary 4");
+                "kid@example.com", "password123", "Kid", Subject.MATHS, "primary 4", null);
 
         when(quickOnboardService.execute(
                 eq("kid@example.com"), eq("password123"), eq("Kid"),
-                eq(Subject.MATHS), eq("primary 4")))
+                eq(Subject.MATHS), eq("primary 4"), eq(null)))
                 .thenReturn(new QuickOnboardService.QuickOnboardResult(
                         "jwt-token-123", "user-id-1", "avatar-id-1"));
 
@@ -51,11 +51,11 @@ class OnboardControllerTest {
     @Test
     void quickOnboard_existingUserCorrectPassword_returns201_withNewAvatar() {
         QuickOnboardRequest request = new QuickOnboardRequest(
-                "existing@example.com", "password123", null, Subject.SCIENCE, null);
+                "existing@example.com", "password123", null, Subject.SCIENCE, null, null);
 
         when(quickOnboardService.execute(
                 eq("existing@example.com"), eq("password123"), eq(null),
-                eq(Subject.SCIENCE), eq(null)))
+                eq(Subject.SCIENCE), eq(null), eq(null)))
                 .thenReturn(new QuickOnboardService.QuickOnboardResult(
                         "jwt-existing", "user-existing", "avatar-new"));
 
@@ -69,11 +69,11 @@ class OnboardControllerTest {
     @Test
     void quickOnboard_wrongPassword_throwsBusiness401() {
         QuickOnboardRequest request = new QuickOnboardRequest(
-                "existing@example.com", "wrong-pass", null, Subject.ENGLISH, null);
+                "existing@example.com", "wrong-pass", null, Subject.ENGLISH, null, null);
 
         when(quickOnboardService.execute(
                 eq("existing@example.com"), eq("wrong-pass"), eq(null),
-                eq(Subject.ENGLISH), eq(null)))
+                eq(Subject.ENGLISH), eq(null), eq(null)))
                 .thenThrow(new BusinessException("Invalid email or password", 401));
 
         assertThatThrownBy(() -> controller.quickOnboard(request))

@@ -5,6 +5,7 @@ import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionLimits;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.UpgradeRequiredException;
+import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.response.ApiResponse;
@@ -19,8 +20,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,8 +32,8 @@ import java.util.Map;
  * Family account endpoints — link children to a parent, list linked children,
  * and enforce per-tier child caps.
  *
- * <p>Requires FAMILY or CENTRE subscription tier. SOLO/PRO/MAX accounts
- * cannot manage family links.
+ * <p>Any user with accountType=PARENT can manage family links. Free users
+ * are capped at 1 child; FAMILY tier at 4; CENTRE at 15.
  */
 @RestController
 @RequestMapping("/api/v1/family")
@@ -39,28 +43,43 @@ public class FamilyController {
 
     private final UserJpaRepository userRepo;
     private final PremiumService premiumService;
+    private final ActivityLogJpaRepository activityRepo;
 
     /**
      * Returns the list of child accounts linked to the authenticated parent.
+     * Any PARENT account can call this. Enriches children with stats.
      */
     @GetMapping("/children")
     @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listChildren(
             @AuthenticationPrincipal String userId) {
-        SubscriptionTier tier = premiumService.resolveTier(userId);
-        if (tier != SubscriptionTier.FAMILY && tier != SubscriptionTier.CENTRE) {
+        UserJpaEntity parent = userRepo.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (!"PARENT".equals(parent.getAccountType())) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("Family accounts require Family or Centre plan", 403));
+                    .body(ApiResponse.error("Only PARENT accounts can list children", 403));
         }
         List<UserJpaEntity> children = userRepo.findByParentId(userId);
+        Instant weekAgo = Instant.now().minus(Duration.ofDays(7));
         List<Map<String, Object>> result = children.stream()
-                .map(c -> Map.<String, Object>of(
-                        "userId",      c.getId(),
-                        "displayName", c.getDisplayName() != null ? c.getDisplayName() : "Child",
-                        "email",       c.getEmail(),
-                        "accountType", c.getAccountType(),
-                        "joinedAt",    c.getCreatedAt() != null ? c.getCreatedAt().toString() : null
-                ))
+                .map(c -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("userId", c.getId());
+                    m.put("displayName", c.getDisplayName() != null ? c.getDisplayName() : "Child");
+                    m.put("email", c.getEmail());
+                    m.put("accountType", c.getAccountType());
+                    m.put("joinedAt", c.getCreatedAt() != null ? c.getCreatedAt().toString() : null);
+                    // Enrichment fields
+                    m.put("streakDays", c.getStreakDays());
+                    m.put("level", c.getLevel());
+                    m.put("lastActiveDate", c.getLastActiveDate() != null
+                            ? c.getLastActiveDate().toString() : null);
+                    int minutesThisWeek = orZero(activityRepo.sumMinutesBetween(
+                            c.getId(), weekAgo, Instant.now()));
+                    m.put("minutesThisWeek", minutesThisWeek);
+                    m.put("statusChip", computeStatusChip(c));
+                    return m;
+                })
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(result));
     }
@@ -68,20 +87,23 @@ public class FamilyController {
     /**
      * Generates a single-use 8-character link code that a child can redeem
      * to join this parent's family. Expires after 24 hours. Enforces the
-     * per-tier child cap before issuing the code.
+     * per-tier child cap before issuing the code. Any PARENT account can call.
+     * Free users capped at 1 child.
      */
     @PostMapping("/generate-link-code")
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, String>>> generateLinkCode(
             @AuthenticationPrincipal String userId) {
-        SubscriptionTier tier = premiumService.resolveTier(userId);
-        if (tier != SubscriptionTier.FAMILY && tier != SubscriptionTier.CENTRE) {
+        UserJpaEntity parent = userRepo.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (!"PARENT".equals(parent.getAccountType())) {
             return ResponseEntity.status(403)
-                    .body(ApiResponse.error("Requires Family or Centre plan", 403));
+                    .body(ApiResponse.error("Only PARENT accounts can generate link codes", 403));
         }
+        SubscriptionTier tier = premiumService.resolveTier(userId);
         // Enforce child cap before issuing a new code
         int currentChildren = userRepo.countByParentId(userId);
-        int cap = SubscriptionLimits.familyChildCap(tier);
+        int cap = resolveChildCap(tier);
         if (currentChildren >= cap) {
             return ResponseEntity.status(422)
                     .body(ApiResponse.error(
@@ -90,9 +112,6 @@ public class FamilyController {
         // Generate 8-char alphanumeric code (URL-safe subset of UUID)
         String code = java.util.UUID.randomUUID().toString()
                 .replace("-", "").substring(0, 8).toUpperCase();
-        UserJpaEntity parent = userRepo.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        parent.setAccountType("PARENT");
         parent.setLinkCode(code);
         parent.setLinkCodeExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
         userRepo.save(parent);
@@ -118,7 +137,7 @@ public class FamilyController {
      */
     @PostMapping("/join/{linkCode}")
     @Transactional
-    public ResponseEntity<ApiResponse<Map<String, String>>> joinFamily(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> joinFamily(
             @AuthenticationPrincipal String userId,
             @PathVariable String linkCode) {
         UserJpaEntity parent = userRepo.findByLinkCode(linkCode)
@@ -150,9 +169,45 @@ public class FamilyController {
         parent.setLinkCodeExpiresAt(null);
         userRepo.save(parent);
         log.info("[Family] Child={} joined parent={}", userId, parent.getId());
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "message",  "Successfully joined family account!",
-                "parentId", parent.getId()
-        )));
+
+        // yearLevel >= 7 maps to Sec 1+ (~13+), may require consent
+        boolean consentRequired = child.getYearLevel() != null && child.getYearLevel() >= 7;
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Successfully joined family account!");
+        response.put("parentId", parent.getId());
+        response.put("consentRequired", consentRequired);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Compute status chip for a child based on recent activity and mastery.
+     */
+    private String computeStatusChip(UserJpaEntity child) {
+        LocalDate lastActive = child.getLastActiveDate();
+        long daysInactive = lastActive == null
+                ? 999
+                : java.time.temporal.ChronoUnit.DAYS.between(lastActive, LocalDate.now());
+
+        if (daysInactive >= 6) return "needs_attention";
+        if (daysInactive >= 4) return "behind";
+        return "on_track";
+    }
+
+    /**
+     * Resolve child cap based on subscription tier. Free/PRO/MAX users get 1.
+     */
+    private int resolveChildCap(SubscriptionTier tier) {
+        return switch (tier) {
+            case FREE, PRO, MAX -> 1;
+            case FAMILY -> 4;
+            case CENTRE -> 15;
+        };
+    }
+
+    private int orZero(Integer i) {
+        return i == null ? 0 : i;
     }
 }

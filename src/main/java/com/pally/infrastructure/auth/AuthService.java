@@ -32,6 +32,11 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
+        return register(email, password, displayName, null);
+    }
+
+    @Transactional
+    public AuthResponse register(String email, String password, String displayName, String role) {
         if (userRepo.existsByEmail(email)) {
             throw new BusinessException("Email already registered", 409);
         }
@@ -47,9 +52,12 @@ public class AuthService {
         user.setStreakDays(0);
         user.setCreatedAt(Instant.now());
         user.setSetupComplete(false);
+        if ("parent".equalsIgnoreCase(role)) {
+            user.setAccountType("PARENT");
+        }
         userRepo.save(user);
 
-        log.info("[Auth] Registered new user id={}", user.getId());
+        log.info("[Auth] Registered new user id={} role={}", user.getId(), user.getAccountType());
         characterShopService.seedDefaultUnlocks(user.getId());
         // Grant 7-day cardless trial immediately for new 13+ accounts.
         // Under-13 (PENDING) trial starts at consent-approval, not here.

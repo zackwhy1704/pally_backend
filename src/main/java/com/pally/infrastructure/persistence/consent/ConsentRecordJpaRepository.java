@@ -10,4 +10,7 @@ public interface ConsentRecordJpaRepository
         extends JpaRepository<ConsentRecordJpaEntity, String> {
 
     Optional<ConsentRecordJpaEntity> findFirstByUserIdOrderByCreatedAtDesc(String userId);
+
+    Optional<ConsentRecordJpaEntity> findFirstByChildIdAndParentIdOrderByCreatedAtDesc(
+            String childId, String parentId);
 }

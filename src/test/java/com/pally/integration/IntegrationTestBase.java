@@ -112,6 +112,18 @@ public abstract class IntegrationTestBase {
     @MockBean
     protected SocialTokenVerifier socialTokenVerifier;
 
+    @MockBean
+    protected com.pally.infrastructure.push.FcmService fcmService;
+
+    @MockBean
+    protected com.pally.infrastructure.email.EmailService emailService;
+
+    @MockBean
+    protected com.pally.domain.notification.WeeklyEmailScheduler weeklyEmailScheduler;
+
+    @MockBean
+    protected com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
+
     // ── Test helpers ─────────────────────────────────────────────────────────
 
     protected String baseUrl() {

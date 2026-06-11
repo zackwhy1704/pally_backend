@@ -166,6 +166,15 @@ public class UserJpaEntity {
     @Column(name = "default_answer_mode", nullable = false, length = 10)
     private String defaultAnswerMode = "GUIDE";
 
+    /// Firebase Cloud Messaging token for push notifications (V64).
+    @Column(name = "fcm_token", length = 512)
+    private String fcmToken;
+
+    /// Family-level weekly goal set by parent, stored as JSON (V64).
+    /// Example: {"weeklyMinutes":60,"weeklyModules":3}
+    @Column(name = "family_goal_json", columnDefinition = "TEXT")
+    private String familyGoalJson;
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;

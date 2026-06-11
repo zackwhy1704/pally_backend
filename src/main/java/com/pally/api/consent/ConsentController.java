@@ -206,6 +206,44 @@ public class ConsentController {
     }
 
     /**
+     * Child accepts parent data visibility — a PDPA consent record that
+     * grants the linked parent access to view the child's learning data.
+     */
+    @PostMapping("/family-accept")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> familyAcceptConsent(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, String> body) {
+        String parentId = body == null ? null : body.get("parentId");
+        if (parentId == null || parentId.isBlank()) {
+            throw new BusinessException("parentId is required", 400);
+        }
+        // Verify the parent exists and is the child's actual parent
+        UserJpaEntity child = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        if (!parentId.equals(child.getParentId())) {
+            throw new BusinessException("Specified parentId is not your parent", 403);
+        }
+
+        ConsentRecordJpaEntity record = new ConsentRecordJpaEntity();
+        record.setId(IdGenerator.newId());
+        record.setUserId(userId);
+        record.setConsenter("SELF");
+        record.setMethod("CHECKBOX");
+        record.setPurposes("[\"parent_visibility\"]");
+        record.setPolicyVersion(POLICY_VERSION);
+        record.setCreatedAt(Instant.now());
+        record.setChildId(userId);
+        record.setParentId(parentId);
+        recordRepo.save(record);
+
+        log.info("[Consent] Family visibility consent granted child={} parent={}",
+                userId, parentId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "status", "FAMILY_CONSENT_GRANTED")));
+    }
+
+    /**
      * Records the user's explicit consent to their notes and chat messages being
      * sent to third-party overseas AI processors (Anthropic Claude, Google Gemini)
      * for the purpose of answering homework questions.
