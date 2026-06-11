@@ -1,46 +1,57 @@
 package com.pally.infrastructure.email;
 
 import jakarta.annotation.PostConstruct;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Thin wrapper around JavaMailSender. If MAIL_PASSWORD is blank, all sends
- * are no-ops — safe for dev, test, and Railway without SMTP configured.
+ * Sends transactional email via the Resend HTTP API (https://api.resend.com).
+ *
+ * <p>Cloud platforms like Railway block outbound SMTP ports (25/465/587) to
+ * curb spam, so SMTP delivery hangs. Resend's HTTPS API (port 443) is never
+ * blocked and is the reliable path. The Resend API key is read from
+ * {@code MAIL_PASSWORD} (the same {@code re_...} value), and the verified
+ * sender from {@code MAIL_FROM}.
+ *
+ * <p>If the API key is blank (dev/test), all sends are no-ops with a warning —
+ * safe for environments without email configured.
  */
 @Service
 @Slf4j
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private static final String RESEND_API_URL = "https://api.resend.com/emails";
+
+    private final WebClient webClient;
 
     @Value("${spring.mail.from:noreply@apalchi.com}")
     private String fromAddress;
 
+    /// The Resend API key (re_...). Reuses the MAIL_PASSWORD slot so existing
+    /// Railway config keeps working without a new variable.
     @Value("${spring.mail.password:}")
-    private String mailPassword;
+    private String apiKey;
 
     private boolean enabled;
 
-    public EmailService(@Autowired(required = false) JavaMailSender mailSender) {
-        this.mailSender = mailSender;
+    public EmailService(WebClient webClient) {
+        this.webClient = webClient;
     }
 
     @PostConstruct
     void init() {
-        enabled = mailSender != null
-                && mailPassword != null
-                && !mailPassword.isBlank();
+        enabled = apiKey != null && !apiKey.isBlank();
         if (!enabled) {
-            log.warn("[Email] Mail not configured — email sending disabled");
+            log.warn("[Email] Resend API key (MAIL_PASSWORD) not set — email disabled");
         } else {
-            log.info("[Email] Mail configured, from={}", fromAddress);
+            log.info("[Email] Resend HTTP API configured, from={}", fromAddress);
         }
     }
 
@@ -60,15 +71,22 @@ public class EmailService {
             return;
         }
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(fromAddress);
-            helper.setTo(to);
-            helper.setSubject(subject);
-            helper.setText(html, true);
-            mailSender.send(message);
-            log.info("[Email] Sent to={} subject='{}'", to, subject);
-        } catch (MessagingException e) {
+            Map<String, Object> body = Map.of(
+                    "from", fromAddress,
+                    "to", List.of(to),
+                    "subject", subject,
+                    "html", html);
+            String response = webClient.post()
+                    .uri(RESEND_API_URL)
+                    .header("Authorization", "Bearer " + apiKey)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .timeout(Duration.ofSeconds(15))
+                    .block();
+            log.info("[Email] Sent to={} subject='{}' resp={}", to, subject, response);
+        } catch (Exception e) {
             log.error("[Email] Failed to send email to={} subject='{}': {}",
                     to, subject, e.getMessage());
         }
