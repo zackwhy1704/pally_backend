@@ -36,10 +36,7 @@ public class WeeklyEmailScheduler {
         log.info("[WeeklyEmail] Starting weekly parent report emails");
         // Find all PARENT accounts
         // No dedicated query — iterate all parents from the child-side
-        List<UserJpaEntity> allUsers = userRepo.findAll();
-        List<UserJpaEntity> parents = allUsers.stream()
-                .filter(u -> "PARENT".equals(u.getAccountType()))
-                .toList();
+        List<UserJpaEntity> parents = userRepo.findByAccountType("PARENT");
 
         int sent = 0;
         for (UserJpaEntity parent : parents) {
@@ -62,7 +59,7 @@ public class WeeklyEmailScheduler {
         Instant weekAgo = Instant.now().minus(Duration.ofDays(7));
         StringBuilder html = new StringBuilder();
         html.append("<html><body style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto'>");
-        html.append("<h2 style='color:#7042ED'>Pally Weekly Report</h2>");
+        html.append("<h2 style='color:#7042ED'>Apalchi Weekly Report</h2>");
 
         boolean anyActivity = false;
         for (UserJpaEntity child : children) {
@@ -102,11 +99,11 @@ public class WeeklyEmailScheduler {
 
         if (!anyActivity) return 0;
 
-        html.append("<p style='color:#6B618A;font-size:13px'>Keep it up! Open Pally to keep learning.</p>");
+        html.append("<p style='color:#6B618A;font-size:13px'>Keep it up! Open Apalchi to keep learning.</p>");
         html.append("</body></html>");
 
         emailService.sendHtml(parent.getEmail(),
-                "Pally Weekly Report", html.toString());
+                "Apalchi Weekly Report", html.toString());
         return 1;
     }
 

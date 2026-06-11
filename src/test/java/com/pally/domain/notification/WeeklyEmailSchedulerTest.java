@@ -37,7 +37,7 @@ class WeeklyEmailSchedulerTest {
 
     @Test
     void sendWeeklyReports_noParents_sendsNothing() {
-        when(userRepo.findAll()).thenReturn(List.of());
+        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of());
 
         scheduler.sendWeeklyReports();
 
@@ -57,7 +57,7 @@ class WeeklyEmailSchedulerTest {
         child.setParentId("p-1");
         child.setStreakDays(5);
 
-        when(userRepo.findAll()).thenReturn(List.of(parent, child));
+        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of(parent));
         when(userRepo.findByParentId("p-1")).thenReturn(List.of(child));
         when(activityRepo.sumMinutesBetween(eq("c-1"), any(), any())).thenReturn(45);
         when(activityRepo.countSince(eq("c-1"), any())).thenReturn(3);
@@ -86,7 +86,7 @@ class WeeklyEmailSchedulerTest {
         child.setId("c-2");
         child.setParentId("p-2");
 
-        when(userRepo.findAll()).thenReturn(List.of(parent, child));
+        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of(parent));
         when(userRepo.findByParentId("p-2")).thenReturn(List.of(child));
         when(activityRepo.sumMinutesBetween(eq("c-2"), any(), any())).thenReturn(0);
 
@@ -102,7 +102,7 @@ class WeeklyEmailSchedulerTest {
         parent.setEmail(null);
         parent.setAccountType("PARENT");
 
-        when(userRepo.findAll()).thenReturn(List.of(parent));
+        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of(parent));
 
         scheduler.sendWeeklyReports();
 

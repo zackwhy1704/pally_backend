@@ -118,7 +118,7 @@ public class WeeklyReportService {
                                   List<SubjectMasteryDto> subjects,
                                   List<WeakAreaDto> weakAreas) {
         if (sessions == 0) {
-            return "Your child didn't open Pally this week. "
+            return "Your child didn't open Apalchi this week. "
                     + "A short daily reminder can help re-engage.";
         }
         StringBuilder sb = new StringBuilder();

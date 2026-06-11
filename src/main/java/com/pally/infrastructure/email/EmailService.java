@@ -20,7 +20,7 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
 
-    @Value("${spring.mail.from:noreply@memoly.app}")
+    @Value("${spring.mail.from:noreply@apalchi.com}")
     private String fromAddress;
 
     @Value("${spring.mail.password:}")

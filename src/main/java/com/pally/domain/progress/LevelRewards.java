@@ -57,7 +57,7 @@ public final class LevelRewards {
         m.put(15, new Reward(15, "Golden name plate",            Reward.Kind.COSMETIC));
         m.put(20, new Reward(20, "Streak freeze cap raised to 5", Reward.Kind.FUNCTIONAL));
         m.put(25, new Reward(25, "Legendary Mochi frame",        Reward.Kind.COSMETIC));
-        m.put(30, new Reward(30, "Max level title — Memoly Master", Reward.Kind.BADGE));
+        m.put(30, new Reward(30, "Max level title — Apalchi Master", Reward.Kind.BADGE));
         REWARDS = Map.copyOf(m);
     }
 

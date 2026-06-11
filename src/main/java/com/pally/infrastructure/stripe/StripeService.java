@@ -158,7 +158,7 @@ public class StripeService {
         Recurring.Interval interval = plan.endsWith("_annual")
                 ? Recurring.Interval.YEAR
                 : Recurring.Interval.MONTH;
-        String productName = "Pally " + planDisplayName(plan);
+        String productName = "Apalchi " + planDisplayName(plan);
         return com.stripe.param.checkout.SessionCreateParams.LineItem.builder()
                 .setQuantity(1L)
                 .setPriceData(PriceData.builder()

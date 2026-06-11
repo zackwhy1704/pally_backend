@@ -274,7 +274,7 @@ public class ParentController {
                 : (u.getDisplayName() != null ? u.getDisplayName() : "your child");
 
         StringBuilder sb = new StringBuilder();
-        sb.append("📊 Pally Weekly Report — ").append(weekId).append('\n').append('\n');
+        sb.append("📊 Apalchi Weekly Report — ").append(weekId).append('\n').append('\n');
         sb.append("Child: ").append(childName).append('\n');
         sb.append("Sessions: ").append(sessions).append('\n');
         sb.append("Minutes studied: ").append(minutes).append('\n');
@@ -288,11 +288,11 @@ public class ParentController {
                         .append("%\n");
             }
         }
-        sb.append('\n').append("Keep it up! Open Pally to keep learning.");
+        sb.append('\n').append("Keep it up! Open Apalchi to keep learning.");
 
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "text", sb.toString(),
-                "subject", "Pally Weekly Report — " + childName
+                "subject", "Apalchi Weekly Report — " + childName
         )));
     }
 
