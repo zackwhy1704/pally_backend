@@ -21,6 +21,7 @@ import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.response.ApiResponse;
+import com.pally.shared.util.DurationClamp;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,8 +74,9 @@ public class QuizController {
         Map<String, String> confidenceMap = request.confidenceMap() != null
                 ? request.confidenceMap()
                 : Map.of();
+        int durationSeconds = DurationClamp.clamp(request.durationSeconds());
         QuizResult result = submitQuizAnswersUseCase.execute(
-                submission, correctMap, topicMap, confidenceMap);
+                submission, correctMap, topicMap, confidenceMap, durationSeconds);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

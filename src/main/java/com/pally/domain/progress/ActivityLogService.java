@@ -27,6 +27,7 @@ public class ActivityLogService {
     public static final String TYPE_UPLOAD = "UPLOAD";
     public static final String TYPE_PHOTO = "PHOTO";
     public static final String TYPE_FLASHCARD = "FLASHCARD";
+    public static final String TYPE_READING = "READING";
 
     private final ActivityLogJpaRepository repo;
     private final StreakService streakService;

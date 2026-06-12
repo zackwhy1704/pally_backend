@@ -74,6 +74,13 @@ public class SubmitQuizAnswersUseCase {
         return execute(submission, correctMap, topicMap, Map.of());
     }
 
+    public QuizResult execute(AnswerSubmission submission,
+                              Map<String, Integer> correctMap,
+                              Map<String, String> topicMap,
+                              Map<String, String> confidenceMap) {
+        return execute(submission, correctMap, topicMap, confidenceMap, 0);
+    }
+
     /**
      * Same as {@link #execute(AnswerSubmission, Map)} but also records topic
      * slugs and (optionally) self-reported confidence per question. When any
@@ -93,7 +100,8 @@ public class SubmitQuizAnswersUseCase {
     public QuizResult execute(AnswerSubmission submission,
                               Map<String, Integer> correctMap,
                               Map<String, String> topicMap,
-                              Map<String, String> confidenceMap) {
+                              Map<String, String> confidenceMap,
+                              int durationSeconds) {
         // Fix 2: Slot guard — locked avatars cannot have quiz answers submitted.
         avatarSlotGuard.requireActive(submission.avatarId(), submission.userId());
 
@@ -220,9 +228,10 @@ public class SubmitQuizAnswersUseCase {
         // Update SM-2 for due flashcards based on performance
         updateFlashcardSchedules(submission.avatarId(), correct, total);
 
-        // Activity + badges
+        // Activity + badges. durationSeconds is the (already-clamped) wall-clock
+        // time the kid spent on this quiz — feeds the weekly minutes chart.
         activityLogService.log(submission.userId(), submission.avatarId(),
-                ActivityLogService.TYPE_QUIZ, 0, xpEarned);
+                ActivityLogService.TYPE_QUIZ, durationSeconds, xpEarned);
         badgeService.grantFirstAction(submission.userId(), BadgeService.BadgeType.FIRST_QUIZ);
         badgeService.grantPerfectQuiz(submission.userId(), correct, total);
         badgeService.checkAndGrantMilestones(submission.userId());

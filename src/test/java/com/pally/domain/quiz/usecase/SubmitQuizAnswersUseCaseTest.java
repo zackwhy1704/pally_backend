@@ -161,4 +161,40 @@ class SubmitQuizAnswersUseCaseTest {
         verify(referralService).onFirstQuizAnswer(USER);
         verify(badgeService).grantFirstAction(USER, BadgeService.BadgeType.FIRST_QUIZ);
     }
+
+    @Test
+    void quizSubmit_logsRealDuration_notZero() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR))
+                .thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt()))
+                .thenReturn(award(30, 15, false, 1.0));
+
+        useCase.execute(new AnswerSubmission(AVATAR, USER, Map.of("q1", 0)),
+                Map.of("q1", 0), Map.of(), Map.of(), 120);
+
+        // The activity row must carry the real 120s, not the old hardcoded 0.
+        verify(activityLogService).log(eq(USER), eq(AVATAR),
+                eq(ActivityLogService.TYPE_QUIZ), eq(120), anyInt());
+    }
+
+    @Test
+    void quizSubmit_legacyOverload_logsZeroDuration() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR))
+                .thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt()))
+                .thenReturn(award(30, 15, false, 1.0));
+
+        // The 3-arg overload (legacy callers) defaults duration to 0.
+        useCase.execute(new AnswerSubmission(AVATAR, USER, Map.of("q1", 0)),
+                Map.of("q1", 0), Map.of());
+
+        verify(activityLogService).log(eq(USER), eq(AVATAR),
+                eq(ActivityLogService.TYPE_QUIZ), eq(0), anyInt());
+    }
 }

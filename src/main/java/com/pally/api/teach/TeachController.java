@@ -11,6 +11,7 @@ import com.pally.domain.progress.XpService;
 import com.pally.infrastructure.ai.ClaudeTeachEvaluator;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
+import com.pally.shared.util.DurationClamp;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -70,8 +71,9 @@ public class TeachController {
         // XP award — XpService.awardFlat() is transactional internally.
         if (result.xpEarned() > 0) {
             var credit = xpService.awardFlat(userId, result.xpEarned());
+            int durationSeconds = DurationClamp.clamp(request.durationSeconds());
             activityLogService.log(userId, avatarId,
-                    ActivityLogService.TYPE_QUIZ, 0, result.xpEarned());
+                    ActivityLogService.TYPE_QUIZ, durationSeconds, result.xpEarned());
             result = result.withLevel(credit.levelledUp(), credit.newLevel());
         }
 

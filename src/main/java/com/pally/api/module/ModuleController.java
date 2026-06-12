@@ -7,6 +7,7 @@ import com.pally.domain.module.NarrationService;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.ModuleNarrationJpaEntity;
 import com.pally.shared.response.ApiResponse;
+import com.pally.shared.util.DurationClamp;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -111,8 +112,9 @@ public class ModuleController {
             @PathVariable String moduleId,
             @Valid @RequestBody SubmitModuleAnswersRequest request
     ) {
+        int durationSeconds = DurationClamp.clamp(request.durationSeconds());
         Map<String, Object> result = moduleService.submitAnswers(
-                moduleId, userId, request.submissions());
+                moduleId, userId, request.submissions(), durationSeconds);
 
         // After module submit, check if any active assignments are now fulfilled
         try {

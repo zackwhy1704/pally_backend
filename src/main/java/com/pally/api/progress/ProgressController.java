@@ -1,6 +1,7 @@
 package com.pally.api.progress;
 
 import com.pally.api.progress.dto.ProgressResponse;
+import com.pally.api.progress.dto.ReadingPingRequest;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.WikiRepository;
@@ -22,6 +23,7 @@ import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
+import com.pally.shared.util.DurationClamp;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -62,6 +64,7 @@ public class ProgressController {
     private final ActivityLogJpaRepository activityLogRepo;
     private final AvatarJpaRepository avatarJpaRepo;
     private final StudyPlanCompletionJpaRepository studyPlanCompletionRepo;
+    private final ActivityLogService activityLogService;
 
     private static final ZoneId SGT = ZoneId.of("Asia/Singapore");
     private final CurriculumTopicJpaRepository curriculumTopicRepo;
@@ -73,6 +76,35 @@ public class ProgressController {
     ) {
         ProgressSummary summary = getProgressUseCase.execute(userId);
         return ResponseEntity.ok(ApiResponse.success(ProgressResponse.from(summary)));
+    }
+
+    /// Lightweight reading-time ping. The mobile client calls this when the kid
+    /// has spent time reading wiki/lesson content so the weekly minutes chart
+    /// includes passive study, not just quizzes and modules. Duration is
+    /// clamped to [0, 3600] seconds server-side — client values are never
+    /// trusted unbounded.
+    @PostMapping("/reading")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> logReading(
+            @AuthenticationPrincipal String userId,
+            @RequestBody ReadingPingRequest request
+    ) {
+        if (request == null || request.avatarId() == null
+                || request.avatarId().isBlank()) {
+            throw new BusinessException("avatarId is required", 400);
+        }
+        // Ownership check — the avatar must belong to the caller.
+        Avatar avatar = avatarRepository.findById(request.avatarId())
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new BusinessException(
+                        "Avatar not found: " + request.avatarId(), 404));
+
+        int durationSeconds = DurationClamp.clamp(request.durationSeconds());
+        activityLogService.log(userId, avatar.getId(),
+                ActivityLogService.TYPE_READING, durationSeconds, 0);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "avatarId", avatar.getId(),
+                "durationSeconds", durationSeconds)));
     }
 
     /// Adaptive study plan. Task IDs are deterministic: "{avatarId}:{type}:{sgtDate}"

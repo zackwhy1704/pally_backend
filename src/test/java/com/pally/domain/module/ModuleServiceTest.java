@@ -43,6 +43,8 @@ class ModuleServiceTest {
     @Mock private AvatarRepository avatarRepository;
     @Mock private WikiRepository wikiRepository;
     @Mock private com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
+    @Mock private com.pally.domain.progress.ActivityLogService activityLogService;
+    @Mock private com.pally.domain.progress.XpService xpService;
 
     private ModuleService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -52,7 +54,8 @@ class ModuleServiceTest {
         service = new ModuleService(
                 moduleRepository, itemRepository, progressRepository,
                 contentGenerator, proveEvaluator, avatarRepository,
-                wikiRepository, objectMapper, milestoneNotifier);
+                wikiRepository, objectMapper, milestoneNotifier,
+                activityLogService, xpService);
     }
 
     // ── generateModules ─────────────────────────────────────────────────
@@ -210,6 +213,61 @@ class ModuleServiceTest {
         assertThat(result.get("stageComplete")).isEqualTo(true);
         assertThat(result.get("nextStage")).isEqualTo("TEST");
         verify(moduleRepository).save(any());
+    }
+
+    @Test
+    void submitAnswers_stageComplete_logsRealDuration() {
+        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        item.setId("item-1");
+        item.setStage("LEARN");
+        item.setType("MICRO_CARD");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
+                .thenReturn(1);
+
+        service.submitAnswers("mod-1", "user-1",
+                List.of(Map.of("itemId", "item-1", "response", "{\"viewed\":true}")),
+                150);
+
+        // Stage completion logs an activity row carrying the real 150s.
+        verify(activityLogService).log(eq("user-1"), eq("avatar-1"),
+                eq(com.pally.domain.progress.ActivityLogService.TYPE_QUIZ),
+                eq(150), anyInt());
+    }
+
+    @Test
+    void submitAnswers_legacyOverload_logsZeroDuration() {
+        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        item.setId("item-1");
+        item.setStage("LEARN");
+        item.setType("MICRO_CARD");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
+                .thenReturn(1);
+
+        // 3-arg overload defaults duration to 0 (backward compatible).
+        service.submitAnswers("mod-1", "user-1",
+                List.of(Map.of("itemId", "item-1", "response", "{\"viewed\":true}")));
+
+        verify(activityLogService).log(eq("user-1"), eq("avatar-1"),
+                eq(com.pally.domain.progress.ActivityLogService.TYPE_QUIZ),
+                eq(0), anyInt());
     }
 
     @Test

@@ -47,6 +47,13 @@ public class ModuleService {
     private final WikiRepository wikiRepository;
     private final ObjectMapper objectMapper;
     private final com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
+    private final com.pally.domain.progress.ActivityLogService activityLogService;
+    private final com.pally.domain.progress.XpService xpService;
+
+    /// Flat XP awarded when a module is fully completed (reaches COMPLETE).
+    /// Modules previously awarded no XP at all; this gives the learning-module
+    /// path a small, dedup'd reward (one per module completion).
+    private static final int MODULE_COMPLETE_XP = 25;
 
     /**
      * Generate modules for all wiki pages of an avatar. Idempotent — skips
@@ -218,6 +225,19 @@ public class ModuleService {
     public Map<String, Object> submitAnswers(
             String moduleId, String userId,
             List<Map<String, String>> submissions) {
+        return submitAnswers(moduleId, userId, submissions, 0);
+    }
+
+    /// Same as {@link #submitAnswers(String, String, List)} but records the
+    /// (already-clamped) wall-clock seconds the kid spent on this stage so the
+    /// weekly minutes chart is honest. When a stage completes we log a single
+    /// activity row carrying this duration; full module completion also awards
+    /// a small flat XP.
+    @Transactional
+    public Map<String, Object> submitAnswers(
+            String moduleId, String userId,
+            List<Map<String, String>> submissions,
+            int durationSeconds) {
 
         LearningModuleJpaEntity module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
@@ -321,12 +341,21 @@ public class ModuleService {
 
         if (stageComplete) {
             nextStage = currentStage.next();
+            int moduleXp = 0;
             if (nextStage != null) {
                 module.setStage(nextStage.name());
                 if (nextStage == ModuleStage.COMPLETE) {
                     module.setCompletedAt(Instant.now());
                     // Calculate mastery from PROVE scores
                     updateMastery(module, userId);
+                    // Award a small flat XP for completing the whole module.
+                    try {
+                        xpService.awardFlat(userId, MODULE_COMPLETE_XP);
+                        moduleXp = MODULE_COMPLETE_XP;
+                    } catch (Exception e) {
+                        log.warn("[Module] XP award failed module={}: {}",
+                                moduleId, e.getMessage());
+                    }
                     // Notify parent of module completion
                     try {
                         double mastery = module.getMasteryPct() != null
@@ -343,6 +372,11 @@ public class ModuleService {
                 log.info("[Module] Advanced module={} from {} to {}",
                         moduleId, currentStage.name(), nextStage.name());
             }
+            // Log study time for this completed stage so the weekly minutes
+            // chart reflects module work. Best-effort inside ActivityLogService.
+            activityLogService.log(userId, module.getAvatarId(),
+                    com.pally.domain.progress.ActivityLogService.TYPE_QUIZ,
+                    durationSeconds, moduleXp);
         }
 
         Map<String, Object> response = new HashMap<>();

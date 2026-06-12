@@ -89,9 +89,9 @@ class ModuleControllerTest {
     @Test
     void submitAnswers_returnsResults() {
         var request = new com.pally.api.module.dto.SubmitModuleAnswersRequest(
-                List.of(Map.of("itemId", "item-1", "response", "{}")));
+                List.of(Map.of("itemId", "item-1", "response", "{}")), 90);
 
-        when(moduleService.submitAnswers("mod-1", "user-1", request.submissions()))
+        when(moduleService.submitAnswers("mod-1", "user-1", request.submissions(), 90))
                 .thenReturn(Map.of(
                         "results", List.of(Map.of("itemId", "item-1")),
                         "stageComplete", true,
