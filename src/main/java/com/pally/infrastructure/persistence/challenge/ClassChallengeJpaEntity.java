@@ -32,8 +32,11 @@ public class ClassChallengeJpaEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String question;
 
-    /** JSON array of MCQ options, or null for a free-text challenge. */
-    @Column(columnDefinition = "jsonb")
+    /** JSON array of MCQ options (stored as a JSON string), or null for a
+     * free-text challenge. TEXT, not jsonb — the app serializes/deserializes it
+     * with Jackson and never uses jsonb operators (a String↔jsonb bind mismatch
+     * 500'd every insert). */
+    @Column(columnDefinition = "TEXT")
     private String options;
 
     @Column(nullable = false, columnDefinition = "TEXT")
