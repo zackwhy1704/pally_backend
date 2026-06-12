@@ -301,6 +301,14 @@ public class ModuleService {
                     // non-critical
                 }
 
+                // IMPROVEMENT 4: a PROVE answer nudges the certaintyScore of the
+                // wiki page this module is built from. A strong answer (>=0.8)
+                // reinforces certainty; a weak one (<=0.3) shakes it; the middle
+                // band leaves it untouched. This compounds independently with the
+                // quiz-driven adjustment in SubmitQuizAnswersUseCase. The JPQL
+                // clamps the result to [0.1, 1.0].
+                adjustCertaintyForProve(module, evalResult.score());
+
                 itemResult.put("score", evalResult.score());
                 itemResult.put("conceptCovered", evalResult.conceptCovered());
                 itemResult.put("keyPointsHit", evalResult.keyPointsHit());
@@ -621,6 +629,37 @@ public class ModuleService {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
+
+    /// Maps a PROVE score to a certainty delta and applies it to the module's
+    /// wiki page. The PROVE question's free-text {@code targetConcept} is a
+    /// sub-concept label (not a wiki slug), so the page that actually owns this
+    /// proof is the module's {@code wikiPageSlug} — that's the slug we nudge.
+    /// Returns the delta applied (0.0 when the score is in the neutral band or
+    /// the slug is missing) so callers/tests can assert behaviour.
+    double adjustCertaintyForProve(LearningModuleJpaEntity module, double score) {
+        String slug = module.getWikiPageSlug();
+        if (slug == null || slug.isBlank()) return 0.0;
+
+        double delta;
+        if (score >= 0.8) {
+            delta = 0.05;
+        } else if (score <= 0.3) {
+            delta = -0.08;
+        } else {
+            delta = 0.0;
+        }
+        if (delta == 0.0) return 0.0; // neutral band — skip the DB write entirely
+
+        try {
+            wikiRepository.adjustCertainty(
+                    module.getAvatarId(), List.of(slug), delta);
+        } catch (Exception e) {
+            // Best-effort signal — never fail a PROVE submission over a certainty nudge.
+            log.warn("[Module] certainty adjust failed slug={} delta={}: {}",
+                    slug, delta, e.getMessage());
+        }
+        return delta;
+    }
 
     private void generateProveItemsAdaptively(LearningModuleJpaEntity module, String userId) {
         // Get TEST results to analyze weaknesses

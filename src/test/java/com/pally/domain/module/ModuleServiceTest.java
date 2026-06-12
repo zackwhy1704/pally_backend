@@ -343,6 +343,75 @@ class ModuleServiceTest {
                 .hasMessageContaining("itemId is required");
     }
 
+    // ── IMPROVEMENT 4: PROVE results nudge wiki certaintyScore ────────────
+
+    @Test
+    void adjustCertaintyForProve_strongScore_raisesCertaintyBy005() {
+        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("photosynthesis");
+
+        double delta = service.adjustCertaintyForProve(module, 0.9);
+
+        assertThat(delta).isEqualTo(0.05);
+        verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), 0.05);
+    }
+
+    @Test
+    void adjustCertaintyForProve_weakScore_lowersCertaintyBy008() {
+        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("photosynthesis");
+
+        double delta = service.adjustCertaintyForProve(module, 0.2);
+
+        assertThat(delta).isEqualTo(-0.08);
+        verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), -0.08);
+    }
+
+    @Test
+    void adjustCertaintyForProve_middlingScore_leavesCertaintyUntouched() {
+        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("photosynthesis");
+
+        double delta = service.adjustCertaintyForProve(module, 0.5);
+
+        assertThat(delta).isEqualTo(0.0);
+        verify(wikiRepository, never()).adjustCertainty(anyString(), anyList(), anyDouble());
+    }
+
+    @Test
+    void submitAnswers_proveStage_nudgesWikiCertainty() {
+        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("photosynthesis");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        item.setId("item-1");
+        item.setStage("PROVE");
+        item.setType("PROVE_QUESTION");
+        item.setContentJson("{\"question\":\"Q\",\"targetConcept\":\"C\"}");
+        item.setAnswerJson("{\"expectedKeyPoints\":[\"kp1\"],\"targetConcept\":\"C\"}");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(proveEvaluator.evaluateAnswer(eq(item), eq("My strong answer")))
+                .thenReturn(new ModuleProveEvaluator.ProveResult(
+                        true, List.of("kp1"), List.of(), "Great!", 0.9));
+        when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(2);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "PROVE"))
+                .thenReturn(1);
+
+        service.submitAnswers("mod-1", "user-1",
+                List.of(Map.of("itemId", "item-1", "response", "My strong answer")));
+
+        verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), 0.05);
+    }
+
     // ── getExamPrep ──────────────────────────────────────────────────────
 
     @Test
