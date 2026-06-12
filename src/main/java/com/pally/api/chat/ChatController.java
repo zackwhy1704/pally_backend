@@ -54,6 +54,7 @@ public class ChatController {
     private static final int HISTORY_PAGE_SIZE = 50;
 
     private final SendMessageUseCase sendMessageUseCase;
+    private final com.pally.domain.consent.ConsentGuard consentGuard;
     private final SolvePhotoQuestionsUseCase solvePhotoQuestionsUseCase;
     private final ChatRepository chatRepository;
     private final ChatMapper chatMapper;
@@ -91,6 +92,14 @@ public class ChatController {
             HttpServletResponse response
     ) throws java.io.IOException {
         chatRateLimiter.check(userId);
+        // Gate BEFORE the SSE stream opens. Once we flush HTTP 200 + ": connected"
+        // below, we can no longer return a clean 403, so an un-consented or
+        // under-13-unlinked user would only get a generic SSE error the mobile
+        // interceptor can't act on. Checking here lets GlobalExceptionHandler
+        // return a proper 403 (AI_CONSENT_REQUIRED / PARENT_LINK_REQUIRED) that
+        // the client maps to the disclosure / link-a-grown-up screen.
+        consentGuard.requireAiConsent(userId);
+        consentGuard.requireGuardianIfUnder13(userId);
         response.setContentType("text/event-stream");
         response.setCharacterEncoding("UTF-8");
         response.setHeader("Cache-Control", "no-cache");
