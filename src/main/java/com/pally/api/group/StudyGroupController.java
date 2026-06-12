@@ -11,6 +11,8 @@ import com.pally.infrastructure.persistence.group.GroupReportJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupReportJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupSharedNoteJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupSharedNoteJpaRepository;
+import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
+import com.pally.infrastructure.persistence.group.GroupSystemPostJpaRepository;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaEntity;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageJpaEntity;
@@ -58,6 +60,7 @@ public class StudyGroupController {
     private final GroupMemberJpaRepository memberRepo;
     private final GroupSharedNoteJpaRepository sharedNoteRepo;
     private final GroupReportJpaRepository reportRepo;
+    private final GroupSystemPostJpaRepository systemPostRepo;
     private final WikiPageJpaRepository wikiPageRepo;
     private final RelevancePort relevancePort;
     private final UserJpaRepository userRepo;
@@ -131,6 +134,12 @@ public class StudyGroupController {
         var group = groupRepo.findByInviteCode(inviteCode)
                 .orElseThrow(() -> new BusinessException(
                         "Invite code not found", 404));
+        // CLASS groups are enrolment-synced: students cannot self-join by code.
+        if (StudyGroupJpaEntity.TYPE_CLASS.equals(group.getGroupType())) {
+            throw new BusinessException(
+                    "This is a class group — you join it by being enrolled in the class.",
+                    403);
+        }
         if (memberRepo.existsByGroupIdAndUserId(group.getId(), userId)) {
             return ResponseEntity.ok(ApiResponse.success(toSummary(group)));
         }
@@ -187,9 +196,24 @@ public class StudyGroupController {
                 })
                 .toList();
 
+        // Backend-authored announcements (answers released, muddiest, challenge).
+        List<Map<String, Object>> systemPosts = systemPostRepo
+                .findTop50ByGroupIdOrderByCreatedAtDesc(groupId).stream()
+                .map(p -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", p.getId());
+                    m.put("kind", p.getKind());
+                    m.put("body", p.getBody());
+                    m.put("refId", p.getRefId());
+                    m.put("createdAt", p.getCreatedAt().toString());
+                    return m;
+                })
+                .toList();
+
         Map<String, Object> response = new HashMap<>(toSummary(group));
         response.put("members", members);
         response.put("sharedNotes", notes);
+        response.put("systemPosts", systemPosts);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -357,7 +381,7 @@ public class StudyGroupController {
             @AuthenticationPrincipal String userId,
             @PathVariable String groupId,
             @PathVariable String targetUserId) {
-        ensureOwner(groupId, userId);
+        ensureModerator(groupId, userId);
         if (userId.equals(targetUserId)) {
             throw new BusinessException(
                     "Owners can't kick themselves — leave the group instead",
@@ -380,6 +404,16 @@ public class StudyGroupController {
     public ResponseEntity<ApiResponse<Void>> leave(
             @AuthenticationPrincipal String userId,
             @PathVariable String groupId) {
+        // Students can't leave a CLASS group — membership tracks class enrolment.
+        // Only a TEACHER may (which removes their own moderator seat).
+        var group = groupRepo.findById(groupId)
+                .orElseThrow(() -> new BusinessException("Group not found", 404));
+        if (StudyGroupJpaEntity.TYPE_CLASS.equals(group.getGroupType())
+                && !isTeacher(groupId, userId)) {
+            throw new BusinessException(
+                    "You can't leave a class group — ask your centre to unenrol you.",
+                    403);
+        }
         memberRepo.deleteByGroupIdAndUserId(groupId, userId);
         log.info("[Groups] user={} left group={}", userId, groupId);
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -408,10 +442,28 @@ public class StudyGroupController {
                 .findById(new GroupMemberJpaEntity.PK(groupId, userId))
                 .orElseThrow(() -> new BusinessException(
                         "You are not a member of this group", 403));
-        if (!GroupMemberJpaEntity.ROLE_OWNER.equals(member.getRole())) {
+        // CLASS-group moderation is by the TEACHER; PEER-group moderation is by
+        // the OWNER. Either role can view reports / kick.
+        if (!GroupMemberJpaEntity.ROLE_OWNER.equals(member.getRole())
+                && !GroupMemberJpaEntity.ROLE_TEACHER.equals(member.getRole())) {
             throw new BusinessException(
-                    "Only the group owner can do that", 403);
+                    "Only the group owner or teacher can do that", 403);
         }
+    }
+
+    /**
+     * Allows the action only for a privileged caller: in a PEER group the
+     * OWNER, in a CLASS group the TEACHER. A plain student MEMBER gets 403.
+     */
+    private void ensureModerator(String groupId, String userId) {
+        ensureOwner(groupId, userId);
+    }
+
+    private boolean isTeacher(String groupId, String userId) {
+        return memberRepo
+                .findById(new GroupMemberJpaEntity.PK(groupId, userId))
+                .map(m -> GroupMemberJpaEntity.ROLE_TEACHER.equals(m.getRole()))
+                .orElse(false);
     }
 
     private void applyShareRelevance(GroupSharedNoteJpaEntity note,
@@ -474,6 +526,8 @@ public class StudyGroupController {
         m.put("createdBy", g.getCreatedBy());
         m.put("createdAt", g.getCreatedAt().toString());
         m.put("memberCount", memberCount);
+        m.put("groupType", g.getGroupType());
+        m.put("classId", g.getClassId());
         return m;
     }
 

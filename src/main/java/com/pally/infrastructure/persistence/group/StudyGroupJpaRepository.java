@@ -24,4 +24,9 @@ public interface StudyGroupJpaRepository
     List<StudyGroupJpaEntity> findGroupsForUser(@Param("userId") String userId);
 
     boolean existsByInviteCode(String inviteCode);
+
+    Optional<StudyGroupJpaEntity> findByClassId(String classId);
+
+    /// Every CLASS group whose class_id is set — used by the one-time backfill.
+    List<StudyGroupJpaEntity> findByClassIdNotNull();
 }

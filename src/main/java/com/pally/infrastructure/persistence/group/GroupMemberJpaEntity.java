@@ -23,6 +23,7 @@ public class GroupMemberJpaEntity {
 
     public static final String ROLE_OWNER = "OWNER";
     public static final String ROLE_MEMBER = "MEMBER";
+    public static final String ROLE_TEACHER = "TEACHER";
 
     @Id
     @Column(name = "group_id", length = 36, nullable = false)

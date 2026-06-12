@@ -5,6 +5,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.group.ClassGroupService;
 import com.pally.domain.module.NarrationService;
 
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
@@ -63,6 +64,7 @@ public class ClassController {
     private final AvatarRepository avatarRepository;
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final NarrationService narrationService;
+    private final ClassGroupService classGroupService;
 
     // Heatmap legibility caps (mirror CentreAnalyticsController).
     private static final int HEATMAP_MAX_STUDENTS = 40;
@@ -112,6 +114,9 @@ public class ClassController {
         Avatar savedCorpus = avatarRepository.save(corpus);
         cls.setCorpusAvatarId(savedCorpus.getId());
         classRepo.save(cls);
+        // Auto-create the class's CLASS group (membership syncs from enrolment;
+        // the centre owner sits in it as TEACHER).
+        classGroupService.ensureClassGroup(cls);
         log.info("[Class] created class={} org={} code={}", cls.getId(), orgId, cls.getJoinCode());
         return ResponseEntity.ok(ApiResponse.success(toDto(cls, 0)));
     }
@@ -259,6 +264,9 @@ public class ClassController {
         m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
         membershipRepo.save(m);
 
+        // Sync the student into the class's CLASS group.
+        classGroupService.syncStudentJoin(cls, studentId);
+
         log.info("[Class] assigned student={} class={} avatar={}", studentId, classId, saved.getId());
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "avatarId", saved.getId(), "classId", classId, "userId", studentId)));
@@ -279,6 +287,8 @@ public class ClassController {
                 .orElseThrow(() -> new BusinessException("Membership not found", 404));
         m.setStatus(ClassMembershipJpaEntity.STATUS_REMOVED);
         membershipRepo.save(m);
+        // Remove them from the class's CLASS group.
+        classGroupService.syncStudentLeave(classId, studentId);
         if (m.getStudentAvatarId() != null) {
             avatarRepository.findById(m.getStudentAvatarId()).ifPresent(a -> {
                 a.lockAvatar();
@@ -524,6 +534,29 @@ public class ClassController {
         } catch (IllegalArgumentException e) {
             return CharacterType.MOCHI;
         }
+    }
+
+    // ── Backfill CLASS groups for existing classes (one-time, idempotent) ──────
+
+    @PostMapping("/classes/backfill-groups")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> backfillClassGroups(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId) {
+        accessService.ensureOwner(userId, orgId);
+        int created = 0;
+        for (OrgClassJpaEntity cls : classRepo.findByOrganizationId(orgId)) {
+            boolean existed = classGroupService.hasClassGroup(cls.getId());
+            classGroupService.ensureClassGroup(cls);
+            if (!existed) created++;
+            for (ClassMembershipJpaEntity m : membershipRepo.findByClassId(cls.getId())) {
+                if (ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus())) {
+                    classGroupService.syncStudentJoin(cls, m.getUserId());
+                }
+            }
+        }
+        log.info("[Class] backfilled {} CLASS groups for org={}", created, orgId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("groupsCreated", created)));
     }
 
     // ── Centre narration ───────────────────────────────────────────────────

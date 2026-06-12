@@ -17,9 +17,23 @@ import java.time.Instant;
 @NoArgsConstructor
 public class StudyGroupJpaEntity {
 
+    /// Peer-created social study group (the original behaviour).
+    public static final String TYPE_PEER = "PEER";
+    /// Centre-owned group bound to a class; membership syncs from enrolment.
+    public static final String TYPE_CLASS = "CLASS";
+
     @Id
     @Column(length = 36)
     private String id;
+
+    /// PEER | CLASS. PEER groups behave exactly as before; CLASS groups are
+    /// owned by a centre class and have synced, teacher-moderated membership.
+    @Column(name = "group_type", nullable = false, length = 10)
+    private String groupType = TYPE_PEER;
+
+    /// Set only for CLASS groups: the org_class.id this group is bound to.
+    @Column(name = "class_id", length = 36)
+    private String classId;
 
     @Column(nullable = false, length = 100)
     private String name;

@@ -45,6 +45,7 @@ class GroupsEntitlementGateTest {
     @Mock GroupMemberJpaRepository memberRepo;
     @Mock GroupSharedNoteJpaRepository sharedNoteRepo;
     @Mock GroupReportJpaRepository reportRepo;
+    @Mock com.pally.infrastructure.persistence.group.GroupSystemPostJpaRepository systemPostRepo;
     @Mock WikiPageJpaRepository wikiPageRepo;
     @Mock RelevancePort relevancePort;
     @Mock UserJpaRepository userRepo;

@@ -51,6 +51,8 @@ class ClassControllerTest {
     @Mock UserJpaRepository userRepo;
     @Mock AvatarRepository avatarRepository;
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
+    @Mock com.pally.domain.module.NarrationService narrationService;
+    @Mock com.pally.domain.group.ClassGroupService classGroupService;
 
     @InjectMocks ClassController controller;
 
@@ -80,7 +82,7 @@ class ClassControllerTest {
         cls.setSubject("MATHS");
         cls.setLevel("P4");
         cls.setJoinCode("ABCD2345");
-        cls.setCharacterType("ATWSAKURA");
+        cls.setCharacterType("MOCHI");
         cls.setBrandName("ABC P4 Math");
         cls.setAccentColor("#FF6BAE");
         cls.setCorpusAvatarId("corpus-1");
