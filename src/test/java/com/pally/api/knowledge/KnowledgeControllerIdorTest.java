@@ -53,6 +53,7 @@ class KnowledgeControllerIdorTest {
     @Mock AvatarRepository avatarRepository;
     @Mock AvatarSlotGuard avatarSlotGuard;
     @Mock WikiPageSourceJpaRepository wikiPageSourceRepo;
+    @Mock WikiPageResponseMapper wikiPageResponseMapper;
 
     KnowledgeController controller;
 
@@ -78,7 +79,8 @@ class KnowledgeControllerIdorTest {
                 wikiRepository,
                 avatarRepository,
                 avatarSlotGuard,
-                wikiPageSourceRepo
+                wikiPageSourceRepo,
+                wikiPageResponseMapper
         );
 
         ownerAvatar = Avatar.create(OWNER_USER, "Zap", Subject.SCIENCE, CharacterType.ZAP);

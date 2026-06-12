@@ -62,6 +62,7 @@ public class KnowledgeController {
     private final AvatarRepository avatarRepository;
     private final AvatarSlotGuard avatarSlotGuard;
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
+    private final WikiPageResponseMapper wikiPageResponseMapper;
 
     /**
      * Uploads a file to the avatar's knowledge base.
@@ -331,7 +332,7 @@ public class KnowledgeController {
                 .map(page -> {
                     List<String> sourceFileNames = wikiPageSourceRepo
                             .findSourceFileNamesByWikiPageId(page.getId());
-                    return WikiPageResponse.from(page, sourceFileNames);
+                    return wikiPageResponseMapper.toResponse(page, sourceFileNames);
                 })
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(new WikiPageResponse.ListResponse(responses)));
@@ -351,7 +352,7 @@ public class KnowledgeController {
 
         WikiPage page = wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
-        return ResponseEntity.ok(ApiResponse.success(WikiPageResponse.from(page)));
+        return ResponseEntity.ok(ApiResponse.success(wikiPageResponseMapper.toResponse(page)));
     }
 
     @PatchMapping("/wiki/pages/{slug}/correction")
@@ -370,7 +371,7 @@ public class KnowledgeController {
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
         page.applyHumanCorrection(request.correction());
         WikiPage saved = wikiRepository.save(page);
-        return ResponseEntity.ok(ApiResponse.success(WikiPageResponse.from(saved)));
+        return ResponseEntity.ok(ApiResponse.success(wikiPageResponseMapper.toResponse(saved)));
     }
 
     record HumanCorrectionRequest(String correction) {}
