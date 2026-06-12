@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +28,11 @@ public class GetDailyQuizUseCase {
     /// five pages keeps the prompt small enough for Haiku and forces the
     /// "prioritise weak material" bias to actually matter.
     private static final int MAX_PAGES_PER_QUIZ = 5;
+
+    /// Day boundary for the daily-quiz cache key + eviction. SGT (not UTC) so a
+    /// child's "today's quiz" rolls over at local midnight, matching the rest of
+    /// the app's day boundary (XpService, ActivityLogService, ProgressController).
+    private static final ZoneId SGT = ZoneId.of("Asia/Singapore");
 
     private final AvatarRepository avatarRepository;
     private final WikiRepository wikiRepository;
@@ -49,7 +54,7 @@ public class GetDailyQuizUseCase {
 
         // Return today's cached quiz if it was already generated — avoids a
         // repeated Claude call when the user taps Quiz multiple times per session.
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(SGT);
         Map<LocalDate, List<QuizQuestion>> avatarCache =
                 dailyCache.computeIfAbsent(avatarId, k -> new ConcurrentHashMap<>());
         List<QuizQuestion> cached = avatarCache.get(today);
