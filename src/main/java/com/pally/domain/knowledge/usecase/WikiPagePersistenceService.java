@@ -95,14 +95,17 @@ public class WikiPagePersistenceService {
             WikiPage savedPage;
             if (existing.isPresent()) {
                 WikiPage existingPage = existing.get();
-                boolean conflict = detectConflict(
+                ConflictResult conflict = detectConflict(
                         existingPage.getContent(), draft.content());
                 existingPage.updateContent(
                         draft.title(), draft.content(), WikiPage.Certainty.INFERRED);
-                if (conflict) {
+                if (conflict.conflict()) {
                     existingPage.markConflict();
-                    log.warn("[Wiki] Conflict flagged on slug={} for avatar={}",
-                            draft.slug(), avatarId);
+                    if (conflict.note() != null) {
+                        existingPage.setConflictNote(conflict.note());
+                    }
+                    log.warn("[Wiki] Conflict flagged on slug={} for avatar={} note={}",
+                            draft.slug(), avatarId, conflict.note());
                 }
                 if (draft.prerequisites() != null
                         && !draft.prerequisites().isEmpty()) {
@@ -210,28 +213,39 @@ public class WikiPagePersistenceService {
         }
     }
 
+    /// Outcome of conflict detection: the boolean verdict plus an optional
+    /// short human-readable reason (only populated on the Haiku gray-band path,
+    /// which is the only path that produces an explanation). The lexical-only
+    /// block path leaves {@code note} null.
+    record ConflictResult(boolean conflict, String note) {
+        static final ConflictResult NONE = new ConflictResult(false, null);
+        static ConflictResult conflict(String note) { return new ConflictResult(true, note); }
+    }
+
     /// Two-stage conflict detection (B-B3):
     ///  1. Jaccard on lowercased word tokens (cheap, always runs).
     ///  2. If similarity is in the gray band, one Haiku yes/no — catches
     ///     paraphrase-vs-contradiction cases like "boils at 100°C" vs
     ///     "boils at 90°C" that lexical alone would miss/false-fire on.
     /// Only runs on slug collisions, so the LLM cost stays negligible.
-    private boolean detectConflict(String existingContent, String newContent) {
-        if (existingContent == null || newContent == null) return false;
+    private ConflictResult detectConflict(String existingContent, String newContent) {
+        if (existingContent == null || newContent == null) return ConflictResult.NONE;
         Set<String> a = tokenize(existingContent);
         Set<String> b = tokenize(newContent);
-        if (a.isEmpty() || b.isEmpty()) return false;
+        if (a.isEmpty() || b.isEmpty()) return ConflictResult.NONE;
         Set<String> intersection = new HashSet<>(a);
         intersection.retainAll(b);
         Set<String> union = new HashSet<>(a);
         union.addAll(b);
         double jaccard = (double) intersection.size() / union.size();
-        if (jaccard >= CONFLICT_GRAY_BELOW) return false;
-        if (jaccard < CONFLICT_BLOCK_BELOW) return true;
+        if (jaccard >= CONFLICT_GRAY_BELOW) return ConflictResult.NONE;
+        // Lexical block band: too little overlap for the two passages to be the
+        // same fact. No Haiku reason available, so the note stays null.
+        if (jaccard < CONFLICT_BLOCK_BELOW) return ConflictResult.conflict(null);
         return haikuContradicts(existingContent, newContent, jaccard);
     }
 
-    private boolean haikuContradicts(String existing, String incoming, double jaccard) {
+    private ConflictResult haikuContradicts(String existing, String incoming, double jaccard) {
         try {
             String prompt = """
                     You compare two passages about the same topic from a kids'
@@ -240,7 +254,9 @@ public class WikiPagePersistenceService {
                     answer NO if they're paraphrases of the same fact, or one is
                     a superset of the other.
 
-                    Reply with ONLY the single word YES or NO.
+                    Start your reply with the single word YES or NO. If YES, add a
+                    short reason after a dash, e.g. "YES — contradicts the earlier
+                    definition of X".
 
                     PASSAGE A:
                     %s
@@ -249,19 +265,38 @@ public class WikiPagePersistenceService {
                     %s
                     """.formatted(truncate(existing, 1500), truncate(incoming, 1500));
             String response = claudeApiClient.complete(
-                    modelRouter.forRelevanceCheck(), 8, prompt);
-            String verdict = response == null ? "" : response.trim().toUpperCase();
-            boolean conflict = verdict.startsWith("YES");
+                    modelRouter.forRelevanceCheck(), 64, prompt);
+            String verdict = response == null ? "" : response.trim();
+            boolean conflict = verdict.toUpperCase().startsWith("YES");
             log.info("[Wiki] Haiku conflict check jaccard={} → {}",
                     String.format("%.2f", jaccard), conflict ? "CONFLICT" : "ok");
-            return conflict;
+            if (!conflict) return ConflictResult.NONE;
+            return ConflictResult.conflict(extractConflictNote(verdict));
         } catch (Exception e) {
             // Don't block persistence on the AI check — fall back to the
             // lexical signal (gray band leans toward "probably ok").
             log.warn("[Wiki] Haiku conflict check failed; defaulting to no-conflict: {}",
                     e.getMessage());
-            return false;
+            return ConflictResult.NONE;
         }
+    }
+
+    /// Strips the leading YES/NO verdict word and any separator (":", "-", "—",
+    /// or whitespace) from a Haiku conflict verdict, returning the trimmed
+    /// reason capped at 500 chars. Returns null when no reason follows.
+    static String extractConflictNote(String verdict) {
+        if (verdict == null) return null;
+        String s = verdict.trim();
+        // Drop the leading YES/NO (case-insensitive), if present.
+        if (s.length() >= 3 && s.substring(0, 3).equalsIgnoreCase("YES")) {
+            s = s.substring(3);
+        } else if (s.length() >= 2 && s.substring(0, 2).equalsIgnoreCase("NO")) {
+            s = s.substring(2);
+        }
+        // Strip a leading separator run: any mix of ":", "-", "—", "–", whitespace.
+        s = s.replaceFirst("^[\\s:\\-—–]+", "").trim();
+        if (s.isEmpty()) return null;
+        return s.length() > 500 ? s.substring(0, 500) : s;
     }
 
     private String truncate(String s, int max) {
