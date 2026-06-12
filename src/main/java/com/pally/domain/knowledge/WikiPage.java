@@ -32,6 +32,12 @@ public final class WikiPage {
     private boolean reviewRequired;
     private String prerequisiteSlugs;
     private boolean hasConflict;
+    // Trusted-adult review provenance. verificationSource is one of
+    // CORRECTION (human in-app edit) / ADULT_REVIEW (tokenized reviewer
+    // approval); verifiedBy is the reviewer's display name when known.
+    // Both stay null on plain AI-inferred pages.
+    private String verificationSource;
+    private String verifiedBy;
 
     private WikiPage(
             String id, String avatarId, String slug,
@@ -145,6 +151,9 @@ public final class WikiPage {
         this.humanVerified = true;
         this.certainty = Certainty.VERIFIED;
         this.certaintyScore = 0.9;
+        // A human in-app edit is a CORRECTION-sourced verification (matches the
+        // V<next> backfill of existing humanCorrection-VERIFIED pages).
+        this.verificationSource = "CORRECTION";
         // A verified page is, by definition, no longer in dispute — clear
         // both the harness review flag and any prior content-conflict flag
         // so the brain map / parent dashboard stop nagging about it.
@@ -189,6 +198,39 @@ public final class WikiPage {
         if (status != null) this.status = status;
     }
 
+    /**
+     * Marks this page as APPROVED by a trusted adult through the public
+     * tokenized review flow: certainty → VERIFIED, source ADULT_REVIEW,
+     * and records the reviewer name. Clears any prior conflict flag.
+     */
+    public void markAdultReviewApproved(String reviewerName) {
+        this.certainty = Certainty.VERIFIED;
+        this.verificationSource = "ADULT_REVIEW";
+        this.verifiedBy = (reviewerName != null && !reviewerName.isBlank())
+                ? reviewerName : "a reviewer";
+        clearConflict();
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Marks this page as FLAGGED by a trusted adult: certainty → UNCERTAIN.
+     * The flag note is stored on the review request, not the page.
+     */
+    public void markAdultReviewFlagged() {
+        this.certainty = Certainty.UNCERTAIN;
+        this.updatedAt = Instant.now();
+    }
+
+    /** Sets the verification source (CORRECTION / ADULT_REVIEW), null-tolerant. */
+    public void setVerificationSource(String source) {
+        this.verificationSource = source;
+    }
+
+    /** Sets the reviewer/verifier display name, null-tolerant. */
+    public void setVerifiedBy(String verifiedBy) {
+        this.verifiedBy = verifiedBy;
+    }
+
     public String getSummary() {
         if (content == null || content.isBlank()) return "";
         int end = content.indexOf('\n');
@@ -214,4 +256,6 @@ public final class WikiPage {
     public boolean isReviewRequired()      { return reviewRequired; }
     public String getPrerequisiteSlugs()   { return prerequisiteSlugs; }
     public boolean isHasConflict()         { return hasConflict; }
+    public String getVerificationSource()  { return verificationSource; }
+    public String getVerifiedBy()          { return verifiedBy; }
 }

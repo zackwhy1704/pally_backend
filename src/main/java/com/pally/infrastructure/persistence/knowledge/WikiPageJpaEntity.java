@@ -81,6 +81,16 @@ public class WikiPageJpaEntity {
     @Column(name = "is_seed", nullable = false)
     private boolean isSeed = false;
 
+    /// Trusted-adult review provenance — CORRECTION (in-app human edit) or
+    /// ADULT_REVIEW (tokenized reviewer approval). Null on AI-inferred pages.
+    @Column(name = "verification_source", length = 20)
+    private String verificationSource;
+
+    /// Reviewer / verifier display name (no PII beyond a chosen name). Null
+    /// until a human verifies the page.
+    @Column(name = "verified_by", length = 80)
+    private String verifiedBy;
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();
@@ -101,14 +111,19 @@ public class WikiPageJpaEntity {
         e.reviewRequired = wp.isReviewRequired();
         e.prerequisiteSlugs = wp.getPrerequisiteSlugs();
         e.hasConflict = wp.isHasConflict();
+        e.verificationSource = wp.getVerificationSource();
+        e.verifiedBy = wp.getVerifiedBy();
         return e;
     }
 
     public WikiPage toDomain() {
-        return WikiPage.reconstitute(id, avatarId, slug, title, content, certainty, updatedAt,
+        WikiPage wp = WikiPage.reconstitute(id, avatarId, slug, title, content, certainty, updatedAt,
                 qualityScore, humanCorrection, correctionAt, humanVerified,
                 lastRetrievedAt, quizUseCount, certaintyScore,
                 status != null ? status : WikiPage.Status.ACTIVE,
                 reviewRequired, prerequisiteSlugs, hasConflict);
+        wp.setVerificationSource(verificationSource);
+        wp.setVerifiedBy(verifiedBy);
+        return wp;
     }
 }
