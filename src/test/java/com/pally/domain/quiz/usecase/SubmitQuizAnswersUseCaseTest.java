@@ -11,6 +11,8 @@ import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.UserRepository;
 import com.pally.domain.progress.XpService;
 import com.pally.domain.quiz.AnswerSubmission;
+import com.pally.domain.quiz.CardRating;
+import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.domain.quiz.QuizResult;
 import com.pally.domain.referral.ReferralService;
@@ -196,5 +198,50 @@ class SubmitQuizAnswersUseCaseTest {
 
         verify(activityLogService).log(eq(USER), eq(AVATAR),
                 eq(ActivityLogService.TYPE_QUIZ), eq(0), anyInt());
+    }
+
+    // ── QUIZ: per-slug SM-2 rating (not per-session ratio) ────────────────
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void quizSubmit_sm2RatesEachCardByItsTopicSlug_notWholeQuizRatio() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(30, 15, false, 1.0));
+
+        // slug-A card (questions all correct → EASY), slug-B card (all wrong →
+        // HARD), slug-C card (no questions this quiz → untouched).
+        FlashCard cardA = card("card-a", "slug-a");
+        FlashCard cardB = card("card-b", "slug-b");
+        FlashCard cardC = card("card-c", "slug-c");
+        when(flashcardRepository.findDueByAvatarId(AVATAR))
+                .thenReturn(List.of(cardA, cardB, cardC));
+
+        // q1,q2 → slug-a (both correct); q3 → slug-b (wrong).
+        AnswerSubmission sub = new AnswerSubmission(
+                AVATAR, USER, Map.of("q1", 0, "q2", 0, "q3", 1));
+        Map<String, Integer> correct = Map.of("q1", 0, "q2", 0, "q3", 0);
+        Map<String, String> topics = Map.of("q1", "slug-a", "q2", "slug-a", "q3", "slug-b");
+
+        useCase.execute(sub, correct, topics);
+
+        ArgumentCaptor<List<FlashCard>> cap = ArgumentCaptor.forClass(List.class);
+        verify(flashcardRepository).saveAll(cap.capture());
+        List<FlashCard> saved = cap.getValue();
+
+        // slug-c card has no fresh signal → not rescheduled.
+        assertThat(saved).extracting(FlashCard::id)
+                .containsExactlyInAnyOrder("card-a", "card-b");
+
+        FlashCard savedA = saved.stream().filter(c -> c.id().equals("card-a")).findFirst().orElseThrow();
+        FlashCard savedB = saved.stream().filter(c -> c.id().equals("card-b")).findFirst().orElseThrow();
+        assertThat(savedA.lastRating()).isEqualTo(CardRating.EASY);
+        assertThat(savedB.lastRating()).isEqualTo(CardRating.HARD);
+    }
+
+    private FlashCard card(String id, String sourceSlug) {
+        return new FlashCard(id, AVATAR, "front", "back", sourceSlug,
+                CardRating.OKAY, Instant.now(), 1, 2.5, 1);
     }
 }

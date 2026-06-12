@@ -118,6 +118,9 @@ public class SubmitQuizAnswersUseCase {
         // weighted by the per-question confidence reading. Falls back to
         // the flat default deltas when the question has no confidence.
         java.util.Map<String, Double> slugDeltas = new java.util.HashMap<>();
+        // Per-slug correctness for this quiz, so SM-2 reschedules each due card
+        // by ITS topic's result instead of the whole-quiz ratio.
+        java.util.Map<String, List<Boolean>> questionsForSlug = new java.util.HashMap<>();
 
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
             String questionId = entry.getKey();
@@ -137,6 +140,9 @@ public class SubmitQuizAnswersUseCase {
                 }
                 slugDeltas.merge(topic, weightedDelta(wasCorrect, confidence),
                         Double::sum);
+                questionsForSlug
+                        .computeIfAbsent(topic, k -> new ArrayList<>())
+                        .add(wasCorrect);
             }
 
             // Classify into the 2x2 matrix when we have a confidence reading.
@@ -225,8 +231,8 @@ public class SubmitQuizAnswersUseCase {
         int newLevel = credit.newLevel();
         boolean levelledUp = credit.levelledUp();
 
-        // Update SM-2 for due flashcards based on performance
-        updateFlashcardSchedules(submission.avatarId(), correct, total);
+        // Update SM-2 for due flashcards based on per-topic performance
+        updateFlashcardSchedules(submission.avatarId(), questionsForSlug);
 
         // Activity + badges. durationSeconds is the (already-clamped) wall-clock
         // time the kid spent on this quiz — feeds the weekly minutes chart.
@@ -305,17 +311,30 @@ public class SubmitQuizAnswersUseCase {
                 levelledUp, newLevel, matrix);
     }
 
-    private void updateFlashcardSchedules(String avatarId, int correct, int total) {
+    /// Reschedule due flashcards via SM-2, rating EACH card by the result of
+    /// the quiz questions that share its source slug — not the whole-quiz ratio.
+    /// A card whose slug had no questions in this quiz is left untouched (we
+    /// have no fresh signal for it, so rescheduling it would be guessing).
+    private void updateFlashcardSchedules(
+            String avatarId, Map<String, List<Boolean>> questionsForSlug) {
         List<FlashCard> dueCards = flashcardRepository.findDueByAvatarId(avatarId);
         if (dueCards.isEmpty()) return;
 
-        double ratio = total > 0 ? (double) correct / total : 0.5;
-        CardRating rating = ratio >= 0.8 ? CardRating.EASY : ratio >= 0.5 ? CardRating.OKAY : CardRating.HARD;
-
-        List<FlashCard> updated = dueCards.stream()
-                .map(card -> Sm2Scheduler.applyRating(card, rating))
-                .toList();
-        flashcardRepository.saveAll(updated);
+        List<FlashCard> updated = new ArrayList<>();
+        for (FlashCard card : dueCards) {
+            if (card.sourceSlug() == null) continue;
+            List<Boolean> results =
+                    questionsForSlug.getOrDefault(card.sourceSlug(), List.of());
+            if (results.isEmpty()) continue; // no questions this quiz for this slug
+            double slugRatio = results.stream().mapToInt(b -> b ? 1 : 0).average().orElse(0.5);
+            CardRating rating = slugRatio >= 0.8 ? CardRating.EASY
+                    : slugRatio >= 0.5 ? CardRating.OKAY
+                    : CardRating.HARD;
+            updated.add(Sm2Scheduler.applyRating(card, rating));
+        }
+        if (!updated.isEmpty()) {
+            flashcardRepository.saveAll(updated);
+        }
     }
 
     /// Translate a (correct, confidence) pair into the certainty delta the
