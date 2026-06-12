@@ -60,4 +60,31 @@ class AvatarJpaEntityTest {
         assertThat(entity.isAvatarLocked()).isFalse();
         assertThat(entity.getClassId()).isNull();
     }
+
+    @Test
+    void personalAvatar_kindDefaultsToPersonal_andRoundTrips() {
+        Avatar avatar = Avatar.create("user-1", "My Mochi", Subject.SCIENCE, CharacterType.MOCHI);
+
+        AvatarJpaEntity entity = AvatarJpaEntity.fromDomain(avatar);
+        Avatar roundTripped = entity.toDomain();
+
+        assertThat(entity.getKind()).isEqualTo(com.pally.domain.avatar.AvatarKind.PERSONAL);
+        assertThat(roundTripped.getKind()).isEqualTo(com.pally.domain.avatar.AvatarKind.PERSONAL);
+        assertThat(roundTripped.isCentreClass()).isFalse();
+    }
+
+    @Test
+    void centreClassAvatar_kindRoundTrips_andSetsCentreFlag() {
+        Avatar avatar = Avatar.create("user-1", "P4 Math", Subject.MATHS, CharacterType.MOCHI);
+        avatar.markCentreClassAvatar();
+        avatar.setClassId("class-1");
+
+        Avatar roundTripped = AvatarJpaEntity.fromDomain(avatar).toDomain();
+
+        assertThat(roundTripped.getKind()).isEqualTo(com.pally.domain.avatar.AvatarKind.CENTRE_CLASS);
+        assertThat(roundTripped.isCentreClass()).isTrue();
+        // markCentreClassAvatar must also flip the legacy centre flag so the
+        // closed-book gate and lock behaviour still fire.
+        assertThat(roundTripped.isCentreAvatar()).isTrue();
+    }
 }

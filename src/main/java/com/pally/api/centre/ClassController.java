@@ -104,7 +104,11 @@ public class ClassController {
                 parseSubject(cls.getSubject()),
                 parseCharacter(cls.getCharacterType()),
                 cls.getLevel(), null);
-        corpus.markCentreAvatar();
+        // Tag as a CENTRE_CLASS avatar (kind + centre flag) so the economy never
+        // sees it and the client renders the class uniform. class_id stays null
+        // on the corpus so analytics (which group by avatars.class_id) never
+        // count it as a student; the class points back to it via corpusAvatarId.
+        corpus.markCentreClassAvatar();
         Avatar savedCorpus = avatarRepository.save(corpus);
         cls.setCorpusAvatarId(savedCorpus.getId());
         classRepo.save(cls);
@@ -238,7 +242,10 @@ public class ClassController {
                 parseSubject(cls.getSubject()),
                 parseCharacter(cls.getCharacterType()),
                 cls.getLevel(), null);
-        avatar.markCentreAvatar();
+        // Branded closed-book class avatar the student studies with — CENTRE_CLASS
+        // so it is excluded from the economy and rendered with the class uniform,
+        // and bound to the class for analytics grouping.
+        avatar.markCentreClassAvatar();
         avatar.setClassId(classId);
         avatar.setCorpusAvatarId(cls.getCorpusAvatarId());
         applyClassConfig(avatar, cls);

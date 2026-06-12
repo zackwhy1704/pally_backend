@@ -83,6 +83,11 @@ public class AvatarJpaEntity {
     @Column(name = "avatar_locked", nullable = false)
     private boolean avatarLocked;
 
+    // ── Product role (V65) — PERSONAL collectible vs CENTRE_CLASS ─────────────
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 20)
+    private com.pally.domain.avatar.AvatarKind kind = com.pally.domain.avatar.AvatarKind.PERSONAL;
+
     // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
     @Column(name = "class_id", length = 36)
     private String classId;
@@ -126,6 +131,7 @@ public class AvatarJpaEntity {
         // non-centre (breaking centre-mode UI, the closed-book gate, and locks).
         entity.centreAvatar = avatar.isCentreAvatar();
         entity.avatarLocked = avatar.isAvatarLocked();
+        entity.kind = avatar.getKind();
         entity.classId = avatar.getClassId();
         entity.corpusAvatarId = avatar.getCorpusAvatarId();
         entity.centreBrandName = avatar.getCentreBrandName();
@@ -146,6 +152,7 @@ public class AvatarJpaEntity {
         Avatar a = Avatar.reconstitute(id, userId, name, subject, characterType, wikiPageCount, createdAt,
                 gradeLevel, curriculumType, pedagogyMode, teachingMode, testDate, bs, isActive, teacherPreferences,
                 centreAvatar, avatarLocked);
+        a.setKind(kind);
         a.setClassId(classId);
         a.setCorpusAvatarId(corpusAvatarId);
         a.setCentreBrandName(centreBrandName);

@@ -35,6 +35,10 @@ public final class Avatar {
     private boolean centreAvatar;
     // true = centre has paused student access to this avatar
     private boolean avatarLocked;
+    // Product role — PERSONAL collectible vs CENTRE_CLASS (V65). Defaults to
+    // PERSONAL; set to CENTRE_CLASS only by centre provisioning. Settable
+    // post-construction (not part of reconstitute()), mirroring classId.
+    private AvatarKind kind = AvatarKind.PERSONAL;
     // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
     // Set post-construction from the JPA row (not part of reconstitute()).
     private String classId;            // the class whose corpus this Mochi reads
@@ -304,6 +308,14 @@ public final class Avatar {
     public void markCentreAvatar()              { this.centreAvatar = true; }
     public void lockAvatar()                    { this.avatarLocked = true; }
     public void unlockAvatar()                  { this.avatarLocked = false; }
+
+    // ── Product role (V65) ───────────────────────────────────────────────────
+    public AvatarKind getKind()                 { return kind != null ? kind : AvatarKind.PERSONAL; }
+    public void setKind(AvatarKind kind)        { this.kind = kind != null ? kind : AvatarKind.PERSONAL; }
+    public boolean isCentreClass()              { return getKind() == AvatarKind.CENTRE_CLASS; }
+    /// Marks this avatar as a centre class avatar: sets kind=CENTRE_CLASS and
+    /// the centre flag together so provisioning never half-tags an avatar.
+    public void markCentreClassAvatar()         { this.kind = AvatarKind.CENTRE_CLASS; this.centreAvatar = true; }
 
     // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
     public String getClassId()                  { return classId; }

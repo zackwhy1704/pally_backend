@@ -157,6 +157,109 @@ class ClassLifecycleIntegrationTest extends IntegrationTestBase {
         assertThat(classes.size()).isGreaterThanOrEqualTo(2);
     }
 
+    // ── Economy isolation (V65) ──────────────────────────────────────────────
+
+    /**
+     * The whole point of the kind split: CENTRE_CLASS avatars must be invisible
+     * to the collectible economy. A student who has been assigned into several
+     * classes (and so owns several CENTRE_CLASS avatars) must get a byte-identical
+     * /shop/characters response to a brand-new student with none.
+     */
+    @Test
+    void shopCharacters_identical_whetherOrNotStudentHasClassAvatars() {
+        AuthResult plain = registerUser("plain-" + System.nanoTime() + "@test.com", "password123");
+
+        // Baseline: a user with zero class avatars.
+        ResponseEntity<Map> baseline = get("/api/v1/shop/characters", plain.token());
+        assertThat(baseline.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Object baselineData = baseline.getBody().get("data");
+
+        // Assign the seeded student into two classes → two CENTRE_CLASS avatars.
+        for (String subject : List.of("MATHS", "SCIENCE")) {
+            ResponseEntity<Map> createResp = post(
+                    "/api/v1/centre/organizations/" + orgId + "/classes",
+                    owner.token(), Map.of("name", subject + " Iso", "subject", subject));
+            String classId = (String) ((Map<String, Object>) createResp.getBody().get("data")).get("id");
+            post("/api/v1/centre/organizations/" + orgId + "/classes/" + classId + "/members",
+                    owner.token(), Map.of("userId", student.userId()));
+        }
+
+        ResponseEntity<Map> withClasses = get("/api/v1/shop/characters", student.token());
+        assertThat(withClasses.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Object withClassesData = withClasses.getBody().get("data");
+
+        // Byte-identical character catalog/unlock state regardless of class avatars.
+        assertThat(withClassesData).isEqualTo(baselineData);
+    }
+
+    /**
+     * Students still SEE their class avatars in GET /api/v1/avatars (they need
+     * them to access class content) — but each is tagged kind=CENTRE_CLASS and
+     * carries the derived appearance so the client groups them out of the
+     * collection grid.
+     */
+    @Test
+    void avatarList_includesClassAvatar_taggedWithKindAndAppearance() {
+        ResponseEntity<Map> createResp = post(
+                "/api/v1/centre/organizations/" + orgId + "/classes",
+                owner.token(), Map.of("name", "Tag Test E-Math", "subject", "MATHS"));
+        String classId = (String) ((Map<String, Object>) createResp.getBody().get("data")).get("id");
+        post("/api/v1/centre/organizations/" + orgId + "/classes/" + classId + "/members",
+                owner.token(), Map.of("userId", student.userId()));
+
+        ResponseEntity<Map> listResp = get("/api/v1/avatars", student.token());
+        assertThat(listResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) listResp.getBody().get("data");
+        List<Map<String, Object>> avatars = (List<Map<String, Object>>) data.get("avatars");
+
+        Map<String, Object> classAvatar = avatars.stream()
+                .filter(a -> "CENTRE_CLASS".equals(a.get("kind")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("class avatar missing from student list"));
+        Map<String, Object> appearance = (Map<String, Object>) classAvatar.get("appearance");
+        assertThat(appearance).isNotNull();
+        assertThat((String) appearance.get("bandColorHex")).startsWith("#");
+        assertThat(appearance.get("subjectGlyph")).isEqualTo("math");
+        assertThat(appearance.get("initials")).isEqualTo("TT"); // "Tag Test E-Math" → Tag, Test
+    }
+
+    /**
+     * A personal avatar has no appearance and kind=PERSONAL.
+     */
+    @Test
+    void avatarList_personalAvatar_hasPersonalKind_andNoAppearance() {
+        post("/api/v1/avatars", student.token(), Map.of(
+                "name", "My Mochi", "subject", "SCIENCE", "characterType", "MOCHI"));
+
+        ResponseEntity<Map> listResp = get("/api/v1/avatars", student.token());
+        Map<String, Object> data = (Map<String, Object>) listResp.getBody().get("data");
+        List<Map<String, Object>> avatars = (List<Map<String, Object>>) data.get("avatars");
+
+        Map<String, Object> personal = avatars.stream()
+                .filter(a -> "My Mochi".equals(a.get("name")))
+                .findFirst().orElseThrow();
+        assertThat(personal.get("kind")).isEqualTo("PERSONAL");
+        assertThat(personal.get("appearance")).isNull();
+    }
+
+    /**
+     * Students cannot delete a class avatar — 403, history preserved.
+     */
+    @Test
+    void deleteClassAvatar_byStudent_isForbidden() {
+        ResponseEntity<Map> createResp = post(
+                "/api/v1/centre/organizations/" + orgId + "/classes",
+                owner.token(), Map.of("name", "No Delete", "subject", "MATHS"));
+        String classId = (String) ((Map<String, Object>) createResp.getBody().get("data")).get("id");
+        ResponseEntity<Map> assignResp = post(
+                "/api/v1/centre/organizations/" + orgId + "/classes/" + classId + "/members",
+                owner.token(), Map.of("userId", student.userId()));
+        String avatarId = (String) ((Map<String, Object>) assignResp.getBody().get("data")).get("avatarId");
+
+        ResponseEntity<Map> deleteResp = delete("/api/v1/avatars/" + avatarId, student.token());
+        assertThat(deleteResp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     @Test
     void classRoster_returnsAssignedStudents() {
         // Create class + assign

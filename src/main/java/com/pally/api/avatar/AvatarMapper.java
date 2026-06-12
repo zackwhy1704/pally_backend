@@ -2,6 +2,7 @@ package com.pally.api.avatar;
 
 import com.pally.api.avatar.dto.AvatarResponse;
 import com.pally.domain.avatar.Avatar;
+import com.pally.domain.avatar.ClassAvatarAppearance;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,16 @@ public class AvatarMapper {
                           || f.getStatus() == KnowledgeFile.Status.PROCESSING)
                 .count();
 
+        // Class avatars wear a server-derived "uniform" — band colour, subject
+        // glyph, initials — computed deterministically. PERSONAL avatars carry
+        // no appearance (null → omitted from JSON).
+        ClassAvatarAppearance appearance = avatar.isCentreClass()
+                ? ClassAvatarAppearance.derive(
+                        avatar.getClassId(), avatar.getSubject(),
+                        avatar.getCentreBrandName() != null && !avatar.getCentreBrandName().isBlank()
+                                ? avatar.getCentreBrandName() : avatar.getName())
+                : null;
+
         return new AvatarResponse(
                 avatar.getId(),
                 avatar.getName(),
@@ -52,7 +63,9 @@ public class AvatarMapper {
                 avatar.getCentreAccentColor(),
                 avatar.getCosmeticEyewear(),
                 avatar.getCosmeticClothes(),
-                avatar.getCosmeticShoes()
+                avatar.getCosmeticShoes(),
+                avatar.getKind().name(),
+                appearance
         );
     }
 

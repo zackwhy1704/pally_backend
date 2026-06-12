@@ -1,7 +1,9 @@
 package com.pally.domain.avatar.usecase;
 
+import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
+import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,8 +22,14 @@ public class DeleteAvatarUseCase {
 
     public void execute(String avatarId, String userId) {
         log.info("Deleting avatar id={} userId={}", avatarId, userId);
-        if (!avatarRepository.existsByIdAndUserId(avatarId, userId)) {
-            throw new AvatarNotFoundException(avatarId);
+        Avatar avatar = avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
+        // Students may not delete a class avatar — it is centre-owned and its
+        // content history is referenced by class analytics. The centre manages
+        // its lifecycle (archive/remove), never the student client.
+        if (avatar.isCentreClass()) {
+            throw new BusinessException("Class avatars cannot be deleted", 403);
         }
         avatarRepository.deleteById(avatarId);
         log.info("Avatar deleted id={}", avatarId);

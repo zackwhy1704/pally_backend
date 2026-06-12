@@ -2,7 +2,10 @@ package com.pally.api.avatar.dto;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
+import com.pally.domain.avatar.ClassAvatarAppearance;
 import com.pally.domain.avatar.Subject;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -43,5 +46,15 @@ public record AvatarResponse(
         /// Cosmetic accessory slot ids — null until layered art exists.
         String cosmeticEyewear,
         String cosmeticClothes,
-        String cosmeticShoes
+        String cosmeticShoes,
+        // ── Avatar kind split (V65) ──────────────────────────────────────────
+        /// "PERSONAL" (student collectible) or "CENTRE_CLASS" (class-bound).
+        /// Clients group avatars by this so class avatars never sit in the
+        /// collection grid. Always present.
+        String kind,
+        /// Server-derived class "uniform" appearance. Present ONLY for
+        /// CENTRE_CLASS avatars; null/absent for PERSONAL. Clients render it
+        /// verbatim (band colour + subject-glyph icon + initials).
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        ClassAvatarAppearance appearance
 ) {}
