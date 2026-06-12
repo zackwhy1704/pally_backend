@@ -62,7 +62,9 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request
     ) {
-        AuthResponse result = authService.register(request.email(), request.password(), request.displayName(), request.role());
+        AuthResponse result = authService.register(
+                request.email(), request.password(), request.displayName(),
+                request.role(), request.birthYear());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(result));
     }
 

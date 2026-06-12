@@ -4,6 +4,7 @@ import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
+import com.pally.shared.exception.GuardianRequiredException;
 import com.pally.shared.exception.PallyException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
@@ -53,6 +54,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(402)
                 .body(new ApiResponse<>(payload, ex.getMessage(), 402));
+    }
+
+    /// Under-13 guardian gate. Distinct code {@code PARENT_LINK_REQUIRED} so the
+    /// Flutter client routes the child to the "ask a grown-up to link your account"
+    /// screen rather than the AI-disclosure or generic consent gate. Declared
+    /// before the other consent handlers so this more specific subtype wins.
+    @ExceptionHandler(GuardianRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleGuardianRequired(
+            GuardianRequiredException ex) {
+        log.debug("Guardian (parent-link) required: {}", ex.getReason());
+        Map<String, Object> payload = Map.of(
+                "code", "PARENT_LINK_REQUIRED",
+                "reason", ex.getReason());
+        return ResponseEntity
+                .status(403)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 403));
     }
 
     /// AI data-transfer consent gate. Distinct code {@code AI_CONSENT_REQUIRED}

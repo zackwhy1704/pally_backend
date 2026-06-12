@@ -2,6 +2,7 @@ package com.pally.api.onboard.dto;
 
 import com.pally.domain.avatar.Subject;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -25,5 +26,10 @@ public record QuickOnboardRequest(
         String level,
 
         /// Optional role — "parent" promotes to PARENT account type on registration.
-        String role
+        String role,
+
+        /// Optional birth YEAR (student path). Year only — no DOB / NRIC. Server
+        /// derives isUnder13; null → treated 13+. Upper bound enforced server-side.
+        @Min(value = 1950, message = "Birth year must be 1950 or later")
+        Integer birthYear
 ) {}

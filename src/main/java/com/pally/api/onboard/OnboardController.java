@@ -37,7 +37,7 @@ public class OnboardController {
 
         QuickOnboardService.QuickOnboardResult result = quickOnboardService.execute(
                 request.email(), request.password(), request.displayName(),
-                request.subject(), request.level(), request.role());
+                request.subject(), request.level(), request.role(), request.birthYear());
 
         QuickOnboardResponse response = new QuickOnboardResponse(
                 result.token(), result.userId(), result.avatarId());

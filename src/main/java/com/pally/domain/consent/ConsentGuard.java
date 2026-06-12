@@ -1,26 +1,32 @@
 package com.pally.domain.consent;
 
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
+import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
-import lombok.RequiredArgsConstructor;
+import com.pally.shared.exception.GuardianRequiredException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * Single gate for PDPA consent enforcement.
+ * Single gate for PDPA / PDPC consent enforcement.
  *
- * <p>Every use-case or controller that persists a child's personal data calls
- * {@link #requireActive(String, String)} before proceeding. This mirrors
- * exactly how PremiumService (freemium cap) works — one injectable guard,
+ * <p>Every use-case or controller that persists a child's personal data or sends
+ * it to a third-party AI processor calls into this guard before proceeding. This
+ * mirrors exactly how PremiumService (freemium cap) works — one injectable guard,
  * consistent semantics, testable in isolation.
  *
- * <p>Accounts with status {@code ACTIVE} pass through. Accounts with
- * {@code PENDING_CONSENT} throw {@link ConsentRequiredException} which the
- * global handler maps to HTTP 403 / code CONSENT_REQUIRED so the Flutter
- * client shows the consent-gate sheet instead of a raw error.
+ * <p>Three independent gates live here:
+ * <ul>
+ *   <li>{@link #requireActive(String, String)} — account-status gate
+ *       (PENDING_CONSENT → 403 CONSENT_REQUIRED).</li>
+ *   <li>{@link #requireAiConsent(String)} — third-party AI disclosure gate,
+ *       ALWAYS enforced (403 AI_CONSENT_REQUIRED until granted).</li>
+ *   <li>{@link #requireGuardianIfUnder13(String)} — PDPC 2024 age gate: an
+ *       under-13 user must have a parent linked + consented
+ *       (403 PARENT_LINK_REQUIRED until then). A no-op for 13+ users.</li>
+ * </ul>
  *
  * <p>Safety (moderation, self-harm handling) is NEVER gated — only
  * personal-data generation is restricted.
@@ -36,17 +42,20 @@ public class ConsentGuard {
     /// Use with {@link #requireAiConsent(String)}.
     public static final String REASON_AI_DATA_TRANSFER = "AI_DATA_TRANSFER";
 
+    /// Reason code for the under-13 guardian gate (PDPC 2024).
+    /// Use with {@link #requireGuardianIfUnder13(String)}.
+    public static final String REASON_PARENT_LINK_REQUIRED = "PARENT_LINK_REQUIRED";
+
     private final UserJpaRepository userRepo;
     private final ConsentRecordJpaRepository consentRecordRepo;
+    private final UserAgeService userAgeService;
 
-    /// Feature flag: whether the AI data-transfer consent gate is active.
-    /// Default OFF — must not break any existing behaviour.
-    @Value("${app.ai-consent.enabled:false}")
-    private boolean aiConsentEnabled;
-
-    public ConsentGuard(UserJpaRepository userRepo, ConsentRecordJpaRepository consentRecordRepo) {
+    public ConsentGuard(UserJpaRepository userRepo,
+                        ConsentRecordJpaRepository consentRecordRepo,
+                        UserAgeService userAgeService) {
         this.userRepo = userRepo;
         this.consentRecordRepo = consentRecordRepo;
+        this.userAgeService = userAgeService;
     }
 
     /**
@@ -82,12 +91,12 @@ public class ConsentGuard {
      * Checks that the user has granted AI data-transfer consent before sending their
      * data to third-party AI processors (Anthropic Claude, Google Gemini).
      *
-     * <p>This gate is controlled by the {@code app.ai-consent.enabled} flag which
-     * defaults to {@code false}. When disabled, this method is a no-op and all
-     * existing upload and chat behaviour is unchanged.
-     *
-     * <p>When enabled, throws {@link ConsentRequiredException} with reason
-     * {@link #REASON_AI_DATA_TRANSFER} if the user has not yet granted consent.
+     * <p>This gate is ALWAYS enforced. The plain-language disclosure naming Anthropic
+     * (Claude) and Google (Gemini) as overseas AI processors must be shown in the UI
+     * BEFORE the user's first upload or chat; the client then POSTs
+     * {@code /consent/ai-data-transfer} which records the consent that satisfies this
+     * gate. Until then this throws {@link AiConsentRequiredException} with reason
+     * {@link #REASON_AI_DATA_TRANSFER}, mapped to HTTP 403 / code AI_CONSENT_REQUIRED.
      *
      * <p>Wire this check at the TOP of:
      * <ul>
@@ -95,19 +104,9 @@ public class ConsentGuard {
      *   <li>{@code SendMessageUseCase.executeStream} — after the slot-guard check</li>
      * </ul>
      *
-     * <p>TODO (LEGAL/PRODUCT): before enabling {@code app.ai-consent.enabled=true},
-     * supply plain-language disclosure copy naming Anthropic (Claude) and Google (Gemini)
-     * as overseas AI processors and the purpose (answering homework questions).
-     * This must appear on screen BEFORE the user uploads their first note or sends
-     * their first chat message.
-     *
      * @param userId the authenticated user
      */
     public void requireAiConsent(String userId) {
-        if (!aiConsentEnabled) {
-            return; // feature flag OFF — no-op, no existing behaviour changed
-        }
-
         boolean hasConsented = consentRecordRepo.findAll().stream()
                 .anyMatch(r -> userId.equals(r.getUserId())
                         && r.getPurposes() != null
@@ -116,6 +115,40 @@ public class ConsentGuard {
         if (!hasConsented) {
             log.info("[Consent] AI_DATA_TRANSFER consent required for user={}", userId);
             throw new AiConsentRequiredException(REASON_AI_DATA_TRANSFER);
+        }
+    }
+
+    /**
+     * PDPC 2024 age gate: if the user is under 13 (derived server-side from their
+     * birth year) AND no parent/guardian has claimed and consented for them, throws
+     * {@link GuardianRequiredException} (HTTP 403 / code PARENT_LINK_REQUIRED).
+     *
+     * <p>For 13+ users (the vast majority — target audience is 13–25) this is a no-op:
+     * they self-consent, so nothing changes for them.
+     *
+     * <p>"Parent linked + consented" is defined as: the child account has a non-null
+     * {@code parentId}. The parent-claim flow is the single moment a parent attaches a
+     * child to their family, and that flow records the parental consent — so a linked
+     * parent IS the signal that guardian consent exists. We therefore treat
+     * {@code parentId != null} as satisfying the gate.
+     *
+     * <p>Fails open if the user cannot be loaded — never silently blocks.
+     *
+     * @param userId the authenticated user
+     */
+    public void requireGuardianIfUnder13(String userId) {
+        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        if (user == null) {
+            return; // user not found → let the downstream handle it
+        }
+        if (!userAgeService.isUnder13(user)) {
+            return; // 13+ (or unknown age) → self-consent, no-op
+        }
+
+        boolean parentLinked = user.getParentId() != null && !user.getParentId().isBlank();
+        if (!parentLinked) {
+            log.info("[Consent] under-13 user={} blocked — no parent linked", userId);
+            throw new GuardianRequiredException(REASON_PARENT_LINK_REQUIRED);
         }
     }
 }

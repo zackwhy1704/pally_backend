@@ -32,6 +32,8 @@ class UploadCompileIntegrationTest extends IntegrationTestBase {
     @BeforeEach
     void createAvatar() {
         auth = registerUser("upload-test-" + System.nanoTime() + "@test.com", "password123");
+        // AI-disclosure gate is always-on — grant consent so upload paths run.
+        grantAiConsent(auth.token());
         stubRelevanceOnTopic();
         stubModerationPassthrough();
         // Stub OCR to return realistic extracted text

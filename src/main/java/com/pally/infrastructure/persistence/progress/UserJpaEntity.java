@@ -151,6 +151,12 @@ public class UserJpaEntity {
     @Column(name = "account_status", nullable = false, length = 20)
     private String accountStatus = "ACTIVE";
 
+    /// Birth YEAR only (V66) — data minimisation: no DOB, no NRIC. Optional.
+    /// The server derives isUnder13 from this; null means the account was
+    /// created before this gate existed and is conservatively treated as 13+.
+    @Column(name = "birth_year")
+    private Integer birthYear;
+
     // ── Cardless 7-day trial (V47) ────────────────────────────────────────
     // NONE | ACTIVE | EXPIRED | CONVERTED
     @Column(name = "trial_status", nullable = false, length = 20)

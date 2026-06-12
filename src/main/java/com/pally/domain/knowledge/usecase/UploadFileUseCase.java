@@ -123,8 +123,12 @@ public class UploadFileUseCase {
         consentGuard.requireActive(userId, "UPLOAD");
 
         // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
-        // Feature-flagged OFF by default — see ConsentGuard.requireAiConsent Javadoc.
+        // Always enforced — see ConsentGuard.requireAiConsent Javadoc.
         consentGuard.requireAiConsent(userId);
+
+        // PDPC 2024 age gate: under-13 users need a linked+consented parent.
+        // No-op for 13+ users (target audience), so nothing changes for them.
+        consentGuard.requireGuardianIfUnder13(userId);
 
         // Fix 2: Slot guard — locked avatars cannot receive new knowledge.
         // NOTE: DELETE paths are exempt (AvatarSlotGuard Javadoc).

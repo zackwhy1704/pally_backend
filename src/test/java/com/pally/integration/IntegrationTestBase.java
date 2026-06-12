@@ -61,9 +61,8 @@ public abstract class IntegrationTestBase {
         registry.add("spring.datasource.url", PG::getJdbcUrl);
         registry.add("spring.datasource.username", PG::getUsername);
         registry.add("spring.datasource.password", PG::getPassword);
-        // Disable AI consent gate for tests
-        registry.add("app.ai-consent.enabled", () -> "false");
-        // Use local storage
+        // AI consent gate is now always-on; tests grant consent via grantAiConsent().
+        // Use local storage (R2 creds absent in CI).
         registry.add("storage.type", () -> "local");
         registry.add("storage.local.base-path", () -> "/tmp/pally-test");
         // Stripe stubs
@@ -154,6 +153,55 @@ public abstract class IntegrationTestBase {
         String errorDetail = response.getBody() != null ? response.getBody().toString() : "null";
         throw new RuntimeException("Registration failed: " + response.getStatusCode()
                 + " body=" + errorDetail);
+    }
+
+    /**
+     * Registers a STUDENT user with an explicit birth year (PDPC age gate tests).
+     * A low birth year (e.g. current year - 10) makes the user under-13.
+     */
+    protected AuthResult registerUserWithBirthYear(String email, String password, int birthYear) {
+        Map<String, Object> body = Map.of(
+                "email", email,
+                "password", password,
+                "displayName", "Test User",
+                "birthYear", birthYear);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        ResponseEntity<Map> response = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register", request, Map.class);
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+            return new AuthResult((String) data.get("userId"), (String) data.get("token"));
+        }
+        String errorDetail = response.getBody() != null ? response.getBody().toString() : "null";
+        throw new RuntimeException("Registration failed: " + response.getStatusCode()
+                + " body=" + errorDetail);
+    }
+
+    /**
+     * Grants the always-on third-party AI data-transfer consent for a user so
+     * that chat / upload paths are not blocked by the AI-disclosure gate. Mirrors
+     * the real client flow: POST /api/v1/consent/ai-data-transfer.
+     */
+    protected void grantAiConsent(String token) {
+        ResponseEntity<Map> response = restTemplate.exchange(
+                baseUrl() + "/api/v1/consent/ai-data-transfer", HttpMethod.POST,
+                new HttpEntity<>(authHeaders(token)), Map.class);
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("grantAiConsent failed: " + response.getStatusCode()
+                    + " body=" + (response.getBody() != null ? response.getBody().toString() : "null"));
+        }
+    }
+
+    /**
+     * Registers a 13+ user AND grants AI consent in one step — the common setup
+     * for any test that exercises chat or upload happy paths.
+     */
+    protected AuthResult registerConsentedUser(String email, String password) {
+        AuthResult auth = registerUser(email, password);
+        grantAiConsent(auth.token());
+        return auth;
     }
 
     /**

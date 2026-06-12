@@ -1,8 +1,8 @@
 package com.pally.infrastructure.storage;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -15,10 +15,10 @@ import java.net.URI;
 /**
  * Builds the {@link S3Client} bean configured for Cloudflare R2 (S3-compatible).
  *
- * <p>Only loaded when {@code storage.type=s3}, so the default local-storage profile
- * never touches the AWS SDK or requires the {@code R2_*} environment variables. Because
- * the bean is created lazily by Spring only under that condition, blank R2 vars do not
- * crash an app that runs with local storage.
+ * <p>Loaded only when {@code storage.type=s3} AND all {@code R2_*} credentials are
+ * present (see {@link R2ConfiguredCondition}). When s3 is selected but the creds are
+ * blank (local/CI), this config is skipped, a warning is logged, and
+ * {@link LocalStorageService} takes over — so blank R2 vars never crash the app.
  *
  * <p>R2 specifics vs plain AWS S3:
  * <ul>
@@ -28,7 +28,7 @@ import java.net.URI;
  * </ul>
  */
 @Configuration
-@ConditionalOnProperty(name = "storage.type", havingValue = "s3")
+@Conditional(R2ConfiguredCondition.class)
 public class S3ClientConfig {
 
     @Value("${R2_ENDPOINT:}")

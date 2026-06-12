@@ -30,6 +30,8 @@ public class ConsentRequiredException extends PallyException {
             case "SUBSCRIBE"   -> "Subscribe after a grown-up approves your account";
             case "AI_DATA_TRANSFER" ->
                 "Allow Pally to use AI to help answer your questions to continue";
+            case "PARENT_LINK_REQUIRED" ->
+                "Ask a grown-up to link your account before you can do this";
             default            -> "A grown-up needs to approve your account first";
         };
     }

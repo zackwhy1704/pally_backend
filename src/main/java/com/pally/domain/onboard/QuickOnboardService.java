@@ -36,7 +36,7 @@ public class QuickOnboardService {
             String email, String password, String displayName,
             Subject subject, String level
     ) {
-        return execute(email, password, displayName, subject, level, null);
+        return execute(email, password, displayName, subject, level, null, null);
     }
 
     @Transactional
@@ -44,10 +44,18 @@ public class QuickOnboardService {
             String email, String password, String displayName,
             Subject subject, String level, String role
     ) {
+        return execute(email, password, displayName, subject, level, role, null);
+    }
+
+    @Transactional
+    public QuickOnboardResult execute(
+            String email, String password, String displayName,
+            Subject subject, String level, String role, Integer birthYear
+    ) {
         // Step 1: Register or login
         AuthResponse authResponse;
         try {
-            authResponse = authService.register(email, password, displayName, role);
+            authResponse = authService.register(email, password, displayName, role, birthYear);
             log.info("[Onboard] New user registered via quick onboard userId={}", authResponse.userId());
         } catch (BusinessException e) {
             if (e.getHttpStatus() == 409) {

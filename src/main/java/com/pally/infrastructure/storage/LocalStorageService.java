@@ -4,7 +4,7 @@ import com.pally.domain.knowledge.port.StoragePort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,11 +17,13 @@ import java.nio.file.StandardCopyOption;
 /**
  * Local filesystem implementation of {@link StorageService} and {@link StoragePort}.
  *
- * <p>Active only when the {@code local} Spring profile is set.
- * Files are stored under the directory configured by {@code storage.local.base-path}.
+ * <p>The fallback storage backend: active whenever R2 is not fully configured —
+ * i.e. {@code storage.type=local}, unset, or {@code storage.type=s3} with blank
+ * {@code R2_*} creds (see {@link LocalStorageActiveCondition}). Files are stored
+ * under the directory configured by {@code storage.local.base-path}.
  */
 @Service
-@ConditionalOnProperty(name = "storage.type", havingValue = "local", matchIfMissing = true)
+@Conditional(LocalStorageActiveCondition.class)
 public class LocalStorageService implements StorageService, StoragePort {
 
     private static final Logger log = LoggerFactory.getLogger(LocalStorageService.class);

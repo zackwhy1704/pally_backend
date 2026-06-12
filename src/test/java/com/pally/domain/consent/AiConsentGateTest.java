@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -22,13 +21,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for the AI data-transfer consent gate in ConsentGuard.
+ * Unit tests for the ALWAYS-ON AI data-transfer consent gate in ConsentGuard.
  *
- * <p>Invariants verified:
- * - Flag OFF → upload proceeds without consent check (no exception thrown)
- * - Flag OFF → chat proceeds without consent check
- * - Flag ON + no consent → throws ConsentRequiredException("AI_DATA_TRANSFER")
- * - Flag ON + consent granted → no exception
+ * <p>The legacy {@code app.ai-consent.enabled} flag is gone — the gate is now
+ * unconditional. Invariants verified:
+ * <ul>
+ *   <li>No consent record → throws AiConsentRequiredException("AI_DATA_TRANSFER").</li>
+ *   <li>A record without the AI_DATA_TRANSFER purpose → still throws.</li>
+ *   <li>A record WITH the AI_DATA_TRANSFER purpose → allowed.</li>
+ * </ul>
  */
 @ExtendWith(MockitoExtension.class)
 class AiConsentGateTest {
@@ -38,16 +39,8 @@ class AiConsentGateTest {
 
     private static final String USER_ID = "user-test";
 
-    private ConsentGuard guardWithFlagOff() {
-        ConsentGuard guard = new ConsentGuard(userRepo, consentRecordRepo);
-        ReflectionTestUtils.setField(guard, "aiConsentEnabled", false);
-        return guard;
-    }
-
-    private ConsentGuard guardWithFlagOn() {
-        ConsentGuard guard = new ConsentGuard(userRepo, consentRecordRepo);
-        ReflectionTestUtils.setField(guard, "aiConsentEnabled", true);
-        return guard;
+    private ConsentGuard guard() {
+        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService());
     }
 
     private ConsentRecordJpaEntity consentRecord(String purposes) {
@@ -59,34 +52,13 @@ class AiConsentGateTest {
         return r;
     }
 
-    // ── Flag OFF tests ─────────────────────────────────────────────────────
+    // ── Always-on: no consent → blocked ────────────────────────────────────
 
     @Test
-    void requireAiConsent_flagOff_uploadProceedsWithoutCheck() {
-        ConsentGuard guard = guardWithFlagOff();
-        // No stubs needed — consentRecordRepo should never be called
-
-        assertThatCode(() -> guard.requireAiConsent(USER_ID))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
-    void requireAiConsent_flagOff_chatProceedsWithoutCheck() {
-        ConsentGuard guard = guardWithFlagOff();
-
-        // Simulate chat use-case calling requireAiConsent
-        assertThatCode(() -> guard.requireAiConsent(USER_ID))
-                .doesNotThrowAnyException();
-    }
-
-    // ── Flag ON, no consent ────────────────────────────────────────────────
-
-    @Test
-    void requireAiConsent_flagOn_noConsent_uploadThrows() {
-        ConsentGuard guard = guardWithFlagOn();
+    void requireAiConsent_noConsentRecord_throwsAiConsentRequired() {
         when(consentRecordRepo.findAll()).thenReturn(List.of());
 
-        assertThatThrownBy(() -> guard.requireAiConsent(USER_ID))
+        assertThatThrownBy(() -> guard().requireAiConsent(USER_ID))
                 .isInstanceOf(AiConsentRequiredException.class)
                 .satisfies(ex ->
                         assertThat(((ConsentRequiredException) ex).getReason())
@@ -94,53 +66,47 @@ class AiConsentGateTest {
     }
 
     @Test
-    void requireAiConsent_flagOn_noConsent_chatThrows() {
-        ConsentGuard guard = guardWithFlagOn();
+    void requireAiConsent_recordWithoutAiPurpose_throws() {
         when(consentRecordRepo.findAll()).thenReturn(List.of(
-                consentRecord("[\"tutoring\"]") // has tutoring but NOT AI_DATA_TRANSFER
+                consentRecord("[\"tutoring\"]") // no AI_DATA_TRANSFER purpose
         ));
 
-        assertThatThrownBy(() -> guard.requireAiConsent(USER_ID))
+        assertThatThrownBy(() -> guard().requireAiConsent(USER_ID))
                 .isInstanceOf(AiConsentRequiredException.class);
     }
 
-    // ── Flag ON, consent granted ───────────────────────────────────────────
+    @Test
+    void requireAiConsent_recordForDifferentUser_throws() {
+        ConsentRecordJpaEntity other = consentRecord("[\"AI_DATA_TRANSFER\"]");
+        other.setUserId("someone-else");
+        when(consentRecordRepo.findAll()).thenReturn(List.of(other));
+
+        assertThatThrownBy(() -> guard().requireAiConsent(USER_ID))
+                .isInstanceOf(AiConsentRequiredException.class);
+    }
+
+    // ── Always-on: consent granted → allowed ───────────────────────────────
 
     @Test
-    void requireAiConsent_flagOn_consentGranted_uploadAllowed() {
-        ConsentGuard guard = guardWithFlagOn();
+    void requireAiConsent_consentGranted_allowed() {
         when(consentRecordRepo.findAll()).thenReturn(List.of(
                 consentRecord("[\"AI_DATA_TRANSFER\",\"tutoring\"]")
         ));
 
-        assertThatCode(() -> guard.requireAiConsent(USER_ID))
+        assertThatCode(() -> guard().requireAiConsent(USER_ID))
                 .doesNotThrowAnyException();
     }
 
-    @Test
-    void requireAiConsent_flagOn_consentGranted_chatAllowed() {
-        ConsentGuard guard = guardWithFlagOn();
-        when(consentRecordRepo.findAll()).thenReturn(List.of(
-                consentRecord("[\"AI_DATA_TRANSFER\",\"quiz\"]")
-        ));
-
-        assertThatCode(() -> guard.requireAiConsent(USER_ID))
-                .doesNotThrowAnyException();
-    }
-
-    // ── requireActive is unaffected by the AI consent flag ────────────────
+    // ── requireActive is independent of the AI gate ────────────────────────
 
     @Test
-    void requireActive_alwaysPassesForActiveUser_regardlessOfAiFlag() {
-        // Test that the original requireActive method still works correctly
-        // with the new constructor signature.
-        ConsentGuard guard = guardWithFlagOn();
+    void requireActive_passesForActiveUser() {
         UserJpaEntity user = new UserJpaEntity();
         user.setId(USER_ID);
         user.setAccountStatus(ConsentGuard.STATUS_ACTIVE);
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
 
-        assertThatCode(() -> guard.requireActive(USER_ID, "UPLOAD"))
+        assertThatCode(() -> guard().requireActive(USER_ID, "UPLOAD"))
                 .doesNotThrowAnyException();
     }
 }

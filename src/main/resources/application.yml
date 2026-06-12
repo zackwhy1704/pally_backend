@@ -61,13 +61,10 @@ server:
   shutdown: graceful
 
 # ── Third-party AI consent gate ──────────────────────────────────────────────
-# Feature flag: OFF by default. Set to true ONLY after the legal/product team
-# has supplied the plain-language disclosure copy naming Anthropic (Claude) and
-# Google (Gemini) as overseas AI processors and the disclosure is shown in the UI
-# BEFORE the user's first upload or chat. See ConsentGuard.requireAiConsent().
-app:
-  ai-consent:
-    enabled: ${APP_AI_CONSENT_ENABLED:false}
+# Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic
+# (Claude) and Google (Gemini) as overseas AI processors is shown in the UI
+# BEFORE the user's first upload or chat; the client then POSTs
+# /consent/ai-data-transfer to satisfy the gate. See ConsentGuard.requireAiConsent().
 
 management:
   endpoints:
@@ -185,8 +182,13 @@ gemini:
       secondary: ${GEMINI_MODEL_SECONDARY:gemini-2.0-flash}
     base-url: https://generativelanguage.googleapis.com
 
+# Storage defaults to s3 (Cloudflare R2) so production needs no per-deploy flag.
+# Local dev / CI override via STORAGE_TYPE=local (tests force local in
+# application-test.yml). If s3 is selected but the R2_* creds are blank, the
+# S3Client bean is not registered (S3ClientConfig logs a warning) so the app
+# still boots — it just can't serve files until creds are supplied.
 storage:
-  type: ${STORAGE_TYPE:local}
+  type: ${STORAGE_TYPE:s3}
   local:
     base-path: ${STORAGE_LOCAL_PATH:/tmp/pally}
   s3:

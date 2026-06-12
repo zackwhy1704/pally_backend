@@ -259,13 +259,12 @@ public class ConsentController {
      * <p>Required by Apple App Store guideline 5.1.2 and PDPA overseas transfer rules.
      * The frontend must show a plain-language disclosure BEFORE calling this endpoint.
      *
-     * <p>This endpoint is a no-op when {@code app.ai-consent.enabled=false} but it
-     * always records the grant so that enabling the flag later doesn't lose prior consents.
-     *
-     * <p>TODO (LEGAL/PRODUCT): before launching, supply plain-language disclosure copy
+     * <p>Recording this grant satisfies the always-on AI-disclosure gate
+     * ({@code ConsentGuard.requireAiConsent}); without it, chat and upload return
+     * 403 AI_CONSENT_REQUIRED. The frontend must show the plain-language disclosure
      * naming Anthropic (Claude) and Google (Gemini) as overseas AI processors and the
-     * purpose (answering homework questions). This must appear on screen BEFORE the user
-     * uploads their first note or sends their first chat message.
+     * purpose (answering homework questions) BEFORE calling this endpoint — i.e.
+     * before the user's first upload or chat message.
      */
     @PostMapping("/ai-data-transfer")
     @Transactional
@@ -275,7 +274,9 @@ public class ConsentController {
         record.setId(IdGenerator.newId());
         record.setUserId(userId);
         record.setConsenter("SELF");
-        record.setMethod("AI_TRANSFER_DISCLOSURE");
+        // Must fit consent_records.method VARCHAR(20). "AI_TRANSFER_DISCLOSURE"
+        // (21 chars) overflowed and 500'd once the gate became always-on.
+        record.setMethod("AI_DISCLOSURE");
         record.setPurposes("[\"AI_DATA_TRANSFER\",\"tutoring\",\"quiz\"]");
         record.setPolicyVersion(POLICY_VERSION);
         record.setCreatedAt(Instant.now());

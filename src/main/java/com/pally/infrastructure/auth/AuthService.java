@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.Year;
+import java.time.ZoneId;
 
 @Slf4j
 @Service
@@ -32,13 +34,29 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
-        return register(email, password, displayName, null);
+        return register(email, password, displayName, null, null);
     }
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName, String role) {
+        return register(email, password, displayName, role, null);
+    }
+
+    @Transactional
+    public AuthResponse register(
+            String email, String password, String displayName, String role, Integer birthYear) {
         if (userRepo.existsByEmail(email)) {
             throw new BusinessException("Email already registered", 409);
+        }
+
+        // Sensible bounds on the optional birth YEAR (data minimisation: year only).
+        // Lower bound (≥1950) is annotation-validated; the upper bound is dynamic
+        // (must not be in the future) so it lives here, in Singapore wall-clock time.
+        if (birthYear != null) {
+            int currentYear = Year.now(ZoneId.of("Asia/Singapore")).getValue();
+            if (birthYear < 1950 || birthYear > currentYear) {
+                throw new BusinessException("Birth year must be between 1950 and " + currentYear, 400);
+            }
         }
 
         UserJpaEntity user = new UserJpaEntity();
@@ -52,6 +70,11 @@ public class AuthService {
         user.setStreakDays(0);
         user.setCreatedAt(Instant.now());
         user.setSetupComplete(false);
+        // Student path only — parents register without a birth year (their account
+        // is the consenting guardian, not the data subject under the age rule).
+        if (!"parent".equalsIgnoreCase(role)) {
+            user.setBirthYear(birthYear);
+        }
         if ("parent".equalsIgnoreCase(role)) {
             user.setAccountType("PARENT");
         }

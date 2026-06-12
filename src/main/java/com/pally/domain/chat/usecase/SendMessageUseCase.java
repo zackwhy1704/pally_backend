@@ -143,8 +143,12 @@ public class SendMessageUseCase {
         avatarSlotGuard.requireActive(avatarId, userId);
 
         // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
-        // Feature-flagged OFF by default — see ConsentGuard.requireAiConsent Javadoc.
+        // Always enforced — see ConsentGuard.requireAiConsent Javadoc.
         consentGuard.requireAiConsent(userId);
+
+        // PDPC 2024 age gate: under-13 users need a linked+consented parent.
+        // No-op for 13+ users (target audience), so nothing changes for them.
+        consentGuard.requireGuardianIfUnder13(userId);
 
         // Resolve tier once at the start of the turn so the model selection
         // and logging are consistent within the same request.

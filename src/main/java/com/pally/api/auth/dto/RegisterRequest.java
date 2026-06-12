@@ -1,6 +1,7 @@
 package com.pally.api.auth.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -17,5 +18,12 @@ public record RegisterRequest(
         @Size(max = 100, message = "Display name must be 100 characters or fewer")
         String displayName,
 
-        String role
+        String role,
+
+        /// Optional birth YEAR (student path only). Data minimisation: year only,
+        /// never a full DOB / NRIC. The server derives isUnder13 from this; null →
+        /// treated as 13+. The dynamic upper bound (≤ current year) is enforced
+        /// server-side in AuthService since an annotation can't reference "now".
+        @Min(value = 1950, message = "Birth year must be 1950 or later")
+        Integer birthYear
 ) {}

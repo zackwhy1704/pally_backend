@@ -25,12 +25,10 @@ stripe:
   webhook-secret: ""
   mock-webhook-secret: ""
 
-# Disable AI consent gate
-app:
-  ai-consent:
-    enabled: false
+# AI consent gate is now always-on (no flag). Tests grant consent explicitly
+# via IntegrationTestBase.grantAiConsent(userId) where chat/upload run.
 
-# Use local storage
+# Force local storage in tests (R2 creds are absent in CI anyway).
 storage:
   type: local
   local:

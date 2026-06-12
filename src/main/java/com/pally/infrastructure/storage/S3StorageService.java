@@ -3,7 +3,7 @@ package com.pally.infrastructure.storage;
 import com.pally.domain.knowledge.port.StoragePort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -17,9 +17,10 @@ import java.io.InputStream;
  * Cloudflare R2 (S3-compatible) implementation of {@link StorageService} and
  * {@link StoragePort}.
  *
- * <p>Active only when {@code storage.type=s3}. {@link LocalStorageService} stays the
- * default ({@code matchIfMissing=true}). The {@link S3Client} bean is built for R2 by
- * {@link S3ClientConfig}, which reads the {@code R2_*} environment variables.
+ * <p>Active only when {@code storage.type=s3} AND the R2 creds are present (see
+ * {@link R2ConfiguredCondition}). Otherwise {@link LocalStorageService} takes over as
+ * the fallback. The {@link S3Client} bean is built for R2 by {@link S3ClientConfig},
+ * which reads the {@code R2_*} environment variables.
  *
  * <p>Returns the storage <em>key</em> from {@link #store} / {@link #upload} (never a
  * full URL) to match {@link LocalStorageService}'s contract — {@code NarrationService}
@@ -27,7 +28,7 @@ import java.io.InputStream;
  * key, so both backends behave identically.
  */
 @Service
-@ConditionalOnProperty(name = "storage.type", havingValue = "s3")
+@Conditional(R2ConfiguredCondition.class)
 public class S3StorageService implements StorageService, StoragePort {
 
     private static final Logger log = LoggerFactory.getLogger(S3StorageService.class);
