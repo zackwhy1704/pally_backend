@@ -106,7 +106,7 @@ class ClassControllerTest {
         ResponseEntity<ApiResponse<Map<String, Object>>> resp = controller.createClass(
                 OWNER_ID, ORG_ID,
                 Map.of("name", "P4 Math", "subject", "MATHS", "level", "P4",
-                        "characterType", "ATWSAKURA"));
+                        "characterType", "MOCHI"));
 
         Map<String, Object> body = resp.getBody().data();
         assertThat(body.get("name")).isEqualTo("P4 Math");

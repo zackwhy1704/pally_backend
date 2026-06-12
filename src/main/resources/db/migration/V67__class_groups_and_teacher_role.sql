@@ -2,10 +2,12 @@
 -- link so a centre class can own a CLASS-type study group whose membership
 -- syncs from class enrolment.
 
-ALTER TABLE study_groups ADD COLUMN group_type VARCHAR(10) NOT NULL DEFAULT 'PEER';
-ALTER TABLE study_groups ADD COLUMN class_id VARCHAR(36);
+ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS group_type VARCHAR(10) NOT NULL DEFAULT 'PEER';
+ALTER TABLE study_groups ADD COLUMN IF NOT EXISTS class_id VARCHAR(36);
 
-ALTER TABLE group_members ADD COLUMN role VARCHAR(10) NOT NULL DEFAULT 'MEMBER';
+-- group_members.role already exists from V26 (OWNER/MEMBER); this is idempotent
+-- and the TEACHER value is added at the application layer.
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS role VARCHAR(10) NOT NULL DEFAULT 'MEMBER';
 
 -- A class owns at most one CLASS group. Partial unique index so PEER groups
 -- (class_id NULL) are unaffected.

@@ -17,7 +17,7 @@ class AvatarJpaEntityTest {
 
     @Test
     void fromDomain_persistsCentreFlagsAndClassLinkage() {
-        Avatar avatar = Avatar.create("user-1", "P4 Math", Subject.MATHS, CharacterType.ATWSAKURA);
+        Avatar avatar = Avatar.create("user-1", "P4 Math", Subject.MATHS, CharacterType.MOCHI);
         avatar.markCentreAvatar();
         avatar.lockAvatar();
         avatar.setClassId("class-1");
@@ -36,7 +36,7 @@ class AvatarJpaEntityTest {
 
     @Test
     void toDomain_restoresCentreFlagsAndClassLinkage() {
-        Avatar avatar = Avatar.create("user-1", "P4 Math", Subject.MATHS, CharacterType.ATWSAKURA);
+        Avatar avatar = Avatar.create("user-1", "P4 Math", Subject.MATHS, CharacterType.MOCHI);
         avatar.markCentreAvatar();
         avatar.lockAvatar();
         avatar.setClassId("class-1");

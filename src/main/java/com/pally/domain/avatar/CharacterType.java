@@ -20,14 +20,9 @@ public enum CharacterType {
     LUNCHBOX,
     LIBRARY,
     HEADMASTER,
-    GOLDSTAR,
-    // ── Around the World series — exclusive Centre Mochis ────────────────────
-    ATWBERET,
-    ATWGLOBERIDER,
-    ATWKEBAYA,
-    ATWLIONCITY,
-    ATWPHARAOH,
-    ATWSAKURA,
-    ATWSOMBRERO,
-    ATWKILT
+    GOLDSTAR
+    // Note: the 8 "Around the World" centre characters (ATWBERET, ATWGLOBERIDER,
+    // ATWKEBAYA, ATWLIONCITY, ATWPHARAOH, ATWSAKURA, ATWSOMBRERO, ATWKILT) were
+    // never released and have been removed. The CharacterTypeConverter maps any
+    // stray persisted value (incl. these) back to MOCHI so reads never 500.
 }

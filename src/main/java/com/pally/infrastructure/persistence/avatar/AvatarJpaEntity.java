@@ -33,7 +33,10 @@ public class AvatarJpaEntity {
     @Column(nullable = false, length = 30)
     private Subject subject;
 
-    @Enumerated(EnumType.STRING)
+    // Persisted as the enum name, but read via a converter that maps any
+    // unknown/removed value (e.g. legacy ATW characters) back to MOCHI so a
+    // stray row degrades gracefully instead of throwing on read.
+    @Convert(converter = CharacterTypeConverter.class)
     @Column(name = "character_type", nullable = false, length = 30)
     private CharacterType characterType;
 
