@@ -103,4 +103,25 @@ class WikiPageUpdateContentTest {
                 .as("updatedAt should be refreshed even for verified pages")
                 .isAfter(before);
     }
+
+    @Test
+    void setQualityScore_inRangeValue_roundTrips() {
+        // BUG 1: setQualityScore takes a 0–100 int (the caller scales the
+        // verifier's 0.0–1.0 score before passing it in). A mid-range value
+        // must round-trip unchanged — no double-scaling, no clamping.
+        WikiPage page = WikiPage.create("avatar-1", "round-trip", "Round Trip", "body");
+        page.setQualityScore(70);
+        assertThat(page.getQualityScore())
+                .as("a 0–100 score must round-trip unchanged")
+                .isEqualTo(70);
+    }
+
+    @Test
+    void setQualityScore_outOfRangeValues_clampedTo0And100() {
+        WikiPage page = WikiPage.create("avatar-1", "clamp", "Clamp", "body");
+        page.setQualityScore(-5);
+        assertThat(page.getQualityScore()).as("below 0 clamps to 0").isEqualTo(0);
+        page.setQualityScore(150);
+        assertThat(page.getQualityScore()).as("above 100 clamps to 100").isEqualTo(100);
+    }
 }
