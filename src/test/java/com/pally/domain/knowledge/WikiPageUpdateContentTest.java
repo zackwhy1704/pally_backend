@@ -124,4 +124,22 @@ class WikiPageUpdateContentTest {
         page.setQualityScore(150);
         assertThat(page.getQualityScore()).as("above 100 clamps to 100").isEqualTo(100);
     }
+
+    @Test
+    void adjustCertaintyScore_reinforcesAndShakes_clampedTo0_1And1_0() {
+        // Live path: TeachController.updateWikiCertainty nudges this in-memory
+        // then persists via wikiRepository.save(page). Lock the [0.1, 1.0] clamp.
+        WikiPage page = WikiPage.create("avatar-1", "ratios", "Ratios", "body");
+        // create() starts at 0.5
+        page.adjustCertaintyScore(0.08);
+        assertThat(page.getCertaintyScore()).as("positive delta reinforces").isEqualTo(0.58);
+
+        // Drive far above the ceiling — must clamp at 1.0.
+        for (int i = 0; i < 20; i++) page.adjustCertaintyScore(0.08);
+        assertThat(page.getCertaintyScore()).as("clamps at 1.0 ceiling").isEqualTo(1.0);
+
+        // Drive far below the floor — must clamp at 0.1.
+        for (int i = 0; i < 40; i++) page.adjustCertaintyScore(-0.05);
+        assertThat(page.getCertaintyScore()).as("clamps at 0.1 floor").isEqualTo(0.1);
+    }
 }
