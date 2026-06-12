@@ -63,4 +63,24 @@ public class AssignmentJpaEntity {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /**
+     * Teacher-authored model answer(s). A JSON blob — typically an object keyed
+     * by question/concept, but free text is allowed. Server-withheld from
+     * students until {@link #answersReleasedAt} is in the past.
+     */
+    @Column(name = "model_answer", columnDefinition = "TEXT")
+    private String modelAnswer;
+
+    /**
+     * The instant model answers become visible to students. Null = never
+     * released. The student mapper omits model answers until this is <= now.
+     */
+    @Column(name = "answers_released_at")
+    private Instant answersReleasedAt;
+
+    /** True once {@link #answersReleasedAt} is set and not in the future. */
+    public boolean answersReleased() {
+        return answersReleasedAt != null && !answersReleasedAt.isAfter(Instant.now());
+    }
 }

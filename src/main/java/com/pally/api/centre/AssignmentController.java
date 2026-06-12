@@ -2,6 +2,8 @@ package com.pally.api.centre;
 
 import com.pally.domain.assignment.AssignmentService;
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.group.ClassGroupService;
+import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,6 +39,7 @@ public class AssignmentController {
     private final CentreAccessService accessService;
     private final AssignmentService assignmentService;
     private final OrgClassJpaRepository classRepo;
+    private final ClassGroupService classGroupService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> createAssignment(
@@ -108,7 +112,69 @@ public class AssignmentController {
         return ResponseEntity.ok(ApiResponse.success(Map.of("deleted", true)));
     }
 
+    // ── Model answers: set / edit (teacher, centre-gated) ────────────────
+
+    @PutMapping("/{assignmentId}/model-answer")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> setModelAnswer(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String assignmentId,
+            @RequestBody Map<String, Object> body) {
+        accessService.ensureOwner(userId, orgId);
+        requireClass(orgId, classId);
+        // Accept a structured JSON object OR a plain string. Serialize objects.
+        Object modelAnswerRaw = body.get("modelAnswer");
+        String modelAnswer = serializeModelAnswer(modelAnswerRaw);
+        AssignmentJpaEntity a = assignmentService.setModelAnswer(assignmentId, modelAnswer);
+        return ResponseEntity.ok(ApiResponse.success(toDto(a)));
+    }
+
+    // ── Release model answers (teacher) ──────────────────────────────────
+    // "release now": pass {"releaseNow": true}. Schedule: {"releaseAt": "<iso>"}.
+    // Omit both to default to the assignment deadline.
+
+    @PostMapping("/{assignmentId}/release")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> releaseAnswers(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String assignmentId,
+            @RequestBody(required = false) Map<String, Object> body) {
+        accessService.ensureOwner(userId, orgId);
+        requireClass(orgId, classId);
+
+        Instant releaseAt = null;
+        boolean releaseNow = body != null && Boolean.TRUE.equals(body.get("releaseNow"));
+        if (releaseNow) {
+            releaseAt = Instant.now();
+        } else if (body != null && body.get("releaseAt") != null) {
+            releaseAt = Instant.parse(str(body.get("releaseAt")));
+        }
+        AssignmentJpaEntity a = assignmentService.releaseAnswers(assignmentId, releaseAt);
+
+        // On release (now or already-past schedule), announce in the CLASS group.
+        if (a.answersReleased()) {
+            classGroupService.postSystemMessage(
+                    classId,
+                    GroupSystemPostJpaEntity.KIND_ANSWERS_RELEASED,
+                    "Answers for “" + a.getTitle() + "” are out ✅",
+                    a.getId());
+        }
+        return ResponseEntity.ok(ApiResponse.success(toDto(a)));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private static String serializeModelAnswer(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof String s) return s;
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(raw);
+        } catch (Exception e) {
+            return raw.toString();
+        }
+    }
 
     private OrgClassJpaEntity requireClass(String orgId, String classId) {
         OrgClassJpaEntity cls = classRepo.findById(classId)
@@ -132,6 +198,11 @@ public class AssignmentController {
         m.put("dueDate", a.getDueDate().toString());
         m.put("createdBy", a.getCreatedBy());
         m.put("createdAt", a.getCreatedAt().toString());
+        // Teacher view: model answer is always visible to the owner.
+        m.put("modelAnswer", a.getModelAnswer());
+        m.put("answersReleased", a.answersReleased());
+        m.put("answersReleasedAt",
+                a.getAnswersReleasedAt() != null ? a.getAnswersReleasedAt().toString() : null);
         return m;
     }
 

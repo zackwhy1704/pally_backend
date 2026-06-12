@@ -53,6 +53,20 @@ public class AssignmentStudentController {
     }
 
     /**
+     * Student assignment detail. After the teacher releases answers, includes the
+     * model answer for the compare view; before release the model-answer field is
+     * absent (server-withheld).
+     */
+    @GetMapping("/assignments/{assignmentId}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> assignmentDetail(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @PathVariable String assignmentId) {
+        Map<String, Object> detail = assignmentService.getStudentDetail(assignmentId, userId);
+        return ResponseEntity.ok(ApiResponse.success(detail));
+    }
+
+    /**
      * Start an assignment — creates/updates the completion record to IN_PROGRESS.
      */
     @PostMapping("/assignments/{assignmentId}/start")

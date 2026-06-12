@@ -280,6 +280,72 @@ public class AssignmentService {
     }
 
     /**
+     * Sets or edits the teacher's model answer(s) for an assignment. Does not
+     * change release state. Returns the saved assignment.
+     */
+    @Transactional
+    public AssignmentJpaEntity setModelAnswer(String assignmentId, String modelAnswer) {
+        AssignmentJpaEntity a = assignmentRepo.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException("Assignment not found", 404));
+        a.setModelAnswer(modelAnswer);
+        assignmentRepo.save(a);
+        log.info("[Assignment] model answer set assignment={}", assignmentId);
+        return a;
+    }
+
+    /**
+     * Schedules (or immediately performs) the model-answer release.
+     *
+     * @param releaseAt when answers become visible. Null defaults to the
+     *                  assignment's due date. A value <= now releases immediately.
+     * @return the saved assignment.
+     */
+    @Transactional
+    public AssignmentJpaEntity releaseAnswers(String assignmentId, Instant releaseAt) {
+        AssignmentJpaEntity a = assignmentRepo.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException("Assignment not found", 404));
+        Instant when = releaseAt != null ? releaseAt : a.getDueDate();
+        a.setAnswersReleasedAt(when);
+        assignmentRepo.save(a);
+        log.info("[Assignment] answers release scheduled assignment={} at={}", assignmentId, when);
+        return a;
+    }
+
+    /**
+     * Builds the student-facing assignment detail. CRITICAL: the model answer is
+     * included ONLY when answers are released ({@code answersReleasedAt <= now}).
+     * Before release the {@code modelAnswer} key is absent entirely.
+     */
+    public Map<String, Object> getStudentDetail(String assignmentId, String userId) {
+        AssignmentJpaEntity a = assignmentRepo.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException("Assignment not found", 404));
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", a.getId());
+        m.put("classId", a.getClassId());
+        m.put("title", a.getTitle());
+        m.put("type", a.getType());
+        m.put("moduleIds", a.getModuleIds());
+        m.put("stages", a.getStages());
+        m.put("dueDate", a.getDueDate().toString());
+        m.put("answersReleased", a.answersReleased());
+        m.put("answersReleasedAt",
+                a.getAnswersReleasedAt() != null ? a.getAnswersReleasedAt().toString() : null);
+
+        AssignmentCompletionJpaEntity completion = completionRepo
+                .findByAssignmentIdAndUserId(assignmentId, userId).orElse(null);
+        m.put("status", completion != null ? completion.getStatus()
+                : AssignmentCompletionJpaEntity.STATUS_PENDING);
+
+        // SERVER-WITHHELD: only expose model answers post-release. The key is
+        // absent (not null) before release so no client can render anything.
+        if (a.answersReleased()) {
+            m.put("modelAnswer", a.getModelAnswer());
+        }
+        return m;
+    }
+
+    /**
      * Deletes an assignment and all its completions.
      */
     @Transactional

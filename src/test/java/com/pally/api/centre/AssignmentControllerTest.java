@@ -38,6 +38,7 @@ class AssignmentControllerTest {
     @Mock private CentreAccessService accessService;
     @Mock private AssignmentService assignmentService;
     @Mock private OrgClassJpaRepository classRepo;
+    @Mock private com.pally.domain.group.ClassGroupService classGroupService;
 
     private AssignmentController controller;
 
@@ -47,7 +48,7 @@ class AssignmentControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AssignmentController(accessService, assignmentService, classRepo);
+        controller = new AssignmentController(accessService, assignmentService, classRepo, classGroupService);
     }
 
     private void stubClassAndOwner() {
