@@ -62,6 +62,15 @@ public class FcmService {
      * No-op if the user has no token or Firebase is not configured.
      */
     public void sendToUser(String userId, String title, String body) {
+        sendToUser(userId, title, body, java.util.Map.of());
+    }
+
+    /**
+     * Send a push with an extra {@code data} payload (e.g. a deep-link URL).
+     * No-op if the user has no token or Firebase is not configured.
+     */
+    public void sendToUser(String userId, String title, String body,
+                           java.util.Map<String, String> data) {
         if (!initialized) {
             log.debug("[FCM] Not initialized — skipping push to user={}", userId);
             return;
@@ -77,13 +86,16 @@ public class FcmService {
             return;
         }
         try {
-            var message = com.google.firebase.messaging.Message.builder()
+            var builder = com.google.firebase.messaging.Message.builder()
                     .setToken(token)
                     .setNotification(com.google.firebase.messaging.Notification.builder()
                             .setTitle(title)
                             .setBody(body)
-                            .build())
-                    .build();
+                            .build());
+            if (data != null && !data.isEmpty()) {
+                builder.putAllData(data);
+            }
+            var message = builder.build();
             String messageId = com.google.firebase.messaging.FirebaseMessaging
                     .getInstance().send(message);
             log.info("[FCM] Push sent user={} messageId={}", userId, messageId);

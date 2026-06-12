@@ -72,6 +72,60 @@ public class MilestoneNotifier {
         sendPositive(parentId, title, body);
     }
 
+    /**
+     * Notify the STUDENT that a trusted adult finished reviewing one of their
+     * wiki pages. Approved → an encouraging "looks good" push; flagged → a
+     * gentle "left a note" nudge. Pushes directly to the student (not the
+     * parent), so it bypasses the 3:1 parent-alert ratio.
+     */
+    public void onReviewCompleted(String studentId, String pageTitle,
+                                  boolean approved, String reviewerName) {
+        if (studentId == null) return;
+        String reviewer = (reviewerName != null && !reviewerName.isBlank())
+                ? reviewerName : "A reviewer";
+        String title;
+        String body;
+        if (approved) {
+            title = "✅ Your " + pageTitle + " guide was checked!";
+            body = reviewer + " checked your " + pageTitle + " guide — looks good!";
+        } else {
+            title = "👀 A note on your " + pageTitle + " guide";
+            body = reviewer + " left a note on your " + pageTitle + " guide. Take a look.";
+        }
+        fcmService.sendToUser(studentId, title, body);
+        log.info("[Review] Completed push to student={} approved={}", studentId, approved);
+    }
+
+    /**
+     * Notify the child's PARENT that the child asked them to review a study
+     * guide. Resolves the parent via the child's parentId (same pattern as the
+     * milestone pushes); no-op if the child has no linked parent. The review
+     * URL rides in the FCM data field so the parent app can deep-link.
+     */
+    public void onParentReviewRequested(String childId, String pageTitle, String url) {
+        Optional<UserJpaEntity> childOpt = userRepo.findById(childId);
+        if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
+
+        String parentId = childOpt.get().getParentId();
+        String displayName = childOpt.get().getChildName() != null
+                ? childOpt.get().getChildName()
+                : childOpt.get().getDisplayName();
+        String childFirstName = firstName(displayName);
+
+        String title = "Review request";
+        String body = childFirstName + " asked you to check their " + pageTitle
+                + " study guide (2 min).";
+        fcmService.sendToUser(parentId, title, body, java.util.Map.of("reviewUrl", url));
+        log.info("[Review] Parent-review-requested push to parent={} for child={}", parentId, childId);
+    }
+
+    private String firstName(String displayName) {
+        if (displayName == null || displayName.isBlank()) return "Your child";
+        String trimmed = displayName.strip();
+        int space = trimmed.indexOf(' ');
+        return space > 0 ? trimmed.substring(0, space) : trimmed;
+    }
+
     private void sendPositive(String parentId, String title, String body) {
         WeekCounters c = counters.computeIfAbsent(parentId, k -> new WeekCounters());
         c.positive.incrementAndGet();

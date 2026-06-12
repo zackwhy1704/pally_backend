@@ -15,6 +15,8 @@ public interface WikiRepository {
 
     Optional<WikiPage> findByAvatarIdAndSlug(String avatarId, String slug);
 
+    Optional<WikiPage> findById(String id);
+
     List<WikiPage> findByAvatarId(String avatarId);
 
     int countByAvatarId(String avatarId);

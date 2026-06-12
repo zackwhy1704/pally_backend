@@ -41,6 +41,12 @@ public class WikiRepositoryAdapter implements WikiRepository {
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<WikiPage> findById(String id) {
+        return wikiJpaRepository.findById(id).map(WikiPageJpaEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<WikiPage> findByAvatarId(String avatarId) {
         return wikiJpaRepository.findByAvatarId(avatarId).stream()
                 .map(WikiPageJpaEntity::toDomain)

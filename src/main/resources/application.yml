@@ -60,6 +60,17 @@ server:
   port: ${PORT:8080}  # Railway injects PORT; local dev must set it explicitly
   shutdown: graceful
 
+# ── App-level config ─────────────────────────────────────────────────────────
+app:
+  # Public web origin used to build tokenized review URLs sent to trusted adults.
+  web-base-url: ${WEB_BASE_URL:https://apalchi.com}
+  review:
+    # 0–100 quality-score floor below which an INFERRED page is surfaced to the
+    # client as LOW_CONFIDENCE. 60 ≈ bottom quartile of the verifier's heuristic
+    # distribution (a clean page scores 100; one penalty drops it to ~70–90, so
+    # 60 catches pages with multiple quality issues stacked up).
+    low-confidence-threshold: ${REVIEW_LOW_CONF:60}
+
 # ── Third-party AI consent gate ──────────────────────────────────────────────
 # Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic
 # (Claude) and Google (Gemini) as overseas AI processors is shown in the UI
