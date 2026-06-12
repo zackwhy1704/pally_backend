@@ -148,6 +148,60 @@ class MilestoneNotifierTest {
         verify(fcmService, times(4)).sendToUser(eq("parent-1"), anyString(), anyString());
     }
 
+    // ── onReviewCompleted (push to STUDENT) ──────────────────────────────
+
+    @Test
+    void onReviewCompleted_approved_pushesPositiveToStudent() {
+        notifier.onReviewCompleted("student-1", "Fractions", true, "Ms Tan");
+
+        verify(fcmService).sendToUser(
+                eq("student-1"),
+                anyString(),
+                contains("Ms Tan checked your Fractions guide — looks good!"));
+    }
+
+    @Test
+    void onReviewCompleted_flagged_pushesNoteNudgeToStudent() {
+        notifier.onReviewCompleted("student-1", "Photosynthesis", false, "Dad");
+
+        verify(fcmService).sendToUser(
+                eq("student-1"),
+                anyString(),
+                contains("Dad left a note on your Photosynthesis guide. Take a look."));
+    }
+
+    @Test
+    void onReviewCompleted_nullStudent_noOp() {
+        notifier.onReviewCompleted(null, "Fractions", true, "Ms Tan");
+        verifyNoInteractions(fcmService);
+    }
+
+    // ── onParentReviewRequested (push to PARENT with deep-link) ───────────
+
+    @Test
+    void onParentReviewRequested_childHasParent_pushesWithFirstNameAndUrlData() {
+        UserJpaEntity child = childWithParent("child-1", "parent-1", "Alice Wong");
+        when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
+
+        notifier.onParentReviewRequested("child-1", "Fractions", "https://apalchi.com/review/abc");
+
+        verify(fcmService).sendToUser(
+                eq("parent-1"),
+                anyString(),
+                contains("Alice asked you to check their Fractions study guide (2 min)."),
+                eq(java.util.Map.of("reviewUrl", "https://apalchi.com/review/abc")));
+    }
+
+    @Test
+    void onParentReviewRequested_noParent_noOp() {
+        UserJpaEntity child = childWithoutParent("child-1");
+        when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
+
+        notifier.onParentReviewRequested("child-1", "Fractions", "https://apalchi.com/review/abc");
+
+        verifyNoInteractions(fcmService);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private UserJpaEntity childWithParent(String childId, String parentId, String name) {
