@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,6 +28,13 @@ public class ActivityLogService {
     public static final String TYPE_PHOTO = "PHOTO";
     public static final String TYPE_FLASHCARD = "FLASHCARD";
     public static final String TYPE_READING = "READING";
+
+    /// Day boundary for bucketing activity into "days" on the progress chart.
+    /// MUST match the kid's local day (SGT), not the server's UTC day — a quiz
+    /// done at 1am SGT (5pm UTC the previous day) belongs to today's bucket, not
+    /// yesterday's. Mirrors {@code XpService.DAY_ZONE} so the minutes chart and
+    /// the "first quiz of the day" XP boundary agree on what "today" means.
+    private static final ZoneId DAY_ZONE = ZoneId.of("Asia/Singapore");
 
     private final ActivityLogJpaRepository repo;
     private final StreakService streakService;
@@ -63,12 +70,12 @@ public class ActivityLogService {
     /// Used by the progress dashboard bar chart.
     public List<Integer> minutesPerDayLast7(String userId) {
         List<Integer> result = new ArrayList<>(7);
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(DAY_ZONE);
         // Start from 6 days ago up to today inclusive
         for (int i = 6; i >= 0; i--) {
             LocalDate day = today.minusDays(i);
-            Instant from = day.atStartOfDay().toInstant(ZoneOffset.UTC);
-            Instant to = day.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+            Instant from = day.atStartOfDay(DAY_ZONE).toInstant();
+            Instant to = day.plusDays(1).atStartOfDay(DAY_ZONE).toInstant();
             Integer mins = repo.sumMinutesBetween(userId, from, to);
             result.add(mins != null ? mins : 0);
         }
@@ -83,9 +90,9 @@ public class ActivityLogService {
         for (LocalDate day = start;
              !day.isAfter(end);
              day = day.plusDays(1)) {
-            Instant from = day.atStartOfDay().toInstant(ZoneOffset.UTC);
+            Instant from = day.atStartOfDay(DAY_ZONE).toInstant();
             Instant to = day.plusDays(1)
-                    .atStartOfDay().toInstant(ZoneOffset.UTC);
+                    .atStartOfDay(DAY_ZONE).toInstant();
             Integer mins = repo.sumMinutesBetween(userId, from, to);
             result.add(mins != null ? mins : 0);
         }

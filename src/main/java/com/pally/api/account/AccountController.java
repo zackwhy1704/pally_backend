@@ -57,12 +57,19 @@ public class AccountController {
     private static final char[] ALPHABET =
             "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
     private static final int CODE_LENGTH = 6;
-    private static final Duration CODE_TTL = Duration.ofHours(24);
+    private static final Duration CODE_TTL = Duration.ofMinutes(15);
+
+    /// Claim throttle: a parent who repeatedly types a wrong/expired code is
+    /// guessing. Cap FAILED claims per authenticated parent so the 32^6 code
+    /// space can't be brute-forced. Successful claims reset the counter.
+    private static final int CLAIM_FAIL_LIMIT = 5;
+    private static final long CLAIM_WINDOW_MS = Duration.ofHours(1).toMillis();
 
     private final UserJpaRepository userRepo;
     private final com.pally.domain.subscription.PremiumService premiumService;
     private final DeleteAccountUseCase deleteAccountUseCase;
     private final JwtService jwtService;
+    private final com.pally.infrastructure.ratelimit.SlidingWindowRateLimiter rateLimiter;
 
     /**
      * Saves or updates the user's FCM push notification token.
@@ -123,6 +130,18 @@ public class AccountController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> claim(
             @AuthenticationPrincipal String userId,
             @RequestBody Map<String, String> body) {
+        // Throttle FAILED claims per authenticated parent so a wrong/expired
+        // code can't be brute-forced. The hit is recorded here; a fully
+        // successful claim resets the key below (mirrors AuthController.login),
+        // so only failures accumulate toward the limit.
+        String rateKey = "claim:" + userId;
+        var rl = rateLimiter.tryAcquire(rateKey, CLAIM_FAIL_LIMIT, CLAIM_WINDOW_MS);
+        if (!rl.allowed()) {
+            throw new BusinessException(
+                    "Too many incorrect code attempts. Try again in "
+                            + rl.retryAfterSeconds() + "s.", 429);
+        }
+
         String raw = body == null ? null : body.get("code");
         if (raw == null || raw.isBlank()) {
             throw new BusinessException("code is required", 400);
@@ -171,6 +190,9 @@ public class AccountController {
         } catch (Exception ignored) {
             // Eviction failure is non-fatal; the TTL bounds the staleness.
         }
+        // Success: clear the throttle so a parent who fat-fingered a code
+        // earlier isn't penalised on this or their next legitimate claim.
+        rateLimiter.reset(rateKey);
         log.info("[Account] parent={} claimed child={}", parent.getId(), child.getId());
 
         return ResponseEntity.ok(ApiResponse.success(Map.of(
