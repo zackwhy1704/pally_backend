@@ -47,6 +47,10 @@ public class SecurityConfig {
                     "/api/v1/auth/verify-email",
                     "/api/v1/onboard/quick",
                     "/api/v1/subscription/webhook",
+                    // Public tokenized trusted-adult review flow (no auth; no PII
+                    // in responses). The owner-side create/revoke/list endpoints
+                    // live under /api/v1/wiki-pages/** and stay authenticated.
+                    "/api/v1/review/**",
                     "/actuator/health",
                     "/actuator/info",
                     "/actuator/prometheus"

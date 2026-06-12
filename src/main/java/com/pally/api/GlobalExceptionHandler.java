@@ -119,6 +119,18 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>(payload, ex.getMessage(), 409));
     }
 
+    /// Public review link that is no longer PENDING → 410 Gone with the
+    /// terminal review status in the body so the web client can render the
+    /// right "already reviewed / expired / revoked" message.
+    @ExceptionHandler(com.pally.domain.review.ReviewRequestService.GoneException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleReviewGone(
+            com.pally.domain.review.ReviewRequestService.GoneException ex) {
+        log.debug("Review link gone status={}", ex.getReviewStatus());
+        Map<String, Object> payload = Map.of("status", ex.getReviewStatus());
+        return ResponseEntity.status(410)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 410));
+    }
+
     /**
      * Handles any {@link PallyException} using its embedded HTTP status code.
      */

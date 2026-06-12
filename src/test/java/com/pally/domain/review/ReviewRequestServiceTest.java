@@ -136,6 +136,128 @@ class ReviewRequestServiceTest {
         verify(reviewRepo).save(req);
     }
 
+    // ── Public view / respond ────────────────────────────────────────────────
+
+    private ContentReviewRequestJpaEntity pendingReq() {
+        return new ContentReviewRequestJpaEntity(
+                "req-1", "tok-123", PAGE_ID, OWNER,
+                Instant.now(), Instant.now().plus(14, ChronoUnit.DAYS));
+    }
+
+    @Test
+    void viewByToken_pending_returnsViewWithNoPii() {
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(pendingReq()));
+
+        var view = service.viewByToken("tok-123");
+
+        assertThat(view.pageTitle()).isEqualTo("Fractions");
+        assertThat(view.subject()).isEqualTo(Subject.MATHS.label());
+        assertThat(view.contentMarkdown()).isEqualTo("A fraction is part of a whole.");
+        assertThat(view.status()).isEqualTo(Status.PENDING.name());
+    }
+
+    @Test
+    void viewByToken_expiredPending_lazyFlipsToExpiredThen410() {
+        var expired = new ContentReviewRequestJpaEntity(
+                "req-x", "tok-exp", PAGE_ID, OWNER,
+                Instant.now().minus(20, ChronoUnit.DAYS),
+                Instant.now().minus(6, ChronoUnit.DAYS));
+        when(reviewRepo.findByToken("tok-exp")).thenReturn(Optional.of(expired));
+
+        assertThatThrownBy(() -> service.viewByToken("tok-exp"))
+                .isInstanceOf(ReviewRequestService.GoneException.class)
+                .satisfies(e -> assertThat(((ReviewRequestService.GoneException) e).getReviewStatus())
+                        .isEqualTo(Status.EXPIRED.name()));
+        assertThat(expired.getStatus()).isEqualTo(Status.EXPIRED.name());
+    }
+
+    @Test
+    void viewByToken_revoked_throws410WithStatus() {
+        var revoked = pendingReq();
+        revoked.setStatus(Status.REVOKED);
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(revoked));
+
+        assertThatThrownBy(() -> service.viewByToken("tok-123"))
+                .isInstanceOf(ReviewRequestService.GoneException.class)
+                .satisfies(e -> assertThat(((ReviewRequestService.GoneException) e).getReviewStatus())
+                        .isEqualTo(Status.REVOKED.name()));
+    }
+
+    @Test
+    void viewByToken_unknown_throws404() {
+        when(reviewRepo.findByToken("nope")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.viewByToken("nope"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getHttpStatus()).isEqualTo(404));
+    }
+
+    @Test
+    void respond_approve_setsPageVerifiedWithSourceAndExpiresSiblings() {
+        var req = pendingReq();
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(req));
+        var sibling = new ContentReviewRequestJpaEntity(
+                "req-2", "tok-2", PAGE_ID, OWNER, Instant.now(), Instant.now().plus(14, ChronoUnit.DAYS));
+        when(reviewRepo.findByWikiPageIdAndStatus(PAGE_ID, Status.PENDING.name()))
+                .thenReturn(List.of(req, sibling));
+
+        service.respond("tok-123", ReviewRequestService.Verdict.APPROVE, "Ms Tan", null);
+
+        assertThat(page.getCertainty()).isEqualTo(WikiPage.Certainty.VERIFIED);
+        assertThat(page.getVerificationSource()).isEqualTo("ADULT_REVIEW");
+        assertThat(page.getVerifiedBy()).isEqualTo("Ms Tan");
+        assertThat(req.getStatus()).isEqualTo(Status.APPROVED.name());
+        assertThat(sibling.getStatus()).isEqualTo(Status.EXPIRED.name());
+        verify(milestoneNotifier).onReviewCompleted(OWNER, "Fractions", true, "Ms Tan");
+    }
+
+    @Test
+    void respond_approveNoReviewerName_defaultsToAReviewer() {
+        var req = pendingReq();
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(req));
+        when(reviewRepo.findByWikiPageIdAndStatus(PAGE_ID, Status.PENDING.name()))
+                .thenReturn(List.of(req));
+
+        service.respond("tok-123", ReviewRequestService.Verdict.APPROVE, null, null);
+
+        assertThat(page.getVerifiedBy()).isEqualTo("a reviewer");
+    }
+
+    @Test
+    void respond_flag_setsPageUncertainAndStoresNote() {
+        var req = pendingReq();
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(req));
+
+        service.respond("tok-123", ReviewRequestService.Verdict.FLAG, "Dad", "This is wrong, water boils at 100C.");
+
+        assertThat(page.getCertainty()).isEqualTo(WikiPage.Certainty.UNCERTAIN);
+        assertThat(req.getStatus()).isEqualTo(Status.FLAGGED.name());
+        assertThat(req.getFlagNote()).isEqualTo("This is wrong, water boils at 100C.");
+        verify(milestoneNotifier).onReviewCompleted(OWNER, "Fractions", false, "Dad");
+    }
+
+    @Test
+    void respond_flagWithoutNote_throws400() {
+        var req = pendingReq();
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(req));
+
+        assertThatThrownBy(() -> service.respond(
+                "tok-123", ReviewRequestService.Verdict.FLAG, "Dad", "  "))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getHttpStatus()).isEqualTo(400));
+    }
+
+    @Test
+    void respond_secondTime_throws409() {
+        var req = pendingReq();
+        req.setStatus(Status.APPROVED);
+        when(reviewRepo.findByToken("tok-123")).thenReturn(Optional.of(req));
+
+        assertThatThrownBy(() -> service.respond(
+                "tok-123", ReviewRequestService.Verdict.APPROVE, "X", null))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getHttpStatus()).isEqualTo(409));
+    }
+
     @Test
     void list_returnsSummaries() {
         var req = new ContentReviewRequestJpaEntity(
