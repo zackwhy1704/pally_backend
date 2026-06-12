@@ -38,6 +38,9 @@ public final class WikiPage {
     // Both stay null on plain AI-inferred pages.
     private String verificationSource;
     private String verifiedBy;
+    // Short human-readable note explaining WHY this page conflicts. Stays null
+    // until the (later-wave) conflict-explanation extraction populates it.
+    private String conflictNote;
 
     private WikiPage(
             String id, String avatarId, String slug,
@@ -231,6 +234,11 @@ public final class WikiPage {
         this.verifiedBy = verifiedBy;
     }
 
+    /** Sets the human-readable conflict explanation note, null-tolerant. */
+    public void setConflictNote(String conflictNote) {
+        this.conflictNote = conflictNote;
+    }
+
     public String getSummary() {
         if (content == null || content.isBlank()) return "";
         int end = content.indexOf('\n');
@@ -258,4 +266,5 @@ public final class WikiPage {
     public boolean isHasConflict()         { return hasConflict; }
     public String getVerificationSource()  { return verificationSource; }
     public String getVerifiedBy()          { return verifiedBy; }
+    public String getConflictNote()        { return conflictNote; }
 }

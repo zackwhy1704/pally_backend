@@ -62,4 +62,35 @@ class WikiPageResponseMapperTest {
         assertThat(mapper.deriveReviewState(pageWith(WikiPage.Certainty.INFERRED, 100)))
                 .isEqualTo("UNVERIFIED");
     }
+
+    // ── DTO additions for the mobile brain-map graph wave ────────────────────
+
+    @Test
+    void toResponse_exposesPrerequisitesCertaintyScoreQuizCountAndConflictNote() {
+        WikiPage page = WikiPage.reconstitute(
+                "id-2", "av-1", "fractions", "Fractions", "body",
+                WikiPage.Certainty.INFERRED, Instant.now(),
+                70, null, null, false,
+                null, 4, 0.8,
+                WikiPage.Status.ACTIVE, false, "numbers, division");
+        page.setConflictNote("disputes the decimals page");
+
+        var dto = mapper.toResponse(page);
+
+        assertThat(dto.prerequisiteSlugs())
+                .as("comma-separated TEXT split into a trimmed list")
+                .containsExactly("numbers", "division");
+        assertThat(dto.certaintyScore()).isEqualTo(0.8);
+        assertThat(dto.quizUseCount()).isEqualTo(4);
+        assertThat(dto.conflictNote()).isEqualTo("disputes the decimals page");
+    }
+
+    @Test
+    void toResponse_nullPrerequisites_yieldsEmptyList_andNullConflictNote() {
+        WikiPage page = WikiPage.create("av-1", "cells", "Cells", "body");
+        var dto = mapper.toResponse(page);
+        assertThat(dto.prerequisiteSlugs()).isEmpty();
+        assertThat(dto.conflictNote()).isNull();
+        assertThat(dto.certaintyScore()).isEqualTo(0.5); // create() default
+    }
 }

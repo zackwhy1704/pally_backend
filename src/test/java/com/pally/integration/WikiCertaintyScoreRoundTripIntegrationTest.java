@@ -84,4 +84,17 @@ class WikiCertaintyScoreRoundTripIntegrationTest extends IntegrationTestBase {
                         .as("findByAvatarId reload preserves certaintyScore")
                         .isEqualTo(0.8));
     }
+
+    @Test
+    void conflictNote_survivesSaveAndReload() {
+        // Locks the V73 conflict_note column end-to-end against real Postgres.
+        WikiPage page = WikiPage.create(avatarId, "ratios", "Ratios",
+                "A ratio compares two quantities.");
+        page.setConflictNote("disagrees with the fractions page");
+        String savedId = wikiRepository.save(page).getId();
+
+        assertThat(wikiRepository.findById(savedId).orElseThrow().getConflictNote())
+                .as("conflict_note column round-trips through the DB")
+                .isEqualTo("disagrees with the fractions page");
+    }
 }

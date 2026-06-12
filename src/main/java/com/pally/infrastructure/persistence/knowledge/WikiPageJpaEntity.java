@@ -91,6 +91,11 @@ public class WikiPageJpaEntity {
     @Column(name = "verified_by", length = 80)
     private String verifiedBy;
 
+    /// Short human-readable explanation of WHY this page conflicts. Null until
+    /// the later-wave conflict-explanation extraction populates it.
+    @Column(name = "conflict_note", length = 500)
+    private String conflictNote;
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();
@@ -113,6 +118,7 @@ public class WikiPageJpaEntity {
         e.hasConflict = wp.isHasConflict();
         e.verificationSource = wp.getVerificationSource();
         e.verifiedBy = wp.getVerifiedBy();
+        e.conflictNote = wp.getConflictNote();
         return e;
     }
 
@@ -124,6 +130,7 @@ public class WikiPageJpaEntity {
                 reviewRequired, prerequisiteSlugs, hasConflict);
         wp.setVerificationSource(verificationSource);
         wp.setVerifiedBy(verifiedBy);
+        wp.setConflictNote(conflictNote);
         return wp;
     }
 }
