@@ -156,6 +156,11 @@ public class WikiPagePersistenceService {
                     .toList();
             for (WikiPage page : newPages) {
                 WikiQualityVerifier.VerificationResult vr = wikiQualityVerifier.verify(page, subject);
+                // Persist the verifier's 0.0–1.0 score as the page's 0–100 quality
+                // score so INFERRED pages get a real signal (feeds reviewState's
+                // LOW_CONFIDENCE band). setQualityScore clamps to [0,100].
+                page.setQualityScore((int) Math.round(vr.qualityScore() * 100));
+                wikiRepository.save(page);
                 if (!vr.issues().isEmpty()) {
                     log.warn("[WikiQuality] page={} score={} issues={}",
                             vr.pageSlug(), String.format("%.2f", vr.qualityScore()), vr.issues());
