@@ -14,6 +14,11 @@ import com.pally.infrastructure.auth.SocialTokenVerifier;
 import com.pally.domain.knowledge.port.StoragePort;
 import com.pally.domain.module.port.TtsPort;
 import com.pally.infrastructure.storage.StorageService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.AfterEach;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -27,6 +32,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
 import reactor.core.publisher.Flux;
 
@@ -45,6 +51,8 @@ import static org.mockito.Mockito.lenient;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 public abstract class IntegrationTestBase {
+
+    private static final Logger log = LoggerFactory.getLogger(IntegrationTestBase.class);
 
     static final PostgreSQLContainer<?> PG;
 
@@ -125,6 +133,66 @@ public abstract class IntegrationTestBase {
 
     @MockBean
     protected com.pally.domain.notification.RiskAlertScheduler riskAlertScheduler;
+
+    @PersistenceContext
+    protected EntityManager entityManager;
+
+    // ── Test data cleanup ────────────────────────────────────────────────────
+
+    /**
+     * Deletes every user whose email is in the test-only {@code @test.com}
+     * domain after each test, plus their owned data, so stale users don't
+     * accumulate in a shared (static) Testcontainers Postgres across the suite.
+     *
+     * <p>{@code @test.com} is a reserved test domain — production users never
+     * use it — so this is safe even though the container is shared.
+     *
+     * <p>NOT a {@code @Transactional}-rollback strategy: these are
+     * {@code RANDOM_PORT} HTTP tests whose writes happen on the server thread
+     * in their own transactions, so a test-method rollback would not undo them.
+     *
+     * <p>Deletion order matters because {@code avatars.user_id} has NO foreign
+     * key (so a user delete does NOT cascade to avatars), and a few tables
+     * ({@code star_award_log}) hold NOT-NULL non-cascading FKs to users:
+     * <ol>
+     *   <li>delete the test users' avatars — this CASCADES to wiki_pages,
+     *       knowledge_files, chat, flashcards, etc. (all FK ON DELETE CASCADE
+     *       from avatars);</li>
+     *   <li>delete star_award_log rows referencing the test users (NOT-NULL,
+     *       non-cascading FK on parent_id/child_id);</li>
+     *   <li>delete the users themselves — remaining child tables cascade.</li>
+     * </ol>
+     *
+     * Best-effort: any failure is logged, never fails the test.
+     */
+    @AfterEach
+    @Transactional
+    void cleanupTestData() {
+        try {
+            // 1. Avatars owned by test users (cascade-deletes their wiki/chat/etc.)
+            entityManager.createNativeQuery(
+                    "DELETE FROM avatars WHERE user_id IN "
+                    + "(SELECT id FROM users WHERE email LIKE '%@test.com')")
+                    .executeUpdate();
+            // 2. Non-cascading NOT-NULL FK rows to users.
+            entityManager.createNativeQuery(
+                    "DELETE FROM star_award_log WHERE parent_id IN "
+                    + "(SELECT id FROM users WHERE email LIKE '%@test.com') "
+                    + "OR child_id IN (SELECT id FROM users WHERE email LIKE '%@test.com')")
+                    .executeUpdate();
+            // 3. The test users themselves (remaining children cascade).
+            int users = entityManager.createNativeQuery(
+                    "DELETE FROM users WHERE email LIKE '%@test.com'")
+                    .executeUpdate();
+            if (users > 0) {
+                log.debug("[Cleanup] Deleted {} @test.com user(s) after test", users);
+            }
+        } catch (Exception e) {
+            // Never let cleanup break the suite — a missing optional table or a
+            // schema-version skew should only log, not fail the test.
+            log.warn("[Cleanup] Test-data cleanup failed (non-fatal): {}", e.getMessage());
+        }
+    }
 
     // ── Test helpers ─────────────────────────────────────────────────────────
 
