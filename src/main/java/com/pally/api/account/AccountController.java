@@ -6,7 +6,10 @@ import com.pally.domain.account.usecase.DeleteAccountUseCase;
 import com.pally.infrastructure.auth.JwtService;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.subscription.Entitlements;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.BusinessException;
+import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -175,6 +178,15 @@ public class AccountController {
             throw new BusinessException(
                     "That code has expired — ask the child to generate a new one.",
                     410);
+        }
+        // Enforce the payer's per-tier child cap on the canonical claim path.
+        // (Previously only enforced on the now-removed FamilyController.joinFamily,
+        // so a FREE parent could link unlimited children.) Reads the cap from the
+        // entitlement table; rejected atomically BEFORE any write to the child.
+        SubscriptionTier parentTier = premiumService.resolveTier(parent.getId());
+        int maxStudents = Entitlements.forTier(parentTier).maxStudents();
+        if (userRepo.countByParentId(parent.getId()) >= maxStudents) {
+            throw new UpgradeRequiredException("ADD_STUDENT");
         }
         child.setParentId(parent.getId());
         child.setAccountType(AccountType.CHILD);

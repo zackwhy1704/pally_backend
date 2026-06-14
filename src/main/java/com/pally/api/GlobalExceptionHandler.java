@@ -187,6 +187,22 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Unmapped routes → clean 404 in the standard envelope instead of falling
+     * through to the generic 500 catch-all below. Requires
+     * {@code spring.mvc.throw-exception-if-no-handler-found=true} and
+     * {@code spring.web.resources.add-mappings=false}. Leaks only method + path,
+     * never a stack trace.
+     */
+    @ExceptionHandler(org.springframework.web.servlet.NoHandlerFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoHandler(
+            org.springframework.web.servlet.NoHandlerFoundException ex) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(
+                        "No endpoint " + ex.getHttpMethod() + " " + ex.getRequestURL(), 404));
+    }
+
+    /**
      * Catch-all handler for unexpected exceptions.
      * Logs the full stack trace but returns only a generic message to the client.
      */
