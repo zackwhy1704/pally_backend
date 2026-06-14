@@ -1,0 +1,122 @@
+package com.pally.api.avatar;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pally.api.avatar.dto.AvatarResponse;
+import com.pally.domain.avatar.Avatar;
+import com.pally.domain.avatar.CharacterType;
+import com.pally.domain.avatar.Subject;
+import com.pally.domain.knowledge.KnowledgeRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Verifies {@link AvatarMapper} surfaces the per-class {@code mochiConfig} on
+ * CENTRE_CLASS avatars (and only those), for both the single-avatar and list paths.
+ */
+@ExtendWith(MockitoExtension.class)
+class AvatarMapperTest {
+
+    private static final String CLASS_ID = "class-1";
+    private static final String CONFIG_JSON =
+            "{\"bodyVariant\":4,\"accessory\":\"crown\",\"aura\":\"sparkle\"}";
+
+    @Mock private KnowledgeRepository knowledgeRepository;
+    @Mock private OrgClassJpaRepository orgClassRepository;
+
+    private AvatarMapper mapper;
+
+    @BeforeEach
+    void setUp() {
+        // No knowledge files in these tests; fileCount is not the subject under test.
+        lenient().when(knowledgeRepository.findByAvatarId(any())).thenReturn(List.of());
+        mapper = new AvatarMapper(knowledgeRepository, orgClassRepository, new ObjectMapper());
+    }
+
+    private Avatar classAvatar() {
+        Avatar a = Avatar.create("student-1", "Algebra Club", Subject.MATHS, CharacterType.MOCHI);
+        a.markCentreClassAvatar();
+        a.setClassId(CLASS_ID);
+        return a;
+    }
+
+    private Avatar personalAvatar() {
+        return Avatar.create("user-1", "My Buddy", Subject.SCIENCE, CharacterType.MOCHI);
+    }
+
+    private OrgClassJpaEntity classWithConfig() {
+        OrgClassJpaEntity cls = new OrgClassJpaEntity();
+        cls.setId(CLASS_ID);
+        cls.setMochiConfig(CONFIG_JSON);
+        return cls;
+    }
+
+    @Test
+    void singleGet_centreClassAvatarWithSavedConfig_returnsMochiConfig() {
+        when(orgClassRepository.findById(CLASS_ID)).thenReturn(Optional.of(classWithConfig()));
+
+        AvatarResponse resp = mapper.toResponse(classAvatar());
+
+        assertThat(resp.mochiConfig()).isNotNull();
+        assertThat(resp.mochiConfig().bodyVariant()).isEqualTo(4);
+        assertThat(resp.mochiConfig().accessory()).isEqualTo("crown");
+        assertThat(resp.mochiConfig().aura()).isEqualTo("sparkle");
+    }
+
+    @Test
+    void singleGet_personalAvatar_mochiConfigIsNullAndNoClassLookup() {
+        AvatarResponse resp = mapper.toResponse(personalAvatar());
+
+        assertThat(resp.mochiConfig()).isNull();
+        // PERSONAL avatars must never trigger an org_class query.
+        verify(orgClassRepository, never()).findById(any());
+    }
+
+    @Test
+    void singleGet_centreClassAvatarWithNoConfig_mochiConfigIsNull() {
+        OrgClassJpaEntity bare = new OrgClassJpaEntity();
+        bare.setId(CLASS_ID); // mochiConfig stays null
+        when(orgClassRepository.findById(CLASS_ID)).thenReturn(Optional.of(bare));
+
+        AvatarResponse resp = mapper.toResponse(classAvatar());
+
+        assertThat(resp.mochiConfig()).isNull();
+    }
+
+    @Test
+    void list_mixedAvatars_classGetsConfigPersonalGetsNull_andBatchesLookup() {
+        when(orgClassRepository.findAllById(any())).thenReturn(List.of(classWithConfig()));
+
+        List<AvatarResponse> out = mapper.toResponseList(List.of(personalAvatar(), classAvatar()));
+
+        assertThat(out.get(0).mochiConfig()).isNull();           // personal
+        assertThat(out.get(1).mochiConfig()).isNotNull();        // class
+        assertThat(out.get(1).mochiConfig().bodyVariant()).isEqualTo(4);
+        // Batched: the list path uses findAllById, never per-avatar findById.
+        verify(orgClassRepository, never()).findById(any());
+    }
+
+    @Test
+    void list_noCentreClassAvatars_skipsClassQueryEntirely() {
+        List<AvatarResponse> out = mapper.toResponseList(List.of(personalAvatar(), personalAvatar()));
+
+        assertThat(out).hasSize(2);
+        assertThat(out).allSatisfy(r -> assertThat(r.mochiConfig()).isNull());
+        verify(orgClassRepository, never()).findAllById(any());
+        verify(orgClassRepository, never()).findById(any());
+    }
+}

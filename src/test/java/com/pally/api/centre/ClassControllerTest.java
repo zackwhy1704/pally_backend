@@ -264,7 +264,7 @@ class ClassControllerTest {
         OrgClassJpaEntity cls = classEntity();
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         com.pally.api.centre.dto.MochiConfig cfg =
-                new com.pally.api.centre.dto.MochiConfig(3, 2, "star", "crown", "sparkle");
+                new com.pally.api.centre.dto.MochiConfig(3, "crown", "sparkle");
 
         ResponseEntity<ApiResponse<com.pally.api.centre.dto.MochiConfig>> resp =
                 controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
@@ -272,7 +272,7 @@ class ClassControllerTest {
         // Returned config echoes the input.
         assertThat(resp.getBody().data()).isEqualTo(cfg);
         // Stored as a JSON TEXT blob on the entity, and the class is saved.
-        assertThat(cls.getMochiConfig()).contains("\"bodyVariant\":3", "\"eyeStyle\":\"star\"");
+        assertThat(cls.getMochiConfig()).contains("\"bodyVariant\":3", "\"accessory\":\"crown\"");
         verify(classRepo).save(cls);
     }
 
@@ -282,7 +282,7 @@ class ClassControllerTest {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
         com.pally.api.centre.dto.MochiConfig cfg =
-                new com.pally.api.centre.dto.MochiConfig(5, 1, "uwu", "bow", "bloom");
+                new com.pally.api.centre.dto.MochiConfig(5, "bow", "bloom");
 
         controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
         // The blob the PATCH stored is what the GET list will deserialize.
@@ -310,7 +310,7 @@ class ClassControllerTest {
     void updateMochiConfig_outOfRangeBodyVariant_isRejected() {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
         com.pally.api.centre.dto.MochiConfig bad =
-                new com.pally.api.centre.dto.MochiConfig(99, 2, "star", "crown", "sparkle");
+                new com.pally.api.centre.dto.MochiConfig(99, "crown", "sparkle");
 
         assertThatThrownBy(() ->
                 controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
@@ -319,15 +319,50 @@ class ClassControllerTest {
     }
 
     @Test
-    void updateMochiConfig_unknownEyeStyle_isRejected() {
+    void updateMochiConfig_unknownAccessory_isRejected() {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
         com.pally.api.centre.dto.MochiConfig bad =
-                new com.pally.api.centre.dto.MochiConfig(3, 2, "laser", "crown", "sparkle");
+                new com.pally.api.centre.dto.MochiConfig(3, "laser", "sparkle");
 
         assertThatThrownBy(() ->
                 controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
                 .isInstanceOf(BusinessException.class);
         verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void updateMochiConfig_unknownAura_isRejected() {
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
+        com.pally.api.centre.dto.MochiConfig bad =
+                new com.pally.api.centre.dto.MochiConfig(3, "crown", "rainbow");
+
+        assertThatThrownBy(() ->
+                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
+                .isInstanceOf(BusinessException.class);
+        verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void deserializeMochiConfig_legacyBlobWithRemovedKeys_deserializesWithoutError() {
+        // A blob saved before V74 simplification still carries eyeStyle/cheekVariant.
+        // JsonIgnoreProperties(ignoreUnknown=true) must let it deserialize cleanly
+        // into the new 3-field shape rather than 500-ing on old data.
+        OrgClassJpaEntity cls = classEntity();
+        cls.setMochiConfig(
+                "{\"bodyVariant\":7,\"cheekVariant\":4,\"eyeStyle\":\"star\","
+                        + "\"accessory\":\"cap\",\"aura\":\"fire\"}");
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
+
+        ResponseEntity<ApiResponse<List<Map<String, Object>>>> list =
+                controller.listClasses(OWNER_ID, ORG_ID);
+
+        com.pally.api.centre.dto.MochiConfig mc =
+                (com.pally.api.centre.dto.MochiConfig)
+                        list.getBody().data().get(0).get("mochiConfig");
+        assertThat(mc).isNotNull();
+        assertThat(mc.bodyVariant()).isEqualTo(7);
+        assertThat(mc.accessory()).isEqualTo("cap");
+        assertThat(mc.aura()).isEqualTo("fire");
     }
 
     @Test
@@ -336,7 +371,7 @@ class ClassControllerTest {
         when(accessService.ensureOwner("intruder", ORG_ID))
                 .thenThrow(new BusinessException("Not the centre owner", 403));
         com.pally.api.centre.dto.MochiConfig cfg =
-                new com.pally.api.centre.dto.MochiConfig(3, 2, "star", "crown", "sparkle");
+                new com.pally.api.centre.dto.MochiConfig(3, "crown", "sparkle");
 
         assertThatThrownBy(() ->
                 controller.updateMochiConfig("intruder", ORG_ID, CLASS_ID, cfg))
@@ -350,7 +385,7 @@ class ClassControllerTest {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
         com.pally.api.centre.dto.MochiConfig original =
-                new com.pally.api.centre.dto.MochiConfig(11, 6, "surprised", "headband", "electric");
+                new com.pally.api.centre.dto.MochiConfig(11, "headband", "electric");
 
         controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, original);
         com.pally.api.centre.dto.MochiConfig roundTripped =
@@ -358,8 +393,6 @@ class ClassControllerTest {
                         controller.listClasses(OWNER_ID, ORG_ID).getBody().data().get(0).get("mochiConfig");
 
         assertThat(roundTripped.bodyVariant()).isEqualTo(11);
-        assertThat(roundTripped.cheekVariant()).isEqualTo(6);
-        assertThat(roundTripped.eyeStyle()).isEqualTo("surprised");
         assertThat(roundTripped.accessory()).isEqualTo("headband");
         assertThat(roundTripped.aura()).isEqualTo("electric");
     }

@@ -1,5 +1,6 @@
 package com.pally.api.avatar.dto;
 
+import com.pally.api.centre.dto.MochiConfig;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.ClassAvatarAppearance;
@@ -56,5 +57,12 @@ public record AvatarResponse(
         /// CENTRE_CLASS avatars; null/absent for PERSONAL. Clients render it
         /// verbatim (band colour + subject-glyph icon + initials).
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        ClassAvatarAppearance appearance
+        ClassAvatarAppearance appearance,
+        /// Per-class Mochi customization ({bodyVariant, accessory, aura}),
+        /// deserialized from {@code org_class.mochi_config}. Present ONLY for
+        /// CENTRE_CLASS avatars whose class has a saved config; null/absent for
+        /// PERSONAL avatars and for class avatars with no config set. Mobile
+        /// renders the class Mochi from this.
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        MochiConfig mochiConfig
 ) {}
