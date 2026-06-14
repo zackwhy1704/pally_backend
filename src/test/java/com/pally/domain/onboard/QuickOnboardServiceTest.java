@@ -1,5 +1,7 @@
 package com.pally.domain.onboard;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.api.auth.dto.AuthResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
@@ -36,7 +38,7 @@ class QuickOnboardServiceTest {
     @Test
     void execute_newUser_registersAndCreatesAvatar() {
         when(authService.register("kid@test.com", "pass1234", "Kid", null, null))
-                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, "SOLO"));
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
         when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
@@ -61,7 +63,7 @@ class QuickOnboardServiceTest {
         when(authService.register("kid@test.com", "pass1234", null, null, null))
                 .thenThrow(new BusinessException("Email already registered", 409));
         when(authService.login("kid@test.com", "pass1234"))
-                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, "SOLO"));
+                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, AccountType.SOLO));
         when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 

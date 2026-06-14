@@ -1,5 +1,7 @@
 package com.pally.domain.notification;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.api.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
 import com.pally.domain.progress.WeeklyReportService;
 import com.pally.infrastructure.email.EmailService;
@@ -36,7 +38,7 @@ public class WeeklyEmailScheduler {
         log.info("[WeeklyEmail] Starting weekly parent report emails");
         // Find all PARENT accounts
         // No dedicated query — iterate all parents from the child-side
-        List<UserJpaEntity> parents = userRepo.findByAccountType("PARENT");
+        List<UserJpaEntity> parents = userRepo.findByAccountType(AccountType.PARENT);
 
         int sent = 0;
         for (UserJpaEntity parent : parents) {

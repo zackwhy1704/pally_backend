@@ -1,5 +1,7 @@
 package com.pally.domain.notification;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
@@ -30,7 +32,7 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_noChildren_sendsNothing() {
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of());
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of());
 
         scheduler.checkInactiveChildren();
 
@@ -40,7 +42,7 @@ class RiskAlertSchedulerTest {
     @Test
     void checkInactiveChildren_activeChild_noAlert() {
         UserJpaEntity child = childWithParent("c1", "p1", "Alice");
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of(child));
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(5);
 
         scheduler.checkInactiveChildren();
@@ -51,7 +53,7 @@ class RiskAlertSchedulerTest {
     @Test
     void checkInactiveChildren_inactiveChildWithParent_sendsAlert() {
         UserJpaEntity child = childWithParent("c1", "p1", "Bob");
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of(child));
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(0);
 
         scheduler.checkInactiveChildren();
@@ -62,7 +64,7 @@ class RiskAlertSchedulerTest {
     @Test
     void checkInactiveChildren_inactiveChildWithoutParent_skipped() {
         UserJpaEntity child = childWithoutParent("c1");
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of(child));
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
 
         scheduler.checkInactiveChildren();
 
@@ -74,7 +76,7 @@ class RiskAlertSchedulerTest {
     @Test
     void checkInactiveChildren_nullActivityCount_treatedAsZero() {
         UserJpaEntity child = childWithParent("c1", "p1", "Charlie");
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of(child));
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(null);
 
         scheduler.checkInactiveChildren();
@@ -86,7 +88,7 @@ class RiskAlertSchedulerTest {
     void checkInactiveChildren_mixedActiveAndInactive_onlyAlertsInactive() {
         UserJpaEntity active = childWithParent("c1", "p1", "Alice");
         UserJpaEntity inactive = childWithParent("c2", "p1", "Bob");
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of(active, inactive));
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(active, inactive));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(3);
         when(activityRepo.countSince(eq("c2"), any())).thenReturn(0);
 
@@ -102,7 +104,7 @@ class RiskAlertSchedulerTest {
         child.setParentId("p1");
         child.setChildName(null);
         child.setDisplayName("FallbackName");
-        when(userRepo.findByAccountType("CHILD")).thenReturn(List.of(child));
+        when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(0);
 
         scheduler.checkInactiveChildren();

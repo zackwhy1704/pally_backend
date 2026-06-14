@@ -1,5 +1,7 @@
 package com.pally.infrastructure.dev;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
@@ -105,7 +107,7 @@ public class DevSeedService {
                 child.setLevel(1);
                 child.setCreatedAt(Instant.now());
                 child.setTrialStatus("NONE");
-                child.setAccountType("CHILD");
+                child.setAccountType(AccountType.CHILD);
                 child.setParentId(user.getId());
                 userRepo.save(child);
             }

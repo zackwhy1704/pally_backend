@@ -1,5 +1,7 @@
 package com.pally.domain.subscription;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.config.CacheConfig;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
@@ -74,7 +76,7 @@ public class PremiumService {
         }
 
         // Inherit from parent for CHILD accounts.
-        if ("CHILD".equals(user.getAccountType()) && user.getParentId() != null) {
+        if (user.getAccountType() == AccountType.CHILD && user.getParentId() != null) {
             SubscriptionJpaEntity parentSub =
                     subRepo.findById(user.getParentId()).orElse(null);
             if (parentSub != null && ACTIVE_STATUSES.contains(parentSub.getStatus())) {

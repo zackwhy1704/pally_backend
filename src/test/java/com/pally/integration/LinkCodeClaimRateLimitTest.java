@@ -1,5 +1,7 @@
 package com.pally.integration;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import org.junit.jupiter.api.Test;
@@ -38,7 +40,7 @@ class LinkCodeClaimRateLimitTest extends IntegrationTestBase {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         AuthResult parent = registerUser("rl-parent-" + suffix + "@test.com", "parentPass1");
         userRepo.findById(parent.userId()).ifPresent(u -> {
-            u.setAccountType("PARENT");
+            u.setAccountType(AccountType.PARENT);
             userRepo.save(u);
         });
         return parent;

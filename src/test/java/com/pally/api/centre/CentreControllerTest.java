@@ -1,5 +1,7 @@
 package com.pally.api.centre;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
@@ -284,7 +286,7 @@ class CentreControllerTest {
         // Ownership is recorded on the org; we must NOT overflow the VARCHAR(10)
         // account_type column, and the owner is not seated as a student.
         verify(orgRepo).save(any(OrganizationJpaEntity.class));
-        assertThat(user.getAccountType()).isEqualTo("SOLO"); // unchanged
+        assertThat(user.getAccountType()).isEqualTo(AccountType.SOLO); // unchanged
         assertThat(user.getCentreId()).isNull();
     }
 

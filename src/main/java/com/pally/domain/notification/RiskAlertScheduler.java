@@ -1,5 +1,7 @@
 package com.pally.domain.notification;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
@@ -27,7 +29,7 @@ public class RiskAlertScheduler {
 
     @Scheduled(cron = "0 0 9 * * MON", zone = "Asia/Singapore")
     public void checkInactiveChildren() {
-        List<UserJpaEntity> children = userRepo.findByAccountType("CHILD");
+        List<UserJpaEntity> children = userRepo.findByAccountType(AccountType.CHILD);
         Instant sixDaysAgo = Instant.now().minus(Duration.ofDays(6));
         int alerts = 0;
         for (UserJpaEntity child : children) {

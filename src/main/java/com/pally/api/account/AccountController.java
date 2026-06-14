@@ -1,5 +1,7 @@
 package com.pally.api.account;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.domain.account.usecase.DeleteAccountUseCase;
 import com.pally.infrastructure.auth.JwtService;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
@@ -97,7 +99,7 @@ public class AccountController {
             @AuthenticationPrincipal String userId) {
         UserJpaEntity me = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
-        if ("PARENT".equals(me.getAccountType())) {
+        if (me.getAccountType() == AccountType.PARENT) {
             throw new BusinessException(
                     "Parents can't generate a link code — ask the child to.",
                     409);
@@ -109,8 +111,8 @@ public class AccountController {
         // Mark as CHILD eagerly so subsequent business logic (notifications,
         // shared-note moderation) can treat the account as kid-owned even
         // before the parent claims the code.
-        if (!"CHILD".equals(me.getAccountType())) {
-            me.setAccountType("CHILD");
+        if (me.getAccountType() != AccountType.CHILD) {
+            me.setAccountType(AccountType.CHILD);
         }
         String code = generateUniqueCode();
         Instant expires = Instant.now().plus(CODE_TTL);
@@ -149,7 +151,7 @@ public class AccountController {
         String code = raw.trim().toUpperCase();
         UserJpaEntity parent = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
-        if ("CHILD".equals(parent.getAccountType())) {
+        if (parent.getAccountType() == AccountType.CHILD) {
             throw new BusinessException(
                     "Child accounts can't claim other accounts.", 403);
         }
@@ -175,12 +177,12 @@ public class AccountController {
                     410);
         }
         child.setParentId(parent.getId());
-        child.setAccountType("CHILD");
+        child.setAccountType(AccountType.CHILD);
         child.setLinkCode(null);
         child.setLinkCodeExpiresAt(null);
         userRepo.save(child);
 
-        parent.setAccountType("PARENT");
+        parent.setAccountType(AccountType.PARENT);
         userRepo.save(parent);
         // CHILD's inherited entitlement flips on this link — flush their
         // cached resolve() value so the next gate read sees the parent's
@@ -207,11 +209,11 @@ public class AccountController {
             @AuthenticationPrincipal String userId) {
         UserJpaEntity me = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
-        if ("CHILD".equals(me.getAccountType())) {
+        if (me.getAccountType() == AccountType.CHILD) {
             throw new BusinessException(
                     "Child accounts can't be upgraded to PARENT directly.", 403);
         }
-        me.setAccountType("PARENT");
+        me.setAccountType(AccountType.PARENT);
         userRepo.save(me);
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "accountType", me.getAccountType())));
@@ -228,7 +230,7 @@ public class AccountController {
         body.put("userId", me.getId());
         body.put("accountType", me.getAccountType());
 
-        if ("CHILD".equals(me.getAccountType())) {
+        if (me.getAccountType() == AccountType.CHILD) {
             String parentId = me.getParentId();
             Map<String, Object> parent = parentId == null
                     ? Map.of()

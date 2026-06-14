@@ -1,5 +1,7 @@
 package com.pally.integration;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +40,7 @@ class ParentChildIntegrationTest extends IntegrationTestBase {
         parentToken = parentAuth.token();
         parentId = parentAuth.userId();
         userRepo.findById(parentId).ifPresent(u -> {
-            u.setAccountType("PARENT");
+            u.setAccountType(AccountType.PARENT);
             userRepo.save(u);
         });
 
@@ -147,7 +149,7 @@ class ParentChildIntegrationTest extends IntegrationTestBase {
         // Register a different parent
         AuthResult otherParent = registerUser("other-parent-" + UUID.randomUUID().toString().substring(0, 8) + "@test.com", "otherPass1");
         userRepo.findById(otherParent.userId()).ifPresent(u -> {
-            u.setAccountType("PARENT");
+            u.setAccountType(AccountType.PARENT);
             userRepo.save(u);
         });
 

@@ -1,5 +1,7 @@
 package com.pally.domain.notification;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.domain.progress.WeeklyReportService;
 import com.pally.infrastructure.email.EmailService;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
@@ -37,7 +39,7 @@ class WeeklyEmailSchedulerTest {
 
     @Test
     void sendWeeklyReports_noParents_sendsNothing() {
-        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of());
+        when(userRepo.findByAccountType(AccountType.PARENT)).thenReturn(List.of());
 
         scheduler.sendWeeklyReports();
 
@@ -49,7 +51,7 @@ class WeeklyEmailSchedulerTest {
         UserJpaEntity parent = new UserJpaEntity();
         parent.setId("p-1");
         parent.setEmail("parent@test.com");
-        parent.setAccountType("PARENT");
+        parent.setAccountType(AccountType.PARENT);
 
         UserJpaEntity child = new UserJpaEntity();
         child.setId("c-1");
@@ -57,7 +59,7 @@ class WeeklyEmailSchedulerTest {
         child.setParentId("p-1");
         child.setStreakDays(5);
 
-        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of(parent));
+        when(userRepo.findByAccountType(AccountType.PARENT)).thenReturn(List.of(parent));
         when(userRepo.findByParentId("p-1")).thenReturn(List.of(child));
         when(activityRepo.sumMinutesBetween(eq("c-1"), any(), any())).thenReturn(45);
         when(activityRepo.countSince(eq("c-1"), any())).thenReturn(3);
@@ -80,13 +82,13 @@ class WeeklyEmailSchedulerTest {
         UserJpaEntity parent = new UserJpaEntity();
         parent.setId("p-2");
         parent.setEmail("parent2@test.com");
-        parent.setAccountType("PARENT");
+        parent.setAccountType(AccountType.PARENT);
 
         UserJpaEntity child = new UserJpaEntity();
         child.setId("c-2");
         child.setParentId("p-2");
 
-        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of(parent));
+        when(userRepo.findByAccountType(AccountType.PARENT)).thenReturn(List.of(parent));
         when(userRepo.findByParentId("p-2")).thenReturn(List.of(child));
         when(activityRepo.sumMinutesBetween(eq("c-2"), any(), any())).thenReturn(0);
 
@@ -100,9 +102,9 @@ class WeeklyEmailSchedulerTest {
         UserJpaEntity parent = new UserJpaEntity();
         parent.setId("p-3");
         parent.setEmail(null);
-        parent.setAccountType("PARENT");
+        parent.setAccountType(AccountType.PARENT);
 
-        when(userRepo.findByAccountType("PARENT")).thenReturn(List.of(parent));
+        when(userRepo.findByAccountType(AccountType.PARENT)).thenReturn(List.of(parent));
 
         scheduler.sendWeeklyReports();
 
@@ -114,7 +116,7 @@ class WeeklyEmailSchedulerTest {
         UserJpaEntity parent = new UserJpaEntity();
         parent.setId("p-4");
         parent.setEmail("multi@test.com");
-        parent.setAccountType("PARENT");
+        parent.setAccountType(AccountType.PARENT);
 
         UserJpaEntity child1 = new UserJpaEntity();
         child1.setId("c-3");

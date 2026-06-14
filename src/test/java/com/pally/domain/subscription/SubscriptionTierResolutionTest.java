@@ -1,5 +1,7 @@
 package com.pally.domain.subscription;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
@@ -36,7 +38,7 @@ class SubscriptionTierResolutionTest {
     private UserJpaEntity soloUser(String id) {
         UserJpaEntity u = new UserJpaEntity();
         u.setId(id);
-        u.setAccountType("SOLO");
+        u.setAccountType(AccountType.SOLO);
         return u;
     }
 

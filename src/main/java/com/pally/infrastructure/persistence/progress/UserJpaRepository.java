@@ -1,5 +1,7 @@
 package com.pally.infrastructure.persistence.progress;
 
+import com.pally.domain.account.AccountType;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,7 +20,7 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
 
     List<UserJpaEntity> findByParentId(String parentId);
 
-    List<UserJpaEntity> findByAccountType(String accountType);
+    List<UserJpaEntity> findByAccountType(AccountType accountType);
 
     int countByParentId(String parentId);
 

@@ -1,5 +1,6 @@
 package com.pally.infrastructure.persistence.progress;
 
+import com.pally.domain.account.AccountType;
 import com.pally.domain.progress.UserStats;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -80,8 +81,9 @@ public class UserJpaEntity {
     private int screenTimeMinutes = 60;
 
     /// Family account model. SOLO is the legacy default.
+    @Enumerated(EnumType.STRING)
     @Column(name = "account_type", nullable = false, length = 10)
-    private String accountType = "SOLO";
+    private AccountType accountType = AccountType.SOLO;
 
     /// FK to the parent account when this user is a CHILD.
     @Column(name = "parent_id", length = 36)

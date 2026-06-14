@@ -1,5 +1,7 @@
 package com.pally.infrastructure.auth;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.api.auth.dto.AuthResponse;
 import com.pally.domain.shop.CharacterShopService;
 import com.pally.domain.subscription.PremiumService;
@@ -76,7 +78,7 @@ public class AuthService {
             user.setBirthYear(birthYear);
         }
         if ("parent".equalsIgnoreCase(role)) {
-            user.setAccountType("PARENT");
+            user.setAccountType(AccountType.PARENT);
         }
         userRepo.save(user);
 

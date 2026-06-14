@@ -1,5 +1,7 @@
 package com.pally.domain.subscription;
 
+import com.pally.domain.account.AccountType;
+
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
@@ -30,14 +32,14 @@ class PremiumServiceTest {
     private UserJpaEntity solo(String id) {
         UserJpaEntity u = new UserJpaEntity();
         u.setId(id);
-        u.setAccountType("SOLO");
+        u.setAccountType(AccountType.SOLO);
         return u;
     }
 
     private UserJpaEntity child(String id, String parentId) {
         UserJpaEntity u = new UserJpaEntity();
         u.setId(id);
-        u.setAccountType("CHILD");
+        u.setAccountType(AccountType.CHILD);
         u.setParentId(parentId);
         return u;
     }
