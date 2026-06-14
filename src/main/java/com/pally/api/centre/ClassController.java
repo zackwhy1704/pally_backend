@@ -246,6 +246,43 @@ public class ClassController {
         return ResponseEntity.ok(ApiResponse.success(validated));
     }
 
+    // ── Set the class teaching style (per-class teacher instruction) ───────────
+
+    /**
+     * Owner-gated. Stores the teacher's teaching instruction on the class corpus
+     * avatar's {@code teacherPreferences} — already injected into the tutor system
+     * prompt (## TEACHER INSTRUCTIONS), so it applies to every student's Mochi in
+     * the class. The student-facing /avatars/{id}/teacher-preferences path rejects
+     * class avatars (403), so centre edits must come through this owner-gated route.
+     */
+    @PatchMapping("/classes/{classId}/teaching-style")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateTeachingStyle(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @RequestBody Map<String, String> body) {
+        accessService.ensureOwner(userId, orgId);
+        OrgClassJpaEntity cls = requireClass(orgId, classId);
+        if (cls.getCorpusAvatarId() == null) {
+            throw new BusinessException("This class has no content corpus yet.", 400);
+        }
+        String prefs = body == null ? "" : body.getOrDefault("teacherPreferences", "");
+        if (prefs != null && prefs.length() > 500) {
+            throw new BusinessException("Teaching style must be under 500 characters", 400);
+        }
+        Avatar corpus = avatarRepository.findById(cls.getCorpusAvatarId())
+                .orElseThrow(() -> new BusinessException("Corpus avatar not found", 404));
+        corpus.setTeacherPreferences(prefs == null || prefs.isBlank() ? null : prefs.strip());
+        avatarRepository.save(corpus);
+        log.info("[Class] updated teaching-style class={} org={} set={}",
+                classId, orgId, corpus.getTeacherPreferences() != null);
+        Map<String, Object> out = new HashMap<>();
+        out.put("teacherPreferences", corpus.getTeacherPreferences() == null
+                ? "" : corpus.getTeacherPreferences());
+        return ResponseEntity.ok(ApiResponse.success(out));
+    }
+
     // ── Centre members (all users in the org + their class memberships) ────────
 
     @GetMapping("/members")

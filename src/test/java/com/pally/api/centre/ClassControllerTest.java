@@ -228,6 +228,35 @@ class ClassControllerTest {
         verify(avatarRepository, never()).deleteById(anyString());
     }
 
+    // ── updateTeachingStyle ────────────────────────────────────────────────────
+
+    @Test
+    void updateTeachingStyle_ownerGated_setsCorpusTeacherPreferences() {
+        OrgClassJpaEntity cls = classEntity(); // corpusAvatarId = "corpus-1"
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        Avatar corpus = Avatar.create("owner-1", "P4 Math Corpus",
+                com.pally.domain.avatar.Subject.MATHS,
+                com.pally.domain.avatar.CharacterType.MOCHI);
+        when(avatarRepository.findById("corpus-1")).thenReturn(Optional.of(corpus));
+
+        controller.updateTeachingStyle(OWNER_ID, ORG_ID, CLASS_ID,
+                Map.of("teacherPreferences", "Use more worked examples."));
+
+        assertThat(corpus.getTeacherPreferences()).isEqualTo("Use more worked examples.");
+        verify(avatarRepository).save(corpus);
+    }
+
+    @Test
+    void updateTeachingStyle_over500Chars_is400() {
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
+        String tooLong = "x".repeat(501);
+
+        assertThatThrownBy(() -> controller.updateTeachingStyle(
+                OWNER_ID, ORG_ID, CLASS_ID, Map.of("teacherPreferences", tooLong)))
+                .isInstanceOf(BusinessException.class);
+        verify(avatarRepository, never()).save(any(Avatar.class));
+    }
+
     // ── tenant isolation ─────────────────────────────────────────────────────
 
     @Test
