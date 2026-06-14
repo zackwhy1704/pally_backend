@@ -1,9 +1,12 @@
 package com.pally.api.centre;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
@@ -59,6 +62,8 @@ public class CentreController {
     private final CentreAccessService accessService;
     private final OrganizationJpaRepository orgRepo;
     private final CentreEnrollCodeJpaRepository codeRepo;
+    private final OrgClassJpaRepository classRepo;
+    private final ClassEnrollmentService classEnrollmentService;
     private final UserJpaRepository userRepo;
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final AvatarJpaRepository avatarJpaRepository;
@@ -97,6 +102,48 @@ public class CentreController {
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "organizationId", row.getOrganizationId(),
                 "cohortLabel", row.getCohortLabel())));
+    }
+
+    // ── Student-side: join a class directly by its class code ─────────
+
+    /**
+     * Self-join a class with the single code printed on the class card. The class
+     * code doubles as the centre invite: redeeming it sets the student's centre,
+     * then provisions their branded class avatar + membership + CLASS-group join
+     * (idempotent — re-entering the code is a no-op that returns the same avatar).
+     */
+    @PostMapping("/redeem-class-code")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> redeemClassCode(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, String> body) {
+        String raw = body == null ? null : body.get("code");
+        if (raw == null || raw.isBlank()) {
+            throw new BusinessException("code is required", 400);
+        }
+        String code = raw.trim().toUpperCase();
+        OrgClassJpaEntity cls = classRepo.findByJoinCode(code).orElseThrow(
+                () -> new BusinessException("That class code doesn't exist", 404));
+
+        // The class code IS the centre invite — joining a class joins its centre.
+        UserJpaEntity user = userRepo.findById(userId).orElseThrow(
+                () -> new BusinessException("User not found", 404));
+        user.setCentreId(cls.getOrganizationId());
+        if (user.getCohortLabel() == null || user.getCohortLabel().isBlank()) {
+            user.setCohortLabel(cls.getName());
+        }
+        userRepo.save(user);
+
+        String avatarId = classEnrollmentService.enroll(cls, userId);
+        log.info("[Centre] user={} joined class={} org={} avatar={}",
+                userId, cls.getId(), cls.getOrganizationId(), avatarId);
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("classId", cls.getId());
+        out.put("className", cls.getName());
+        out.put("organizationId", cls.getOrganizationId());
+        out.put("avatarId", avatarId);
+        return ResponseEntity.ok(ApiResponse.success(out));
     }
 
     // ── Admin-side: roster ────────────────────────────────────────────

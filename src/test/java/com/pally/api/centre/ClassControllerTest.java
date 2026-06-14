@@ -53,6 +53,7 @@ class ClassControllerTest {
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
     @Mock com.pally.domain.module.NarrationService narrationService;
     @Mock com.pally.domain.group.ClassGroupService classGroupService;
+    @Mock com.pally.domain.organization.ClassEnrollmentService classEnrollmentService;
     // Real ObjectMapper — MochiConfig (de)serialization is the behaviour under test.
     @org.mockito.Spy com.fasterxml.jackson.databind.ObjectMapper objectMapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
@@ -131,51 +132,22 @@ class ClassControllerTest {
     // ── assign ───────────────────────────────────────────────────────────────
 
     @Test
-    void assign_provisionsBrandedClosedBookAvatar_boundToClassCorpus() {
+    void assign_delegatesToEnrollmentService_andReturnsAvatarId() {
         OrgClassJpaEntity cls = classEntity();
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(student()));
-        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+        when(classEnrollmentService.enroll(cls, STUDENT_ID)).thenReturn("avatar-1");
 
         ResponseEntity<ApiResponse<Map<String, Object>>> resp = controller.assign(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID));
 
-        ArgumentCaptor<Avatar> captor = ArgumentCaptor.forClass(Avatar.class);
-        verify(avatarRepository).save(captor.capture());
-        Avatar provisioned = captor.getValue();
-        assertThat(provisioned.isCentreAvatar()).isTrue();
-        assertThat(provisioned.isAvatarLocked()).isFalse();
-        assertThat(provisioned.getClassId()).isEqualTo(CLASS_ID);
-        assertThat(provisioned.getCorpusAvatarId()).isEqualTo("corpus-1");
-        assertThat(provisioned.getCentreBrandName()).isEqualTo("ABC P4 Math");
-        assertThat(provisioned.getUserId()).isEqualTo(STUDENT_ID);
-        verify(membershipRepo).save(any(ClassMembershipJpaEntity.class));
+        verify(classEnrollmentService).enroll(cls, STUDENT_ID);
+        assertThat(resp.getBody().data().get("avatarId")).isEqualTo("avatar-1");
         assertThat(resp.getBody().data().get("classId")).isEqualTo(CLASS_ID);
     }
 
     @Test
-    void assign_idempotent_returnsExistingAvatar_withoutReprovisioning() {
-        OrgClassJpaEntity cls = classEntity();
-        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
-        when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(student()));
-        ClassMembershipJpaEntity existing = new ClassMembershipJpaEntity();
-        existing.setId("m-1");
-        existing.setClassId(CLASS_ID);
-        existing.setUserId(STUDENT_ID);
-        existing.setStudentAvatarId("avatar-existing");
-        existing.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
-        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
-                .thenReturn(Optional.of(existing));
-
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp = controller.assign(
-                OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID));
-
-        assertThat(resp.getBody().data().get("avatarId")).isEqualTo("avatar-existing");
-        verify(avatarRepository, never()).save(any());
-    }
-
-    @Test
-    void assign_studentFromAnotherCentre_isForbidden() {
+    void assign_studentFromAnotherCentre_isForbidden_andNotEnrolled() {
         OrgClassJpaEntity cls = classEntity();
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         UserJpaEntity outsider = student();
@@ -185,7 +157,7 @@ class ClassControllerTest {
         assertThatThrownBy(() -> controller.assign(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID)))
                 .isInstanceOf(BusinessException.class);
-        verify(avatarRepository, never()).save(any());
+        verify(classEnrollmentService, never()).enroll(any(), anyString());
     }
 
     @Test
@@ -196,6 +168,7 @@ class ClassControllerTest {
         assertThatThrownBy(() -> controller.assign(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID)))
                 .isInstanceOf(BusinessException.class);
+        verify(classEnrollmentService, never()).enroll(any(), anyString());
     }
 
     // ── remove ───────────────────────────────────────────────────────────────

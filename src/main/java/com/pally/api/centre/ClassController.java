@@ -9,6 +9,7 @@ import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.group.ClassGroupService;
+import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.domain.module.NarrationService;
 
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
@@ -68,6 +69,7 @@ public class ClassController {
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final NarrationService narrationService;
     private final ClassGroupService classGroupService;
+    private final ClassEnrollmentService classEnrollmentService;
     private final ObjectMapper objectMapper;
 
     // Heatmap legibility caps (mirror CentreAnalyticsController).
@@ -297,47 +299,12 @@ public class ClassController {
         if (!orgId.equals(student.getCentreId()))
             throw new BusinessException("Student is not a member of this centre", 403);
 
-        // Idempotent: if already an active membership, return its avatar.
-        var existing = membershipRepo.findByClassIdAndUserId(classId, studentId);
-        if (existing.isPresent()
-                && ClassMembershipJpaEntity.STATUS_ACTIVE.equals(existing.get().getStatus())
-                && existing.get().getStudentAvatarId() != null) {
-            return ResponseEntity.ok(ApiResponse.success(Map.of(
-                    "avatarId", existing.get().getStudentAvatarId(),
-                    "classId", classId, "userId", studentId)));
-        }
+        // Provision (idempotently) the student's branded class avatar + membership.
+        String avatarId = classEnrollmentService.enroll(cls, studentId);
 
-        // Provision the student's centre avatar from the class config.
-        Avatar avatar = Avatar.create(
-                studentId,
-                cls.getBrandName() != null && !cls.getBrandName().isBlank()
-                        ? cls.getBrandName() : cls.getName(),
-                parseSubject(cls.getSubject()),
-                parseCharacter(cls.getCharacterType()),
-                cls.getLevel(), null);
-        // Branded closed-book class avatar the student studies with — CENTRE_CLASS
-        // so it is excluded from the economy and rendered with the class uniform,
-        // and bound to the class for analytics grouping.
-        avatar.markCentreClassAvatar();
-        avatar.setClassId(classId);
-        avatar.setCorpusAvatarId(cls.getCorpusAvatarId());
-        applyClassConfig(avatar, cls);
-        Avatar saved = avatarRepository.save(avatar);
-
-        ClassMembershipJpaEntity m = existing.orElseGet(ClassMembershipJpaEntity::new);
-        if (m.getId() == null) m.setId(IdGenerator.newId());
-        m.setClassId(classId);
-        m.setUserId(studentId);
-        m.setStudentAvatarId(saved.getId());
-        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
-        membershipRepo.save(m);
-
-        // Sync the student into the class's CLASS group.
-        classGroupService.syncStudentJoin(cls, studentId);
-
-        log.info("[Class] assigned student={} class={} avatar={}", studentId, classId, saved.getId());
+        log.info("[Class] assigned student={} class={} avatar={}", studentId, classId, avatarId);
         return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "avatarId", saved.getId(), "classId", classId, "userId", studentId)));
+                "avatarId", avatarId, "classId", classId, "userId", studentId)));
     }
 
     // ── Remove a member (locks their avatar; keeps history) ───────────────────

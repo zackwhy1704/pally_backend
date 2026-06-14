@@ -1,9 +1,12 @@
 package com.pally.api.centre;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
@@ -40,6 +43,8 @@ class CentreControllerTest {
     @Mock CentreAccessService accessService;
     @Mock OrganizationJpaRepository orgRepo;
     @Mock CentreEnrollCodeJpaRepository codeRepo;
+    @Mock OrgClassJpaRepository classRepo;
+    @Mock ClassEnrollmentService classEnrollmentService;
     @Mock UserJpaRepository userRepo;
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
     @Mock AvatarJpaRepository avatarJpaRepository;
@@ -63,6 +68,57 @@ class CentreControllerTest {
         org.setCreatedAt(Instant.now());
 
         lenient().when(accessService.ensureOwner(OWNER_ID, ORG_ID)).thenReturn(org);
+    }
+
+    // ── POST /redeem-class-code ──────────────────────────────────────────
+
+    private OrgClassJpaEntity classEntity() {
+        OrgClassJpaEntity cls = new OrgClassJpaEntity();
+        cls.setId("class-1");
+        cls.setOrganizationId(ORG_ID);
+        cls.setName("P4 Math");
+        cls.setJoinCode("ABCD2345");
+        cls.setCharacterType("MOCHI");
+        return cls;
+    }
+
+    @Test
+    void redeemClassCode_joinsCentre_enrollsInClass_andReturnsClassInfo() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findByJoinCode("ABCD2345")).thenReturn(Optional.of(cls));
+        UserJpaEntity user = new UserJpaEntity();
+        user.setId(STUDENT_A);
+        when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(user));
+        when(classEnrollmentService.enroll(cls, STUDENT_A)).thenReturn(AVATAR_ID);
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
+                controller.redeemClassCode(STUDENT_A, Map.of("code", "abcd2345"));
+
+        assertThat(user.getCentreId()).isEqualTo(ORG_ID);
+        assertThat(user.getCohortLabel()).isEqualTo("P4 Math");
+        verify(classEnrollmentService).enroll(cls, STUDENT_A);
+        Map<String, Object> data = resp.getBody().data();
+        assertThat(data.get("classId")).isEqualTo("class-1");
+        assertThat(data.get("className")).isEqualTo("P4 Math");
+        assertThat(data.get("avatarId")).isEqualTo(AVATAR_ID);
+    }
+
+    @Test
+    void redeemClassCode_unknownCode_is404_andNotEnrolled() {
+        when(classRepo.findByJoinCode("ZZZZ9999")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                controller.redeemClassCode(STUDENT_A, Map.of("code", "ZZZZ9999")))
+                .isInstanceOf(BusinessException.class);
+        verify(classEnrollmentService, never()).enroll(any(), anyString());
+    }
+
+    @Test
+    void redeemClassCode_blankCode_is400() {
+        assertThatThrownBy(() ->
+                controller.redeemClassCode(STUDENT_A, Map.of("code", "  ")))
+                .isInstanceOf(BusinessException.class);
+        verify(classEnrollmentService, never()).enroll(any(), anyString());
     }
 
     // ── GET /me ──────────────────────────────────────────────────────────
