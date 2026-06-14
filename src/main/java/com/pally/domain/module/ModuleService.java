@@ -65,6 +65,12 @@ public class ModuleService {
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
         List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
+        // No notes → no material to build lessons from. Fail loudly with a
+        // structured code so the client routes the user to upload instead of
+        // silently returning an empty success (the old dead-end behaviour).
+        if (pages.isEmpty()) {
+            throw new BusinessException("NO_NOTES", 409);
+        }
         List<LearningModuleJpaEntity> created = new ArrayList<>();
 
         for (WikiPage page : pages) {

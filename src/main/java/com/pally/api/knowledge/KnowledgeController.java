@@ -94,6 +94,7 @@ public class KnowledgeController {
                     .body(ApiResponse.error(
                             "File is too large (max " + limitMb + "MB).", 413));
         }
+        assertMaterialMutable(avatarId, userId);
         UploadResult result = uploadFileUseCase.execute(avatarId, userId, file, skipRelevance);
 
         return switch (result) {
@@ -143,6 +144,7 @@ public class KnowledgeController {
             @PathVariable String avatarId,
             @PathVariable String fileId
     ) {
+        assertMaterialMutable(avatarId, userId);
         deleteFileUseCase.execute(fileId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -219,6 +221,7 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        assertMaterialMutable(avatarId, userId);
         // Check if content exceeds sync cap — if so, run async and return 202
         if (compileWikiUseCase.shouldCompileAsync(avatarId)) {
             String jobId = compileWikiUseCase.executeAsync(avatarId);
@@ -282,6 +285,7 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        assertMaterialMutable(avatarId, userId);
         // Fix 2: Slot guard — locked avatars cannot be manually recompiled.
         // Ownership is checked inside the guard.
         avatarSlotGuard.requireActive(avatarId, userId);
@@ -366,6 +370,7 @@ public class KnowledgeController {
         avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+        assertMaterialMutable(avatarId, userId);
 
         WikiPage page = wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
@@ -392,6 +397,7 @@ public class KnowledgeController {
         avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new com.pally.shared.exception.AvatarNotFoundException(avatarId));
+        assertMaterialMutable(avatarId, userId);
 
         KnowledgeFile file = knowledgeRepository.findById(fileId)
                 .orElseThrow(() -> new BusinessException("File not found", 404));
@@ -431,5 +437,24 @@ public class KnowledgeController {
         response.put("action", action);
         response.put("message", "EDIT".equals(action) ? "Text updated — recompiling brain." : "Text approved — recompiling brain.");
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Defence-in-depth read-only guard for centre class materials. A student's
+     * class-bound CENTRE_CLASS avatar (classId != null) is study-only — its
+     * materials are managed by the centre, not the student. The owner's class
+     * corpus (classId == null, owner-owned) stays editable via the per-endpoint
+     * ownership checks. Throws 403 CENTRE_MATERIAL_READ_ONLY otherwise. Reading
+     * /studying is unaffected — this only gates mutations.
+     */
+    private void assertMaterialMutable(String avatarId, String userId) {
+        var avatar = avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new BusinessException("Avatar not found", 404));
+        if (avatar.isCentreClass() && avatar.getClassId() != null) {
+            throw new BusinessException(
+                    "CENTRE_MATERIAL_READ_ONLY: class materials are managed by your centre.",
+                    403);
+        }
     }
 }

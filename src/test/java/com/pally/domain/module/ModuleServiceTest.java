@@ -68,6 +68,18 @@ class ModuleServiceTest {
     }
 
     @Test
+    void generateModules_noWikiPages_throwsNoNotes409() {
+        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
+        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
+        when(wikiRepository.findByAvatarId(avatar.getId())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.generateModules(avatar.getId()))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class)
+                .hasMessageContaining("NO_NOTES");
+        verify(contentGenerator, never()).generate(any(), any());
+    }
+
+    @Test
     void generateModules_skipsExistingSlugs() {
         Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
         when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));

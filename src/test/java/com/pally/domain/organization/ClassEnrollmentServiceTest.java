@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -67,6 +68,37 @@ class ClassEnrollmentServiceTest {
         assertThat(provisioned.getUserId()).isEqualTo(STUDENT_ID);
         verify(membershipRepo).save(any(ClassMembershipJpaEntity.class));
         verify(classGroupService).syncStudentJoin(cls, STUDENT_ID);
+    }
+
+    @Test
+    void leave_deletesStudentAvatar_membership_andDropsFromGroup() {
+        OrgClassJpaEntity cls = classEntity();
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setId("m-1");
+        m.setClassId(CLASS_ID);
+        m.setUserId(STUDENT_ID);
+        m.setStudentAvatarId("avatar-1");
+        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
+                .thenReturn(Optional.of(m));
+
+        service.leave(cls, STUDENT_ID);
+
+        verify(avatarRepository).deleteById("avatar-1");
+        verify(membershipRepo).delete(m);
+        verify(classGroupService).syncStudentLeave(CLASS_ID, STUDENT_ID);
+    }
+
+    @Test
+    void leave_notEnrolled_throws404_andDeletesNothing() {
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.leave(cls, STUDENT_ID))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
+        verify(avatarRepository, never()).deleteById(any());
+        verify(membershipRepo, never()).delete(any());
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.pally.domain.group.ClassGroupService;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -78,6 +79,28 @@ public class ClassEnrollmentService {
         classGroupService.syncStudentJoin(cls, studentId);
         log.info("[Enroll] student={} class={} avatar={}", studentId, cls.getId(), saved.getId());
         return saved.getId();
+    }
+
+    /**
+     * Reverses {@link #enroll}: removes the student's membership in a class, deletes
+     * their branded class avatar (its wiki/files/chat cascade on avatar delete, like
+     * class deletion does for a single student), and drops them from the CLASS group.
+     * Does NOT touch the corpus avatar or any other student. No-op-safe: throws if the
+     * caller has no active membership so the API can return a clear 404.
+     */
+    @Transactional
+    public void leave(OrgClassJpaEntity cls, String studentId) {
+        ClassMembershipJpaEntity m = membershipRepo
+                .findByClassIdAndUserId(cls.getId(), studentId)
+                .filter(x -> ClassMembershipJpaEntity.STATUS_ACTIVE.equals(x.getStatus()))
+                .orElseThrow(() -> new BusinessException(
+                        "You are not enrolled in this class.", 404));
+        if (m.getStudentAvatarId() != null) {
+            avatarRepository.deleteById(m.getStudentAvatarId());
+        }
+        membershipRepo.delete(m);
+        classGroupService.syncStudentLeave(cls.getId(), studentId);
+        log.info("[Enroll] student={} left class={}", studentId, cls.getId());
     }
 
     private static String brandedName(OrgClassJpaEntity cls) {

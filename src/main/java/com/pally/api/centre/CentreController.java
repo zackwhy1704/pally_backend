@@ -5,6 +5,8 @@ import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -63,6 +65,7 @@ public class CentreController {
     private final OrganizationJpaRepository orgRepo;
     private final CentreEnrollCodeJpaRepository codeRepo;
     private final OrgClassJpaRepository classRepo;
+    private final ClassMembershipJpaRepository membershipRepo;
     private final ClassEnrollmentService classEnrollmentService;
     private final UserJpaRepository userRepo;
     private final QuizQuestionResultJpaRepository quizResultRepo;
@@ -143,6 +146,52 @@ public class CentreController {
         out.put("className", cls.getName());
         out.put("organizationId", cls.getOrganizationId());
         out.put("avatarId", avatarId);
+        return ResponseEntity.ok(ApiResponse.success(out));
+    }
+
+    // ── Student-side: leave a class ───────────────────────────────────
+
+    /**
+     * Self-leave a class: removes the caller's membership + their branded class
+     * avatar for that class (their personal Mochis are untouched), and drops them
+     * from the class group. The corpus avatar and other students are never touched.
+     * If this was their only class in the centre, their {@code centreId} is cleared.
+     */
+    @PostMapping("/leave-class")
+    @Transactional
+    public ResponseEntity<ApiResponse<Map<String, Object>>> leaveClass(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, String> body) {
+        String classId = body == null ? null : body.get("classId");
+        if (classId == null || classId.isBlank()) {
+            throw new BusinessException("classId is required", 400);
+        }
+        OrgClassJpaEntity cls = classRepo.findById(classId).orElseThrow(
+                () -> new BusinessException("That class doesn't exist", 404));
+
+        classEnrollmentService.leave(cls, userId);
+
+        // Clear centre membership only if the student has no other active class
+        // in the SAME centre.
+        boolean stillInCentre = membershipRepo.findByUserId(userId).stream()
+                .filter(m -> ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus()))
+                .map(m -> classRepo.findById(m.getClassId()).orElse(null))
+                .filter(c -> c != null)
+                .anyMatch(c -> cls.getOrganizationId().equals(c.getOrganizationId()));
+        if (!stillInCentre) {
+            UserJpaEntity user = userRepo.findById(userId).orElse(null);
+            if (user != null && cls.getOrganizationId().equals(user.getCentreId())) {
+                user.setCentreId(null);
+                user.setCohortLabel(null);
+                userRepo.save(user);
+            }
+        }
+        log.info("[Centre] user={} left class={} stillInCentre={}",
+                userId, classId, stillInCentre);
+
+        Map<String, Object> out = new HashMap<>();
+        out.put("classId", classId);
+        out.put("leftCentre", !stillInCentre);
         return ResponseEntity.ok(ApiResponse.success(out));
     }
 

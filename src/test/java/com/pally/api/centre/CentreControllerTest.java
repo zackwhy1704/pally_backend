@@ -7,6 +7,8 @@ import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -46,6 +48,7 @@ class CentreControllerTest {
     @Mock OrganizationJpaRepository orgRepo;
     @Mock CentreEnrollCodeJpaRepository codeRepo;
     @Mock OrgClassJpaRepository classRepo;
+    @Mock ClassMembershipJpaRepository membershipRepo;
     @Mock ClassEnrollmentService classEnrollmentService;
     @Mock UserJpaRepository userRepo;
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
@@ -121,6 +124,55 @@ class CentreControllerTest {
                 controller.redeemClassCode(STUDENT_A, Map.of("code", "  ")))
                 .isInstanceOf(BusinessException.class);
         verify(classEnrollmentService, never()).enroll(any(), anyString());
+    }
+
+    // ── POST /leave-class ────────────────────────────────────────────────
+
+    @Test
+    void leaveClass_lastClassInCentre_clearsCentreId() {
+        OrgClassJpaEntity cls = classEntity(); // org = ORG_ID
+        when(classRepo.findById("class-1")).thenReturn(Optional.of(cls));
+        when(membershipRepo.findByUserId(STUDENT_A)).thenReturn(List.of()); // none left
+        UserJpaEntity user = new UserJpaEntity();
+        user.setId(STUDENT_A);
+        user.setCentreId(ORG_ID);
+        user.setCohortLabel("P4 Math");
+        when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(user));
+
+        var resp = controller.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
+
+        verify(classEnrollmentService).leave(cls, STUDENT_A);
+        assertThat(user.getCentreId()).isNull();
+        assertThat(user.getCohortLabel()).isNull();
+        assertThat(resp.getBody().data().get("leftCentre")).isEqualTo(true);
+    }
+
+    @Test
+    void leaveClass_otherClassInSameCentre_keepsCentreId() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById("class-1")).thenReturn(Optional.of(cls));
+        ClassMembershipJpaEntity other = new ClassMembershipJpaEntity();
+        other.setClassId("class-2");
+        other.setUserId(STUDENT_A);
+        other.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByUserId(STUDENT_A)).thenReturn(List.of(other));
+        OrgClassJpaEntity cls2 = new OrgClassJpaEntity();
+        cls2.setId("class-2");
+        cls2.setOrganizationId(ORG_ID); // same centre
+        when(classRepo.findById("class-2")).thenReturn(Optional.of(cls2));
+
+        var resp = controller.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
+
+        verify(classEnrollmentService).leave(cls, STUDENT_A);
+        verify(userRepo, never()).save(any(UserJpaEntity.class));
+        assertThat(resp.getBody().data().get("leftCentre")).isEqualTo(false);
+    }
+
+    @Test
+    void leaveClass_blankClassId_is400() {
+        assertThatThrownBy(() -> controller.leaveClass(STUDENT_A, Map.of("classId", "  ")))
+                .isInstanceOf(BusinessException.class);
+        verify(classEnrollmentService, never()).leave(any(), anyString());
     }
 
     // ── GET /me ──────────────────────────────────────────────────────────

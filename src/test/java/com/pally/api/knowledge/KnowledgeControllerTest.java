@@ -62,6 +62,8 @@ class KnowledgeControllerTest {
     void uploadFile_validFile_returns201() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "notes.txt", "text/plain", "Math content".getBytes());
+        when(avatarRepository.findById("avatar-1")).thenReturn(Optional.of(
+                Avatar.create("user-1", "MathBot", Subject.MATHS, CharacterType.MOCHI)));
         when(uploadFileUseCase.execute(anyString(), anyString(), any(MultipartFile.class), anyBoolean()))
                 .thenReturn(new UploadResult.Success("file-1", 1, List.of("fractions")));
 
@@ -98,6 +100,8 @@ class KnowledgeControllerTest {
     void uploadFile_relevanceWarning_returns200() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "recipe.txt", "text/plain", "Pasta recipe".getBytes());
+        when(avatarRepository.findById("avatar-1")).thenReturn(Optional.of(
+                Avatar.create("user-1", "MathBot", Subject.MATHS, CharacterType.MOCHI)));
         when(uploadFileUseCase.execute(anyString(), anyString(), any(MultipartFile.class), anyBoolean()))
                 .thenReturn(new UploadResult.RelevanceWarning("file-1", 0.15, "Off topic"));
 
@@ -160,5 +164,24 @@ class KnowledgeControllerTest {
                 controller.getWikiPage("user-1", avatar.getId(), "nonexistent"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Wiki page not found");
+    }
+
+    // ── Centre material read-only guard (Job 2) ──────────────────────────
+
+    @Test
+    void deleteFile_onStudentClassAvatar_isReadOnly403_andUseCaseNotCalled() {
+        // A student's class-bound CENTRE_CLASS avatar is study-only material.
+        Avatar classAvatar = Avatar.create("student-1", "P4 Math",
+                Subject.MATHS, CharacterType.MOCHI);
+        classAvatar.markCentreClassAvatar();
+        classAvatar.setClassId("class-1");
+        when(avatarRepository.findById(classAvatar.getId()))
+                .thenReturn(Optional.of(classAvatar));
+
+        assertThatThrownBy(() ->
+                controller.deleteFile("student-1", classAvatar.getId(), "file-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("CENTRE_MATERIAL_READ_ONLY");
+        verify(deleteFileUseCase, never()).execute(anyString(), anyString());
     }
 }
