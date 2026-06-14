@@ -58,7 +58,7 @@ public record AvatarResponse(
         /// verbatim (band colour + subject-glyph icon + initials).
         @JsonInclude(JsonInclude.Include.NON_NULL)
         ClassAvatarAppearance appearance,
-        /// Per-class Mochi customization ({bodyVariant, accessory, aura}),
+        /// Per-class Mochi customization ({body, accessory, aura}),
         /// deserialized from {@code org_class.mochi_config}. Present ONLY for
         /// CENTRE_CLASS avatars whose class has a saved config; null/absent for
         /// PERSONAL avatars and for class avatars with no config set. Mobile

@@ -33,7 +33,7 @@ class AvatarMapperTest {
 
     private static final String CLASS_ID = "class-1";
     private static final String CONFIG_JSON =
-            "{\"bodyVariant\":4,\"accessory\":\"crown\",\"aura\":\"sparkle\"}";
+            "{\"body\":4,\"accessory\":\"crown\",\"aura\":\"sparkle\"}";
 
     @Mock private KnowledgeRepository knowledgeRepository;
     @Mock private OrgClassJpaRepository orgClassRepository;
@@ -72,7 +72,7 @@ class AvatarMapperTest {
         AvatarResponse resp = mapper.toResponse(classAvatar());
 
         assertThat(resp.mochiConfig()).isNotNull();
-        assertThat(resp.mochiConfig().bodyVariant()).isEqualTo(4);
+        assertThat(resp.mochiConfig().body()).isEqualTo(4);
         assertThat(resp.mochiConfig().accessory()).isEqualTo("crown");
         assertThat(resp.mochiConfig().aura()).isEqualTo("sparkle");
     }
@@ -105,7 +105,7 @@ class AvatarMapperTest {
 
         assertThat(out.get(0).mochiConfig()).isNull();           // personal
         assertThat(out.get(1).mochiConfig()).isNotNull();        // class
-        assertThat(out.get(1).mochiConfig().bodyVariant()).isEqualTo(4);
+        assertThat(out.get(1).mochiConfig().body()).isEqualTo(4);
         // Batched: the list path uses findAllById, never per-avatar findById.
         verify(orgClassRepository, never()).findById(any());
     }

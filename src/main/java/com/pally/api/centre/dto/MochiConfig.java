@@ -15,13 +15,13 @@ import java.util.Set;
  * stored blobs (which may still carry those keys) deserializable so old data never
  * 500s.
  *
- * @param bodyVariant body palette/shape variant, 0–11 (one per character family)
+ * @param body body palette/shape variant, 0–11 (one per character family)
  * @param accessory   one of {@link #ACCESSORIES}
  * @param aura        one of {@link #AURAS}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record MochiConfig(
-        int bodyVariant,
+        int body,
         String accessory,
         String aura) {
 
@@ -38,9 +38,9 @@ public record MochiConfig(
      * out-of-range or unknown enum value. Returns {@code this} for chaining.
      */
     public MochiConfig validated() {
-        if (bodyVariant < BODY_VARIANT_MIN || bodyVariant > BODY_VARIANT_MAX) {
+        if (body < BODY_VARIANT_MIN || body > BODY_VARIANT_MAX) {
             throw new BusinessException(
-                    "bodyVariant must be " + BODY_VARIANT_MIN + "–" + BODY_VARIANT_MAX, 400);
+                    "body must be " + BODY_VARIANT_MIN + "–" + BODY_VARIANT_MAX, 400);
         }
         if (accessory == null || !ACCESSORIES.contains(accessory)) {
             throw new BusinessException("accessory must be one of " + ACCESSORIES, 400);

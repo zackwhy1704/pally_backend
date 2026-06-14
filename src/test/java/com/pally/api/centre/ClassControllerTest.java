@@ -272,7 +272,7 @@ class ClassControllerTest {
         // Returned config echoes the input.
         assertThat(resp.getBody().data()).isEqualTo(cfg);
         // Stored as a JSON TEXT blob on the entity, and the class is saved.
-        assertThat(cls.getMochiConfig()).contains("\"bodyVariant\":3", "\"accessory\":\"crown\"");
+        assertThat(cls.getMochiConfig()).contains("\"body\":3", "\"accessory\":\"crown\"");
         verify(classRepo).save(cls);
     }
 
@@ -349,7 +349,7 @@ class ClassControllerTest {
         // into the new 3-field shape rather than 500-ing on old data.
         OrgClassJpaEntity cls = classEntity();
         cls.setMochiConfig(
-                "{\"bodyVariant\":7,\"cheekVariant\":4,\"eyeStyle\":\"star\","
+                "{\"body\":7,\"cheekVariant\":4,\"eyeStyle\":\"star\","
                         + "\"accessory\":\"cap\",\"aura\":\"fire\"}");
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
 
@@ -360,7 +360,7 @@ class ClassControllerTest {
                 (com.pally.api.centre.dto.MochiConfig)
                         list.getBody().data().get(0).get("mochiConfig");
         assertThat(mc).isNotNull();
-        assertThat(mc.bodyVariant()).isEqualTo(7);
+        assertThat(mc.body()).isEqualTo(7);
         assertThat(mc.accessory()).isEqualTo("cap");
         assertThat(mc.aura()).isEqualTo("fire");
     }
@@ -392,7 +392,7 @@ class ClassControllerTest {
                 (com.pally.api.centre.dto.MochiConfig)
                         controller.listClasses(OWNER_ID, ORG_ID).getBody().data().get(0).get("mochiConfig");
 
-        assertThat(roundTripped.bodyVariant()).isEqualTo(11);
+        assertThat(roundTripped.body()).isEqualTo(11);
         assertThat(roundTripped.accessory()).isEqualTo("headband");
         assertThat(roundTripped.aura()).isEqualTo("electric");
     }
