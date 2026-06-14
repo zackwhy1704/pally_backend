@@ -145,6 +145,19 @@ public class ClassGroupService {
         return groupRepo.findByClassId(classId).isPresent();
     }
 
+    /**
+     * Deletes the CLASS group for a class, if present. Group members and system
+     * posts cascade via their {@code ON DELETE CASCADE} FK on study_groups.
+     * Idempotent — a no-op when the class never had a group.
+     */
+    @Transactional
+    public void deleteClassGroup(String classId) {
+        groupRepo.findByClassId(classId).ifPresent(g -> {
+            groupRepo.delete(g);
+            log.info("[ClassGroup] deleted CLASS group={} class={}", g.getId(), classId);
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private void upsertMember(String groupId, String userId, String role) {

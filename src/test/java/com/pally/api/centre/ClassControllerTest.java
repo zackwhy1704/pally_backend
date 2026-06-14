@@ -221,6 +221,40 @@ class ClassControllerTest {
         verify(avatarRepository).save(avatar);
     }
 
+    // ── deleteClass ────────────────────────────────────────────────────────────
+
+    @Test
+    void deleteClass_cascadesStudentAvatars_corpusAvatar_group_andClassRow() {
+        OrgClassJpaEntity cls = classEntity(); // corpusAvatarId = "corpus-1"
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setId("m-1");
+        m.setClassId(CLASS_ID);
+        m.setUserId(STUDENT_ID);
+        m.setStudentAvatarId("avatar-1");
+        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByClassId(CLASS_ID)).thenReturn(List.of(m));
+
+        controller.deleteClass(OWNER_ID, ORG_ID, CLASS_ID);
+
+        verify(avatarRepository).deleteById("avatar-1");
+        verify(avatarRepository).deleteById("corpus-1");
+        verify(classGroupService).deleteClassGroup(CLASS_ID);
+        verify(classRepo).delete(cls);
+    }
+
+    @Test
+    void deleteClass_classInAnotherOrg_isForbidden_andNothingDeleted() {
+        OrgClassJpaEntity foreign = classEntity();
+        foreign.setOrganizationId("other-org");
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> controller.deleteClass(OWNER_ID, ORG_ID, CLASS_ID))
+                .isInstanceOf(BusinessException.class);
+        verify(classRepo, never()).delete(any(OrgClassJpaEntity.class));
+        verify(avatarRepository, never()).deleteById(anyString());
+    }
+
     // ── tenant isolation ─────────────────────────────────────────────────────
 
     @Test

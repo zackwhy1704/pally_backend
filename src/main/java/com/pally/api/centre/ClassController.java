@@ -180,6 +180,41 @@ public class ClassController {
         return ResponseEntity.ok(ApiResponse.success(toDto(cls, count)));
     }
 
+    // ── Delete a class ─────────────────────────────────────────────────────────
+
+    /**
+     * Owner-gated. Permanently deletes a class and everything provisioned with it:
+     * each enrolled student's class avatar, the hidden corpus avatar (their wiki /
+     * files / chat cascade on avatar delete), and the CLASS study group. The class
+     * row delete cascades class_membership + assignment via their FK constraints.
+     */
+    @DeleteMapping("/classes/{classId}")
+    @Transactional
+    public ResponseEntity<Void> deleteClass(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId) {
+        accessService.ensureOwner(userId, orgId);
+        OrgClassJpaEntity cls = requireClass(orgId, classId);
+
+        // Remove every provisioned student avatar (content cascades on delete).
+        for (ClassMembershipJpaEntity m : membershipRepo.findByClassId(classId)) {
+            if (m.getStudentAvatarId() != null) {
+                avatarRepository.deleteById(m.getStudentAvatarId());
+            }
+        }
+        // Remove the hidden corpus avatar (its wiki / files / chat cascade).
+        if (cls.getCorpusAvatarId() != null) {
+            avatarRepository.deleteById(cls.getCorpusAvatarId());
+        }
+        // Remove the CLASS group (members + system posts cascade via FK).
+        classGroupService.deleteClassGroup(classId);
+        // Finally the class row — class_membership + assignment cascade via FK.
+        classRepo.delete(cls);
+        log.info("[Class] deleted class={} org={}", classId, orgId);
+        return ResponseEntity.noContent().build();
+    }
+
     // ── Set the class Mochi customization config ───────────────────────────────
 
     /**
