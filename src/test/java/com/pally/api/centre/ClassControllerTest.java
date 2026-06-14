@@ -116,6 +116,9 @@ class ClassControllerTest {
         assertThat(body.get("name")).isEqualTo("P4 Math");
         assertThat((String) body.get("joinCode")).hasSize(8);
         assertThat(body.get("corpusAvatarId")).isNotNull();
+        // FIX 1: a default Mochi config is set on create so the class never
+        // renders the plain fallback (body 0–11, accessory/aura none).
+        assertThat(body.get("mochiConfig")).isNotNull();
         // One avatar saved (the corpus); the class itself is saved via classRepo.
         verify(avatarRepository).save(any(Avatar.class));
         verify(classRepo).save(any(OrgClassJpaEntity.class));

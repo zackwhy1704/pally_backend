@@ -119,6 +119,18 @@ public class ClassController {
         corpus.markCentreClassAvatar();
         Avatar savedCorpus = avatarRepository.save(corpus);
         cls.setCorpusAvatarId(savedCorpus.getId());
+        // Default a deterministic Mochi look so every class renders a distinct
+        // customised avatar immediately (never the plain fallback) even if the
+        // teacher never opens the picker. Body variant derived from the class id.
+        try {
+            int bodyVariant = Math.floorMod(cls.getId().hashCode(),
+                    MochiConfig.BODY_VARIANT_MAX + 1);
+            cls.setMochiConfig(objectMapper.writeValueAsString(
+                    new MochiConfig(bodyVariant, "none", "none")));
+        } catch (JsonProcessingException e) {
+            log.warn("[Class] could not default mochi-config for {}: {}",
+                    cls.getId(), e.getMessage());
+        }
         classRepo.save(cls);
         // Auto-create the class's CLASS group (membership syncs from enrolment;
         // the centre owner sits in it as TEACHER).
