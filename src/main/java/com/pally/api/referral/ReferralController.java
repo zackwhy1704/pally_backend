@@ -40,13 +40,31 @@ public class ReferralController {
                 userId, ReferralJpaEntity.STATUS_ACTIVATED);
         int nextTier = referralService.nextTier(activated);
 
+        // Server-truth milestone ladder so the client tier UI is never cosmetic:
+        // each entry is the activated-friends threshold + the real star bonus paid.
+        java.util.List<Map<String, Object>> milestones = new java.util.ArrayList<>();
+        for (int tier : ReferralService.TIERS) {
+            Map<String, Object> ms = new HashMap<>();
+            ms.put("friends", tier);
+            ms.put("starBonus", ReferralService.starBonusForTier(tier));
+            ms.put("reached", activated >= tier);
+            milestones.add(ms);
+        }
+
         Map<String, Object> body = new HashMap<>();
         body.put("code", code);
         body.put("totalReferred", total);
         body.put("activatedCount", activated);
+        // Per-activation stars + every milestone bonus already crossed.
+        long milestonesEarned = 0;
+        for (int tier : ReferralService.TIERS) {
+            if (activated >= tier) milestonesEarned += ReferralService.starBonusForTier(tier);
+        }
         body.put("rewardsEarned",
-                activated * ReferralService.ACTIVATION_STARS);
+                activated * ReferralService.ACTIVATION_STARS + milestonesEarned);
         body.put("nextTierAt", nextTier);
+        body.put("nextTierBonus", ReferralService.starBonusForTier(nextTier));
+        body.put("milestones", milestones);
         return ResponseEntity.ok(ApiResponse.success(body));
     }
 

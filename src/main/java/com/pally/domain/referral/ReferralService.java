@@ -40,6 +40,10 @@ public class ReferralService {
     /// Tier ladder used for {@code nextTierAt} on /referral/me — first tier
     /// at 3 activated friends, then 5, 10. Keep the cliff visible.
     public static final int[] TIERS = {3, 5, 10};
+    /// Real, server-paid milestone star bonuses (1:1 with {@link #TIERS}), paid
+    /// to the referrer the moment their activated count crosses a tier. These are
+    /// the truth the client tier UI reads — never cosmetic. 600★ = a mystery box.
+    public static final int[] TIER_STAR_BONUS = {100, 250, 600};
 
     private final UserJpaRepository userRepo;
     private final ReferralJpaRepository referralRepo;
@@ -126,6 +130,17 @@ public class ReferralService {
                     r.getReferrerUserId(), ACTIVATION_XP, ACTIVATION_STARS);
             userDomainRepo.addXpAndStars(
                     refereeUserId, ACTIVATION_XP, ACTIVATION_STARS);
+            // Escalating milestone bonus to the referrer the moment this
+            // activation crosses a tier (3/5/10 activated friends). Real stars,
+            // server-truth — this is what the client tier ladder reflects.
+            long activatedNow = referralRepo.countByReferrerUserIdAndStatus(
+                    r.getReferrerUserId(), ReferralJpaEntity.STATUS_ACTIVATED);
+            int milestoneBonus = milestoneStarBonus(activatedNow);
+            if (milestoneBonus > 0) {
+                userDomainRepo.addXpAndStars(r.getReferrerUserId(), 0, milestoneBonus);
+                log.info("[Referral] milestone! referrer={} hit {} friends (+{}stars)",
+                        r.getReferrerUserId(), activatedNow, milestoneBonus);
+            }
         } catch (Exception e) {
             // Don't unwind the activation — the row is already flipped,
             // and a missed reward is a rare manual-credit job vs. a stuck
@@ -143,6 +158,22 @@ public class ReferralService {
             if (activated < t) return t;
         }
         return TIERS[TIERS.length - 1];
+    }
+
+    /** Star bonus paid when the activated count lands exactly on a tier, else 0. */
+    public static int milestoneStarBonus(long activated) {
+        for (int i = 0; i < TIERS.length; i++) {
+            if (activated == TIERS[i]) return TIER_STAR_BONUS[i];
+        }
+        return 0;
+    }
+
+    /** Star reward configured for a given tier threshold (0 if not a tier). */
+    public static int starBonusForTier(int tier) {
+        for (int i = 0; i < TIERS.length; i++) {
+            if (TIERS[i] == tier) return TIER_STAR_BONUS[i];
+        }
+        return 0;
     }
 
     private String generateUniqueCode() {
