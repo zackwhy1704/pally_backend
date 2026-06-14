@@ -117,7 +117,10 @@ public class AvatarMapper {
                 avatar.getCosmeticShoes(),
                 avatar.getKind().name(),
                 appearance,
-                mochiConfig
+                mochiConfig,
+                // Only a student's class-bound avatar exposes its classId (used by
+                // the mobile leave-class action); the corpus has classId == null.
+                avatar.isCentreClass() ? avatar.getClassId() : null
         );
     }
 

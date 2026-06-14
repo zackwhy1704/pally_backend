@@ -64,5 +64,10 @@ public record AvatarResponse(
         /// PERSONAL avatars and for class avatars with no config set. Mobile
         /// renders the class Mochi from this.
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        MochiConfig mochiConfig
+        MochiConfig mochiConfig,
+        /// The class this avatar belongs to. Present ONLY for a student's
+        /// class-bound CENTRE_CLASS avatar; null/absent for PERSONAL and for the
+        /// hidden class corpus. The mobile uses it to call leave-class.
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String classId
 ) {}
