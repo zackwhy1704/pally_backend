@@ -67,6 +67,11 @@ public class OrgClassJpaEntity {
     @Column(name = "cosmetic_shoes", length = 40)
     private String cosmeticShoes;
 
+    // Rich Mochi customization (V74). Jackson-serialized MochiConfig JSON stored as
+    // TEXT (NOT jsonb — Hibernate binds String as VARCHAR; mirror class_challenge.options).
+    @Column(name = "mochi_config", columnDefinition = "TEXT")
+    private String mochiConfig;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 }

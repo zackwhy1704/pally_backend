@@ -1,0 +1,11 @@
+-- V74: Rich per-class Mochi customization config.
+--
+-- ADDITIVE on top of V59's branded-Mochi fields (character_type, brand_name,
+-- accent_color, cosmetic_* slots) and the derived ClassAvatarAppearance — none of
+-- those are removed. This column stores a richer, structured MochiConfig the centre
+-- web client edits (body/cheek variants, eye style, accessory, aura).
+--
+-- Stored as TEXT holding a Jackson-serialized JSON string, NOT jsonb: Hibernate
+-- binds a Java String as VARCHAR and Postgres rejects that against a jsonb column
+-- (this 500'd in V71). We mirror class_challenge.options (TEXT + ObjectMapper).
+ALTER TABLE org_class ADD COLUMN mochi_config TEXT;

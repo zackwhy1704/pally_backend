@@ -53,6 +53,9 @@ class ClassControllerTest {
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
     @Mock com.pally.domain.module.NarrationService narrationService;
     @Mock com.pally.domain.group.ClassGroupService classGroupService;
+    // Real ObjectMapper — MochiConfig (de)serialization is the behaviour under test.
+    @org.mockito.Spy com.fasterxml.jackson.databind.ObjectMapper objectMapper =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     @InjectMocks ClassController controller;
 
@@ -252,5 +255,112 @@ class ClassControllerTest {
         Map<String, Object> body = resp.getBody().data();
         assertThat(body).containsKeys("students", "topics", "cells", "topicAverages", "weakest");
         assertThat((List<?>) body.get("students")).isEmpty();
+    }
+
+    // ── updateMochiConfig ──────────────────────────────────────────────────────
+
+    @Test
+    void updateMochiConfig_validConfig_persistsAndReturnsIt() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        com.pally.api.centre.dto.MochiConfig cfg =
+                new com.pally.api.centre.dto.MochiConfig(3, 2, "star", "crown", "sparkle");
+
+        ResponseEntity<ApiResponse<com.pally.api.centre.dto.MochiConfig>> resp =
+                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
+
+        // Returned config echoes the input.
+        assertThat(resp.getBody().data()).isEqualTo(cfg);
+        // Stored as a JSON TEXT blob on the entity, and the class is saved.
+        assertThat(cls.getMochiConfig()).contains("\"bodyVariant\":3", "\"eyeStyle\":\"star\"");
+        verify(classRepo).save(cls);
+    }
+
+    @Test
+    void updateMochiConfig_thenList_returnsDeserializedConfig() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
+        com.pally.api.centre.dto.MochiConfig cfg =
+                new com.pally.api.centre.dto.MochiConfig(5, 1, "uwu", "bow", "bloom");
+
+        controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
+        // The blob the PATCH stored is what the GET list will deserialize.
+        ResponseEntity<ApiResponse<List<Map<String, Object>>>> list =
+                controller.listClasses(OWNER_ID, ORG_ID);
+
+        Object mc = list.getBody().data().get(0).get("mochiConfig");
+        assertThat(mc).isEqualTo(cfg);
+    }
+
+    @Test
+    void listClasses_noConfigSet_mochiConfigIsNull() {
+        OrgClassJpaEntity cls = classEntity(); // mochiConfig stays null
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
+
+        ResponseEntity<ApiResponse<List<Map<String, Object>>>> list =
+                controller.listClasses(OWNER_ID, ORG_ID);
+
+        Map<String, Object> dto = list.getBody().data().get(0);
+        assertThat(dto).containsKey("mochiConfig");
+        assertThat(dto.get("mochiConfig")).isNull();
+    }
+
+    @Test
+    void updateMochiConfig_outOfRangeBodyVariant_isRejected() {
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
+        com.pally.api.centre.dto.MochiConfig bad =
+                new com.pally.api.centre.dto.MochiConfig(99, 2, "star", "crown", "sparkle");
+
+        assertThatThrownBy(() ->
+                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
+                .isInstanceOf(BusinessException.class);
+        verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void updateMochiConfig_unknownEyeStyle_isRejected() {
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
+        com.pally.api.centre.dto.MochiConfig bad =
+                new com.pally.api.centre.dto.MochiConfig(3, 2, "laser", "crown", "sparkle");
+
+        assertThatThrownBy(() ->
+                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
+                .isInstanceOf(BusinessException.class);
+        verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void updateMochiConfig_nonOwner_isForbidden() {
+        // ensureOwner throws for a non-owner; mochi-config must never persist.
+        when(accessService.ensureOwner("intruder", ORG_ID))
+                .thenThrow(new BusinessException("Not the centre owner", 403));
+        com.pally.api.centre.dto.MochiConfig cfg =
+                new com.pally.api.centre.dto.MochiConfig(3, 2, "star", "crown", "sparkle");
+
+        assertThatThrownBy(() ->
+                controller.updateMochiConfig("intruder", ORG_ID, CLASS_ID, cfg))
+                .isInstanceOf(BusinessException.class);
+        verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void mochiConfig_roundTrip_deserializesToSameValues() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
+        com.pally.api.centre.dto.MochiConfig original =
+                new com.pally.api.centre.dto.MochiConfig(11, 6, "surprised", "headband", "electric");
+
+        controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, original);
+        com.pally.api.centre.dto.MochiConfig roundTripped =
+                (com.pally.api.centre.dto.MochiConfig)
+                        controller.listClasses(OWNER_ID, ORG_ID).getBody().data().get(0).get("mochiConfig");
+
+        assertThat(roundTripped.bodyVariant()).isEqualTo(11);
+        assertThat(roundTripped.cheekVariant()).isEqualTo(6);
+        assertThat(roundTripped.eyeStyle()).isEqualTo("surprised");
+        assertThat(roundTripped.accessory()).isEqualTo("headband");
+        assertThat(roundTripped.aura()).isEqualTo("electric");
     }
 }

@@ -1,5 +1,8 @@
 package com.pally.api.centre;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pally.api.centre.dto.MochiConfig;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
@@ -65,6 +68,7 @@ public class ClassController {
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final NarrationService narrationService;
     private final ClassGroupService classGroupService;
+    private final ObjectMapper objectMapper;
 
     // Heatmap legibility caps (mirror CentreAnalyticsController).
     private static final int HEATMAP_MAX_STUDENTS = 40;
@@ -174,6 +178,35 @@ public class ClassController {
         long count = membershipRepo.countByClassIdAndStatus(
                 classId, ClassMembershipJpaEntity.STATUS_ACTIVE);
         return ResponseEntity.ok(ApiResponse.success(toDto(cls, count)));
+    }
+
+    // ── Set the class Mochi customization config ───────────────────────────────
+
+    /**
+     * Owner-gated. Validates the rich MochiConfig, serializes it to JSON and stores
+     * it in {@code org_class.mochi_config} (TEXT). Returns the saved MochiConfig.
+     */
+    @PatchMapping("/classes/{classId}/mochi-config")
+    @Transactional
+    public ResponseEntity<ApiResponse<MochiConfig>> updateMochiConfig(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @RequestBody MochiConfig config) {
+        accessService.ensureOwner(userId, orgId);
+        OrgClassJpaEntity cls = requireClass(orgId, classId);
+
+        if (config == null) throw new BusinessException("mochi-config body is required", 400);
+        MochiConfig validated = config.validated();
+
+        try {
+            cls.setMochiConfig(objectMapper.writeValueAsString(validated));
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("Could not serialize mochi-config", 400);
+        }
+        classRepo.save(cls);
+        log.info("[Class] updated mochi-config class={} org={}", classId, orgId);
+        return ResponseEntity.ok(ApiResponse.success(validated));
     }
 
     // ── Centre members (all users in the org + their class memberships) ────────
@@ -519,8 +552,20 @@ public class ClassController {
         m.put("cosmeticEyewear", c.getCosmeticEyewear());
         m.put("cosmeticClothes", c.getCosmeticClothes());
         m.put("cosmeticShoes", c.getCosmeticShoes());
+        m.put("mochiConfig", deserializeMochiConfig(c.getMochiConfig()));
         m.put("studentCount", studentCount);
         return m;
+    }
+
+    /** Deserialize the stored TEXT blob to a MochiConfig; null when unset/corrupt. */
+    private MochiConfig deserializeMochiConfig(String blob) {
+        if (blob == null || blob.isBlank()) return null;
+        try {
+            return objectMapper.readValue(blob, MochiConfig.class);
+        } catch (JsonProcessingException e) {
+            log.warn("[Class] could not deserialize mochi_config blob: {}", e.getMessage());
+            return null;
+        }
     }
 
     private static String str(Object o) {
