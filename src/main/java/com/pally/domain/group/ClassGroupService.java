@@ -2,8 +2,6 @@ package com.pally.domain.group;
 
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
-import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
-import com.pally.infrastructure.persistence.group.GroupSystemPostJpaRepository;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaEntity;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
@@ -33,9 +31,14 @@ import java.util.concurrent.ThreadLocalRandom;
 @Slf4j
 public class ClassGroupService {
 
+    /** System-post kind constants for CLASS group announcements. */
+    public static final String KIND_ANSWERS_RELEASED = "ANSWERS_RELEASED";
+    public static final String KIND_MUDDIEST = "MUDDIEST";
+    public static final String KIND_CHALLENGE = "CHALLENGE";
+
     private final StudyGroupJpaRepository groupRepo;
     private final GroupMemberJpaRepository memberRepo;
-    private final GroupSystemPostJpaRepository systemPostRepo;
+    private final GroupSystemPostRepository systemPostRepo;
     private final OrgClassJpaRepository classRepo;
     private final OrganizationJpaRepository orgRepo;
 
@@ -105,16 +108,9 @@ public class ClassGroupService {
                     classId, kind);
             return null;
         }
-        GroupSystemPostJpaEntity p = new GroupSystemPostJpaEntity();
-        p.setId(IdGenerator.newId());
-        p.setGroupId(g.getId());
-        p.setKind(kind);
-        p.setBody(body);
-        p.setRefId(refId);
-        p.setCreatedAt(Instant.now());
-        systemPostRepo.save(p);
+        String postId = systemPostRepo.save(g.getId(), kind, body, refId);
         log.info("[ClassGroup] system post kind={} class={} group={}", kind, classId, g.getId());
-        return p.getId();
+        return postId;
     }
 
     /**

@@ -3,7 +3,6 @@ package com.pally.domain.module;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.group.ClassGroupService;
-import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -126,7 +125,7 @@ public class MuddiestService {
             String body = count + " of " + completers + " found “" + label
                     + "” the trickiest — we’ll go over it in class.";
             classGroupService.postSystemMessage(
-                    classId, GroupSystemPostJpaEntity.KIND_MUDDIEST, body, module.getId());
+                    classId, ClassGroupService.KIND_MUDDIEST, body, module.getId());
         }
     }
 

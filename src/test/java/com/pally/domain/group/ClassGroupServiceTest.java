@@ -2,8 +2,6 @@ package com.pally.domain.group;
 
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
-import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
-import com.pally.infrastructure.persistence.group.GroupSystemPostJpaRepository;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaEntity;
 import com.pally.infrastructure.persistence.group.StudyGroupJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
@@ -34,7 +32,7 @@ class ClassGroupServiceTest {
 
     @Mock StudyGroupJpaRepository groupRepo;
     @Mock GroupMemberJpaRepository memberRepo;
-    @Mock GroupSystemPostJpaRepository systemPostRepo;
+    @Mock GroupSystemPostRepository systemPostRepo;
     @Mock OrgClassJpaRepository classRepo;
     @Mock OrganizationJpaRepository orgRepo;
 
@@ -117,15 +115,15 @@ class ClassGroupServiceTest {
         StudyGroupJpaEntity g = new StudyGroupJpaEntity();
         g.setId("g1");
         when(groupRepo.findByClassId("class-1")).thenReturn(Optional.of(g));
+        when(systemPostRepo.save(anyString(), anyString(), anyString(), any()))
+                .thenReturn("post-id-1");
 
         String id = service.postSystemMessage("class-1",
-                GroupSystemPostJpaEntity.KIND_ANSWERS_RELEASED, "Answers are out", "assign-1");
+                ClassGroupService.KIND_ANSWERS_RELEASED, "Answers are out", "assign-1");
 
-        assertThat(id).isNotNull();
-        ArgumentCaptor<GroupSystemPostJpaEntity> p = ArgumentCaptor.forClass(GroupSystemPostJpaEntity.class);
-        verify(systemPostRepo).save(p.capture());
-        assertThat(p.getValue().getKind()).isEqualTo(GroupSystemPostJpaEntity.KIND_ANSWERS_RELEASED);
-        assertThat(p.getValue().getGroupId()).isEqualTo("g1");
+        assertThat(id).isEqualTo("post-id-1");
+        verify(systemPostRepo).save("g1", ClassGroupService.KIND_ANSWERS_RELEASED,
+                "Answers are out", "assign-1");
     }
 
     @Test
@@ -133,9 +131,9 @@ class ClassGroupServiceTest {
         when(groupRepo.findByClassId("class-1")).thenReturn(Optional.empty());
 
         String id = service.postSystemMessage("class-1",
-                GroupSystemPostJpaEntity.KIND_MUDDIEST, "x", null);
+                ClassGroupService.KIND_MUDDIEST, "x", null);
 
         assertThat(id).isNull();
-        verify(systemPostRepo, never()).save(any());
+        verify(systemPostRepo, never()).save(anyString(), anyString(), anyString(), any());
     }
 }

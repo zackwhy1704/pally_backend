@@ -1,7 +1,6 @@
 package com.pally.domain.module;
 
 import com.pally.domain.group.ClassGroupService;
-import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -122,7 +121,7 @@ class MuddiestServiceTest {
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(classGroupService).postSystemMessage(
-                eq(CLASS), eq(GroupSystemPostJpaEntity.KIND_MUDDIEST), body.capture(), eq(MODULE));
+                eq(CLASS), eq(ClassGroupService.KIND_MUDDIEST), body.capture(), eq(MODULE));
         assertThat(body.getValue()).contains("3 of 10").contains("calvin-cycle");
     }
 

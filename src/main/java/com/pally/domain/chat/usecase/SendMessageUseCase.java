@@ -9,8 +9,7 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
-import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaEntity;
-import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
+import com.pally.domain.assignment.ContentGapSignalRepository;
 import com.pally.domain.module.LearningModuleRepository;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
@@ -80,7 +79,7 @@ public class SendMessageUseCase {
     private final PremiumService premiumService;
     private final WikiRepository wikiRepository;
     private final LearningModuleRepository learningModuleRepo;
-    private final ContentGapSignalJpaRepository contentGapSignalRepo;
+    private final ContentGapSignalRepository contentGapSignalRepo;
 
     @Value("${centre.closedbook.enabled:true}")
     private boolean closedBookEnabled;
@@ -108,7 +107,7 @@ public class SendMessageUseCase {
             PremiumService premiumService,
             WikiRepository wikiRepository,
             LearningModuleRepository learningModuleRepo,
-            ContentGapSignalJpaRepository contentGapSignalRepo
+            ContentGapSignalRepository contentGapSignalRepo
     ) {
         this.avatarRepository = avatarRepository;
         this.chatRepository = chatRepository;
@@ -197,16 +196,12 @@ public class SendMessageUseCase {
                         // Log as content gap signal for centre avatars
                         if (avatar.getClassId() != null) {
                             try {
-                                ContentGapSignalJpaEntity gap = new ContentGapSignalJpaEntity();
-                                gap.setId(com.pally.shared.util.IdGenerator.newId());
-                                gap.setClassId(avatar.getClassId());
-                                gap.setUserId(userId);
-                                gap.setQueryText(userMessage.substring(
-                                        0, Math.min(1000, userMessage.length())));
-                                gap.setMatchedConfidence(
+                                contentGapSignalRepo.recordSignal(
+                                        avatarId,
+                                        avatar.getClassId(),
+                                        userId,
+                                        userMessage.substring(0, Math.min(1000, userMessage.length())),
                                         java.math.BigDecimal.valueOf(relevance));
-                                gap.setCreatedAt(java.time.Instant.now());
-                                contentGapSignalRepo.save(gap);
                             } catch (Exception e) {
                                 log.warn("[ModuleGate] Failed to save content gap signal: {}",
                                         e.getMessage());
