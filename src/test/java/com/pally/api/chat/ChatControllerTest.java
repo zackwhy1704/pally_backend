@@ -85,7 +85,7 @@ class ChatControllerTest {
 
     @Test
     void getFullHistory_delegatesToOrchestrationService() {
-        var historyResponse = new com.pally.api.chat.dto.ChatHistoryResponse(List.of());
+        var historyResponse = new com.pally.domain.chat.dto.ChatHistoryResponse(List.of());
         when(chatOrchestrationService.getFullHistory(eq(AVATAR_ID), anyInt()))
                 .thenReturn(historyResponse);
 

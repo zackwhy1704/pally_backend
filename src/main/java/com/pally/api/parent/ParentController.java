@@ -1,8 +1,8 @@
 package com.pally.api.parent;
 
-import com.pally.api.parent.dto.ParentDashboardResponse;
-import com.pally.api.parent.dto.WeeklyReportDetail;
-import com.pally.api.parent.dto.WeeklyReportSummary;
+import com.pally.domain.parent.dto.ParentDashboardResponse;
+import com.pally.domain.parent.dto.WeeklyReportDetail;
+import com.pally.domain.parent.dto.WeeklyReportSummary;
 import com.pally.domain.parent.ParentService;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;

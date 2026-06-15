@@ -1,9 +1,9 @@
 package com.pally.domain.chat;
 
 import com.pally.api.chat.ChatMapper;
-import com.pally.api.chat.dto.ChatHistoryResponse;
-import com.pally.api.chat.dto.ChatMessageResponse;
-import com.pally.api.chat.dto.SyncMessageDto;
+import com.pally.domain.chat.dto.ChatHistoryResponse;
+import com.pally.domain.chat.dto.ChatMessageResponse;
+import com.pally.domain.chat.dto.SyncMessageDto;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.TeachingMode;
 import com.pally.domain.chat.port.ChatSessionCachePort;

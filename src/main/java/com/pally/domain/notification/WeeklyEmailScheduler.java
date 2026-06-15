@@ -2,7 +2,7 @@ package com.pally.domain.notification;
 
 import com.pally.domain.account.AccountType;
 
-import com.pally.api.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
+import com.pally.domain.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
 import com.pally.domain.progress.WeeklyReportService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;

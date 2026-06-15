@@ -1,6 +1,6 @@
 package com.pally.api.chat;
 
-import com.pally.api.chat.dto.ChatMessageResponse;
+import com.pally.domain.chat.dto.ChatMessageResponse;
 import com.pally.domain.chat.ChatMessage;
 import org.springframework.stereotype.Component;
 

@@ -1,6 +1,6 @@
 package com.pally.domain.chat.usecase;
 
-import com.pally.api.chat.dto.QuestionAnswerDto;
+import com.pally.domain.chat.dto.QuestionAnswerDto;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.knowledge.WikiPage;
 

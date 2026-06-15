@@ -1,9 +1,9 @@
 package com.pally.domain.progress;
 
-import com.pally.api.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
-import com.pally.api.parent.dto.ParentDashboardResponse.WeakAreaDto;
-import com.pally.api.parent.dto.WeeklyReportDetail;
-import com.pally.api.parent.dto.WeeklyReportSummary;
+import com.pally.domain.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
+import com.pally.domain.parent.dto.ParentDashboardResponse.WeakAreaDto;
+import com.pally.domain.parent.dto.WeeklyReportDetail;
+import com.pally.domain.parent.dto.WeeklyReportSummary;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;

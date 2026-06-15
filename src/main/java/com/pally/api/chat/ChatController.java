@@ -1,12 +1,12 @@
 package com.pally.api.chat;
 
-import com.pally.api.chat.dto.ChatHistoryResponse;
-import com.pally.api.chat.dto.ChatMessageResponse;
 import com.pally.api.chat.dto.ChatRequest;
 import com.pally.api.chat.dto.ChatSyncRequest;
 import com.pally.api.chat.dto.FeedbackRequest;
 import com.pally.api.chat.dto.PhotoQuestionRequest;
-import com.pally.api.chat.dto.PhotoQuestionResponse;
+import com.pally.domain.chat.dto.ChatHistoryResponse;
+import com.pally.domain.chat.dto.ChatMessageResponse;
+import com.pally.domain.chat.dto.PhotoQuestionResponse;
 import com.pally.domain.avatar.TeachingMode;
 import com.pally.domain.chat.ChatOrchestrationService;
 import com.pally.domain.chat.usecase.SendMessageUseCase;

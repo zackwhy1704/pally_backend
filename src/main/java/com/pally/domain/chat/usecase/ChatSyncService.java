@@ -1,6 +1,6 @@
 package com.pally.domain.chat.usecase;
 
-import com.pally.api.chat.dto.SyncMessageDto;
+import com.pally.domain.chat.dto.SyncMessageDto;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
 import lombok.RequiredArgsConstructor;
