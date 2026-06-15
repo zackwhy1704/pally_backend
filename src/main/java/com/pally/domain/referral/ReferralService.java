@@ -1,8 +1,7 @@
 package com.pally.domain.referral;
 
-import com.pally.domain.progress.UserRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.referral.ReferralJpaEntity;
 import com.pally.infrastructure.persistence.referral.ReferralJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -45,15 +44,14 @@ public class ReferralService {
     /// the truth the client tier UI reads — never cosmetic. 600★ = a mystery box.
     public static final int[] TIER_STAR_BONUS = {100, 250, 600};
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final ReferralJpaRepository referralRepo;
-    private final UserRepository userDomainRepo;
 
     /// Returns the user's code, generating one on first call so we don't
     /// backfill at migration time.
     @Transactional
     public String ensureCodeFor(String userId) {
-        UserJpaEntity user = userRepo.findById(userId)
+        User user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
         if (user.getReferralCode() != null && !user.getReferralCode().isBlank()) {
             return user.getReferralCode();
@@ -76,7 +74,7 @@ public class ReferralService {
             throw new BusinessException(
                     "You've already redeemed a referral code.", 409);
         }
-        UserJpaEntity referrer = userRepo.findByReferralCode(code)
+        User referrer = userRepo.findByReferralCode(code)
                 .orElseThrow(() -> new BusinessException(
                         "That referral code doesn't exist.", 404));
         if (referrer.getId().equals(refereeUserId)) {
@@ -108,7 +106,7 @@ public class ReferralService {
         if (ReferralJpaEntity.STATUS_ACTIVATED.equals(r.getStatus())) return;
 
         boolean verified = userRepo.findById(refereeUserId)
-                .map(UserJpaEntity::isEmailVerified)
+                .map(User::isEmailVerified)
                 .orElse(false);
         if (!verified) {
             // Don't flip the row yet — leave it pending so the reward
@@ -126,9 +124,9 @@ public class ReferralService {
         // Pay both sides through the standard XP/stars path so it shows
         // in activity_log and triggers level-up celebrations.
         try {
-            userDomainRepo.addXpAndStars(
+            userRepo.addXpAndStars(
                     r.getReferrerUserId(), ACTIVATION_XP, ACTIVATION_STARS);
-            userDomainRepo.addXpAndStars(
+            userRepo.addXpAndStars(
                     refereeUserId, ACTIVATION_XP, ACTIVATION_STARS);
             // Escalating milestone bonus to the referrer the moment this
             // activation crosses a tier (3/5/10 activated friends). Real stars,
@@ -137,7 +135,7 @@ public class ReferralService {
                     r.getReferrerUserId(), ReferralJpaEntity.STATUS_ACTIVATED);
             int milestoneBonus = milestoneStarBonus(activatedNow);
             if (milestoneBonus > 0) {
-                userDomainRepo.addXpAndStars(r.getReferrerUserId(), 0, milestoneBonus);
+                userRepo.addXpAndStars(r.getReferrerUserId(), 0, milestoneBonus);
                 log.info("[Referral] milestone! referrer={} hit {} friends (+{}stars)",
                         r.getReferrerUserId(), activatedNow, milestoneBonus);
             }

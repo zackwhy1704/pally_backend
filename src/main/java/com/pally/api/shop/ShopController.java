@@ -1,9 +1,9 @@
 package com.pally.api.shop;
 
 import com.pally.api.shop.dto.StarsResponse;
-import com.pally.domain.progress.UserRepository;
-import com.pally.domain.progress.UserStats;
 import com.pally.domain.shop.CharacterShopService;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +27,7 @@ public class ShopController {
     ) {
         userRepository.ensureUserExists(userId);
         int stars = userRepository.findById(userId)
-                .map(UserStats::stars)
+                .map(User::getStars)
                 .orElse(0);
         return ResponseEntity.ok(ApiResponse.success(new StarsResponse(stars)));
     }

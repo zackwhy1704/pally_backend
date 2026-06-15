@@ -5,9 +5,9 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.consent.ConsentGuard;
-import com.pally.domain.progress.UserRepository;
-import com.pally.domain.progress.UserStats;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.UpgradeRequiredException;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,8 +64,12 @@ class CreateAvatarUseCaseTest {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.MAX);
     }
 
-    private UserStats stats(int level) {
-        return new UserStats(USER, "kid", 0, level, 0, 0);
+    private User stats(int level) {
+        User u = new User();
+        u.setId(USER);
+        u.setDisplayName("kid");
+        u.setLevel(level);
+        return u;
     }
 
     @Test

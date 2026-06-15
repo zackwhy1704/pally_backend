@@ -20,8 +20,8 @@ import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository;
 import com.pally.infrastructure.persistence.powerup.UserPowerupJpaRepository;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.progress.StudyPlanCompletionJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.FlashcardJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
@@ -57,7 +57,7 @@ public class DeleteAccountUseCase {
 
     // ── Repositories ──────────────────────────────────────────────────────
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final AvatarJpaRepository avatarRepo;
     private final ChatMessageJpaRepository chatMessageRepo;
     private final ChatSessionJpaRepository chatSessionRepo;
@@ -91,7 +91,7 @@ public class DeleteAccountUseCase {
     // ── Constructor injection (no @Autowired fields) ───────────────────────
 
     public DeleteAccountUseCase(
-            UserJpaRepository userRepo,
+            UserRepository userRepo,
             AvatarJpaRepository avatarRepo,
             ChatMessageJpaRepository chatMessageRepo,
             ChatSessionJpaRepository chatSessionRepo,

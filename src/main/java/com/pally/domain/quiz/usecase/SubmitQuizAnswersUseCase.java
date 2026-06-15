@@ -4,7 +4,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
-import com.pally.domain.progress.UserRepository;
+import com.pally.domain.user.UserRepository;
 import com.pally.domain.quiz.AnswerSubmission;
 import com.pally.domain.quiz.CardRating;
 import com.pally.domain.quiz.FlashCard;

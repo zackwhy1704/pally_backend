@@ -1,9 +1,9 @@
 package com.pally.api.home;
 
 import com.pally.domain.avatar.AvatarRepository;
-import com.pally.domain.progress.UserRepository;
-import com.pally.domain.progress.UserStats;
 import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -28,16 +28,16 @@ public class HomeController {
             @AuthenticationPrincipal String userId
     ) {
         userRepository.ensureUserExists(userId);
-        UserStats stats = userRepository.findById(userId).orElse(null);
+        User stats = userRepository.findById(userId).orElse(null);
 
         List<Map<String, String>> nudges = new ArrayList<>();
 
         // Streak nudge
-        if (stats != null && stats.streakDays() > 0) {
+        if (stats != null && stats.getStreakDays() > 0) {
             nudges.add(Map.of(
                 "type", "streak",
                 "emoji", "🔥",
-                "message", "You're on a " + stats.streakDays() + "-day streak! Don't break it."
+                "message", "You're on a " + stats.getStreakDays() + "-day streak! Don't break it."
             ));
         }
 
@@ -55,11 +55,11 @@ public class HomeController {
         }
 
         // XP milestone nudge
-        if (stats != null && stats.xp() > 0 && stats.xp() % 100 < 20) {
+        if (stats != null && stats.getXp() > 0 && stats.getXp() % 100 < 20) {
             nudges.add(Map.of(
                 "type", "quiz",
                 "emoji", "🌟",
-                "message", "You're close to level " + (stats.level() + 1) + "! Keep going."
+                "message", "You're close to level " + (stats.getLevel() + 1) + "! Keep going."
             ));
         }
 

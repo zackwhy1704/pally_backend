@@ -1,9 +1,9 @@
 package com.pally.domain.shop;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.powerup.UserPowerupJpaEntity;
 import com.pally.infrastructure.persistence.powerup.UserPowerupJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,14 +31,14 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class PowerupServiceTest {
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock UserPowerupJpaRepository powerupRepo;
     @InjectMocks PowerupService service;
 
     private static final String USER = "u1";
 
-    private UserJpaEntity userWithStars(int stars) {
-        UserJpaEntity u = new UserJpaEntity();
+    private User userWithStars(int stars) {
+        User u = new User();
         u.setId(USER);
         u.setStars(stars);
         return u;

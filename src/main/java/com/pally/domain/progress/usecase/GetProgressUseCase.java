@@ -5,9 +5,9 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.ProgressSummary;
-import com.pally.domain.progress.UserRepository;
-import com.pally.domain.progress.UserStats;
 import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -29,10 +29,10 @@ public class GetProgressUseCase {
     public ProgressSummary execute(String userId) {
         userRepository.ensureUserExists(userId);
 
-        UserStats stats = userRepository.findById(userId)
+        User stats = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
 
-        int xpToNext = ProgressSummary.xpToNext(stats.xp());
+        int xpToNext = ProgressSummary.xpToNext(stats.getXp());
 
         // Milestone badges may need to be granted from the latest state
         // (e.g., user just crossed level 5 from a quiz). Cheap idempotent call.
@@ -58,11 +58,11 @@ public class GetProgressUseCase {
 
         return new ProgressSummary(
                 userId,
-                stats.xp(),
-                stats.level(),
+                stats.getXp(),
+                stats.getLevel(),
                 xpToNext,
-                stats.streakDays(),
-                stats.stars(),
+                stats.getStreakDays(),
+                stats.getStars(),
                 totalFlashcards,
                 dueFlashcards,
                 totalQuizzesTaken,

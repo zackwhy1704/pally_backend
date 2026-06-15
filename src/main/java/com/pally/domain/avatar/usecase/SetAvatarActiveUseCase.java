@@ -4,7 +4,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.subscription.PremiumService;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.UserRepository;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -39,7 +39,7 @@ public class SetAvatarActiveUseCase {
 
     private final AvatarRepository avatarRepository;
     private final PremiumService premiumService;
-    private final UserJpaRepository userJpaRepository;
+    private final UserRepository userJpaRepository;
 
     public record Result(boolean isActive, String message, long cooldownSecondsRemaining) {}
 

@@ -8,7 +8,6 @@ import com.pally.api.parent.dto.WeeklyReportSummary;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.progress.ActivityLogService;
-import com.pally.domain.progress.UserStats;
 import com.pally.domain.progress.WeeklyReportService;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;

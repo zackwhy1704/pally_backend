@@ -1,10 +1,9 @@
 package com.pally.domain.notification;
 
 import com.pally.domain.account.AccountType;
-
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +18,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class RiskAlertSchedulerTest {
 
-    @Mock private UserJpaRepository userRepo;
+    @Mock private UserRepository userRepo;
     @Mock private ActivityLogJpaRepository activityRepo;
     @Mock private MilestoneNotifier milestoneNotifier;
 
@@ -41,7 +40,7 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_activeChild_noAlert() {
-        UserJpaEntity child = childWithParent("c1", "p1", "Alice");
+        User child = childWithParent("c1", "p1", "Alice");
         when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(5);
 
@@ -52,7 +51,7 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_inactiveChildWithParent_sendsAlert() {
-        UserJpaEntity child = childWithParent("c1", "p1", "Bob");
+        User child = childWithParent("c1", "p1", "Bob");
         when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(0);
 
@@ -63,7 +62,7 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_inactiveChildWithoutParent_skipped() {
-        UserJpaEntity child = childWithoutParent("c1");
+        User child = childWithoutParent("c1");
         when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
 
         scheduler.checkInactiveChildren();
@@ -75,7 +74,7 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_nullActivityCount_treatedAsZero() {
-        UserJpaEntity child = childWithParent("c1", "p1", "Charlie");
+        User child = childWithParent("c1", "p1", "Charlie");
         when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(child));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(null);
 
@@ -86,8 +85,8 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_mixedActiveAndInactive_onlyAlertsInactive() {
-        UserJpaEntity active = childWithParent("c1", "p1", "Alice");
-        UserJpaEntity inactive = childWithParent("c2", "p1", "Bob");
+        User active = childWithParent("c1", "p1", "Alice");
+        User inactive = childWithParent("c2", "p1", "Bob");
         when(userRepo.findByAccountType(AccountType.CHILD)).thenReturn(List.of(active, inactive));
         when(activityRepo.countSince(eq("c1"), any())).thenReturn(3);
         when(activityRepo.countSince(eq("c2"), any())).thenReturn(0);
@@ -100,7 +99,8 @@ class RiskAlertSchedulerTest {
 
     @Test
     void checkInactiveChildren_usesChildNameFallingBackToDisplayName() {
-        UserJpaEntity child = UserJpaEntity.newUser("c1");
+        User child = new User();
+        child.setId("c1");
         child.setParentId("p1");
         child.setChildName(null);
         child.setDisplayName("FallbackName");
@@ -114,15 +114,17 @@ class RiskAlertSchedulerTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    private UserJpaEntity childWithParent(String childId, String parentId, String name) {
-        UserJpaEntity child = UserJpaEntity.newUser(childId);
+    private User childWithParent(String childId, String parentId, String name) {
+        User child = new User();
+        child.setId(childId);
         child.setParentId(parentId);
         child.setChildName(name);
         return child;
     }
 
-    private UserJpaEntity childWithoutParent(String childId) {
-        UserJpaEntity child = UserJpaEntity.newUser(childId);
+    private User childWithoutParent(String childId) {
+        User child = new User();
+        child.setId(childId);
         child.setParentId(null);
         return child;
     }

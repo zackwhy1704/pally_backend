@@ -1,8 +1,8 @@
 package com.pally.domain.shop;
 
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.powerup.UserPowerupJpaEntity;
 import com.pally.infrastructure.persistence.powerup.UserPowerupJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,7 +54,7 @@ public class PowerupService {
         }
     }
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final UserPowerupJpaRepository powerupRepo;
 
     @Transactional

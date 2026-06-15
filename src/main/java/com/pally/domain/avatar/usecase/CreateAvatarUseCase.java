@@ -6,7 +6,7 @@ import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.progress.LevelRewards;
-import com.pally.domain.progress.UserRepository;
+import com.pally.domain.user.UserRepository;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionLimits;
 import com.pally.domain.subscription.SubscriptionTier;
@@ -59,7 +59,7 @@ public class CreateAvatarUseCase {
                 && tier != SubscriptionTier.CENTRE) {
             int existing = avatarRepository.findByUserId(userId).size();
             int level = userRepository.findById(userId)
-                    .map(u -> u.level())
+                    .map(u -> u.getLevel())
                     .orElse(1);
             int cap = SubscriptionLimits.mochiCap(tier, level);
             if (existing >= cap) {

@@ -1,5 +1,7 @@
 package com.pally.domain.progress;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.badge.UserBadgeJpaEntity;
 import com.pally.infrastructure.persistence.badge.UserBadgeJpaRepository;
 import com.pally.shared.util.IdGenerator;
@@ -51,15 +53,15 @@ public class BadgeService {
     /// re-running won't grant duplicates (unique constraint protects).
     @Transactional
     public List<String> checkAndGrantMilestones(String userId) {
-        UserStats stats = userRepo.findById(userId).orElse(null);
+        User stats = userRepo.findById(userId).orElse(null);
         if (stats == null) return List.of();
 
         List<String> newlyEarned = new ArrayList<>();
-        if (stats.streakDays() >= 3) addIfNew(userId, BadgeType.STREAK_3, newlyEarned);
-        if (stats.streakDays() >= 7) addIfNew(userId, BadgeType.STREAK_7, newlyEarned);
-        if (stats.streakDays() >= 30) addIfNew(userId, BadgeType.STREAK_30, newlyEarned);
-        if (stats.level() >= 5) addIfNew(userId, BadgeType.LEVEL_5, newlyEarned);
-        if (stats.level() >= 10) addIfNew(userId, BadgeType.LEVEL_10, newlyEarned);
+        if (stats.getStreakDays() >= 3) addIfNew(userId, BadgeType.STREAK_3, newlyEarned);
+        if (stats.getStreakDays() >= 7) addIfNew(userId, BadgeType.STREAK_7, newlyEarned);
+        if (stats.getStreakDays() >= 30) addIfNew(userId, BadgeType.STREAK_30, newlyEarned);
+        if (stats.getLevel() >= 5) addIfNew(userId, BadgeType.LEVEL_5, newlyEarned);
+        if (stats.getLevel() >= 10) addIfNew(userId, BadgeType.LEVEL_10, newlyEarned);
         return newlyEarned;
     }
 

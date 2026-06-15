@@ -22,9 +22,8 @@ import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository;
 import com.pally.infrastructure.persistence.powerup.UserPowerupJpaRepository;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.progress.StudyPlanCompletionJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.FlashcardJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
@@ -66,7 +65,7 @@ class DeleteAccountUseCaseTest {
 
     // ── All repos mocked ──────────────────────────────────────────────────
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock AvatarJpaRepository avatarRepo;
     @Mock ChatMessageJpaRepository chatMessageRepo;
     @Mock ChatSessionJpaRepository chatSessionRepo;

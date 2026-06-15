@@ -1,7 +1,7 @@
 package com.pally.domain.shop;
 
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CharacterShopServiceTest {
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock CharacterUnlockJpaRepository unlockRepo;
     @Mock com.pally.infrastructure.persistence.mochi.MochiCharacterJpaRepository catalogRepo;
     @Mock com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository userMochiRepo;
@@ -39,8 +39,8 @@ class CharacterShopServiceTest {
 
     private static final String USER = "u1";
 
-    private UserJpaEntity user(int stars, int freezes, int level) {
-        UserJpaEntity u = new UserJpaEntity();
+    private User user(int stars, int freezes, int level) {
+        User u = new User();
         u.setId(USER);
         u.setStars(stars);
         u.setStreakFreezes(freezes);

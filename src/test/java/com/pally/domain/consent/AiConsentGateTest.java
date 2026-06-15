@@ -1,9 +1,9 @@
 package com.pally.domain.consent;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaEntity;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AiConsentGateTest {
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock ConsentRecordJpaRepository consentRecordRepo;
 
     private static final String USER_ID = "user-test";
@@ -101,7 +101,7 @@ class AiConsentGateTest {
 
     @Test
     void requireActive_passesForActiveUser() {
-        UserJpaEntity user = new UserJpaEntity();
+        User user = new User();
         user.setId(USER_ID);
         user.setAccountStatus(ConsentGuard.STATUS_ACTIVE);
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));

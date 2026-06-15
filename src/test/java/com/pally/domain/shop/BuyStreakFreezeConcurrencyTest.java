@@ -1,7 +1,7 @@
 package com.pally.domain.shop;
 
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -38,7 +38,7 @@ class BuyStreakFreezeConcurrencyTest {
         final AtomicInteger stars = new AtomicInteger(startingStars);
         final AtomicInteger freezes = new AtomicInteger(0);
 
-        UserJpaRepository userRepo = mock(UserJpaRepository.class);
+        UserRepository userRepo = mock(UserRepository.class);
         CharacterUnlockJpaRepository unlockRepo =
                 mock(CharacterUnlockJpaRepository.class);
         var catalogRepo = mock(
@@ -104,12 +104,12 @@ class BuyStreakFreezeConcurrencyTest {
         assertThat(freezes.get()).isEqualTo(2);
     }
 
-    private UserJpaEntity snapshot(int stars, int freezes) {
-        UserJpaEntity u = new UserJpaEntity();
+    private User snapshot(int stars, int freezes) {
+        User u = new User();
         u.setId("u1");
         u.setStars(stars);
         u.setStreakFreezes(freezes);
-        u.setLevel(20); // engages the L20 cap = 5
+        u.setLevel(20);
         return u;
     }
 }

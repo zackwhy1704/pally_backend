@@ -1,8 +1,8 @@
 package com.pally.domain.progress;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.activity.DailyActivityDayJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,7 +40,7 @@ public class StreakService {
         return level >= 20 ? FREEZE_CAP_L20 : FREEZE_CAP;
     }
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final DailyActivityDayJpaRepository dayRepo;
     private final BadgeService badgeService;
     private final com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
@@ -64,7 +64,7 @@ public class StreakService {
                     userId, e.getMessage());
         }
 
-        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        User user = userRepo.findById(userId).orElse(null);
         if (user == null) {
             return new StreakUpdateResult(0, 0, 0, 0);
         }

@@ -1,8 +1,8 @@
 package com.pally.domain.consent;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
@@ -46,11 +46,11 @@ public class ConsentGuard {
     /// Use with {@link #requireGuardianIfUnder13(String)}.
     public static final String REASON_PARENT_LINK_REQUIRED = "PARENT_LINK_REQUIRED";
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final ConsentRecordJpaRepository consentRecordRepo;
     private final UserAgeService userAgeService;
 
-    public ConsentGuard(UserJpaRepository userRepo,
+    public ConsentGuard(UserRepository userRepo,
                         ConsentRecordJpaRepository consentRecordRepo,
                         UserAgeService userAgeService) {
         this.userRepo = userRepo;
@@ -137,7 +137,7 @@ public class ConsentGuard {
      * @param userId the authenticated user
      */
     public void requireGuardianIfUnder13(String userId) {
-        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        User user = userRepo.findById(userId).orElse(null);
         if (user == null) {
             return; // user not found → let the downstream handle it
         }

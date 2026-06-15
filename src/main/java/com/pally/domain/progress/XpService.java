@@ -1,6 +1,8 @@
 package com.pally.domain.progress;
 
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,7 +49,7 @@ public class XpService {
     /// Star/XP ratio. Stars = round(xp * RATIO).
     private static final double STAR_RATIO = 0.5;
 
-    private final UserRepository userRepository;
+    private final com.pally.domain.user.UserRepository userRepository;
     private final ActivityLogJpaRepository activityLog;
 
     public record QuizAward(
@@ -59,11 +61,11 @@ public class XpService {
             int decayStep,
             int srsBonusXp,
             int weakBonusXp,
-            UserRepository.XpResult creditResult) {
+            com.pally.domain.user.UserRepository.XpResult creditResult) {
         /// 7-arg overload retained for tests that don't exercise SRS/weak.
         public QuizAward(int xpGranted, int starsGranted, int requestedXp,
                          double multiplier, boolean varietyBonus, int decayStep,
-                         UserRepository.XpResult creditResult) {
+                         com.pally.domain.user.UserRepository.XpResult creditResult) {
             this(xpGranted, starsGranted, requestedXp, multiplier, varietyBonus,
                     decayStep, 0, 0, creditResult);
         }
@@ -73,7 +75,7 @@ public class XpService {
             int xpGranted,
             int starsGranted,
             boolean alreadyCreditedToday,
-            UserRepository.XpResult creditResult) {}
+            com.pally.domain.user.UserRepository.XpResult creditResult) {}
 
     /**
      * Credits quiz XP with per-avatar decay + variety bonus.
@@ -138,7 +140,7 @@ public class XpService {
     private int mintStars(String userId, int xpGranted) {
         if (xpGranted <= 0) return 0;
         int level = userRepository.findById(userId)
-                .map(UserStats::level).orElse(1);
+                .map(User::getLevel).orElse(1);
         double mult = LevelRewards.starEarnMultiplier(level);
         return (int) Math.round(xpGranted * STAR_RATIO * mult);
     }
@@ -158,10 +160,10 @@ public class XpService {
             // Still need to know the user's current level so the caller can
             // surface no-op level state without a second round-trip.
             int xp = userRepository.findById(userId)
-                    .map(UserStats::xp).orElse(0);
+                    .map(User::getXp).orElse(0);
             int level = ProgressSummary.computeLevel(xp);
             return new ChatAward(0, 0, true,
-                    UserRepository.XpResult.unchanged(xp, level));
+                    com.pally.domain.user.UserRepository.XpResult.unchanged(xp, level));
         }
         int starsGranted = mintStars(userId, CHAT_XP);
         var credit = userRepository.addXpAndStars(userId, CHAT_XP, starsGranted);
@@ -173,7 +175,7 @@ public class XpService {
     /// Pass-through for sites that don't need decay (referral activation).
     /// Star multiplier is still applied so the L10 perk affects all credits,
     /// not just quiz/chat.
-    public UserRepository.XpResult award(String userId, int xp, int stars) {
+    public com.pally.domain.user.UserRepository.XpResult award(String userId, int xp, int stars) {
         // Caller's {@code stars} is treated as a *requested* amount before
         // the multiplier — callers shouldn't have to know about the perk.
         // Pass 0 to skip multiplier (e.g. referral pays a fixed amount).
@@ -183,12 +185,12 @@ public class XpService {
     /// Generic credit with decay-free, multiplier-applied stars. Use when
     /// the source has its own dedup (e.g. teach session-end is one per
     /// session, photo per-question-hash via the caller).
-    public UserRepository.XpResult awardFlat(String userId, int xp) {
+    public com.pally.domain.user.UserRepository.XpResult awardFlat(String userId, int xp) {
         if (xp <= 0) {
             int currentXp = userRepository.findById(userId)
-                    .map(UserStats::xp).orElse(0);
+                    .map(User::getXp).orElse(0);
             int level = ProgressSummary.computeLevel(currentXp);
-            return UserRepository.XpResult.unchanged(currentXp, level);
+            return com.pally.domain.user.UserRepository.XpResult.unchanged(currentXp, level);
         }
         int stars = mintStars(userId, xp);
         return userRepository.addXpAndStars(userId, xp, stars);
@@ -202,7 +204,7 @@ public class XpService {
             int requestedXp,
             double multiplier,
             int decayStep,
-            UserRepository.XpResult creditResult) {}
+            com.pally.domain.user.UserRepository.XpResult creditResult) {}
 
     /**
      * Credits photo-question XP with per-avatar daily decay. Kids who
@@ -214,10 +216,10 @@ public class XpService {
      */
     public PhotoAward awardForPhoto(String userId, String avatarId, int baseXp) {
         if (baseXp <= 0) {
-            int xp = userRepository.findById(userId).map(UserStats::xp).orElse(0);
+            int xp = userRepository.findById(userId).map(User::getXp).orElse(0);
             int lvl = ProgressSummary.computeLevel(xp);
             return new PhotoAward(0, 0, 0, 0.0, 0,
-                    UserRepository.XpResult.unchanged(xp, lvl));
+                    com.pally.domain.user.UserRepository.XpResult.unchanged(xp, lvl));
         }
         var window = sgtToday();
         int priorPhotos = nz(activityLog.countByTypeAndAvatarBetween(

@@ -1,12 +1,11 @@
 package com.pally.domain.notification;
 
 import com.pally.domain.account.AccountType;
-
 import com.pally.domain.progress.WeeklyReportService;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.email.EmailService;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,7 +24,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class WeeklyEmailSchedulerTest {
 
-    @Mock private UserJpaRepository userRepo;
+    @Mock private UserRepository userRepo;
     @Mock private ActivityLogJpaRepository activityRepo;
     @Mock private WeeklyReportService weeklyReportService;
     @Mock private EmailService emailService;
@@ -48,12 +47,12 @@ class WeeklyEmailSchedulerTest {
 
     @Test
     void sendWeeklyReports_parentWithActiveChild_sendsEmail() {
-        UserJpaEntity parent = new UserJpaEntity();
+        User parent = new User();
         parent.setId("p-1");
         parent.setEmail("parent@test.com");
         parent.setAccountType(AccountType.PARENT);
 
-        UserJpaEntity child = new UserJpaEntity();
+        User child = new User();
         child.setId("c-1");
         child.setChildName("Alice");
         child.setParentId("p-1");
@@ -79,12 +78,12 @@ class WeeklyEmailSchedulerTest {
 
     @Test
     void sendWeeklyReports_childWithNoActivity_skipsEmail() {
-        UserJpaEntity parent = new UserJpaEntity();
+        User parent = new User();
         parent.setId("p-2");
         parent.setEmail("parent2@test.com");
         parent.setAccountType(AccountType.PARENT);
 
-        UserJpaEntity child = new UserJpaEntity();
+        User child = new User();
         child.setId("c-2");
         child.setParentId("p-2");
 
@@ -99,7 +98,7 @@ class WeeklyEmailSchedulerTest {
 
     @Test
     void sendWeeklyReports_parentWithNoEmail_skipsEmail() {
-        UserJpaEntity parent = new UserJpaEntity();
+        User parent = new User();
         parent.setId("p-3");
         parent.setEmail(null);
         parent.setAccountType(AccountType.PARENT);
@@ -113,17 +112,17 @@ class WeeklyEmailSchedulerTest {
 
     @Test
     void sendReportForParent_multipleChildren_includesAllActive() {
-        UserJpaEntity parent = new UserJpaEntity();
+        User parent = new User();
         parent.setId("p-4");
         parent.setEmail("multi@test.com");
         parent.setAccountType(AccountType.PARENT);
 
-        UserJpaEntity child1 = new UserJpaEntity();
+        User child1 = new User();
         child1.setId("c-3");
         child1.setChildName("Bob");
         child1.setParentId("p-4");
 
-        UserJpaEntity child2 = new UserJpaEntity();
+        User child2 = new User();
         child2.setId("c-4");
         child2.setChildName("Carol");
         child2.setParentId("p-4");

@@ -1,8 +1,7 @@
 package com.pally.domain.referral;
 
-import com.pally.domain.progress.UserRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.referral.ReferralJpaEntity;
 import com.pally.infrastructure.persistence.referral.ReferralJpaRepository;
 import org.junit.jupiter.api.Test;
@@ -21,9 +20,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ReferralServiceTest {
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock ReferralJpaRepository referralRepo;
-    @Mock UserRepository userDomainRepo;
 
     @InjectMocks ReferralService service;
 
@@ -39,7 +37,7 @@ class ReferralServiceTest {
     }
 
     private void stubVerifiedReferee() {
-        UserJpaEntity u = new UserJpaEntity();
+        User u = new User();
         u.setId(REFEREE);
         u.setEmailVerified(true);
         when(userRepo.findById(REFEREE)).thenReturn(Optional.of(u));
@@ -64,10 +62,10 @@ class ReferralServiceTest {
         service.onFirstQuizAnswer(REFEREE);
 
         // Flat activation reward to both sides…
-        verify(userDomainRepo).addXpAndStars(REFERRER, 50, 25);
-        verify(userDomainRepo).addXpAndStars(REFEREE, 50, 25);
+        verify(userRepo).addXpAndStars(REFERRER, 50, 25);
+        verify(userRepo).addXpAndStars(REFEREE, 50, 25);
         // …plus the real 100★ milestone bonus to the referrer.
-        verify(userDomainRepo).addXpAndStars(REFERRER, 0, 100);
+        verify(userRepo).addXpAndStars(REFERRER, 0, 100);
     }
 
     @Test
@@ -79,22 +77,22 @@ class ReferralServiceTest {
 
         service.onFirstQuizAnswer(REFEREE);
 
-        verify(userDomainRepo).addXpAndStars(REFERRER, 50, 25);
-        verify(userDomainRepo).addXpAndStars(REFEREE, 50, 25);
-        verify(userDomainRepo, never()).addXpAndStars(REFERRER, 0, 100);
+        verify(userRepo).addXpAndStars(REFERRER, 50, 25);
+        verify(userRepo).addXpAndStars(REFEREE, 50, 25);
+        verify(userRepo, never()).addXpAndStars(REFERRER, 0, 100);
     }
 
     @Test
     void onFirstQuizAnswer_unverifiedReferee_withholdsAllReward() {
         when(referralRepo.findByRefereeUserId(REFEREE)).thenReturn(Optional.of(pendingReferral()));
-        UserJpaEntity unverified = new UserJpaEntity();
+        User unverified = new User();
         unverified.setId(REFEREE);
         unverified.setEmailVerified(false);
         when(userRepo.findById(REFEREE)).thenReturn(Optional.of(unverified));
 
         service.onFirstQuizAnswer(REFEREE);
 
-        verify(userDomainRepo, never()).addXpAndStars(org.mockito.ArgumentMatchers.anyString(),
+        verify(userRepo, never()).addXpAndStars(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
     }
 }

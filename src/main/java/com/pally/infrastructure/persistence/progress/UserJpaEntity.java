@@ -1,7 +1,6 @@
 package com.pally.infrastructure.persistence.progress;
 
 import com.pally.domain.account.AccountType;
-import com.pally.domain.progress.UserStats;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -195,19 +194,31 @@ public class UserJpaEntity {
         return e;
     }
 
-    public static UserJpaEntity fromDomain(UserStats stats) {
-        UserJpaEntity e = new UserJpaEntity();
-        e.id = stats.id();
-        e.displayName = stats.displayName();
-        e.xp = stats.xp();
-        e.level = stats.level();
-        e.streakDays = stats.streakDays();
-        e.stars = stats.stars();
-        e.createdAt = Instant.now();
-        return e;
-    }
-
-    public UserStats toDomain() {
-        return new UserStats(id, displayName != null ? displayName : "Player", xp, level, streakDays, stars);
+    public com.pally.domain.user.User toUserDomain() {
+        com.pally.domain.user.User u = new com.pally.domain.user.User();
+        u.setId(id);
+        u.setEmail(email);
+        u.setDisplayName(displayName);
+        u.setChildName(childName);
+        u.setParentId(parentId);
+        u.setAccountType(accountType);
+        u.setStars(stars);
+        u.setXp(xp);
+        u.setLevel(level);
+        u.setStreakDays(streakDays);
+        u.setLongestStreak(longestStreak);
+        u.setStreakFreezes(streakFreezes);
+        u.setLastActiveDate(lastActiveDate);
+        u.setStreakMilestonesReached(streakMilestonesReached);
+        u.setPremium(isPremium);
+        u.setReferralCode(referralCode);
+        u.setEmailVerified(emailVerified);
+        u.setAccountStatus(accountStatus);
+        u.setBirthYear(birthYear);
+        u.setTrialStatus(trialStatus);
+        u.setTrialStartedAt(trialStartedAt);
+        u.setTrialEndsAt(trialEndsAt);
+        u.setLastSlotChangeAt(lastSlotChangeAt);
+        return u;
     }
 }

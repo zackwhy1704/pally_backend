@@ -2,9 +2,9 @@ package com.pally.domain.notification;
 
 import com.pally.domain.account.AccountType;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,16 +23,16 @@ import java.util.List;
 @Slf4j
 public class RiskAlertScheduler {
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final ActivityLogJpaRepository activityRepo;
     private final MilestoneNotifier milestoneNotifier;
 
     @Scheduled(cron = "0 0 9 * * MON", zone = "Asia/Singapore")
     public void checkInactiveChildren() {
-        List<UserJpaEntity> children = userRepo.findByAccountType(AccountType.CHILD);
+        List<User> children = userRepo.findByAccountType(AccountType.CHILD);
         Instant sixDaysAgo = Instant.now().minus(Duration.ofDays(6));
         int alerts = 0;
-        for (UserJpaEntity child : children) {
+        for (User child : children) {
             if (child.getParentId() == null) continue;
             int activity = orZero(activityRepo.countSince(child.getId(), sixDaysAgo));
             if (activity == 0) {

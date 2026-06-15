@@ -1,7 +1,7 @@
 package com.pally.domain.notification;
 
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.push.FcmService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class MilestoneNotifierTest {
 
-    @Mock private UserJpaRepository userRepo;
+    @Mock private UserRepository userRepo;
     @Mock private FcmService fcmService;
 
     private MilestoneNotifier notifier;
@@ -33,7 +33,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onStreakMilestone_childHasParent_sendsPush() {
-        UserJpaEntity child = childWithParent("child-1", "parent-1", "Alice");
+        User child = childWithParent("child-1", "parent-1", "Alice");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onStreakMilestone("child-1", 7);
@@ -43,7 +43,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onStreakMilestone_childHasNoParent_noOp() {
-        UserJpaEntity child = childWithoutParent("child-1");
+        User child = childWithoutParent("child-1");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onStreakMilestone("child-1", 7);
@@ -64,7 +64,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onModuleCompleted_childHasParent_sendsPush() {
-        UserJpaEntity child = childWithParent("child-1", "parent-1", "Bob");
+        User child = childWithParent("child-1", "parent-1", "Bob");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onModuleCompleted("child-1", "Photosynthesis", 0.92);
@@ -77,7 +77,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onModuleCompleted_childHasNoParent_noOp() {
-        UserJpaEntity child = childWithoutParent("child-1");
+        User child = childWithoutParent("child-1");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onModuleCompleted("child-1", "Math Basics", 0.85);
@@ -90,7 +90,7 @@ class MilestoneNotifierTest {
     @Test
     void onInactiveChild_childHasParent_alertSuppressedWithoutPositives() {
         // The 3:1 ratio requires 3 positives before the first alert
-        UserJpaEntity child = childWithParent("child-1", "parent-1", "Charlie");
+        User child = childWithParent("child-1", "parent-1", "Charlie");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onInactiveChild("child-1", "Charlie");
@@ -101,7 +101,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onInactiveChild_childHasNoParent_noOp() {
-        UserJpaEntity child = childWithoutParent("child-1");
+        User child = childWithoutParent("child-1");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onInactiveChild("child-1", "Charlie");
@@ -121,7 +121,7 @@ class MilestoneNotifierTest {
     @Test
     void onInactiveChild_alertSuppressedByThreeToOneRatio() {
         // We need 3 positive pushes before 1 alert is allowed
-        UserJpaEntity child = childWithParent("child-1", "parent-1", "Dana");
+        User child = childWithParent("child-1", "parent-1", "Dana");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         // No positives sent yet, so first alert should be suppressed
@@ -133,7 +133,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onInactiveChild_alertAllowedAfterEnoughPositives() {
-        UserJpaEntity child = childWithParent("child-1", "parent-1", "Eve");
+        User child = childWithParent("child-1", "parent-1", "Eve");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         // Send 3 positive notifications first via streak milestones
@@ -180,7 +180,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onParentReviewRequested_childHasParent_pushesWithFirstNameAndUrlData() {
-        UserJpaEntity child = childWithParent("child-1", "parent-1", "Alice Wong");
+        User child = childWithParent("child-1", "parent-1", "Alice Wong");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onParentReviewRequested("child-1", "Fractions", "https://apalchi.com/review/abc");
@@ -194,7 +194,7 @@ class MilestoneNotifierTest {
 
     @Test
     void onParentReviewRequested_noParent_noOp() {
-        UserJpaEntity child = childWithoutParent("child-1");
+        User child = childWithoutParent("child-1");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
         notifier.onParentReviewRequested("child-1", "Fractions", "https://apalchi.com/review/abc");
@@ -204,16 +204,18 @@ class MilestoneNotifierTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    private UserJpaEntity childWithParent(String childId, String parentId, String name) {
-        UserJpaEntity child = UserJpaEntity.newUser(childId);
+    private User childWithParent(String childId, String parentId, String name) {
+        User child = new User();
+        child.setId(childId);
         child.setParentId(parentId);
         child.setChildName(name);
         child.setDisplayName(name);
         return child;
     }
 
-    private UserJpaEntity childWithoutParent(String childId) {
-        UserJpaEntity child = UserJpaEntity.newUser(childId);
+    private User childWithoutParent(String childId) {
+        User child = new User();
+        child.setId(childId);
         child.setParentId(null);
         return child;
     }

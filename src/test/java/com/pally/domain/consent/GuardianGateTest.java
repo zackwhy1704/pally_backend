@@ -1,8 +1,8 @@
 package com.pally.domain.consent;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class GuardianGateTest {
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock ConsentRecordJpaRepository consentRecordRepo;
 
     private static final String USER_ID = "kid-1";
@@ -49,8 +49,8 @@ class GuardianGateTest {
         return Year.now(ZoneId.of("Asia/Singapore")).getValue();
     }
 
-    private UserJpaEntity user(Integer birthYear, String parentId) {
-        UserJpaEntity u = new UserJpaEntity();
+    private User user(Integer birthYear, String parentId) {
+        User u = new User();
         u.setId(USER_ID);
         u.setBirthYear(birthYear);
         u.setParentId(parentId);

@@ -64,7 +64,7 @@ public class ChatController {
     private final CacheKeepAliveService cacheKeepAliveService;
     private final ChatRateLimiter chatRateLimiter;
     private final AvatarRepository avatarRepository;
-    private final com.pally.domain.progress.UserRepository userRepository;
+    private final com.pally.domain.user.UserRepository userRepository;
     private final com.pally.domain.progress.ActivityLogService activityLogService;
     private final com.pally.domain.progress.BadgeService badgeService;
     private final com.pally.domain.progress.XpService xpService;

@@ -1,6 +1,6 @@
 package com.pally.domain.consent;
 
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
+import com.pally.domain.user.User;
 import org.junit.jupiter.api.Test;
 
 import java.time.Year;
@@ -34,7 +34,7 @@ class UserAgeServiceTest {
 
     @Test
     void nullUser_treatedAs13Plus() {
-        assertThat(service.isUnder13((UserJpaEntity) null)).isFalse();
+        assertThat(service.isUnder13((User) null)).isFalse();
     }
 
     @Test
@@ -61,12 +61,12 @@ class UserAgeServiceTest {
     }
 
     @Test
-    void isUnder13_readsFromEntityBirthYear() {
-        UserJpaEntity child = new UserJpaEntity();
+    void isUnder13_readsFromUserBirthYear() {
+        User child = new User();
         child.setBirthYear(sgYear() - 10);
         assertThat(service.isUnder13(child)).isTrue();
 
-        UserJpaEntity teen = new UserJpaEntity();
+        User teen = new User();
         teen.setBirthYear(sgYear() - 15);
         assertThat(service.isUnder13(teen)).isFalse();
     }

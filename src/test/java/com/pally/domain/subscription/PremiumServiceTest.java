@@ -1,9 +1,8 @@
 package com.pally.domain.subscription;
 
 import com.pally.domain.account.AccountType;
-
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import org.junit.jupiter.api.Test;
@@ -24,20 +23,20 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PremiumServiceTest {
 
-    @Mock UserJpaRepository userRepo;
+    @Mock UserRepository userRepo;
     @Mock SubscriptionJpaRepository subRepo;
 
     @InjectMocks PremiumService premiumService;
 
-    private UserJpaEntity solo(String id) {
-        UserJpaEntity u = new UserJpaEntity();
+    private User solo(String id) {
+        User u = new User();
         u.setId(id);
         u.setAccountType(AccountType.SOLO);
         return u;
     }
 
-    private UserJpaEntity child(String id, String parentId) {
-        UserJpaEntity u = new UserJpaEntity();
+    private User child(String id, String parentId) {
+        User u = new User();
         u.setId(id);
         u.setAccountType(AccountType.CHILD);
         u.setParentId(parentId);

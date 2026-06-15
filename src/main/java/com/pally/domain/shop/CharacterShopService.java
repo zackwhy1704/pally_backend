@@ -5,8 +5,8 @@ import com.pally.infrastructure.persistence.mochi.MochiCharacterJpaEntity;
 import com.pally.infrastructure.persistence.mochi.MochiCharacterJpaRepository;
 import com.pally.infrastructure.persistence.mochi.UserMochiJpaEntity;
 import com.pally.infrastructure.persistence.mochi.UserMochiJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaEntity;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 public class CharacterShopService {
 
     private final CharacterUnlockJpaRepository unlockRepo;
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final MochiCharacterJpaRepository catalogRepo;
     private final UserMochiJpaRepository userMochiRepo;
 
@@ -166,7 +166,7 @@ public class CharacterShopService {
             }
         }
 
-        UserJpaEntity fresh = userRepo.findById(userId).orElseThrow(
+        User fresh = userRepo.findById(userId).orElseThrow(
                 () -> new BusinessException("User not found", 404));
         log.info("[Shop] User {} mystery box → {} ({}) cost={} isNew={}",
                 userId, awardedId, rarity, cost, !alreadyOwned);
@@ -234,7 +234,7 @@ public class CharacterShopService {
 
     @Transactional
     public Map<String, Object> creditStars(String userId, int amount) {
-        var user = userRepo.findById(userId)
+        User user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
         user.setStars(user.getStars() + amount);
         userRepo.save(user);
@@ -256,7 +256,7 @@ public class CharacterShopService {
      */
     @Transactional
     public Map<String, Object> buyStreakFreeze(String userId) {
-        UserJpaEntity user = userRepo.findById(userId)
+        User user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
         int cap = StreakService.effectiveFreezeCap(user.getLevel());
         if (user.getStreakFreezes() >= cap) {
@@ -270,7 +270,7 @@ public class CharacterShopService {
         if (updated == 0) {
             // Race lost OR stars dropped below 150 between SELECT + UPDATE.
             // Read the row to see which.
-            UserJpaEntity fresh = userRepo.findById(userId).orElse(user);
+            User fresh = userRepo.findById(userId).orElse(user);
             if (fresh.getStars() < FREEZE_COST) {
                 throw new BusinessException(
                         "Not enough stars (need " + FREEZE_COST + ")", 400);
@@ -278,7 +278,7 @@ public class CharacterShopService {
             throw new BusinessException(
                     "Freezes are full (" + cap + ")", 400);
         }
-        UserJpaEntity fresh = userRepo.findById(userId).orElse(user);
+        User fresh = userRepo.findById(userId).orElse(user);
         log.info("[Shop] user={} bought freeze → freezes={}/{} stars={}",
                 userId, fresh.getStreakFreezes(), cap, fresh.getStars());
         return Map.of(

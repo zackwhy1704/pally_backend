@@ -1,15 +1,17 @@
 package com.pally.infrastructure.persistence.progress;
 
+import com.pally.domain.account.AccountType;
 import com.pally.domain.progress.LevelRewards;
 import com.pally.domain.progress.ProgressSummary;
 import com.pally.domain.progress.StreakService;
-import com.pally.domain.progress.UserRepository;
-import com.pally.domain.progress.UserStats;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -20,13 +22,47 @@ public class UserRepositoryAdapter implements UserRepository {
     private final UserJpaRepository jpa;
 
     @Override
-    public Optional<UserStats> findById(String userId) {
-        return jpa.findById(userId).map(UserJpaEntity::toDomain);
+    public Optional<User> findById(String userId) {
+        return jpa.findById(userId).map(UserJpaEntity::toUserDomain);
     }
 
     @Override
-    public UserStats save(UserStats stats) {
-        return jpa.save(UserJpaEntity.fromDomain(stats)).toDomain();
+    @Transactional
+    public User save(User user) {
+        UserJpaEntity entity = jpa.findById(user.getId())
+                .orElseThrow(() -> new RuntimeException("User not found: " + user.getId()));
+        applyDomainToEntity(user, entity);
+        return jpa.save(entity).toUserDomain();
+    }
+
+    @Override
+    @Transactional
+    public void deleteById(String userId) {
+        jpa.deleteById(userId);
+    }
+
+    @Override
+    public int countByParentId(String parentId) {
+        return jpa.countByParentId(parentId);
+    }
+
+    @Override
+    public List<User> findByParentId(String parentId) {
+        return jpa.findByParentId(parentId).stream()
+                .map(UserJpaEntity::toUserDomain)
+                .toList();
+    }
+
+    @Override
+    public List<User> findByAccountType(AccountType accountType) {
+        return jpa.findByAccountType(accountType).stream()
+                .map(UserJpaEntity::toUserDomain)
+                .toList();
+    }
+
+    @Override
+    public Optional<User> findByReferralCode(String referralCode) {
+        return jpa.findByReferralCode(referralCode).map(UserJpaEntity::toUserDomain);
     }
 
     @Override
@@ -36,28 +72,27 @@ public class UserRepositoryAdapter implements UserRepository {
         }
     }
 
-    /// Atomic XP + stars credit via a single UPDATE — closes the D1
-    /// lost-update race the audit flagged. We round-trip a SELECT for the
-    /// pre-image (to detect level crossings + name the unlock) and a
-    /// recompute after the UPDATE for the post-image. Concurrent credits
-    /// won't lose increments because the increment happens in-DB.
-    ///
-    /// <p>FUNCTIONAL level rewards (L5 tutor slot, L20 freeze cap) are
-    /// read at USE time from {@link LevelRewards} / {@code StreakService},
-    /// so this method no longer mutates {@code streak_freezes} on level-up.
-    /// That was the source of bug-class drift between "what level unlocks"
-    /// and "what state the user actually has."
     @Override
     @Transactional
-    public UserRepository.XpResult addXpAndStars(
-            String userId, int xpDelta, int starsDelta) {
+    public int spendStars(String userId, int cost) {
+        return jpa.spendStars(userId, cost);
+    }
+
+    @Override
+    @Transactional
+    public int buyStreakFreeze(String userId, int cost, int cap) {
+        return jpa.buyStreakFreeze(userId, cost, cap);
+    }
+
+    @Override
+    @Transactional
+    public UserRepository.XpResult addXpAndStars(String userId, int xpDelta, int starsDelta) {
         if (xpDelta == 0 && starsDelta == 0) {
             int xp = jpa.findById(userId).map(UserJpaEntity::getXp).orElse(0);
             int lvl = ProgressSummary.computeLevel(xp);
             return UserRepository.XpResult.unchanged(xp, lvl);
         }
 
-        // Pre-image — we need the OLD xp to compute crossed levels.
         var before = jpa.findById(userId).orElse(null);
         if (before == null) {
             log.warn("[XP] addXpAndStars: user {} not found", userId);
@@ -66,9 +101,6 @@ public class UserRepositoryAdapter implements UserRepository {
         int oldXp = before.getXp();
         int oldLevel = ProgressSummary.computeLevel(oldXp);
 
-        // Atomic increment. Returns row count; 0 means the user vanished
-        // between the SELECT above and this UPDATE — vanishingly rare but
-        // we degrade gracefully.
         int updated = jpa.creditXpAndStars(userId, xpDelta, starsDelta);
         if (updated == 0) {
             log.warn("[XP] addXpAndStars: 0 rows updated for {}", userId);
@@ -77,16 +109,10 @@ public class UserRepositoryAdapter implements UserRepository {
 
         int newXp = oldXp + xpDelta;
         int newLevel = ProgressSummary.computeLevel(newXp);
-        // Persist the computed level only when it actually moved — avoids
-        // an extra write on every credit.
         if (newLevel != oldLevel) {
             jpa.updateLevel(userId, newLevel);
         }
 
-        // Resolve the highest unlock crossed this round, purely informational.
-        // Side-effecting unlocks that need a DB write (L20 freeze stack) are
-        // applied here too — gated on the level crossing so they fire ONCE
-        // per kid for the lifetime of the account.
         String unlockedLabel = null;
         if (newLevel > oldLevel) {
             for (int lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
@@ -109,5 +135,29 @@ public class UserRepositoryAdapter implements UserRepository {
                 unlockedLabel == null ? "" : " unlock=" + unlockedLabel);
         return new UserRepository.XpResult(
                 newXp, oldLevel, newLevel, newLevel > oldLevel, unlockedLabel);
+    }
+
+    private void applyDomainToEntity(User user, UserJpaEntity entity) {
+        entity.setDisplayName(user.getDisplayName());
+        entity.setChildName(user.getChildName());
+        entity.setParentId(user.getParentId());
+        entity.setAccountType(user.getAccountType());
+        entity.setStars(user.getStars());
+        entity.setXp(user.getXp());
+        entity.setLevel(user.getLevel());
+        entity.setStreakDays(user.getStreakDays());
+        entity.setLongestStreak(user.getLongestStreak());
+        entity.setStreakFreezes(user.getStreakFreezes());
+        entity.setLastActiveDate(user.getLastActiveDate());
+        entity.setStreakMilestonesReached(user.getStreakMilestonesReached());
+        entity.setPremium(user.isPremium());
+        entity.setReferralCode(user.getReferralCode());
+        entity.setEmailVerified(user.isEmailVerified());
+        entity.setAccountStatus(user.getAccountStatus());
+        entity.setBirthYear(user.getBirthYear());
+        entity.setTrialStatus(user.getTrialStatus());
+        entity.setTrialStartedAt(user.getTrialStartedAt());
+        entity.setTrialEndsAt(user.getTrialEndsAt());
+        entity.setLastSlotChangeAt(user.getLastSlotChangeAt());
     }
 }

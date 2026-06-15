@@ -1,6 +1,6 @@
 package com.pally.domain.consent;
 
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
+import com.pally.domain.user.User;
 
 import java.time.Year;
 import java.time.ZoneId;
@@ -36,7 +36,7 @@ public class UserAgeService {
      * True only when the user has a birth year that places them strictly under 13
      * this calendar year (Singapore time). Null birth year → false (treated 13+).
      */
-    public boolean isUnder13(UserJpaEntity user) {
+    public boolean isUnder13(User user) {
         if (user == null) {
             return false;
         }

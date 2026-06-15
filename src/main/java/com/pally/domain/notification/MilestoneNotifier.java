@@ -1,7 +1,7 @@
 package com.pally.domain.notification;
 
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.push.FcmService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class MilestoneNotifier {
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final FcmService fcmService;
 
     // Track counts in memory: parentId -> (positive, alerts)
@@ -37,7 +37,7 @@ public class MilestoneNotifier {
      * Notify parent that their child completed a module.
      */
     public void onModuleCompleted(String childId, String moduleName, double mastery) {
-        Optional<UserJpaEntity> childOpt = userRepo.findById(childId);
+        Optional<User> childOpt = userRepo.findById(childId);
         if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
 
         String parentId = childOpt.get().getParentId();
@@ -57,7 +57,7 @@ public class MilestoneNotifier {
      * Notify parent of a streak milestone.
      */
     public void onStreakMilestone(String childId, int days) {
-        Optional<UserJpaEntity> childOpt = userRepo.findById(childId);
+        Optional<User> childOpt = userRepo.findById(childId);
         if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
 
         String parentId = childOpt.get().getParentId();
@@ -103,7 +103,7 @@ public class MilestoneNotifier {
      * URL rides in the FCM data field so the parent app can deep-link.
      */
     public void onParentReviewRequested(String childId, String pageTitle, String url) {
-        Optional<UserJpaEntity> childOpt = userRepo.findById(childId);
+        Optional<User> childOpt = userRepo.findById(childId);
         if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
 
         String parentId = childOpt.get().getParentId();
@@ -138,7 +138,7 @@ public class MilestoneNotifier {
      * Uses the alert path (subject to 3:1 suppression).
      */
     public void onInactiveChild(String childId, String childName) {
-        Optional<UserJpaEntity> childOpt = userRepo.findById(childId);
+        Optional<User> childOpt = userRepo.findById(childId);
         if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
 
         String parentId = childOpt.get().getParentId();

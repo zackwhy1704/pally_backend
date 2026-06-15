@@ -4,10 +4,10 @@ import com.pally.domain.account.AccountType;
 
 import com.pally.api.parent.dto.ParentDashboardResponse.SubjectMasteryDto;
 import com.pally.domain.progress.WeeklyReportService;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.email.EmailService;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,7 +28,7 @@ import java.util.Locale;
 @Slf4j
 public class WeeklyEmailScheduler {
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final ActivityLogJpaRepository activityRepo;
     private final WeeklyReportService weeklyReportService;
     private final EmailService emailService;
@@ -38,10 +38,10 @@ public class WeeklyEmailScheduler {
         log.info("[WeeklyEmail] Starting weekly parent report emails");
         // Find all PARENT accounts
         // No dedicated query — iterate all parents from the child-side
-        List<UserJpaEntity> parents = userRepo.findByAccountType(AccountType.PARENT);
+        List<User> parents = userRepo.findByAccountType(AccountType.PARENT);
 
         int sent = 0;
-        for (UserJpaEntity parent : parents) {
+        for (User parent : parents) {
             try {
                 sent += sendReportForParent(parent);
             } catch (Exception e) {
@@ -51,11 +51,11 @@ public class WeeklyEmailScheduler {
         log.info("[WeeklyEmail] Sent {} emails to {} parents", sent, parents.size());
     }
 
-    int sendReportForParent(UserJpaEntity parent) {
+    int sendReportForParent(User parent) {
         if (parent.getEmail() == null || parent.getEmail().isBlank()) {
             return 0;
         }
-        List<UserJpaEntity> children = userRepo.findByParentId(parent.getId());
+        List<User> children = userRepo.findByParentId(parent.getId());
         if (children.isEmpty()) return 0;
 
         Instant weekAgo = Instant.now().minus(Duration.ofDays(7));
@@ -64,7 +64,7 @@ public class WeeklyEmailScheduler {
         html.append("<h2 style='color:#7042ED'>Apalchi Weekly Report</h2>");
 
         boolean anyActivity = false;
-        for (UserJpaEntity child : children) {
+        for (User child : children) {
             int minutes = orZero(activityRepo.sumMinutesBetween(
                     child.getId(), weekAgo, Instant.now()));
             if (minutes == 0) continue;

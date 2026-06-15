@@ -1,6 +1,7 @@
 package com.pally.domain.progress;
 
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.user.User;
 import com.pally.infrastructure.persistence.activity.ActivityLogJpaRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +31,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class XpServiceTest {
 
-    @Mock UserRepository userRepository;
+    @Mock com.pally.domain.user.UserRepository userRepository;
     @Mock ActivityLogJpaRepository activityLog;
     @InjectMocks XpService xp;
 
@@ -38,8 +39,15 @@ class XpServiceTest {
     private static final String AVATAR = "a1";
     private static final Subject SUBJ = Subject.MATHS;
 
-    private UserRepository.XpResult okCredit(int xp) {
-        return new UserRepository.XpResult(xp, 1, 1, false, null);
+    private com.pally.domain.user.UserRepository.XpResult okCredit(int xp) {
+        return new com.pally.domain.user.UserRepository.XpResult(xp, 1, 1, false, null);
+    }
+
+    private User userWithLevel(int level) {
+        User u = new User();
+        u.setId(USER);
+        u.setLevel(level);
+        return u;
     }
 
     private void stubLevel(int level) {
@@ -47,7 +55,7 @@ class XpServiceTest {
         // via userRepository.findById, so every test that exercises a star
         // mint needs a stubbed lookup. Below-L10 returns 1.0× multiplier.
         when(userRepository.findById(USER)).thenReturn(
-                java.util.Optional.of(new UserStats(USER, null, 0, level, 0, 0)));
+                java.util.Optional.of(userWithLevel(level)));
     }
 
     /// First quiz of a NEW subject today: 100% × 1.5 (variety) = 150%.
@@ -206,8 +214,14 @@ class XpServiceTest {
         when(activityLog.countByTypeAndAvatarBetween(
                 eq(USER), eq("CHAT"), eq(AVATAR), any(), any()))
                 .thenReturn(1);
-        when(userRepository.findById(USER))
-                .thenReturn(Optional.of(new UserStats(USER, null, 50, 1, 0, 10)));
+        when(userRepository.findById(USER)).thenAnswer(inv -> {
+                    User u = new User();
+                    u.setId(USER);
+                    u.setXp(50);
+                    u.setLevel(1);
+                    u.setStars(10);
+                    return java.util.Optional.of(u);
+                });
 
         var award = xp.awardForChat(USER, AVATAR);
 
@@ -367,9 +381,13 @@ class XpServiceTest {
 
     @Test
     void awardForPhoto_zeroBase_noWrite() {
-        when(userRepository.findById(USER))
-                .thenReturn(java.util.Optional.of(
-                        new UserStats(USER, null, 600, 4, 0, 0)));
+        when(userRepository.findById(USER)).thenAnswer(inv -> {
+            User u = new User();
+            u.setId(USER);
+            u.setXp(600);
+            u.setLevel(4);
+            return java.util.Optional.of(u);
+        });
 
         var award = xp.awardForPhoto(USER, AVATAR, 0);
 
@@ -380,9 +398,13 @@ class XpServiceTest {
     @Test
     void awardFlat_zeroXp_isUnchanged_noWrite() {
         // xpForLevel(L) = 50*(L-1)*L; 600 XP = exactly L4 boundary.
-        when(userRepository.findById(USER))
-                .thenReturn(java.util.Optional.of(
-                        new UserStats(USER, null, 600, 4, 0, 0)));
+        when(userRepository.findById(USER)).thenAnswer(inv -> {
+            User u = new User();
+            u.setId(USER);
+            u.setXp(600);
+            u.setLevel(4);
+            return java.util.Optional.of(u);
+        });
 
         var result = xp.awardFlat(USER, 0);
 

@@ -1,7 +1,8 @@
 package com.pally.domain.progress.usecase;
 
-import com.pally.domain.progress.UserRepository;
-import com.pally.domain.progress.UserStats;
+import com.pally.domain.progress.ProgressSummary;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,20 +19,23 @@ public class OpenMysteryBoxUseCase {
     public String execute(String userId) {
         userRepository.ensureUserExists(userId);
 
-        UserStats stats = userRepository.findById(userId)
+        User stats = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
 
-        if (stats.stars() < BOX_COST) {
+        if (stats.getStars() < BOX_COST) {
             throw new BusinessException(
-                    "Not enough stars. Need " + BOX_COST + ", have " + stats.stars(),
+                    "Not enough stars. Need " + BOX_COST + ", have " + stats.getStars(),
                     422
             );
         }
 
         // Deduct stars, also award a small XP bonus per opening so the box
         // contributes to leveling, not just collection.
-        userRepository.save(
-                stats.withStars(stats.stars() - BOX_COST).withXp(stats.xp() + BOX_XP_BONUS));
+        stats.setStars(stats.getStars() - BOX_COST);
+        int newXp = stats.getXp() + BOX_XP_BONUS;
+        stats.setXp(newXp);
+        stats.setLevel(ProgressSummary.computeLevel(newXp));
+        userRepository.save(stats);
 
         // Return a random character type as the reward
         com.pally.domain.avatar.CharacterType[] characters = com.pally.domain.avatar.CharacterType.values();

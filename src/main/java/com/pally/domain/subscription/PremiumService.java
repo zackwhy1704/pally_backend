@@ -2,9 +2,9 @@ package com.pally.domain.subscription;
 
 import com.pally.domain.account.AccountType;
 
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.config.CacheConfig;
-import com.pally.infrastructure.persistence.progress.UserJpaEntity;
-import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +42,7 @@ public class PremiumService {
     public  static final String     TRIAL_EXPIRED   = "EXPIRED";
     public  static final String     TRIAL_CONVERTED = "CONVERTED";
 
-    private final UserJpaRepository userRepo;
+    private final UserRepository userRepo;
     private final SubscriptionJpaRepository subRepo;
 
     public record Entitlement(
@@ -60,7 +60,7 @@ public class PremiumService {
     @Cacheable(value = CacheConfig.ENTITLEMENT, key = "#userId")
     @Transactional
     public Entitlement resolve(String userId) {
-        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        User user = userRepo.findById(userId).orElse(null);
         if (user == null) {
             return new Entitlement(false, "NONE", null, "free", null);
         }
@@ -117,7 +117,7 @@ public class PremiumService {
         // Method body is empty by design — the annotation does the work.
     }
 
-    private void persistFlag(UserJpaEntity user, boolean isPremium) {
+    private void persistFlag(User user, boolean isPremium) {
         if (user.isPremium() == isPremium) return;
         user.setPremium(isPremium);
         userRepo.save(user);
@@ -130,7 +130,7 @@ public class PremiumService {
 
     // ── Local cardless trial ──────────────────────────────────────────────────
 
-    private Entitlement resolveLocalTrial(UserJpaEntity user) {
+    private Entitlement resolveLocalTrial(User user) {
         if (!TRIAL_ACTIVE.equals(user.getTrialStatus())) return null;
         Instant ends = user.getTrialEndsAt();
         if (ends == null) return null;
@@ -175,7 +175,7 @@ public class PremiumService {
     @CacheEvict(value = CacheConfig.ENTITLEMENT, key = "#userId")
     @Transactional
     public void grantTrial(String userId) {
-        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        User user = userRepo.findById(userId).orElse(null);
         if (user == null) return;
         if (!TRIAL_NONE.equals(user.getTrialStatus())) return; // already used
         Instant now = Instant.now();
@@ -217,7 +217,7 @@ public class PremiumService {
 
     @Transactional(readOnly = true)
     public TrialInfo getTrialInfo(String userId) {
-        UserJpaEntity user = userRepo.findById(userId).orElse(null);
+        User user = userRepo.findById(userId).orElse(null);
         if (user == null || user.getTrialEndsAt() == null) {
             return new TrialInfo(false, null, 0, 0, TRIAL_NONE);
         }
