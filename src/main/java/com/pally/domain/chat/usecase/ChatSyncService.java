@@ -1,8 +1,8 @@
 package com.pally.domain.chat.usecase;
 
 import com.pally.api.chat.dto.SyncMessageDto;
-import com.pally.infrastructure.persistence.chat.ChatMessageJpaEntity;
-import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
+import com.pally.domain.chat.ChatMessage;
+import com.pally.domain.chat.ChatRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,27 +15,27 @@ import java.util.List;
 @Slf4j
 public class ChatSyncService {
 
-    private final ChatMessageJpaRepository repo;
+    private final ChatRepository chatRepo;
 
     @Transactional
     public int sync(String avatarId, String userId, List<SyncMessageDto> messages) {
         int upserted = 0;
         for (SyncMessageDto dto : messages) {
-            if (repo.existsById(dto.id())) {
+            if (chatRepo.existsById(dto.id())) {
                 // Update mutable fields only (feedback, savedToBrain can change)
                 if (dto.feedbackType() != null) {
-                    repo.updateFeedbackType(dto.id(), dto.feedbackType());
+                    chatRepo.updateFeedbackType(dto.id(), dto.feedbackType());
                 }
                 if (dto.savedToBrain()) {
-                    repo.markSavedToBrain(dto.id());
+                    chatRepo.markSavedToBrain(dto.id());
                 }
             } else {
-                boolean isDuplicate = repo.findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAscRoleDesc(
-                                avatarId, dto.createdAt().minusSeconds(30))
+                boolean isDuplicate = chatRepo
+                        .findByAvatarIdSince(avatarId, dto.createdAt().minusSeconds(30))
                         .stream()
                         .anyMatch(existing ->
                                 existing.getRole() != null &&
-                                existing.getRole().equalsIgnoreCase(dto.role().name()) &&
+                                existing.getRole().name().equalsIgnoreCase(dto.role().name()) &&
                                 existing.getContent() != null &&
                                 existing.getContent().equals(dto.content()));
 
@@ -48,19 +48,14 @@ public class ChatSyncService {
                     continue;
                 }
 
-                ChatMessageJpaEntity e = new ChatMessageJpaEntity();
-                e.setId(dto.id());
-                e.setAvatarId(avatarId);
-                e.setUserId(userId);
-                e.setRole(dto.role().name());
-                e.setContent(dto.content());
-                e.setMessageType(dto.messageType() != null ? dto.messageType() : "text");
-                e.setSourceWikiSlug(dto.sourceWikiSlug());
-                e.setFeedbackType(dto.feedbackType());
-                e.setSavedToBrain(dto.savedToBrain());
-                e.setPhotoMessage(dto.isPhotoMessage());
-                e.setCreatedAt(dto.createdAt());
-                repo.save(e);
+                ChatMessage msg = ChatMessage.reconstitute(
+                        dto.id(), avatarId, userId,
+                        dto.role(), dto.content(), null,
+                        dto.messageType() != null ? dto.messageType() : "text",
+                        dto.sourceWikiSlug(),
+                        dto.feedbackType(), dto.savedToBrain(), dto.isPhotoMessage(),
+                        dto.createdAt(), null);
+                chatRepo.save(msg);
                 upserted++;
             }
         }

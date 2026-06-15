@@ -7,6 +7,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Component
@@ -51,5 +52,33 @@ public class ChatRepositoryAdapter implements ChatRepository {
     @Transactional
     public void updateModelUsed(String messageId, String modelUsed) {
         jpaRepository.updateModelUsed(messageId, modelUsed);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsById(String messageId) {
+        return jpaRepository.existsById(messageId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ChatMessage> findByAvatarIdSince(String avatarId, Instant since) {
+        return jpaRepository
+                .findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAscRoleDesc(avatarId, since)
+                .stream()
+                .map(ChatMessageJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void updateFeedbackType(String messageId, String feedbackType) {
+        jpaRepository.updateFeedbackType(messageId, feedbackType);
+    }
+
+    @Override
+    @Transactional
+    public void markSavedToBrain(String messageId) {
+        jpaRepository.markSavedToBrain(messageId);
     }
 }

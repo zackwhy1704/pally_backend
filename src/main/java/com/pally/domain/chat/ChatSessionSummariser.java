@@ -1,9 +1,6 @@
 package com.pally.domain.chat;
 
-import com.pally.infrastructure.ai.ClaudeApiClient;
-import com.pally.infrastructure.ai.ModelRouter;
-import com.pally.infrastructure.persistence.chat.ChatSessionSummaryJpaEntity;
-import com.pally.infrastructure.persistence.chat.ChatSessionSummaryJpaRepository;
+import com.pally.infrastructure.ai.GeminiCompletionService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,15 +33,14 @@ public class ChatSessionSummariser {
             LoggerFactory.getLogger(ChatSessionSummariser.class);
     private static final int MAX_TOKENS = 256;
 
-    private final ChatSessionSummaryJpaRepository summaryRepo;
+    private final ChatSessionSummaryRepository summaryRepo;
     // Routed to Gemini 1.5 Flash (13.3× cheaper output than Haiku for summarise calls)
-    private final com.pally.infrastructure.ai.GeminiCompletionService geminiCompletion;
+    private final GeminiCompletionService geminiCompletion;
 
     /** Returns the latest stored summary for {@code avatarId}, or empty. */
     @Transactional(readOnly = true)
     public Optional<String> findSummary(String avatarId) {
-        return summaryRepo.findByAvatarId(avatarId)
-                .map(ChatSessionSummaryJpaEntity::getSummary);
+        return summaryRepo.findSummaryByAvatarId(avatarId);
     }
 
     /**
@@ -59,21 +55,13 @@ public class ChatSessionSummariser {
         if (assistantReply == null || assistantReply.isBlank()) return;
 
         try {
-            String prior = summaryRepo.findByAvatarId(avatarId)
-                    .map(ChatSessionSummaryJpaEntity::getSummary)
-                    .orElse("");
+            String prior = summaryRepo.findSummaryByAvatarId(avatarId).orElse("");
 
             String prompt = buildPrompt(prior, userMessage, assistantReply);
             String newSummary = geminiCompletion.complete(MAX_TOKENS, prompt, "summarizer");
             if (newSummary == null || newSummary.isBlank()) return;
 
-            ChatSessionSummaryJpaEntity entity = summaryRepo
-                    .findByAvatarId(avatarId)
-                    .orElseGet(ChatSessionSummaryJpaEntity::new);
-            entity.setAvatarId(avatarId);
-            entity.setSummary(newSummary.trim());
-            entity.setUpdatedAt(Instant.now());
-            summaryRepo.save(entity);
+            summaryRepo.upsertSummary(avatarId, newSummary.trim(), Instant.now());
             log.debug("[SessionSummary] Updated avatarId={} chars={}",
                     avatarId, newSummary.length());
         } catch (Exception e) {

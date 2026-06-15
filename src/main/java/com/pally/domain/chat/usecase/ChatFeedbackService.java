@@ -1,6 +1,6 @@
 package com.pally.domain.chat.usecase;
 
-import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
+import com.pally.domain.chat.ChatRepository;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +17,7 @@ public class ChatFeedbackService {
     private static final Set<String> VALID_TYPES =
             Set.of("HELPFUL", "WRONG", "CONFUSED", "SAVE_TO_BRAIN");
 
-    private final ChatMessageJpaRepository repo;
+    private final ChatRepository chatRepo;
 
     @Transactional
     public void submitFeedback(String messageId, String feedbackType) {
@@ -26,15 +26,15 @@ public class ChatFeedbackService {
             throw new BusinessException("Invalid feedback type: " + feedbackType, 400);
         }
 
-        if (!repo.existsById(messageId)) {
+        if (!chatRepo.existsById(messageId)) {
             throw new BusinessException("Message not found: " + messageId, 404);
         }
 
         if ("SAVE_TO_BRAIN".equals(upper)) {
-            repo.markSavedToBrain(messageId);
-            repo.updateFeedbackType(messageId, upper);
+            chatRepo.markSavedToBrain(messageId);
+            chatRepo.updateFeedbackType(messageId, upper);
         } else {
-            repo.updateFeedbackType(messageId, upper);
+            chatRepo.updateFeedbackType(messageId, upper);
         }
 
         log.info("[ChatFeedback] message={} type={}", messageId, upper);

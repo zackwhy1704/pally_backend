@@ -1,5 +1,6 @@
 package com.pally.domain.chat;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -23,4 +24,15 @@ public interface ChatRepository {
                             int totalInputTokens, int totalOutputTokens);
 
     void updateModelUsed(String messageId, String modelUsed);
+
+    boolean existsById(String messageId);
+
+    /**
+     * Returns messages for an avatar created after {@code since}, oldest-first.
+     */
+    List<ChatMessage> findByAvatarIdSince(String avatarId, Instant since);
+
+    void updateFeedbackType(String messageId, String feedbackType);
+
+    void markSavedToBrain(String messageId);
 }
