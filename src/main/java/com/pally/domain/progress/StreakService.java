@@ -97,17 +97,16 @@ public class StreakService {
         int longest = Math.max(user.getLongestStreak(), newStreak);
 
         int milestoneReached = 0;
+        int milestoneStarBonus = 0;
         Set<Integer> celebrated = parseMilestones(user.getStreakMilestonesReached());
         for (int m : MILESTONES) {
             if (newStreak >= m && !celebrated.contains(m)) {
                 celebrated.add(m);
                 milestoneReached = m;
+                milestoneStarBonus = m / 2;
                 grantMilestoneBadge(userId, m);
-                int starBonus = m / 2;
-                user.setStars(user.getStars() + starBonus);
                 log.info("[Streak] user={} milestone={} (+{} stars)",
-                        userId, m, starBonus);
-                // Notify parent of streak milestones (7+)
+                        userId, m, milestoneStarBonus);
                 if (m >= 7) {
                     try {
                         milestoneNotifier.onStreakMilestone(userId, m);
@@ -137,6 +136,10 @@ public class StreakService {
         user.setStreakFreezes(freezes);
         user.setStreakMilestonesReached(formatMilestones(celebrated));
         userRepo.save(user);
+
+        if (milestoneStarBonus > 0) {
+            userRepo.addXpAndStars(userId, 0, milestoneStarBonus);
+        }
 
         return new StreakUpdateResult(newStreak, longest, freezes, milestoneReached);
     }

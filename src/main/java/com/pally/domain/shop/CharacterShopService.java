@@ -234,12 +234,10 @@ public class CharacterShopService {
 
     @Transactional
     public Map<String, Object> creditStars(String userId, int amount) {
-        User user = userRepo.findById(userId)
-                .orElseThrow(() -> new BusinessException("User not found", 404));
-        user.setStars(user.getStars() + amount);
-        userRepo.save(user);
-        log.info("[Shop] Credited {} stars to user={}, new balance={}", amount, userId, user.getStars());
-        return Map.of("stars", user.getStars());
+        userRepo.addXpAndStars(userId, 0, amount);
+        int newBalance = userRepo.findById(userId).map(User::getStars).orElse(0);
+        log.info("[Shop] Credited {} stars to user={}, new balance={}", amount, userId, newBalance);
+        return Map.of("stars", newBalance);
     }
 
     public static final int FREEZE_COST = 150;
