@@ -119,14 +119,12 @@ public class ClassController {
         corpus.markCentreClassAvatar();
         Avatar savedCorpus = avatarRepository.save(corpus);
         cls.setCorpusAvatarId(savedCorpus.getId());
-        // Default a deterministic Mochi look so every class renders a distinct
-        // customised avatar immediately (never the plain fallback) even if the
-        // teacher never opens the picker. Body variant derived from the class id.
+        // Default a deterministic, VISUALLY DISTINCT Mochi look so every class is
+        // identifiable at a glance even if the teacher never opens the picker —
+        // body colour + a real accessory + an aura, all derived from the class id.
         try {
-            int bodyVariant = Math.floorMod(cls.getId().hashCode(),
-                    MochiConfig.BODY_VARIANT_MAX + 1);
             cls.setMochiConfig(objectMapper.writeValueAsString(
-                    new MochiConfig(bodyVariant, "none", "none")));
+                    defaultMochiConfig(cls.getId())));
         } catch (JsonProcessingException e) {
             log.warn("[Class] could not default mochi-config for {}: {}",
                     cls.getId(), e.getMessage());
@@ -617,6 +615,22 @@ public class ClassController {
             log.warn("[Class] could not deserialize mochi_config blob: {}", e.getMessage());
             return null;
         }
+    }
+
+    // Distinct, accessory-bearing default look per class so kids can tell their
+    // classes apart at a glance (a body-hue-only default reads as "no
+    // customisation"). Deterministic from the class id; teachers can override.
+    private static final String[] DEFAULT_ACCESSORIES =
+            {"bow", "cap", "glasses", "crown", "headband"};
+    private static final String[] DEFAULT_AURAS =
+            {"sparkle", "fire", "chill", "electric", "bloom"};
+
+    private static MochiConfig defaultMochiConfig(String classId) {
+        int h = Math.abs(classId.hashCode());
+        int body = h % (MochiConfig.BODY_VARIANT_MAX + 1);
+        String accessory = DEFAULT_ACCESSORIES[(h / 12) % DEFAULT_ACCESSORIES.length];
+        String aura = DEFAULT_AURAS[(h / 60) % DEFAULT_AURAS.length];
+        return new MochiConfig(body, accessory, aura);
     }
 
     private static String str(Object o) {
