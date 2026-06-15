@@ -12,6 +12,8 @@ import com.pally.domain.chat.ChatOrchestrationService;
 import com.pally.domain.chat.usecase.SendMessageUseCase;
 import com.pally.domain.chat.usecase.SolvePhotoQuestionsUseCase;
 import com.pally.infrastructure.ratelimit.ChatRateLimiter;
+import com.pally.shared.exception.AiConsentRequiredException;
+import com.pally.shared.exception.GuardianRequiredException;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -73,14 +75,22 @@ public class ChatController {
             HttpServletResponse response
     ) throws java.io.IOException {
         chatRateLimiter.check(userId);
-        // Gate BEFORE the SSE stream opens. Once we flush HTTP 200 + ": connected"
-        // below, we can no longer return a clean 403, so an un-consented or
-        // under-13-unlinked user would only get a generic SSE error the mobile
-        // interceptor can't act on. Checking here lets GlobalExceptionHandler
-        // return a proper 403 (AI_CONSENT_REQUIRED / PARENT_LINK_REQUIRED) that
-        // the client maps to the disclosure / link-a-grown-up screen.
-        consentGuard.requireAiConsent(userId);
-        consentGuard.requireGuardianIfUnder13(userId);
+        // Gate BEFORE setting the SSE content type. Once response.setContentType
+        // is called with text/event-stream, Spring's content negotiation rejects
+        // any attempt to return JSON (Accept: text/event-stream is still set on
+        // the request), causing HttpMediaTypeNotAcceptableException instead of
+        // the intended 403. Writing JSON directly to HttpServletResponse bypasses
+        // Spring entirely and delivers a parseable error body to the client.
+        try {
+            consentGuard.requireAiConsent(userId);
+            consentGuard.requireGuardianIfUnder13(userId);
+        } catch (AiConsentRequiredException e) {
+            writeJsonError(response, 403, "AI_CONSENT_REQUIRED", e.getReason(), e.getMessage());
+            return;
+        } catch (GuardianRequiredException e) {
+            writeJsonError(response, 403, "PARENT_LINK_REQUIRED", e.getReason(), e.getMessage());
+            return;
+        }
         response.setContentType("text/event-stream");
         response.setCharacterEncoding("UTF-8");
         response.setHeader("Cache-Control", "no-cache");
@@ -229,6 +239,28 @@ public class ChatController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
         return chatOrchestrationService.sessionEnd(userId, avatarId);
+    }
+
+    /**
+     * Writes a JSON error body directly to the raw response, bypassing Spring's
+     * content negotiation. Required for the SSE endpoint: the request carries
+     * {@code Accept: text/event-stream}, so Spring refuses to serialize JSON
+     * through the normal handler return path.
+     */
+    private void writeJsonError(HttpServletResponse response, int status,
+            String code, String reason, String message) throws java.io.IOException {
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        String body = String.format(
+            "{\"status\":%d,\"message\":\"%s\",\"data\":{\"code\":\"%s\",\"reason\":\"%s\"}}",
+            status,
+            message.replace("\"", "\\\""),
+            code,
+            reason == null ? "" : reason.replace("\"", "\\\"")
+        );
+        response.getWriter().write(body);
+        response.getWriter().flush();
     }
 
     @PatchMapping("/teaching-mode")
