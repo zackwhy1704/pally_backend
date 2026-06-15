@@ -1,13 +1,11 @@
 package com.pally.api.flag;
 
-import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaEntity;
-import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaRepository;
+import com.pally.domain.flag.FeatureFlagService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,8 +13,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -40,67 +36,29 @@ import java.util.Map;
 @Slf4j
 public class FeatureFlagController {
 
-    private final UserFeatureFlagJpaRepository flagRepo;
-    private final com.pally.infrastructure.persistence.progress.UserJpaRepository userRepo;
-    private final com.pally.infrastructure.config.AdminEmailService adminEmailService;
+    private final FeatureFlagService featureFlagService;
 
     @GetMapping("/me/flags")
-    @Transactional(readOnly = true)
     public ResponseEntity<ApiResponse<Map<String, Boolean>>> myFlags(
             @AuthenticationPrincipal String userId) {
-        Map<String, Boolean> flags = new HashMap<>();
-        for (var row : flagRepo.findByUserId(userId)) {
-            flags.put(row.getFlagName(), row.isEnabled());
-        }
-
-        // is_admin is derived EXCLUSIVELY from ADMIN_EMAILS env var at request time.
-        // The DB role column is NOT consulted — this prevents any database manipulation
-        // from granting admin access. Only updating ADMIN_EMAILS + redeploying works.
-        String email = userRepo.findById(userId)
-                .map(u -> u.getEmail())
-                .orElse(null);
-        boolean isAdmin = adminEmailService.isAdmin(email);
-        flags.put("is_admin", isAdmin);
-
-        // Groups are now open to all users — always return true
-        flags.put("groups_enabled", true);
-        return ResponseEntity.ok(ApiResponse.success(flags));
+        return ResponseEntity.ok(ApiResponse.success(featureFlagService.getFlags(userId)));
     }
 
     @PostMapping("/admin/users/{targetUserId}/flags/{flagName}")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> enableFlag(
             @AuthenticationPrincipal String callerId,
             @PathVariable String targetUserId,
             @PathVariable String flagName) {
-        UserFeatureFlagJpaEntity entity = flagRepo
-                .findByUserIdAndFlagName(targetUserId, flagName)
-                .orElseGet(UserFeatureFlagJpaEntity::new);
-        entity.setUserId(targetUserId);
-        entity.setFlagName(flagName);
-        entity.setEnabled(true);
-        entity.setUpdatedAt(Instant.now());
-        flagRepo.save(entity);
-        log.info("[Flags] caller={} enabled flag={} for user={}",
-                callerId, flagName, targetUserId);
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "userId", targetUserId,
-                "flagName", flagName,
-                "enabled", true)));
+        return ResponseEntity.ok(ApiResponse.success(
+                featureFlagService.enableFlag(callerId, targetUserId, flagName)));
     }
 
     @DeleteMapping("/admin/users/{targetUserId}/flags/{flagName}")
-    @Transactional
     public ResponseEntity<ApiResponse<Map<String, Object>>> disableFlag(
             @AuthenticationPrincipal String callerId,
             @PathVariable String targetUserId,
             @PathVariable String flagName) {
-        flagRepo.deleteByUserIdAndFlagName(targetUserId, flagName);
-        log.info("[Flags] caller={} disabled flag={} for user={}",
-                callerId, flagName, targetUserId);
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "userId", targetUserId,
-                "flagName", flagName,
-                "enabled", false)));
+        return ResponseEntity.ok(ApiResponse.success(
+                featureFlagService.disableFlag(callerId, targetUserId, flagName)));
     }
 }
