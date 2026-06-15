@@ -80,6 +80,7 @@ public class StreakService {
         int oldStreak = user.getStreakDays();
         int newStreak;
         int freezes = user.getStreakFreezes();
+        boolean freezeConsumed = false;
         if (last != null && last.equals(today.minusDays(1))) {
             newStreak = oldStreak + 1;
         } else if (last != null
@@ -88,6 +89,7 @@ public class StreakService {
                 && oldStreak > 0) {
             // Exactly one missed day and we have a freeze in the bank.
             freezes -= 1;
+            freezeConsumed = true;
             newStreak = oldStreak + 1;
             log.info("[Streak] user={} consumed freeze (left={})", userId, freezes);
         } else {
@@ -122,10 +124,12 @@ public class StreakService {
         // Earn a freeze on every 7 successful days (only when the streak
         // *crossed* the threshold, not on repeat). Respect L20's higher cap.
         int cap = effectiveFreezeCap(user.getLevel());
+        boolean freezeEarned = false;
         if (newStreak > oldStreak
                 && newStreak % 7 == 0
                 && freezes < cap) {
             freezes += 1;
+            freezeEarned = true;
             log.info("[Streak] user={} earned freeze (left={}/{} cap)",
                     userId, freezes, cap);
         }
@@ -133,9 +137,11 @@ public class StreakService {
         user.setStreakDays(newStreak);
         user.setLongestStreak(longest);
         user.setLastActiveDate(today);
-        user.setStreakFreezes(freezes);
         user.setStreakMilestonesReached(formatMilestones(celebrated));
         userRepo.save(user);
+
+        if (freezeConsumed) userRepo.consumeStreakFreeze(userId);
+        if (freezeEarned) userRepo.earnStreakFreeze(userId, cap);
 
         if (milestoneStarBonus > 0) {
             userRepo.addXpAndStars(userId, 0, milestoneStarBonus);

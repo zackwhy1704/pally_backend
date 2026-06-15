@@ -6,6 +6,7 @@ import com.pally.domain.progress.ProgressSummary;
 import com.pally.domain.progress.StreakService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
+import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -30,7 +31,7 @@ public class UserRepositoryAdapter implements UserRepository {
     @Transactional
     public User save(User user) {
         UserJpaEntity entity = jpa.findById(user.getId())
-                .orElseThrow(() -> new RuntimeException("User not found: " + user.getId()));
+                .orElseThrow(() -> new BusinessException("User not found: " + user.getId(), 404));
         applyDomainToEntity(user, entity);
         return jpa.save(entity).toUserDomain();
     }
@@ -82,6 +83,18 @@ public class UserRepositoryAdapter implements UserRepository {
     @Transactional
     public int buyStreakFreeze(String userId, int cost, int cap) {
         return jpa.buyStreakFreeze(userId, cost, cap);
+    }
+
+    @Override
+    @Transactional
+    public int earnStreakFreeze(String userId, int cap) {
+        return jpa.earnStreakFreeze(userId, cap);
+    }
+
+    @Override
+    @Transactional
+    public int consumeStreakFreeze(String userId) {
+        return jpa.consumeStreakFreeze(userId);
     }
 
     @Override
@@ -142,12 +155,10 @@ public class UserRepositoryAdapter implements UserRepository {
         entity.setChildName(user.getChildName());
         entity.setParentId(user.getParentId());
         entity.setAccountType(user.getAccountType());
-        entity.setStars(user.getStars());
         entity.setXp(user.getXp());
         entity.setLevel(user.getLevel());
         entity.setStreakDays(user.getStreakDays());
         entity.setLongestStreak(user.getLongestStreak());
-        entity.setStreakFreezes(user.getStreakFreezes());
         entity.setLastActiveDate(user.getLastActiveDate());
         entity.setStreakMilestonesReached(user.getStreakMilestonesReached());
         entity.setPremium(user.isPremium());

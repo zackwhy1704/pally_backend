@@ -105,4 +105,26 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
     int grantFreezesUpTo(@Param("userId") String userId,
                          @Param("count") int count,
                          @Param("cap") int cap);
+
+    /// Atomic streak-earn: credits one freeze, bounded by the level-derived
+    /// cap. Returns 1 on success, 0 if the user row vanished.
+    @Modifying
+    @Query(value = """
+            UPDATE users
+               SET streak_freezes = LEAST(streak_freezes + 1, :cap)
+             WHERE id = :userId
+            """, nativeQuery = true)
+    int earnStreakFreeze(@Param("userId") String userId,
+                        @Param("cap") int cap);
+
+    /// Atomic streak-consume: decrements one freeze but never below 0.
+    /// Returns 1 when a freeze was consumed, 0 if already at zero.
+    @Modifying
+    @Query(value = """
+            UPDATE users
+               SET streak_freezes = streak_freezes - 1
+             WHERE id = :userId
+               AND streak_freezes > 0
+            """, nativeQuery = true)
+    int consumeStreakFreeze(@Param("userId") String userId);
 }

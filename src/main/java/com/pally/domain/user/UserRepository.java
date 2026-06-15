@@ -17,6 +17,8 @@ public interface UserRepository {
     void ensureUserExists(String userId);
     int spendStars(String userId, int cost);
     int buyStreakFreeze(String userId, int cost, int cap);
+    int earnStreakFreeze(String userId, int cap);
+    int consumeStreakFreeze(String userId);
     XpResult addXpAndStars(String userId, int xp, int stars);
 
     record XpResult(int newXp, int oldLevel, int newLevel,
