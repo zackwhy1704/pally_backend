@@ -10,4 +10,10 @@ public interface OrgClassJpaRepository extends JpaRepository<OrgClassJpaEntity, 
     List<OrgClassJpaEntity> findByOrganizationId(String organizationId);
 
     Optional<OrgClassJpaEntity> findByJoinCode(String joinCode);
+
+    /// The class whose hidden corpus avatar this is. Lets the avatar mapper
+    /// resolve the Mochi config for a corpus avatar (which has classId == null).
+    Optional<OrgClassJpaEntity> findByCorpusAvatarId(String corpusAvatarId);
+
+    List<OrgClassJpaEntity> findByCorpusAvatarIdIn(java.util.Collection<String> corpusAvatarIds);
 }

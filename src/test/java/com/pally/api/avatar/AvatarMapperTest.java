@@ -98,6 +98,41 @@ class AvatarMapperTest {
     }
 
     @Test
+    void singleGet_corpusAvatar_resolvesConfigByCorpusAvatarId() {
+        // Corpus avatar: CENTRE_CLASS but classId == null. The owner sees this in
+        // their app; it must still get the class's Mochi config (resolved by
+        // corpusAvatarId), not fall back to the plain default.
+        Avatar corpus = Avatar.create("owner-1", "Class Corpus",
+                Subject.MATHS, CharacterType.MOCHI);
+        corpus.markCentreClassAvatar(); // classId stays null
+        OrgClassJpaEntity cls = classWithConfig();
+        cls.setCorpusAvatarId(corpus.getId());
+        when(orgClassRepository.findByCorpusAvatarId(corpus.getId()))
+                .thenReturn(Optional.of(cls));
+
+        AvatarResponse resp = mapper.toResponse(corpus);
+
+        assertThat(resp.mochiConfig()).isNotNull();
+        assertThat(resp.mochiConfig().accessory()).isEqualTo("crown");
+    }
+
+    @Test
+    void list_corpusAvatar_resolvesConfigByCorpusAvatarId() {
+        Avatar corpus = Avatar.create("owner-1", "Class Corpus",
+                Subject.MATHS, CharacterType.MOCHI);
+        corpus.markCentreClassAvatar();
+        OrgClassJpaEntity cls = classWithConfig();
+        cls.setCorpusAvatarId(corpus.getId());
+        when(orgClassRepository.findByCorpusAvatarIdIn(any()))
+                .thenReturn(List.of(cls));
+
+        List<AvatarResponse> out = mapper.toResponseList(List.of(corpus));
+
+        assertThat(out.get(0).mochiConfig()).isNotNull();
+        assertThat(out.get(0).mochiConfig().accessory()).isEqualTo("crown");
+    }
+
+    @Test
     void list_mixedAvatars_classGetsConfigPersonalGetsNull_andBatchesLookup() {
         when(orgClassRepository.findAllById(any())).thenReturn(List.of(classWithConfig()));
 

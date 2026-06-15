@@ -44,7 +44,21 @@ public class AvatarMapper {
      * class lookups to avoid N+1.
      */
     public AvatarResponse toResponse(Avatar avatar) {
-        return toResponse(avatar, resolveMochiConfig(avatar.isCentreClass() ? avatar.getClassId() : null));
+        return toResponse(avatar, resolveMochiConfigForAvatar(avatar));
+    }
+
+    /// Resolves the Mochi config for a CENTRE_CLASS avatar — whether it's a
+    /// student's class-bound avatar (by classId) OR the hidden class corpus
+    /// (classId == null, so look it up by corpusAvatarId == avatar.id). Without
+    /// the corpus branch the centre owner's own view rendered the plain default.
+    private MochiConfig resolveMochiConfigForAvatar(Avatar avatar) {
+        if (!avatar.isCentreClass()) return null;
+        if (avatar.getClassId() != null && !avatar.getClassId().isBlank()) {
+            return resolveMochiConfig(avatar.getClassId());
+        }
+        return orgClassRepository.findByCorpusAvatarId(avatar.getId())
+                .map(cls -> deserialize(cls.getMochiConfig()))
+                .orElse(null);
     }
 
     /**
@@ -55,10 +69,17 @@ public class AvatarMapper {
      * issues one org_class query per avatar (no N+1).
      */
     public List<AvatarResponse> toResponseList(List<Avatar> avatars) {
+        // Student class avatars resolve by classId; corpus avatars (classId null)
+        // resolve by corpusAvatarId == avatar.id. Both batched to avoid N+1.
         Set<String> classIds = avatars.stream()
                 .filter(Avatar::isCentreClass)
                 .map(Avatar::getClassId)
                 .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.toSet());
+        Set<String> corpusIds = avatars.stream()
+                .filter(a -> a.isCentreClass()
+                        && (a.getClassId() == null || a.getClassId().isBlank()))
+                .map(Avatar::getId)
                 .collect(Collectors.toSet());
 
         Map<String, MochiConfig> byClassId = new HashMap<>();
@@ -67,11 +88,21 @@ public class AvatarMapper {
                 byClassId.put(cls.getId(), deserialize(cls.getMochiConfig()));
             }
         }
+        Map<String, MochiConfig> byCorpusAvatarId = new HashMap<>();
+        if (!corpusIds.isEmpty()) {
+            for (OrgClassJpaEntity cls : orgClassRepository.findByCorpusAvatarIdIn(corpusIds)) {
+                byCorpusAvatarId.put(cls.getCorpusAvatarId(), deserialize(cls.getMochiConfig()));
+            }
+        }
 
         return avatars.stream()
                 .map(a -> toResponse(
                         a,
-                        a.isCentreClass() ? byClassId.get(a.getClassId()) : null))
+                        !a.isCentreClass()
+                                ? null
+                                : (a.getClassId() != null && !a.getClassId().isBlank()
+                                        ? byClassId.get(a.getClassId())
+                                        : byCorpusAvatarId.get(a.getId()))))
                 .toList();
     }
 
