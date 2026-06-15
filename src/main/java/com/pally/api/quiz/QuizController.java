@@ -4,213 +4,89 @@ import com.pally.api.quiz.dto.FlashcardResponse;
 import com.pally.api.quiz.dto.QuizQuestionResponse;
 import com.pally.api.quiz.dto.RateFlashcardRequest;
 import com.pally.api.quiz.dto.SubmitAnswersRequest;
-import com.pally.domain.quiz.AnswerSubmission;
-import com.pally.domain.quiz.FlashCard;
-import com.pally.domain.quiz.FlashcardRepository;
-import com.pally.domain.quiz.QuizQuestion;
 import com.pally.domain.quiz.QuizResult;
-import com.pally.domain.quiz.usecase.GetDailyQuizUseCase;
-import com.pally.domain.quiz.usecase.GetFlashcardsUseCase;
-import com.pally.domain.quiz.usecase.RateFlashcardUseCase;
-import com.pally.domain.quiz.usecase.SubmitQuizAnswersUseCase;
-import com.pally.domain.knowledge.WikiPage;
-import com.pally.domain.knowledge.WikiRepository;
-import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
-import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;
-import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
-import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
-import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.response.ApiResponse;
-import com.pally.shared.util.DurationClamp;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Quiz + flashcard endpoints, scoped under {@code /api/v1/avatars/{avatarId}}.
+ * Thin HTTP layer: delegate to {@link QuizService} → wrap in {@link ApiResponse}.
+ */
 @RestController
 @RequestMapping("/api/v1/avatars/{avatarId}")
 @RequiredArgsConstructor
-@Slf4j
 public class QuizController {
 
-    private final GetDailyQuizUseCase getDailyQuizUseCase;
-    private final SubmitQuizAnswersUseCase submitQuizAnswersUseCase;
-    private final GetFlashcardsUseCase getFlashcardsUseCase;
-    private final RateFlashcardUseCase rateFlashcardUseCase;
-    private final QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
-    private final QuizQuestionResultJpaRepository quizQuestionResultRepository;
-    private final AvatarJpaRepository avatarRepository;
-    private final WikiRepository wikiRepository;
-    private final FlashcardRepository flashcardRepository;
-    private final ClaudeFlashcardGenerator flashcardGenerator;
+    private final QuizService quizService;
 
     @GetMapping("/quiz/daily")
     public ResponseEntity<ApiResponse<List<QuizQuestionResponse>>> getDailyQuiz(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId
-    ) {
-        List<QuizQuestion> questions = getDailyQuizUseCase.execute(avatarId, userId);
-        List<QuizQuestionResponse> response = questions.stream()
-                .map(QuizQuestionResponse::from)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success(response));
+            @PathVariable String avatarId) {
+        return ResponseEntity.ok(ApiResponse.success(quizService.getDailyQuiz(userId, avatarId)));
     }
 
     @PostMapping("/quiz/answers")
     public ResponseEntity<ApiResponse<QuizResult>> submitAnswers(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
-            @Valid @RequestBody SubmitAnswersRequest request
-    ) {
-        AnswerSubmission submission = new AnswerSubmission(avatarId, userId, request.answers());
-        Map<String, Integer> correctMap = request.correctMap() != null ? request.correctMap() : Map.of();
-        Map<String, String> topicMap = request.topicMap() != null ? request.topicMap() : Map.of();
-        Map<String, String> confidenceMap = request.confidenceMap() != null
-                ? request.confidenceMap()
-                : Map.of();
-        int durationSeconds = DurationClamp.clamp(request.durationSeconds());
-        QuizResult result = submitQuizAnswersUseCase.execute(
-                submission, correctMap, topicMap, confidenceMap, durationSeconds);
-        return ResponseEntity.ok(ApiResponse.success(result));
+            @Valid @RequestBody SubmitAnswersRequest request) {
+        return ResponseEntity.ok(
+                ApiResponse.success(quizService.submitAnswers(userId, avatarId, request)));
     }
 
     @GetMapping("/flashcards")
     public ResponseEntity<ApiResponse<List<FlashcardResponse>>> getFlashcards(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId
-    ) {
-        List<FlashCard> cards = getFlashcardsUseCase.execute(avatarId, userId);
-        List<FlashcardResponse> response = cards.stream()
-                .map(FlashcardResponse::from)
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success(response));
+            @PathVariable String avatarId) {
+        return ResponseEntity.ok(ApiResponse.success(quizService.getFlashcards(userId, avatarId)));
     }
 
-    /// On-demand (re)generate flashcards from the avatar's compiled wiki pages.
-    /// Returns the count generated and whether wiki pages exist — the frontend
-    /// uses this to distinguish "no notes uploaded yet" from "generation just ran".
-    /// Idempotent: existing cards for each slug are deleted before regenerating.
     @PostMapping("/flashcards/generate")
     public ResponseEntity<ApiResponse<Map<String, Object>>> generateFlashcards(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId
-    ) {
-        List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
-        boolean hasWikiPages = !pages.isEmpty();
-        int totalGenerated = 0;
-
-        if (hasWikiPages) {
-            log.info("[Flashcard] Manual generate user={} avatar={} pages={}",
-                    userId, avatarId, pages.size());
-            for (WikiPage page : pages) {
-                try {
-                    flashcardGenerator.generateAndSaveForPage(avatarId, page);
-                    totalGenerated += flashcardRepository
-                            .countByAvatarIdAndSourceSlug(avatarId, page.getSlug());
-                } catch (Exception e) {
-                    log.warn("[Flashcard] Generate failed slug={}: {}",
-                            page.getSlug(), e.getMessage());
-                }
-            }
-            log.info("[Flashcard] Generate complete avatar={} total={}",
-                    avatarId, totalGenerated);
-        }
-
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "generated", totalGenerated,
-                "hasWikiPages", hasWikiPages
-        )));
+            @PathVariable String avatarId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(quizService.generateFlashcards(userId, avatarId)));
     }
 
     @PostMapping("/flashcards/{cardId}/rate")
     public ResponseEntity<ApiResponse<FlashcardResponse>> rateFlashcard(
             @PathVariable String avatarId,
             @PathVariable String cardId,
-            @Valid @RequestBody RateFlashcardRequest request
-    ) {
-        FlashCard updated = rateFlashcardUseCase.execute(cardId, request.rating());
-        return ResponseEntity.ok(ApiResponse.success(FlashcardResponse.from(updated)));
+            @Valid @RequestBody RateFlashcardRequest request) {
+        return ResponseEntity.ok(
+                ApiResponse.success(quizService.rateFlashcard(avatarId, cardId, request)));
     }
 
     @GetMapping("/quiz/error-patterns")
     public ResponseEntity<ApiResponse<Map<String, Long>>> getErrorPatterns(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId
-    ) {
-        avatarRepository.findById(avatarId)
-                .filter(a -> a.getUserId().equals(userId))
-                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
-        List<Object[]> rows = quizAnswerRecordRepository.findTopErrorTopics(avatarId);
-        Map<String, Long> result = new LinkedHashMap<>();
-        for (Object[] row : rows) {
-            result.put((String) row[0], (Long) row[1]);
-        }
-        return ResponseEntity.ok(ApiResponse.success(result));
+            @PathVariable String avatarId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(quizService.getErrorPatterns(userId, avatarId)));
     }
 
-    /// Daily-quiz journey status. Used by Home + Progress + Quiz screens
-    /// to (a) show "Today's quiz complete ✓" instead of re-launching the
-    /// same quiz a second time, (b) drive a syllabus-coverage ring
-    /// (mastered / total).
     @GetMapping("/quiz/status")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getQuizStatus(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId
-    ) {
-        boolean takenToday = Boolean.TRUE.equals(
-                quizQuestionResultRepository.takenToday(userId, avatarId));
-
-        // Coverage = ACTIVE pages on this avatar vs how many have been
-        // answered correctly at all (any time). 0.7 mastery threshold so
-        // a single lucky answer doesn't count.
-        var allMastery = quizQuestionResultRepository
-                .findAllTopicMasteryByAvatar(userId, avatarId);
-        int mastered = 0;
-        for (var r : allMastery) {
-            if (((Number) r[1]).doubleValue() >= 0.7) mastered++;
-        }
-        // Total topics = wiki pages currently in the brain.
-        // Re-using the existing helper rather than a new query.
-        int totalTopics = wikiRepository.countActiveByAvatarId(avatarId);
-
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "takenToday", takenToday,
-                "totalTopics", totalTopics,
-                "masteredTopics", mastered
-        )));
+            @PathVariable String avatarId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(quizService.getQuizStatus(userId, avatarId)));
     }
 
-    /// Per-topic mastery (correct-ratio) for this avatar. Used by the
-    /// brain-map screen to colour topic nodes; missing topics = untouched.
-    /// R8 — adds reviewRequired so the brain map can pulse pages the quiz
-    /// feedback loop has flagged after wrong answers.
     @GetMapping("/topic-mastery")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getTopicMastery(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId
-    ) {
-        List<Object[]> rows = quizQuestionResultRepository
-                .findAllTopicMasteryByAvatar(userId, avatarId);
-        java.util.Set<String> reviewSlugs = wikiRepository
-                .findReviewRequired(avatarId).stream()
-                .map(com.pally.domain.knowledge.WikiPage::getSlug)
-                .collect(java.util.stream.Collectors.toSet());
-        List<Map<String, Object>> body = rows.stream()
-                .map(r -> {
-                    String slug = (String) r[0];
-                    return Map.<String, Object>of(
-                            "topicSlug", slug,
-                            "mastery", ((Number) r[1]).doubleValue(),
-                            "attempts", ((Number) r[2]).intValue(),
-                            "reviewRequired", reviewSlugs.contains(slug));
-                })
-                .toList();
-        return ResponseEntity.ok(ApiResponse.success(body));
+            @PathVariable String avatarId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(quizService.getTopicMastery(userId, avatarId)));
     }
 }
