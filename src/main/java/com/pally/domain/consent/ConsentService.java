@@ -1,0 +1,247 @@
+package com.pally.domain.consent;
+
+import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
+import com.pally.shared.exception.BusinessException;
+import com.pally.shared.util.IdGenerator;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Owns all PDPA consent record / request creation and lookup logic.
+ *
+ * <p>Three flows are supported:
+ * <ul>
+ *   <li>Under-13 parental consent — {@link #getStatus}, {@link #requestParentConsent},
+ *       {@link #approveParentConsent}.</li>
+ *   <li>13–17 self-consent — {@link #recordSelfConsent}.</li>
+ *   <li>Family visibility consent — {@link #recordFamilyAcceptConsent}.</li>
+ *   <li>AI data-transfer consent — {@link #recordAiDataTransferConsent}.</li>
+ * </ul>
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ConsentService {
+
+    private static final String POLICY_VERSION = "2025-06-01";
+    private static final String PURPOSES_JSON =
+            "[\"tutoring\",\"quiz\",\"progress\",\"parent_visibility\"]";
+
+    private final ConsentRepository consentRepository;
+    private final UserRepository    userRepository;
+    private final PremiumService    premiumService;
+
+    // ── Status ────────────────────────────────────────────────────────────────
+
+    /**
+     * Returns a status map for the authenticated child:
+     * {@code accountStatus}, {@code aiDataTransfer}, and optionally
+     * {@code pendingRequest} / {@code approvedAt}.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getStatus(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("accountStatus", user.getAccountStatus());
+        body.put("aiDataTransfer", consentRepository.hasConsentForPurpose(
+                userId, ConsentGuard.REASON_AI_DATA_TRANSFER));
+
+        consentRepository.findLatestRequestByChildUserIdAndStatus(
+                        userId, ConsentRepository.ConsentRequest.STATUS_PENDING)
+                .ifPresent(r -> body.put("pendingRequest", Map.of(
+                        "parentEmail", r.parentEmail(),
+                        "expiresAt", r.expiresAt().toString()
+                )));
+
+        consentRepository.findLatestRequestByChildUserIdAndStatus(
+                        userId, ConsentRepository.ConsentRequest.STATUS_APPROVED)
+                .ifPresent(r -> body.put("approvedAt",
+                        r.approvedAt() != null ? r.approvedAt().toString() : null));
+
+        return body;
+    }
+
+    // ── Under-13 parental consent ─────────────────────────────────────────────
+
+    /**
+     * Creates a consent request for the child and marks the account PENDING_CONSENT.
+     * Returns a summary map: {@code status, parentEmail, expiresAt}.
+     */
+    @Transactional
+    public Map<String, Object> requestParentConsent(String userId, String parentEmail) {
+        if (parentEmail == null || parentEmail.isBlank() || !parentEmail.contains("@")) {
+            throw new BusinessException("A valid parent email is required", 400);
+        }
+        String email = parentEmail.trim().toLowerCase();
+
+        // Mark account PENDING_CONSENT (idempotent)
+        userRepository.findById(userId).ifPresent(u -> {
+            u.setAccountStatus(ConsentGuard.STATUS_PENDING);
+            userRepository.save(u);
+        });
+
+        String token = UUID.randomUUID().toString().replace("-", "");
+        Instant now = Instant.now();
+        ConsentRepository.ConsentRequest req = new ConsentRepository.ConsentRequest(
+                IdGenerator.newId(), userId, email, token,
+                ConsentRepository.ConsentRequest.STATUS_PENDING,
+                now, now.plus(7, ChronoUnit.DAYS), null
+        );
+        consentRepository.saveRequest(req);
+
+        // TODO: wire real email sending here (reuse the email-verification mail path)
+        log.info("[Consent] Consent request created user={} parentEmail={} token={}",
+                userId, email, token);
+
+        return Map.of(
+                "status", "PENDING",
+                "parentEmail", email,
+                "expiresAt", req.expiresAt().toString()
+        );
+    }
+
+    /**
+     * Resends the consent email by reusing the existing pending request's email.
+     */
+    @Transactional
+    public Map<String, Object> resendParentConsent(String userId) {
+        String parentEmail = consentRepository
+                .findLatestRequestByChildUserIdAndStatus(
+                        userId, ConsentRepository.ConsentRequest.STATUS_PENDING)
+                .map(ConsentRepository.ConsentRequest::parentEmail)
+                .orElseThrow(() -> new BusinessException(
+                        "No pending consent request found", 404));
+        return requestParentConsent(userId, parentEmail);
+    }
+
+    /**
+     * Approves a parental consent request via its one-tap token.
+     * Flips the child's account to ACTIVE, grants the 7-day trial, and
+     * records an audit consent record.
+     *
+     * @return summary map: {@code status, childUserId}.
+     */
+    @Transactional
+    public Map<String, Object> approveParentConsent(String token) {
+        ConsentRepository.ConsentRequest req = consentRepository
+                .findRequestByToken(token)
+                .orElseThrow(() -> new BusinessException(
+                        "Invalid or expired consent link", 404));
+
+        if (!ConsentRepository.ConsentRequest.STATUS_PENDING.equals(req.status())) {
+            throw new BusinessException("This consent link has already been used", 400);
+        }
+        if (req.expiresAt().isBefore(Instant.now())) {
+            // Expire the request
+            consentRepository.saveRequest(new ConsentRepository.ConsentRequest(
+                    req.id(), req.childUserId(), req.parentEmail(), req.token(),
+                    ConsentRepository.ConsentRequest.STATUS_EXPIRED,
+                    req.createdAt(), req.expiresAt(), null
+            ));
+            throw new BusinessException(
+                    "This consent link has expired — ask your child to request a new one", 400);
+        }
+
+        // Approve
+        consentRepository.saveRequest(new ConsentRepository.ConsentRequest(
+                req.id(), req.childUserId(), req.parentEmail(), req.token(),
+                ConsentRepository.ConsentRequest.STATUS_APPROVED,
+                req.createdAt(), req.expiresAt(), Instant.now()
+        ));
+
+        // Flip child account to ACTIVE
+        userRepository.findById(req.childUserId()).ifPresent(u -> {
+            u.setAccountStatus(ConsentGuard.STATUS_ACTIVE);
+            userRepository.save(u);
+        });
+
+        // Grant the 7-day trial now that the account is ACTIVE
+        premiumService.grantTrial(req.childUserId());
+
+        // Record in audit log
+        consentRepository.saveRecord(new ConsentRepository.ConsentRecord(
+                IdGenerator.newId(), req.childUserId(),
+                "PARENT", "EMAIL_LINK",
+                PURPOSES_JSON, POLICY_VERSION,
+                Instant.now(), null, null
+        ));
+
+        log.info("[Consent] APPROVED child={} by parent email={}",
+                req.childUserId(), req.parentEmail());
+
+        return Map.of("status", "APPROVED", "childUserId", req.childUserId());
+    }
+
+    // ── Self-consent ──────────────────────────────────────────────────────────
+
+    /**
+     * Records a 13–17 child's self-consent for audit purposes.
+     */
+    @Transactional
+    public void recordSelfConsent(String userId) {
+        consentRepository.saveRecord(new ConsentRepository.ConsentRecord(
+                IdGenerator.newId(), userId,
+                "SELF", "CHECKBOX",
+                PURPOSES_JSON, POLICY_VERSION,
+                Instant.now(), null, null
+        ));
+        log.info("[Consent] Self-consent recorded user={}", userId);
+    }
+
+    // ── Family visibility consent ─────────────────────────────────────────────
+
+    /**
+     * Records the child's consent granting the linked parent visibility into
+     * their learning data.
+     */
+    @Transactional
+    public void recordFamilyAcceptConsent(String userId, String parentId) {
+        if (parentId == null || parentId.isBlank()) {
+            throw new BusinessException("parentId is required", 400);
+        }
+        User child = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        if (!parentId.equals(child.getParentId())) {
+            throw new BusinessException("Specified parentId is not your parent", 403);
+        }
+
+        consentRepository.saveRecord(new ConsentRepository.ConsentRecord(
+                IdGenerator.newId(), userId,
+                "SELF", "CHECKBOX",
+                "[\"parent_visibility\"]", POLICY_VERSION,
+                Instant.now(), userId, parentId
+        ));
+
+        log.info("[Consent] Family visibility consent granted child={} parent={}",
+                userId, parentId);
+    }
+
+    // ── AI data-transfer consent ──────────────────────────────────────────────
+
+    /**
+     * Records the user's explicit consent to have their notes and chat messages
+     * sent to third-party overseas AI processors (Anthropic Claude, Google Gemini).
+     */
+    @Transactional
+    public void recordAiDataTransferConsent(String userId) {
+        consentRepository.saveRecord(new ConsentRepository.ConsentRecord(
+                IdGenerator.newId(), userId,
+                "SELF", "AI_DISCLOSURE",
+                "[\"AI_DATA_TRANSFER\",\"tutoring\",\"quiz\"]", POLICY_VERSION,
+                Instant.now(), null, null
+        ));
+        log.info("[Consent] AI_DATA_TRANSFER consent granted user={}", userId);
+    }
+}
