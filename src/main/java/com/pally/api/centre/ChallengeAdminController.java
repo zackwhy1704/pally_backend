@@ -1,9 +1,9 @@
 package com.pally.api.centre;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.challenge.Challenge;
 import com.pally.domain.challenge.ChallengeService;
 import com.pally.domain.group.ClassGroupService;
-import com.pally.infrastructure.persistence.challenge.ClassChallengeJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
@@ -56,7 +56,7 @@ public class ChallengeAdminController {
         String revealAtStr = str(body.get("revealAt"));
         Instant revealAt = revealAtStr != null ? Instant.parse(revealAtStr) : null;
 
-        ClassChallengeJpaEntity c = challengeService.create(
+        Challenge c = challengeService.create(
                 classId, question, options, answer, revealAt, userId);
 
         // Announce in the CLASS group so students see the new challenge.
