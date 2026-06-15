@@ -1,10 +1,6 @@
 package com.pally.domain.module;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pally.domain.avatar.Avatar;
-import com.pally.domain.avatar.AvatarRepository;
-import com.pally.domain.avatar.CharacterType;
-import com.pally.domain.avatar.Subject;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
@@ -13,7 +9,6 @@ import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
 import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
 import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
 import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
-import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,87 +27,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+/**
+ * Unit tests for {@link ModuleProgressionService} (split out of the former god
+ * ModuleService): the LEARN → TEST → PROVE → COMPLETE lifecycle, stage advance,
+ * PROVE evaluation + certainty nudge, and revision mode.
+ */
 @ExtendWith(MockitoExtension.class)
-class ModuleServiceTest {
+class ModuleProgressionServiceTest {
 
     @Mock private LearningModuleJpaRepository moduleRepository;
     @Mock private ModuleContentItemJpaRepository itemRepository;
     @Mock private ModuleProgressJpaRepository progressRepository;
     @Mock private ModuleContentGenerator contentGenerator;
     @Mock private ModuleProveEvaluator proveEvaluator;
-    @Mock private AvatarRepository avatarRepository;
     @Mock private WikiRepository wikiRepository;
     @Mock private com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
     @Mock private com.pally.domain.progress.ActivityLogService activityLogService;
     @Mock private com.pally.domain.progress.XpService xpService;
 
-    private ModuleService service;
+    private ModuleProgressionService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        service = new ModuleService(
+        service = new ModuleProgressionService(
                 moduleRepository, itemRepository, progressRepository,
-                contentGenerator, proveEvaluator, avatarRepository,
-                wikiRepository, objectMapper, milestoneNotifier,
-                activityLogService, xpService);
-    }
-
-    // ── generateModules ─────────────────────────────────────────────────
-
-    @Test
-    void generateModules_avatarNotFound_throws() {
-        when(avatarRepository.findById("bad-id")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.generateModules("bad-id"))
-                .isInstanceOf(AvatarNotFoundException.class);
-    }
-
-    @Test
-    void generateModules_noWikiPages_throwsNoNotes409() {
-        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
-        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
-        when(wikiRepository.findByAvatarId(avatar.getId())).thenReturn(List.of());
-
-        assertThatThrownBy(() -> service.generateModules(avatar.getId()))
-                .isInstanceOf(com.pally.shared.exception.BusinessException.class)
-                .hasMessageContaining("NO_NOTES");
-        verify(contentGenerator, never()).generate(any(), any());
-    }
-
-    @Test
-    void generateModules_skipsExistingSlugs() {
-        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
-        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
-
-        WikiPage page = WikiPage.create(avatar.getId(), "fractions", "Fractions", "Content");
-        when(wikiRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(page));
-
-        // Module already exists for this slug
-        when(moduleRepository.findByAvatarIdAndWikiPageSlug(avatar.getId(), "fractions"))
-                .thenReturn(Optional.of(new LearningModuleJpaEntity()));
-
-        List<LearningModuleJpaEntity> result = service.generateModules(avatar.getId());
-        assertThat(result).isEmpty();
-        verify(contentGenerator, never()).generate(any(), any());
-    }
-
-    @Test
-    void generateModules_createsModuleForNewPage() {
-        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
-        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
-
-        WikiPage page = WikiPage.create(avatar.getId(), "fractions", "Fractions", "Content");
-        when(wikiRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(page));
-        when(moduleRepository.findByAvatarIdAndWikiPageSlug(avatar.getId(), "fractions"))
-                .thenReturn(Optional.empty());
-
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
-        module.setId("mod-1");
-        when(contentGenerator.generate(avatar, page)).thenReturn(module);
-
-        List<LearningModuleJpaEntity> result = service.generateModules(avatar.getId());
-        assertThat(result).hasSize(1);
-        verify(contentGenerator).generate(avatar, page);
+                contentGenerator, proveEvaluator, wikiRepository, objectMapper,
+                milestoneNotifier, activityLogService, xpService);
     }
 
     // ── startModule ─────────────────────────────────────────────────────
@@ -127,7 +68,6 @@ class ModuleServiceTest {
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
         when(moduleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        // Revision generates new PROVE items — generateProveItemsAdaptively needs these
         when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
                 .thenReturn(List.of());
         WikiPage page = WikiPage.create("avatar-1", "test-slug", "Test", "Content");
@@ -142,7 +82,6 @@ class ModuleServiceTest {
 
         assertThat(result.get("stage")).isEqualTo("PROVE");
         assertThat(result.get("revision")).isEqualTo(true);
-        // Module stage should be set back to PROVE
         verify(moduleRepository).save(argThat(m -> "PROVE".equals(m.getStage())));
     }
 
@@ -179,7 +118,7 @@ class ModuleServiceTest {
 
         ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
         item.setId("item-1");
-        item.setStage("TEST"); // wrong stage!
+        item.setStage("TEST");
         when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
 
         assertThatThrownBy(() -> service.submitAnswers("mod-1", "user-1",
@@ -214,7 +153,6 @@ class ModuleServiceTest {
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        // All items completed
         when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
@@ -249,7 +187,6 @@ class ModuleServiceTest {
                 List.of(Map.of("itemId", "item-1", "response", "{\"viewed\":true}")),
                 150);
 
-        // Stage completion logs an activity row carrying the real 150s.
         verify(activityLogService).log(eq("user-1"), eq("avatar-1"),
                 eq(com.pally.domain.progress.ActivityLogService.TYPE_QUIZ),
                 eq(150), anyInt());
@@ -273,7 +210,6 @@ class ModuleServiceTest {
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
 
-        // 3-arg overload defaults duration to 0 (backward compatible).
         service.submitAnswers("mod-1", "user-1",
                 List.of(Map.of("itemId", "item-1", "response", "{\"viewed\":true}")));
 
@@ -297,7 +233,6 @@ class ModuleServiceTest {
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        // 2 total items, only 1 completed
         when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(2);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
@@ -355,7 +290,7 @@ class ModuleServiceTest {
                 .hasMessageContaining("itemId is required");
     }
 
-    // ── IMPROVEMENT 4: PROVE results nudge wiki certaintyScore ────────────
+    // ── PROVE results nudge wiki certaintyScore ───────────────────────────
 
     @Test
     void adjustCertaintyForProve_strongScore_raisesCertaintyBy005() {
@@ -424,75 +359,6 @@ class ModuleServiceTest {
         verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), 0.05);
     }
 
-    // ── getExamPrep ──────────────────────────────────────────────────────
-
-    @Test
-    void getExamPrep_aggregatesConceptMasteryWeakestFirst() {
-        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
-        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
-
-        LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE");
-        mod1.setAvatarId(avatar.getId());
-        mod1.setTitle("Fractions");
-        LearningModuleJpaEntity mod2 = buildModule("mod-2", "COMPLETE");
-        mod2.setAvatarId(avatar.getId());
-        mod2.setTitle("Decimals");
-        when(moduleRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(mod1, mod2));
-
-        // PROVE progress for mod1
-        ModuleProgressJpaEntity p1 = new ModuleProgressJpaEntity();
-        p1.setStage("PROVE");
-        p1.setTargetConcept("addition");
-        p1.setScore(BigDecimal.valueOf(0.9));
-        p1.setCompletedAt(Instant.now());
-
-        ModuleProgressJpaEntity p2 = new ModuleProgressJpaEntity();
-        p2.setStage("PROVE");
-        p2.setTargetConcept("subtraction");
-        p2.setScore(BigDecimal.valueOf(0.4));
-        p2.setCompletedAt(Instant.now());
-
-        when(progressRepository.findByModuleIdAndUserId("mod-1", avatar.getUserId()))
-                .thenReturn(List.of(p1, p2));
-        when(progressRepository.findByModuleIdAndUserId("mod-2", avatar.getUserId()))
-                .thenReturn(List.of());
-
-        Map<String, Object> result = service.getExamPrep(avatar.getId());
-
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> concepts = (List<Map<String, Object>>) result.get("concepts");
-        assertThat(concepts).hasSize(2);
-        // Weakest first
-        assertThat(concepts.get(0).get("concept")).isEqualTo("subtraction");
-        assertThat((double) concepts.get(0).get("mastery")).isLessThan(50.0);
-        assertThat(concepts.get(1).get("concept")).isEqualTo("addition");
-    }
-
-    @Test
-    void getExamPrep_avatarNotFound_throws() {
-        when(avatarRepository.findById("bad-id")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> service.getExamPrep("bad-id"))
-                .isInstanceOf(AvatarNotFoundException.class);
-    }
-
-    // ── getClassExamReadiness ──────────────────────────────────────────
-
-    @Test
-    void getClassExamReadiness_returnsSuggestionWhenBelow60() {
-        LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE");
-        mod1.setMasteryPct(BigDecimal.valueOf(45.0));
-        mod1.setClassId("class-1");
-        LearningModuleJpaEntity mod2 = buildModule("mod-2", "COMPLETE");
-        mod2.setMasteryPct(BigDecimal.valueOf(80.0));
-        mod2.setClassId("class-1");
-        when(moduleRepository.findByClassId("class-1")).thenReturn(List.of(mod1, mod2));
-
-        Map<String, Object> result = service.getClassExamReadiness("class-1");
-
-        assertThat((String) result.get("suggestion")).contains("revision");
-        assertThat((int) result.get("completedModules")).isEqualTo(2);
-    }
-
     // ── Stage enum ──────────────────────────────────────────────────────
 
     @Test
@@ -502,8 +368,6 @@ class ModuleServiceTest {
         assertThat(ModuleStage.PROVE.next()).isEqualTo(ModuleStage.COMPLETE);
         assertThat(ModuleStage.COMPLETE.next()).isNull();
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────
 
     private LearningModuleJpaEntity buildModule(String id, String stage) {
         LearningModuleJpaEntity m = new LearningModuleJpaEntity();
