@@ -52,7 +52,7 @@ class ClassGroupModerationTest {
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
 
-    @InjectMocks StudyGroupController controller;
+    @InjectMocks StudyGroupService service;
 
     private static final String STUDENT = "student-1";
     private static final String TEACHER = "teacher-1";
@@ -84,7 +84,7 @@ class ClassGroupModerationTest {
                 .thenReturn(com.pally.domain.subscription.SubscriptionTier.CENTRE);
         when(groupRepo.findByInviteCode("CLS123")).thenReturn(Optional.of(classGroup()));
 
-        assertThatThrownBy(() -> controller.join(STUDENT, Map.of("inviteCode", "CLS123")))
+        assertThatThrownBy(() -> service.join(STUDENT, Map.of("inviteCode", "CLS123")))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 403);
         verify(memberRepo, never()).save(org.mockito.ArgumentMatchers.any());
@@ -97,7 +97,7 @@ class ClassGroupModerationTest {
         when(memberRepo.findById(new GroupMemberJpaEntity.PK(GID, STUDENT)))
                 .thenReturn(Optional.of(member(GroupMemberJpaEntity.ROLE_MEMBER)));
 
-        assertThatThrownBy(() -> controller.leave(STUDENT, GID))
+        assertThatThrownBy(() -> service.leave(STUDENT, GID))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 403);
         verify(memberRepo, never()).deleteByGroupIdAndUserId(anyString(), anyString());
@@ -109,7 +109,7 @@ class ClassGroupModerationTest {
         when(memberRepo.findById(new GroupMemberJpaEntity.PK(GID, TEACHER)))
                 .thenReturn(Optional.of(member(GroupMemberJpaEntity.ROLE_TEACHER)));
 
-        controller.leave(TEACHER, GID);
+        service.leave(TEACHER, GID);
         verify(memberRepo).deleteByGroupIdAndUserId(GID, TEACHER);
     }
 
@@ -119,7 +119,7 @@ class ClassGroupModerationTest {
         when(memberRepo.findById(new GroupMemberJpaEntity.PK(GID, STUDENT)))
                 .thenReturn(Optional.of(member(GroupMemberJpaEntity.ROLE_MEMBER)));
 
-        assertThatThrownBy(() -> controller.kickMember(STUDENT, GID, "victim"))
+        assertThatThrownBy(() -> service.kickMember(STUDENT, GID, "victim"))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 403);
     }
@@ -130,9 +130,9 @@ class ClassGroupModerationTest {
         // listMyGroups maps via toSummary
         when(groupRepo.findGroupsForUser(TEACHER)).thenReturn(java.util.List.of(classGroup()));
 
-        var resp = controller.listMyGroups(TEACHER);
+        var resp = service.listMyGroups(TEACHER);
         @SuppressWarnings("unchecked")
-        var groups = (java.util.List<Map<String, Object>>) resp.getBody().data().get("groups");
+        var groups = (java.util.List<Map<String, Object>>) resp.get("groups");
         assertThat(groups).hasSize(1);
         assertThat(groups.get(0)).containsEntry("groupType", "CLASS");
         assertThat(groups.get(0)).containsEntry("classId", "class-1");

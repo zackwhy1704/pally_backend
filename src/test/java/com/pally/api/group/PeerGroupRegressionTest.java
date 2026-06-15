@@ -52,7 +52,7 @@ class PeerGroupRegressionTest {
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
 
-    @InjectMocks StudyGroupController controller;
+    @InjectMocks StudyGroupService service;
 
     private static final String USER = "user-1";
 
@@ -74,9 +74,9 @@ class PeerGroupRegressionTest {
         when(groupRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(memberRepo.findByGroupId(anyString())).thenReturn(List.of());
 
-        var resp = controller.createGroup(USER, Map.of("name", "Bio Buddies"));
+        var resp = service.createGroup(USER, Map.of("name", "Bio Buddies"));
         @SuppressWarnings("unchecked")
-        Map<String, Object> data = (Map<String, Object>) resp.getBody().data();
+        Map<String, Object> data = (Map<String, Object>) resp;
         assertThat(data).containsEntry("groupType", "PEER");
         // The owner is added with ROLE_OWNER (peer behaviour unchanged).
         verify(memberRepo).save(any(GroupMemberJpaEntity.class));
@@ -89,7 +89,7 @@ class PeerGroupRegressionTest {
         when(memberRepo.existsByGroupIdAndUserId(anyString(), anyString())).thenReturn(false);
         when(memberRepo.findByGroupId(anyString())).thenReturn(List.of());
 
-        controller.join(USER, Map.of("inviteCode", "ABC123"));
+        service.join(USER, Map.of("inviteCode", "ABC123"));
         verify(memberRepo).save(any(GroupMemberJpaEntity.class));
     }
 
@@ -97,7 +97,7 @@ class PeerGroupRegressionTest {
     void peerGroup_leave_deletesMembership_noGuard() {
         when(groupRepo.findById("g1")).thenReturn(Optional.of(peerGroup()));
 
-        controller.leave(USER, "g1");
+        service.leave(USER, "g1");
         verify(memberRepo).deleteByGroupIdAndUserId("g1", USER);
     }
 }

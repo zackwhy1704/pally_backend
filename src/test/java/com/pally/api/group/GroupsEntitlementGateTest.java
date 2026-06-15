@@ -52,7 +52,7 @@ class GroupsEntitlementGateTest {
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
 
-    @InjectMocks StudyGroupController controller;
+    @InjectMocks StudyGroupService service;
 
     private static final String USER = "user-1";
 
@@ -80,7 +80,7 @@ class GroupsEntitlementGateTest {
     void freeUser_createGroup_throwsUpgradeRequired_withGroupsFeatureCode() {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.FREE);
 
-        assertThatThrownBy(() -> controller.createGroup(USER, Map.of("name", "Bio Study")))
+        assertThatThrownBy(() -> service.createGroup(USER, Map.of("name", "Bio Study")))
                 .isInstanceOf(UpgradeRequiredException.class)
                 .hasFieldOrPropertyWithValue("feature", "GROUPS");
     }
@@ -90,7 +90,7 @@ class GroupsEntitlementGateTest {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.PRO);
 
         assertThatNoException().isThrownBy(
-                () -> controller.createGroup(USER, Map.of("name", "Bio Study")));
+                () -> service.createGroup(USER, Map.of("name", "Bio Study")));
     }
 
     @Test
@@ -98,7 +98,7 @@ class GroupsEntitlementGateTest {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.MAX);
 
         assertThatNoException().isThrownBy(
-                () -> controller.createGroup(USER, Map.of("name", "Bio Study")));
+                () -> service.createGroup(USER, Map.of("name", "Bio Study")));
     }
 
     @Test
@@ -106,7 +106,7 @@ class GroupsEntitlementGateTest {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.FAMILY);
 
         assertThatNoException().isThrownBy(
-                () -> controller.createGroup(USER, Map.of("name", "Bio Study")));
+                () -> service.createGroup(USER, Map.of("name", "Bio Study")));
     }
 
     @Test
@@ -114,7 +114,7 @@ class GroupsEntitlementGateTest {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.CENTRE);
 
         assertThatNoException().isThrownBy(
-                () -> controller.createGroup(USER, Map.of("name", "Bio Study")));
+                () -> service.createGroup(USER, Map.of("name", "Bio Study")));
     }
 
     // ── join ──────────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ class GroupsEntitlementGateTest {
     void freeUser_joinGroup_throwsUpgradeRequired_withGroupsFeatureCode() {
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.FREE);
 
-        assertThatThrownBy(() -> controller.join(USER, Map.of("inviteCode", "ABC123")))
+        assertThatThrownBy(() -> service.join(USER, Map.of("inviteCode", "ABC123")))
                 .isInstanceOf(UpgradeRequiredException.class)
                 .hasFieldOrPropertyWithValue("feature", "GROUPS");
     }
@@ -135,6 +135,6 @@ class GroupsEntitlementGateTest {
         when(memberRepo.existsByGroupIdAndUserId(anyString(), anyString())).thenReturn(false);
 
         assertThatNoException().isThrownBy(
-                () -> controller.join(USER, Map.of("inviteCode", "ABC123")));
+                () -> service.join(USER, Map.of("inviteCode", "ABC123")));
     }
 }
