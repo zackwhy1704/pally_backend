@@ -23,14 +23,12 @@ import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
 import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.ai.ModelRouter;
-import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaEntity;
-import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
+import com.pally.domain.assignment.ContentGapSignalRepository;
 import com.pally.domain.module.LearningModule;
 import com.pally.domain.module.LearningModuleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -65,7 +63,7 @@ class SendMessageUseCaseModuleGateTest {
     @Mock private PremiumService premiumService;
     @Mock private WikiRepository wikiRepository;
     @Mock private LearningModuleRepository learningModuleRepo;
-    @Mock private ContentGapSignalJpaRepository contentGapSignalRepo;
+    @Mock private ContentGapSignalRepository contentGapSignalRepo;
 
     private SendMessageUseCase useCase;
     private Avatar personalAvatar;
@@ -138,8 +136,8 @@ class SendMessageUseCaseModuleGateTest {
         // Should have streamed response (not refused)
         assertThat(events).isNotNull();
         assertThat(events).anyMatch(e -> "delta".equals(e.type()) && "answer".equals(e.payload()));
-        // Module gate should NOT have saved a content gap signal
-        verify(contentGapSignalRepo, never()).save(any());
+        // Module gate should NOT have recorded a content gap signal
+        verify(contentGapSignalRepo, never()).recordSignal(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -236,21 +234,19 @@ class SendMessageUseCaseModuleGateTest {
                 .thenReturn(Optional.of(page));
         when(chatRepository.save(any(ChatMessage.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(contentGapSignalRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         useCase.executeStream("av-1", "user-1",
                         "what year did world war two start", "mod-1")
                 .collectList().block();
 
-        // Should have logged a content gap signal
+        // Should have recorded a content gap signal via the domain port
         if (centreAvatar.getClassId() != null) {
-            ArgumentCaptor<ContentGapSignalJpaEntity> captor =
-                    ArgumentCaptor.forClass(ContentGapSignalJpaEntity.class);
-            verify(contentGapSignalRepo).save(captor.capture());
-            ContentGapSignalJpaEntity gap = captor.getValue();
-            assertThat(gap.getClassId()).isEqualTo("class-42");
-            assertThat(gap.getUserId()).isEqualTo("user-1");
-            assertThat(gap.getQueryText()).contains("world war two");
+            verify(contentGapSignalRepo).recordSignal(
+                    eq("av-1"),
+                    eq("class-42"),
+                    eq("user-1"),
+                    contains("world war two"),
+                    any(java.math.BigDecimal.class));
         }
     }
 }
