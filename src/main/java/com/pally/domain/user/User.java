@@ -35,4 +35,14 @@ public class User {
     private Instant trialStartedAt;
     private Instant trialEndsAt;
     private Instant lastSlotChangeAt;
+    private String centreId;
+    private String cohortLabel;
+
+    // ── Parental controls ─────────────────────────────────────────────────
+    private boolean screenTimeEnabled;
+    private int screenTimeMinutes = 60;
+
+    // ── Family pairing ────────────────────────────────────────────────────
+    private String linkCode;
+    private Instant linkCodeExpiresAt;
 }

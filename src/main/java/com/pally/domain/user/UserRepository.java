@@ -2,6 +2,8 @@ package com.pally.domain.user;
 
 import com.pally.domain.account.AccountType;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +22,42 @@ public interface UserRepository {
     int earnStreakFreeze(String userId, int cap);
     int consumeStreakFreeze(String userId);
     XpResult addXpAndStars(String userId, int xp, int stars);
+
+    /** Count students enrolled in a centre. */
+    long countByCentreId(String centreId);
+
+    /** Batch-fetch users by their IDs (for heatmap display-name lookup). */
+    List<User> findAllByIds(Collection<String> ids);
+
+    // ── PIN management ────────────────────────────────────────────────────
+
+    /** Returns the BCrypt hash of the parent PIN, or empty if none is set. */
+    Optional<String> getParentPinHash(String userId);
+
+    /** Overwrites the parent PIN hash for the given user. */
+    void setParentPinHash(String userId, String bcryptHash);
+
+    /** Returns the BCrypt hash of the user's login password, or empty if not set. */
+    Optional<String> getPasswordHash(String userId);
+
+    // ── Screen-time ───────────────────────────────────────────────────────
+
+    /** Updates screen-time enforcement settings. */
+    void setScreenTime(String userId, boolean enabled, int minutes);
+
+    // ── FCM token ─────────────────────────────────────────────────────────
+
+    void setFcmToken(String userId, String token);
+
+    // ── Link-code (family pairing) ────────────────────────────────────────
+
+    Optional<User> findByLinkCode(String code);
+
+    /** Sets the link code and its expiry. */
+    void setLinkCode(String userId, String code, Instant expiresAt);
+
+    /** Clears the link code fields (used on code expiry during claim). */
+    void clearLinkCode(String userId);
 
     record XpResult(int newXp, int oldLevel, int newLevel,
                     boolean levelledUp, String unlockedRewardLabel) {

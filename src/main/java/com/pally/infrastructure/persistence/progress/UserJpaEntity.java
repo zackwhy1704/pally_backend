@@ -219,6 +219,12 @@ public class UserJpaEntity {
         u.setTrialStartedAt(trialStartedAt);
         u.setTrialEndsAt(trialEndsAt);
         u.setLastSlotChangeAt(lastSlotChangeAt);
+        u.setCentreId(centreId);
+        u.setCohortLabel(cohortLabel);
+        u.setScreenTimeEnabled(screenTimeEnabled);
+        u.setScreenTimeMinutes(screenTimeMinutes);
+        u.setLinkCode(linkCode);
+        u.setLinkCodeExpiresAt(linkCodeExpiresAt);
         return u;
     }
 }

@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -148,6 +150,93 @@ public class UserRepositoryAdapter implements UserRepository {
                 unlockedLabel == null ? "" : " unlock=" + unlockedLabel);
         return new UserRepository.XpResult(
                 newXp, oldLevel, newLevel, newLevel > oldLevel, unlockedLabel);
+    }
+
+    @Override
+    public long countByCentreId(String centreId) {
+        return jpa.countByCentreId(centreId);
+    }
+
+    @Override
+    public List<User> findAllByIds(Collection<String> ids) {
+        return jpa.findAllById(ids).stream()
+                .map(UserJpaEntity::toUserDomain)
+                .toList();
+    }
+
+    // ── PIN management ────────────────────────────────────────────────────
+
+    @Override
+    public Optional<String> getParentPinHash(String userId) {
+        return jpa.findById(userId)
+                .map(UserJpaEntity::getParentPinHash)
+                .filter(h -> h != null && !h.isBlank());
+    }
+
+    @Override
+    @Transactional
+    public void setParentPinHash(String userId, String bcryptHash) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        e.setParentPinHash(bcryptHash);
+        jpa.save(e);
+    }
+
+    @Override
+    public Optional<String> getPasswordHash(String userId) {
+        return jpa.findById(userId)
+                .map(UserJpaEntity::getPasswordHash)
+                .filter(h -> h != null && !h.isBlank());
+    }
+
+    // ── Screen-time ───────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void setScreenTime(String userId, boolean enabled, int minutes) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        e.setScreenTimeEnabled(enabled);
+        e.setScreenTimeMinutes(minutes);
+        jpa.save(e);
+    }
+
+    // ── FCM token ─────────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void setFcmToken(String userId, String token) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        e.setFcmToken(token);
+        jpa.save(e);
+    }
+
+    // ── Link-code (family pairing) ────────────────────────────────────────
+
+    @Override
+    public Optional<User> findByLinkCode(String code) {
+        return jpa.findByLinkCode(code).map(UserJpaEntity::toUserDomain);
+    }
+
+    @Override
+    @Transactional
+    public void setLinkCode(String userId, String code, Instant expiresAt) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        e.setLinkCode(code);
+        e.setLinkCodeExpiresAt(expiresAt);
+        jpa.save(e);
+    }
+
+    @Override
+    @Transactional
+    public void clearLinkCode(String userId) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        e.setLinkCode(null);
+        e.setLinkCodeExpiresAt(null);
+        jpa.save(e);
     }
 
     private void applyDomainToEntity(User user, UserJpaEntity entity) {
