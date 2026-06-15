@@ -2,7 +2,7 @@ package com.pally.domain.onboard;
 
 import com.pally.domain.account.AccountType;
 
-import com.pally.api.auth.dto.AuthResponse;
+import com.pally.domain.auth.dto.AuthResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;

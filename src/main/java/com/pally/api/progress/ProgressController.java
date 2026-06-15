@@ -1,7 +1,7 @@
 package com.pally.api.progress;
 
-import com.pally.api.progress.dto.ProgressResponse;
-import com.pally.api.progress.dto.ReadingPingRequest;
+import com.pally.domain.progress.dto.ProgressResponse;
+import com.pally.domain.progress.dto.ReadingPingRequest;
 import com.pally.domain.progress.ProgressService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;

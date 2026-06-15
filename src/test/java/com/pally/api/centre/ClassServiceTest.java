@@ -298,10 +298,10 @@ class ClassServiceTest {
     void updateMochiConfig_validConfig_persistsAndReturnsIt() {
         OrgClassJpaEntity cls = classEntity();
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
-        com.pally.api.centre.dto.MochiConfig cfg =
-                new com.pally.api.centre.dto.MochiConfig(3, "crown", "sparkle");
+        com.pally.domain.centre.dto.MochiConfig cfg =
+                new com.pally.domain.centre.dto.MochiConfig(3, "crown", "sparkle");
 
-        com.pally.api.centre.dto.MochiConfig result =
+        com.pally.domain.centre.dto.MochiConfig result =
                 service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
 
         // Returned config echoes the input.
@@ -316,8 +316,8 @@ class ClassServiceTest {
         OrgClassJpaEntity cls = classEntity();
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
-        com.pally.api.centre.dto.MochiConfig cfg =
-                new com.pally.api.centre.dto.MochiConfig(5, "bow", "bloom");
+        com.pally.domain.centre.dto.MochiConfig cfg =
+                new com.pally.domain.centre.dto.MochiConfig(5, "bow", "bloom");
 
         service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
         // The blob the PATCH stored is what the GET list will deserialize.
@@ -342,8 +342,8 @@ class ClassServiceTest {
     @Test
     void updateMochiConfig_outOfRangeBodyVariant_isRejected() {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
-        com.pally.api.centre.dto.MochiConfig bad =
-                new com.pally.api.centre.dto.MochiConfig(99, "crown", "sparkle");
+        com.pally.domain.centre.dto.MochiConfig bad =
+                new com.pally.domain.centre.dto.MochiConfig(99, "crown", "sparkle");
 
         assertThatThrownBy(() ->
                 service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
@@ -354,8 +354,8 @@ class ClassServiceTest {
     @Test
     void updateMochiConfig_unknownAccessory_isRejected() {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
-        com.pally.api.centre.dto.MochiConfig bad =
-                new com.pally.api.centre.dto.MochiConfig(3, "laser", "sparkle");
+        com.pally.domain.centre.dto.MochiConfig bad =
+                new com.pally.domain.centre.dto.MochiConfig(3, "laser", "sparkle");
 
         assertThatThrownBy(() ->
                 service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
@@ -366,8 +366,8 @@ class ClassServiceTest {
     @Test
     void updateMochiConfig_unknownAura_isRejected() {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
-        com.pally.api.centre.dto.MochiConfig bad =
-                new com.pally.api.centre.dto.MochiConfig(3, "crown", "rainbow");
+        com.pally.domain.centre.dto.MochiConfig bad =
+                new com.pally.domain.centre.dto.MochiConfig(3, "crown", "rainbow");
 
         assertThatThrownBy(() ->
                 service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
@@ -388,8 +388,8 @@ class ClassServiceTest {
 
         List<Map<String, Object>> list = service.listClasses(OWNER_ID, ORG_ID);
 
-        com.pally.api.centre.dto.MochiConfig mc =
-                (com.pally.api.centre.dto.MochiConfig) list.get(0).get("mochiConfig");
+        com.pally.domain.centre.dto.MochiConfig mc =
+                (com.pally.domain.centre.dto.MochiConfig) list.get(0).get("mochiConfig");
         assertThat(mc).isNotNull();
         assertThat(mc.body()).isEqualTo(7);
         assertThat(mc.accessory()).isEqualTo("cap");
@@ -401,8 +401,8 @@ class ClassServiceTest {
         // ensureOwner throws for a non-owner; mochi-config must never persist.
         when(accessService.ensureOwner("intruder", ORG_ID))
                 .thenThrow(new BusinessException("Not the centre owner", 403));
-        com.pally.api.centre.dto.MochiConfig cfg =
-                new com.pally.api.centre.dto.MochiConfig(3, "crown", "sparkle");
+        com.pally.domain.centre.dto.MochiConfig cfg =
+                new com.pally.domain.centre.dto.MochiConfig(3, "crown", "sparkle");
 
         assertThatThrownBy(() ->
                 service.updateMochiConfig("intruder", ORG_ID, CLASS_ID, cfg))
@@ -415,12 +415,12 @@ class ClassServiceTest {
         OrgClassJpaEntity cls = classEntity();
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
-        com.pally.api.centre.dto.MochiConfig original =
-                new com.pally.api.centre.dto.MochiConfig(11, "headband", "electric");
+        com.pally.domain.centre.dto.MochiConfig original =
+                new com.pally.domain.centre.dto.MochiConfig(11, "headband", "electric");
 
         service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, original);
-        com.pally.api.centre.dto.MochiConfig roundTripped =
-                (com.pally.api.centre.dto.MochiConfig)
+        com.pally.domain.centre.dto.MochiConfig roundTripped =
+                (com.pally.domain.centre.dto.MochiConfig)
                         service.listClasses(OWNER_ID, ORG_ID).get(0).get("mochiConfig");
 
         assertThat(roundTripped.body()).isEqualTo(11);

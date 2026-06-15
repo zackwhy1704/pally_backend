@@ -1,23 +1,13 @@
-package com.pally.api.knowledge;
+package com.pally.domain.knowledge;
 
-import com.pally.api.knowledge.dto.KnowledgeFileResponse;
-import com.pally.domain.knowledge.KnowledgeFile;
+import com.pally.domain.knowledge.dto.KnowledgeFileResponse;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * Maps {@link KnowledgeFile} domain objects to API response DTOs.
- */
 @Component
 public class KnowledgeMapper {
 
-    /**
-     * Maps a single {@link KnowledgeFile} to a {@link KnowledgeFileResponse}.
-     *
-     * @param file domain knowledge file
-     * @return response DTO
-     */
     public KnowledgeFileResponse toResponse(KnowledgeFile file) {
         String ocrEngine = file.getOcrEngine();
         boolean degraded = ocrEngine != null && !ocrEngine.startsWith("claude");
@@ -33,12 +23,6 @@ public class KnowledgeMapper {
         );
     }
 
-    /**
-     * Maps a list of {@link KnowledgeFile} objects to response DTOs.
-     *
-     * @param files list of domain knowledge files
-     * @return list of response DTOs
-     */
     public List<KnowledgeFileResponse> toResponseList(List<KnowledgeFile> files) {
         return files.stream().map(this::toResponse).toList();
     }

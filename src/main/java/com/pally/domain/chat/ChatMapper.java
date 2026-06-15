@@ -1,4 +1,4 @@
-package com.pally.api.chat;
+package com.pally.domain.chat;
 
 import com.pally.domain.chat.dto.ChatMessageResponse;
 import com.pally.domain.chat.ChatMessage;

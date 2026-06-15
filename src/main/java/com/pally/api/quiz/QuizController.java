@@ -1,9 +1,9 @@
 package com.pally.api.quiz;
 
-import com.pally.api.quiz.dto.FlashcardResponse;
-import com.pally.api.quiz.dto.QuizQuestionResponse;
-import com.pally.api.quiz.dto.RateFlashcardRequest;
-import com.pally.api.quiz.dto.SubmitAnswersRequest;
+import com.pally.domain.quiz.dto.FlashcardResponse;
+import com.pally.domain.quiz.dto.QuizQuestionResponse;
+import com.pally.domain.quiz.dto.RateFlashcardRequest;
+import com.pally.domain.quiz.dto.SubmitAnswersRequest;
 import com.pally.domain.quiz.QuizResult;
 import com.pally.domain.quiz.QuizService;
 import com.pally.shared.response.ApiResponse;

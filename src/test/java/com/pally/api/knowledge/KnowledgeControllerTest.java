@@ -1,6 +1,6 @@
 package com.pally.api.knowledge;
 
-import com.pally.api.knowledge.dto.WikiCompileResponse;
+import com.pally.domain.knowledge.dto.WikiCompileResponse;
 import com.pally.domain.knowledge.KnowledgeService;
 import com.pally.domain.knowledge.usecase.UploadResult;
 import org.junit.jupiter.api.Test;

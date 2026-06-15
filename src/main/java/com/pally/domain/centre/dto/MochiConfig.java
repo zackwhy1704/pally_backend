@@ -1,4 +1,4 @@
-package com.pally.api.centre.dto;
+package com.pally.domain.centre.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.pally.shared.exception.BusinessException;
@@ -8,16 +8,6 @@ import java.util.Set;
 /**
  * Per-class Mochi customization the centre web client edits. Stored as a
  * Jackson-serialized JSON string in {@code org_class.mochi_config} (TEXT, see V74).
- *
- * <p>Simplified to the three fields the renderer actually applies. The base Mochi
- * PNG bakes in eyes and cheeks, so the old {@code eyeStyle}/{@code cheekVariant}
- * fields were dropped product-wide. {@link JsonIgnoreProperties} keeps previously
- * stored blobs (which may still carry those keys) deserializable so old data never
- * 500s.
- *
- * @param body body palette/shape variant, 0–11 (one per character family)
- * @param accessory   one of {@link #ACCESSORIES}
- * @param aura        one of {@link #AURAS}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record MochiConfig(
@@ -33,10 +23,6 @@ public record MochiConfig(
     public static final Set<String> AURAS =
             Set.of("none", "sparkle", "fire", "chill", "electric", "bloom");
 
-    /**
-     * Validates this config, throwing {@link BusinessException} (HTTP 400) on any
-     * out-of-range or unknown enum value. Returns {@code this} for chaining.
-     */
     public MochiConfig validated() {
         if (body < BODY_VARIANT_MIN || body > BODY_VARIANT_MAX) {
             throw new BusinessException(

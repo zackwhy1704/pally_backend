@@ -1,6 +1,6 @@
 package com.pally.domain.chat;
 
-import com.pally.api.chat.ChatMapper;
+import com.pally.domain.chat.ChatMapper;
 import com.pally.domain.chat.dto.ChatMessageResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;

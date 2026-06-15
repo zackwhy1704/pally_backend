@@ -1,6 +1,6 @@
 package com.pally.api.avatar.dto;
 
-import com.pally.api.centre.dto.MochiConfig;
+import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.ClassAvatarAppearance;

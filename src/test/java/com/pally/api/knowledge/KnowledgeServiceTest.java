@@ -2,6 +2,7 @@ package com.pally.api.knowledge;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.knowledge.KnowledgeMapper;
 import com.pally.domain.knowledge.KnowledgeService;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
@@ -9,6 +10,7 @@ import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
+import com.pally.domain.knowledge.dto.RelevanceCheckRequest;
 import com.pally.domain.knowledge.usecase.CheckRelevanceUseCase;
 import com.pally.domain.knowledge.usecase.CompileJobStore;
 import com.pally.domain.knowledge.usecase.CompileWikiUseCase;
@@ -65,7 +67,6 @@ class KnowledgeServiceTest {
     @Mock AvatarRepository avatarRepository;
     @Mock AvatarSlotGuard avatarSlotGuard;
     @Mock WikiPageSourceJpaRepository wikiPageSourceRepo;
-    @Mock WikiPageResponseMapper wikiPageResponseMapper;
 
     KnowledgeService service;
 
@@ -82,8 +83,7 @@ class KnowledgeServiceTest {
         service = new KnowledgeService(
                 uploadFileUseCase, deleteFileUseCase, checkRelevanceUseCase, compileWikiUseCase,
                 compileJobStore, recompileScheduler, knowledgeRepository, knowledgeMapper,
-                wikiRepository, avatarRepository, avatarSlotGuard, wikiPageSourceRepo,
-                wikiPageResponseMapper);
+                wikiRepository, avatarRepository, avatarSlotGuard, wikiPageSourceRepo);
         ownerAvatar = Avatar.create(OWNER_USER, "Zap", Subject.SCIENCE, CharacterType.ZAP);
         wikiPage = WikiPage.create(AVATAR_ID, SLUG, "Photosynthesis",
                 "Plants use sunlight to make food.");
@@ -154,7 +154,7 @@ class KnowledgeServiceTest {
     @Test
     void checkRelevance_avatarNotOwned_throwsAvatarNotFound() {
         when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(ownerAvatar));
-        var request = new com.pally.api.knowledge.dto.RelevanceCheckRequest("sample text");
+        var request = new RelevanceCheckRequest("sample text");
 
         assertThatThrownBy(() -> service.checkRelevance(ATTACKER_USER, AVATAR_ID, request))
                 .isInstanceOf(AvatarNotFoundException.class);
@@ -166,10 +166,8 @@ class KnowledgeServiceTest {
     void getWikiPage_owner_returnsPage() {
         when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(ownerAvatar));
         when(wikiRepository.findByAvatarIdAndSlug(AVATAR_ID, SLUG)).thenReturn(Optional.of(wikiPage));
-        var dto = org.mockito.Mockito.mock(com.pally.api.knowledge.dto.WikiPageResponse.class);
-        when(wikiPageResponseMapper.toResponse(wikiPage)).thenReturn(dto);
 
-        assertThat(service.getWikiPage(OWNER_USER, AVATAR_ID, SLUG)).isEqualTo(dto);
+        assertThat(service.getWikiPage(OWNER_USER, AVATAR_ID, SLUG)).isEqualTo(wikiPage);
     }
 
     @Test
@@ -207,11 +205,9 @@ class KnowledgeServiceTest {
         when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(ownerAvatar));
         when(wikiRepository.findByAvatarIdAndSlug(AVATAR_ID, SLUG)).thenReturn(Optional.of(wikiPage));
         when(wikiRepository.save(wikiPage)).thenReturn(wikiPage);
-        var dto = org.mockito.Mockito.mock(com.pally.api.knowledge.dto.WikiPageResponse.class);
-        when(wikiPageResponseMapper.toResponse(wikiPage)).thenReturn(dto);
 
         assertThat(service.applyCorrection(OWNER_USER, AVATAR_ID, SLUG, "Chlorophyll absorbs light."))
-                .isEqualTo(dto);
+                .isEqualTo(wikiPage);
     }
 
     @Test

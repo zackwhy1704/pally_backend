@@ -1,6 +1,6 @@
 package com.pally.api.knowledge;
 
-import com.pally.api.knowledge.dto.WikiPageResponse;
+import com.pally.domain.knowledge.dto.WikiPageResponse;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.infrastructure.persistence.review.ContentReviewRequestJpaEntity.Status;
 import com.pally.infrastructure.persistence.review.ContentReviewRequestJpaRepository;

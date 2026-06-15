@@ -2,7 +2,7 @@ package com.pally.domain.centre;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pally.api.centre.dto.MochiConfig;
+import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;

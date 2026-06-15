@@ -1,6 +1,6 @@
 package com.pally.api.auth;
 
-import com.pally.api.auth.dto.AuthResponse;
+import com.pally.domain.auth.dto.AuthResponse;
 import com.pally.api.auth.dto.ForgotPasswordRequest;
 import com.pally.api.auth.dto.LoginRequest;
 import com.pally.api.auth.dto.RegisterRequest;

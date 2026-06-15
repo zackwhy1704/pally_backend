@@ -3,7 +3,7 @@ package com.pally.api.avatar;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.api.avatar.dto.AvatarResponse;
-import com.pally.api.centre.dto.MochiConfig;
+import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.ClassAvatarAppearance;
 import com.pally.domain.knowledge.KnowledgeFile;

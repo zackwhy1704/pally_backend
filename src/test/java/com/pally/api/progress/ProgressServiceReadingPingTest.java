@@ -1,6 +1,6 @@
 package com.pally.api.progress;
 
-import com.pally.api.progress.dto.ReadingPingRequest;
+import com.pally.domain.progress.dto.ReadingPingRequest;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.progress.ProgressService;
 import com.pally.domain.avatar.AvatarRepository;

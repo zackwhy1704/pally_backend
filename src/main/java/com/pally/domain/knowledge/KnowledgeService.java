@@ -1,12 +1,11 @@
 package com.pally.domain.knowledge;
 
-import com.pally.api.knowledge.KnowledgeMapper;
-import com.pally.api.knowledge.WikiPageResponseMapper;
-import com.pally.api.knowledge.dto.KnowledgeFileResponse;
-import com.pally.api.knowledge.dto.RelevanceCheckRequest;
-import com.pally.api.knowledge.dto.RelevanceCheckResponse;
-import com.pally.api.knowledge.dto.WikiCompileResponse;
-import com.pally.api.knowledge.dto.WikiPageResponse;
+import com.pally.domain.knowledge.KnowledgeMapper;
+import com.pally.domain.knowledge.dto.KnowledgeFileResponse;
+import com.pally.domain.knowledge.dto.RelevanceCheckRequest;
+import com.pally.domain.knowledge.dto.RelevanceCheckResponse;
+import com.pally.domain.knowledge.dto.WikiCompileResponse;
+import com.pally.domain.knowledge.dto.WikiPageResponse;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.KnowledgeFile;
@@ -57,7 +56,16 @@ public class KnowledgeService {
     private final AvatarRepository avatarRepository;
     private final AvatarSlotGuard avatarSlotGuard;
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
-    private final WikiPageResponseMapper wikiPageResponseMapper;
+
+    /** Domain carrier for wiki pages with their source file provenance. */
+    public record WikiPageWithSources(WikiPage page, List<String> sourceFileNames) {}
+    public record WikiPagesResult(List<WikiPageWithSources> entries) {
+        public WikiPageResponse.ListResponse toListResponse() {
+            return new WikiPageResponse.ListResponse(
+                entries.stream().map(e -> WikiPageResponse.from(e.page(), e.sourceFileNames())).toList()
+            );
+        }
+    }
 
     /** Outcome of a compile request: async (202 + job body) or sync (200 + result). */
     public record CompileOutcome(boolean async, Map<String, Object> asyncBody,
@@ -194,36 +202,31 @@ public class KnowledgeService {
 
     // ── Wiki pages ───────────────────────────────────────────────────────────
 
-    public WikiPageResponse.ListResponse listWikiPages(String userId, String avatarId) {
+    public WikiPagesResult listWikiPages(String userId, String avatarId) {
         requireOwnedAvatar(avatarId, userId);
         List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
-        // Attach provenance (source file names) to each page response.
-        List<WikiPageResponse> responses = pages.stream()
-                .map(page -> {
-                    List<String> sourceFileNames = wikiPageSourceRepo
-                            .findSourceFileNamesByWikiPageId(page.getId());
-                    return wikiPageResponseMapper.toResponse(page, sourceFileNames);
-                })
+        List<WikiPageWithSources> entries = pages.stream()
+                .map(page -> new WikiPageWithSources(
+                        page,
+                        wikiPageSourceRepo.findSourceFileNamesByWikiPageId(page.getId())))
                 .toList();
-        return new WikiPageResponse.ListResponse(responses);
+        return new WikiPagesResult(entries);
     }
 
-    public WikiPageResponse getWikiPage(String userId, String avatarId, String slug) {
+    public WikiPage getWikiPage(String userId, String avatarId, String slug) {
         requireOwnedAvatar(avatarId, userId);
-        WikiPage page = wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
+        return wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
-        return wikiPageResponseMapper.toResponse(page);
     }
 
-    public WikiPageResponse applyCorrection(String userId, String avatarId, String slug,
-                                            String correction) {
+    public WikiPage applyCorrection(String userId, String avatarId, String slug,
+                                    String correction) {
         requireOwnedAvatar(avatarId, userId);
         assertMaterialMutable(avatarId, userId);
         WikiPage page = wikiRepository.findByAvatarIdAndSlug(avatarId, slug)
                 .orElseThrow(() -> new BusinessException("Wiki page not found: " + slug, 404));
         page.applyHumanCorrection(correction);
-        WikiPage saved = wikiRepository.save(page);
-        return wikiPageResponseMapper.toResponse(saved);
+        return wikiRepository.save(page);
     }
 
     // ── File review (OCR text) ─────────────────────────────────────────────────

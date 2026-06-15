@@ -1,10 +1,11 @@
 package com.pally.api.knowledge;
 
-import com.pally.api.knowledge.dto.KnowledgeFileResponse;
-import com.pally.api.knowledge.dto.RelevanceCheckRequest;
-import com.pally.api.knowledge.dto.RelevanceCheckResponse;
-import com.pally.api.knowledge.dto.WikiPageResponse;
 import com.pally.domain.knowledge.KnowledgeService;
+import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.dto.KnowledgeFileResponse;
+import com.pally.domain.knowledge.dto.RelevanceCheckRequest;
+import com.pally.domain.knowledge.dto.RelevanceCheckResponse;
+import com.pally.domain.knowledge.dto.WikiPageResponse;
 import com.pally.domain.knowledge.usecase.UploadResult;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -47,6 +48,7 @@ public class KnowledgeController {
     private static final long MAX_UPLOAD_BYTES = 25L * 1024 * 1024;
 
     private final KnowledgeService knowledgeService;
+    private final WikiPageResponseMapper wikiPageResponseMapper;
 
     @PostMapping("/files")
     public ResponseEntity<ApiResponse<Object>> uploadFile(
@@ -153,8 +155,11 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
-        return ResponseEntity.ok(
-                ApiResponse.success(knowledgeService.listWikiPages(userId, avatarId)));
+        KnowledgeService.WikiPagesResult result = knowledgeService.listWikiPages(userId, avatarId);
+        List<WikiPageResponse> responses = result.entries().stream()
+                .map(e -> wikiPageResponseMapper.toResponse(e.page(), e.sourceFileNames()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(new WikiPageResponse.ListResponse(responses)));
     }
 
     @GetMapping("/wiki/pages/{slug}")
@@ -163,8 +168,8 @@ public class KnowledgeController {
             @PathVariable String avatarId,
             @PathVariable String slug
     ) {
-        return ResponseEntity.ok(
-                ApiResponse.success(knowledgeService.getWikiPage(userId, avatarId, slug)));
+        WikiPage page = knowledgeService.getWikiPage(userId, avatarId, slug);
+        return ResponseEntity.ok(ApiResponse.success(wikiPageResponseMapper.toResponse(page)));
     }
 
     @PatchMapping("/wiki/pages/{slug}/correction")
@@ -174,8 +179,8 @@ public class KnowledgeController {
             @PathVariable String slug,
             @RequestBody HumanCorrectionRequest request
     ) {
-        return ResponseEntity.ok(ApiResponse.success(
-                knowledgeService.applyCorrection(userId, avatarId, slug, request.correction())));
+        WikiPage page = knowledgeService.applyCorrection(userId, avatarId, slug, request.correction());
+        return ResponseEntity.ok(ApiResponse.success(wikiPageResponseMapper.toResponse(page)));
     }
 
     record HumanCorrectionRequest(String correction) {}

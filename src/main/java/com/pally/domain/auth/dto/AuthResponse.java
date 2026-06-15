@@ -1,4 +1,4 @@
-package com.pally.api.auth.dto;
+package com.pally.domain.auth.dto;
 
 import com.pally.domain.account.AccountType;
 
