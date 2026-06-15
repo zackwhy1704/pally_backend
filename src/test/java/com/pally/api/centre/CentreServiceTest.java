@@ -2,6 +2,7 @@ package com.pally.api.centre;
 
 import com.pally.domain.account.AccountType;
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.centre.CentreService;
 import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;

@@ -5,6 +5,7 @@ import com.pally.api.quiz.dto.QuizQuestionResponse;
 import com.pally.api.quiz.dto.RateFlashcardRequest;
 import com.pally.api.quiz.dto.SubmitAnswersRequest;
 import com.pally.domain.quiz.QuizResult;
+import com.pally.domain.quiz.QuizService;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

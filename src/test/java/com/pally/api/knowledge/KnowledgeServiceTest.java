@@ -2,6 +2,7 @@ package com.pally.api.knowledge;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.knowledge.KnowledgeService;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;

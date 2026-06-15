@@ -1,5 +1,6 @@
 package com.pally.api.group;
 
+import com.pally.domain.group.StudyGroupService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

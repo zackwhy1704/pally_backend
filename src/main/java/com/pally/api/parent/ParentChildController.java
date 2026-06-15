@@ -1,7 +1,8 @@
 package com.pally.api.parent;
 
-import com.pally.api.parent.dto.ParentDashboardResponse;
-import com.pally.api.parent.dto.WeeklyReportDetail;
+import com.pally.domain.parent.ParentChildService;
+import com.pally.domain.parent.dto.ParentDashboardResponse;
+import com.pally.domain.parent.dto.WeeklyReportDetail;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;

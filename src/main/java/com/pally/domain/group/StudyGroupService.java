@@ -1,4 +1,4 @@
-package com.pally.api.group;
+package com.pally.domain.group;
 
 import com.pally.domain.knowledge.RelevanceScore;
 import com.pally.domain.knowledge.port.RelevancePort;

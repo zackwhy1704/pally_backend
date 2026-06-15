@@ -1,5 +1,7 @@
-package com.pally.api.knowledge;
+package com.pally.domain.knowledge;
 
+import com.pally.api.knowledge.KnowledgeMapper;
+import com.pally.api.knowledge.WikiPageResponseMapper;
 import com.pally.api.knowledge.dto.KnowledgeFileResponse;
 import com.pally.api.knowledge.dto.RelevanceCheckRequest;
 import com.pally.api.knowledge.dto.RelevanceCheckResponse;

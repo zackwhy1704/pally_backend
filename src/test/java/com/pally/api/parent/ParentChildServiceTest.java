@@ -1,5 +1,6 @@
 package com.pally.api.parent;
 
+import com.pally.domain.parent.ParentChildService;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.star.StarAwardLogJpaEntity;

@@ -1,5 +1,6 @@
 package com.pally.api.quiz;
 
+import com.pally.domain.quiz.QuizService;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizAnswerRecordJpaRepository;

@@ -1,4 +1,4 @@
-package com.pally.api.progress;
+package com.pally.domain.progress;
 
 import com.pally.api.progress.dto.ProgressResponse;
 import com.pally.api.progress.dto.ReadingPingRequest;

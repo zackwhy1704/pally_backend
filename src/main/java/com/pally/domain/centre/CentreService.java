@@ -1,4 +1,4 @@
-package com.pally.api.centre;
+package com.pally.domain.centre;
 
 import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.organization.ClassEnrollmentService;

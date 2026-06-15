@@ -1,4 +1,4 @@
-package com.pally.api.centre;
+package com.pally.domain.centre;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;

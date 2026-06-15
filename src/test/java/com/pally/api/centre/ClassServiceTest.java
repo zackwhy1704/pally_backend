@@ -3,6 +3,7 @@ package com.pally.api.centre;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.centre.ClassService;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;

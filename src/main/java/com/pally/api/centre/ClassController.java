@@ -2,6 +2,7 @@ package com.pally.api.centre;
 
 import com.pally.api.centre.dto.MochiConfig;
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.centre.ClassService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

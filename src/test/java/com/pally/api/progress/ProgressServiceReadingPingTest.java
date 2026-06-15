@@ -2,6 +2,7 @@ package com.pally.api.progress;
 
 import com.pally.api.progress.dto.ReadingPingRequest;
 import com.pally.domain.avatar.Avatar;
+import com.pally.domain.progress.ProgressService;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;

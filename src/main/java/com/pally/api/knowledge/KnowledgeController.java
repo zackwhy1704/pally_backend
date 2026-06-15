@@ -4,6 +4,7 @@ import com.pally.api.knowledge.dto.KnowledgeFileResponse;
 import com.pally.api.knowledge.dto.RelevanceCheckRequest;
 import com.pally.api.knowledge.dto.RelevanceCheckResponse;
 import com.pally.api.knowledge.dto.WikiPageResponse;
+import com.pally.domain.knowledge.KnowledgeService;
 import com.pally.domain.knowledge.usecase.UploadResult;
 import com.pally.shared.response.ApiResponse;
 import jakarta.validation.Valid;

@@ -1,4 +1,4 @@
-package com.pally.api.quiz;
+package com.pally.domain.quiz;
 
 import com.pally.api.quiz.dto.FlashcardResponse;
 import com.pally.api.quiz.dto.QuizQuestionResponse;
