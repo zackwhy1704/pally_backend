@@ -12,15 +12,12 @@ import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.BusinessException;
-import com.pally.shared.response.ApiResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.ResponseEntity;
 
 import java.util.List;
 import java.util.Map;
@@ -36,14 +33,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link ClassController}. The invariants below are the contract
+ * Unit tests for {@link ClassService}. The invariants below are the contract
  * the centre product depends on: classes provision a hidden corpus avatar,
  * assignment provisions a branded closed-book student avatar bound to the class
- * corpus (idempotently), removal locks the avatar, and every route is owner-gated
- * with tenant isolation.
+ * corpus (idempotently), removal locks the avatar, and every operation is
+ * owner-gated with tenant isolation. (Logic moved here from ClassController in
+ * the controller→service refactor; the controller is now a thin delegator.)
  */
 @ExtendWith(MockitoExtension.class)
-class ClassControllerTest {
+class ClassServiceTest {
 
     @Mock CentreAccessService accessService;
     @Mock OrgClassJpaRepository classRepo;
@@ -58,7 +56,7 @@ class ClassControllerTest {
     @org.mockito.Spy com.fasterxml.jackson.databind.ObjectMapper objectMapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
-    @InjectMocks ClassController controller;
+    @InjectMocks ClassService service;
 
     private static final String OWNER_ID = "owner-1";
     private static final String ORG_ID = "org-1";
@@ -73,7 +71,7 @@ class ClassControllerTest {
         org.setId(ORG_ID);
         org.setOwnerUserId(OWNER_ID);
         lenient().when(accessService.ensureOwner(OWNER_ID, ORG_ID)).thenReturn(org);
-        // save returns the same avatar so the controller can read its generated id.
+        // save returns the same avatar so the service can read its generated id.
         lenient().when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
@@ -107,12 +105,11 @@ class ClassControllerTest {
     void createClass_provisionsCorpusAvatar_andReturnsJoinCode() {
         when(classRepo.findByJoinCode(anyString())).thenReturn(Optional.empty());
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp = controller.createClass(
+        Map<String, Object> body = service.createClass(
                 OWNER_ID, ORG_ID,
                 Map.of("name", "P4 Math", "subject", "MATHS", "level", "P4",
                         "characterType", "MOCHI"));
 
-        Map<String, Object> body = resp.getBody().data();
         assertThat(body.get("name")).isEqualTo("P4 Math");
         assertThat((String) body.get("joinCode")).hasSize(8);
         assertThat(body.get("corpusAvatarId")).isNotNull();
@@ -126,7 +123,7 @@ class ClassControllerTest {
 
     @Test
     void createClass_blankName_isRejected() {
-        assertThatThrownBy(() -> controller.createClass(
+        assertThatThrownBy(() -> service.createClass(
                 OWNER_ID, ORG_ID, Map.of("name", "  ")))
                 .isInstanceOf(BusinessException.class);
         verify(avatarRepository, never()).save(any());
@@ -141,12 +138,12 @@ class ClassControllerTest {
         when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(student()));
         when(classEnrollmentService.enroll(cls, STUDENT_ID)).thenReturn("avatar-1");
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp = controller.assign(
+        Map<String, Object> result = service.assign(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID));
 
         verify(classEnrollmentService).enroll(cls, STUDENT_ID);
-        assertThat(resp.getBody().data().get("avatarId")).isEqualTo("avatar-1");
-        assertThat(resp.getBody().data().get("classId")).isEqualTo(CLASS_ID);
+        assertThat(result.get("avatarId")).isEqualTo("avatar-1");
+        assertThat(result.get("classId")).isEqualTo(CLASS_ID);
     }
 
     @Test
@@ -157,7 +154,7 @@ class ClassControllerTest {
         outsider.setCentreId("other-org");
         when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(outsider));
 
-        assertThatThrownBy(() -> controller.assign(
+        assertThatThrownBy(() -> service.assign(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID)))
                 .isInstanceOf(BusinessException.class);
         verify(classEnrollmentService, never()).enroll(any(), anyString());
@@ -168,7 +165,7 @@ class ClassControllerTest {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
         when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> controller.assign(
+        assertThatThrownBy(() -> service.assign(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("userId", STUDENT_ID)))
                 .isInstanceOf(BusinessException.class);
         verify(classEnrollmentService, never()).enroll(any(), anyString());
@@ -190,7 +187,7 @@ class ClassControllerTest {
                 com.pally.domain.avatar.CharacterType.MOCHI);
         when(avatarRepository.findById("avatar-1")).thenReturn(Optional.of(avatar));
 
-        controller.remove(OWNER_ID, ORG_ID, CLASS_ID, STUDENT_ID);
+        service.remove(OWNER_ID, ORG_ID, CLASS_ID, STUDENT_ID);
 
         assertThat(m.getStatus()).isEqualTo(ClassMembershipJpaEntity.STATUS_REMOVED);
         assertThat(avatar.isAvatarLocked()).isTrue();
@@ -211,7 +208,7 @@ class ClassControllerTest {
         m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
         when(membershipRepo.findByClassId(CLASS_ID)).thenReturn(List.of(m));
 
-        controller.deleteClass(OWNER_ID, ORG_ID, CLASS_ID);
+        service.deleteClass(OWNER_ID, ORG_ID, CLASS_ID);
 
         verify(avatarRepository).deleteById("avatar-1");
         verify(avatarRepository).deleteById("corpus-1");
@@ -225,7 +222,7 @@ class ClassControllerTest {
         foreign.setOrganizationId("other-org");
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(foreign));
 
-        assertThatThrownBy(() -> controller.deleteClass(OWNER_ID, ORG_ID, CLASS_ID))
+        assertThatThrownBy(() -> service.deleteClass(OWNER_ID, ORG_ID, CLASS_ID))
                 .isInstanceOf(BusinessException.class);
         verify(classRepo, never()).delete(any(OrgClassJpaEntity.class));
         verify(avatarRepository, never()).deleteById(anyString());
@@ -242,7 +239,7 @@ class ClassControllerTest {
                 com.pally.domain.avatar.CharacterType.MOCHI);
         when(avatarRepository.findById("corpus-1")).thenReturn(Optional.of(corpus));
 
-        controller.updateTeachingStyle(OWNER_ID, ORG_ID, CLASS_ID,
+        service.updateTeachingStyle(OWNER_ID, ORG_ID, CLASS_ID,
                 Map.of("teacherPreferences", "Use more worked examples."));
 
         assertThat(corpus.getTeacherPreferences()).isEqualTo("Use more worked examples.");
@@ -254,7 +251,7 @@ class ClassControllerTest {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
         String tooLong = "x".repeat(501);
 
-        assertThatThrownBy(() -> controller.updateTeachingStyle(
+        assertThatThrownBy(() -> service.updateTeachingStyle(
                 OWNER_ID, ORG_ID, CLASS_ID, Map.of("teacherPreferences", tooLong)))
                 .isInstanceOf(BusinessException.class);
         verify(avatarRepository, never()).save(any(Avatar.class));
@@ -268,7 +265,7 @@ class ClassControllerTest {
         foreign.setOrganizationId("other-org");
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(foreign));
 
-        assertThatThrownBy(() -> controller.roster(OWNER_ID, ORG_ID, CLASS_ID))
+        assertThatThrownBy(() -> service.roster(OWNER_ID, ORG_ID, CLASS_ID))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -277,10 +274,10 @@ class ClassControllerTest {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
         when(quizResultRepo.findStudentActivityByClass(CLASS_ID)).thenReturn(List.of());
 
-        ResponseEntity<ApiResponse<List<Map<String, Object>>>> resp =
-                controller.classRosterAnalytics(OWNER_ID, ORG_ID, CLASS_ID);
+        List<Map<String, Object>> result =
+                service.classRosterAnalytics(OWNER_ID, ORG_ID, CLASS_ID);
 
-        assertThat(resp.getBody().data()).isEmpty();
+        assertThat(result).isEmpty();
     }
 
     @Test
@@ -288,10 +285,8 @@ class ClassControllerTest {
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
         when(quizResultRepo.findHeatmapDataByClass(CLASS_ID)).thenReturn(List.of());
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
-                controller.classHeatmap(OWNER_ID, ORG_ID, CLASS_ID);
+        Map<String, Object> body = service.classHeatmap(OWNER_ID, ORG_ID, CLASS_ID);
 
-        Map<String, Object> body = resp.getBody().data();
         assertThat(body).containsKeys("students", "topics", "cells", "topicAverages", "weakest");
         assertThat((List<?>) body.get("students")).isEmpty();
     }
@@ -305,11 +300,11 @@ class ClassControllerTest {
         com.pally.api.centre.dto.MochiConfig cfg =
                 new com.pally.api.centre.dto.MochiConfig(3, "crown", "sparkle");
 
-        ResponseEntity<ApiResponse<com.pally.api.centre.dto.MochiConfig>> resp =
-                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
+        com.pally.api.centre.dto.MochiConfig result =
+                service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
 
         // Returned config echoes the input.
-        assertThat(resp.getBody().data()).isEqualTo(cfg);
+        assertThat(result).isEqualTo(cfg);
         // Stored as a JSON TEXT blob on the entity, and the class is saved.
         assertThat(cls.getMochiConfig()).contains("\"body\":3", "\"accessory\":\"crown\"");
         verify(classRepo).save(cls);
@@ -323,12 +318,11 @@ class ClassControllerTest {
         com.pally.api.centre.dto.MochiConfig cfg =
                 new com.pally.api.centre.dto.MochiConfig(5, "bow", "bloom");
 
-        controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
+        service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, cfg);
         // The blob the PATCH stored is what the GET list will deserialize.
-        ResponseEntity<ApiResponse<List<Map<String, Object>>>> list =
-                controller.listClasses(OWNER_ID, ORG_ID);
+        List<Map<String, Object>> list = service.listClasses(OWNER_ID, ORG_ID);
 
-        Object mc = list.getBody().data().get(0).get("mochiConfig");
+        Object mc = list.get(0).get("mochiConfig");
         assertThat(mc).isEqualTo(cfg);
     }
 
@@ -337,10 +331,9 @@ class ClassControllerTest {
         OrgClassJpaEntity cls = classEntity(); // mochiConfig stays null
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
 
-        ResponseEntity<ApiResponse<List<Map<String, Object>>>> list =
-                controller.listClasses(OWNER_ID, ORG_ID);
+        List<Map<String, Object>> list = service.listClasses(OWNER_ID, ORG_ID);
 
-        Map<String, Object> dto = list.getBody().data().get(0);
+        Map<String, Object> dto = list.get(0);
         assertThat(dto).containsKey("mochiConfig");
         assertThat(dto.get("mochiConfig")).isNull();
     }
@@ -352,7 +345,7 @@ class ClassControllerTest {
                 new com.pally.api.centre.dto.MochiConfig(99, "crown", "sparkle");
 
         assertThatThrownBy(() ->
-                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
+                service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
                 .isInstanceOf(BusinessException.class);
         verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
     }
@@ -364,7 +357,7 @@ class ClassControllerTest {
                 new com.pally.api.centre.dto.MochiConfig(3, "laser", "sparkle");
 
         assertThatThrownBy(() ->
-                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
+                service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
                 .isInstanceOf(BusinessException.class);
         verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
     }
@@ -376,7 +369,7 @@ class ClassControllerTest {
                 new com.pally.api.centre.dto.MochiConfig(3, "crown", "rainbow");
 
         assertThatThrownBy(() ->
-                controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
+                service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, bad))
                 .isInstanceOf(BusinessException.class);
         verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
     }
@@ -392,12 +385,10 @@ class ClassControllerTest {
                         + "\"accessory\":\"cap\",\"aura\":\"fire\"}");
         when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
 
-        ResponseEntity<ApiResponse<List<Map<String, Object>>>> list =
-                controller.listClasses(OWNER_ID, ORG_ID);
+        List<Map<String, Object>> list = service.listClasses(OWNER_ID, ORG_ID);
 
         com.pally.api.centre.dto.MochiConfig mc =
-                (com.pally.api.centre.dto.MochiConfig)
-                        list.getBody().data().get(0).get("mochiConfig");
+                (com.pally.api.centre.dto.MochiConfig) list.get(0).get("mochiConfig");
         assertThat(mc).isNotNull();
         assertThat(mc.body()).isEqualTo(7);
         assertThat(mc.accessory()).isEqualTo("cap");
@@ -413,7 +404,7 @@ class ClassControllerTest {
                 new com.pally.api.centre.dto.MochiConfig(3, "crown", "sparkle");
 
         assertThatThrownBy(() ->
-                controller.updateMochiConfig("intruder", ORG_ID, CLASS_ID, cfg))
+                service.updateMochiConfig("intruder", ORG_ID, CLASS_ID, cfg))
                 .isInstanceOf(BusinessException.class);
         verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
     }
@@ -426,10 +417,10 @@ class ClassControllerTest {
         com.pally.api.centre.dto.MochiConfig original =
                 new com.pally.api.centre.dto.MochiConfig(11, "headband", "electric");
 
-        controller.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, original);
+        service.updateMochiConfig(OWNER_ID, ORG_ID, CLASS_ID, original);
         com.pally.api.centre.dto.MochiConfig roundTripped =
                 (com.pally.api.centre.dto.MochiConfig)
-                        controller.listClasses(OWNER_ID, ORG_ID).getBody().data().get(0).get("mochiConfig");
+                        service.listClasses(OWNER_ID, ORG_ID).get(0).get("mochiConfig");
 
         assertThat(roundTripped.body()).isEqualTo(11);
         assertThat(roundTripped.accessory()).isEqualTo("headband");
