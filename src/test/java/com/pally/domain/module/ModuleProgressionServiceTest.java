@@ -3,12 +3,6 @@ package com.pally.domain.module;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,9 +29,9 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ModuleProgressionServiceTest {
 
-    @Mock private LearningModuleJpaRepository moduleRepository;
-    @Mock private ModuleContentItemJpaRepository itemRepository;
-    @Mock private ModuleProgressJpaRepository progressRepository;
+    @Mock private LearningModuleRepository moduleRepository;
+    @Mock private ModuleContentItemRepository itemRepository;
+    @Mock private ModuleProgressRepository progressRepository;
     @Mock private ModuleContentGenerator contentGenerator;
     @Mock private ModuleProveEvaluator proveEvaluator;
     @Mock private WikiRepository wikiRepository;
@@ -60,7 +54,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void startModule_completedModule_entersRevisionMode() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "COMPLETE");
+        LearningModule module = buildModule("mod-1", "COMPLETE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("test-slug");
         module.setTier("FREE");
@@ -87,7 +81,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void startModule_proveStage_generatesAdaptiveQuestionsWhenNoneExist() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        LearningModule module = buildModule("mod-1", "PROVE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("test-slug");
         module.setTier("FREE");
@@ -113,10 +107,10 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_wrongStage_throws400() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        LearningModule module = buildModule("mod-1", "LEARN");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("TEST");
         when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
@@ -129,7 +123,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_completedModule_throws400() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "COMPLETE");
+        LearningModule module = buildModule("mod-1", "COMPLETE");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
         assertThatThrownBy(() -> service.submitAnswers("mod-1", "user-1",
@@ -140,10 +134,10 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_allLearnItemsCompleted_advancesToTest() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        LearningModule module = buildModule("mod-1", "LEARN");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("LEARN");
         item.setType("MICRO_CARD");
@@ -167,10 +161,10 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_stageComplete_logsRealDuration() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        LearningModule module = buildModule("mod-1", "LEARN");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("LEARN");
         item.setType("MICRO_CARD");
@@ -194,10 +188,10 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_legacyOverload_logsZeroDuration() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        LearningModule module = buildModule("mod-1", "LEARN");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("LEARN");
         item.setType("MICRO_CARD");
@@ -220,10 +214,10 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_notAllItemsCompleted_doesNotAdvance() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        LearningModule module = buildModule("mod-1", "LEARN");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("LEARN");
         item.setType("MICRO_CARD");
@@ -246,10 +240,10 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_proveStage_evaluatesViaProveEvaluator() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        LearningModule module = buildModule("mod-1", "PROVE");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("PROVE");
         item.setType("PROVE_QUESTION");
@@ -281,7 +275,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_missingItemId_throws400() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN");
+        LearningModule module = buildModule("mod-1", "LEARN");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
         assertThatThrownBy(() -> service.submitAnswers("mod-1", "user-1",
@@ -294,7 +288,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void adjustCertaintyForProve_strongScore_raisesCertaintyBy005() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        LearningModule module = buildModule("mod-1", "PROVE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("photosynthesis");
 
@@ -306,7 +300,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void adjustCertaintyForProve_weakScore_lowersCertaintyBy008() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        LearningModule module = buildModule("mod-1", "PROVE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("photosynthesis");
 
@@ -318,7 +312,7 @@ class ModuleProgressionServiceTest {
 
     @Test
     void adjustCertaintyForProve_middlingScore_leavesCertaintyUntouched() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        LearningModule module = buildModule("mod-1", "PROVE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("photosynthesis");
 
@@ -330,12 +324,12 @@ class ModuleProgressionServiceTest {
 
     @Test
     void submitAnswers_proveStage_nudgesWikiCertainty() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "PROVE");
+        LearningModule module = buildModule("mod-1", "PROVE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("photosynthesis");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
 
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setStage("PROVE");
         item.setType("PROVE_QUESTION");
@@ -369,8 +363,8 @@ class ModuleProgressionServiceTest {
         assertThat(ModuleStage.COMPLETE.next()).isNull();
     }
 
-    private LearningModuleJpaEntity buildModule(String id, String stage) {
-        LearningModuleJpaEntity m = new LearningModuleJpaEntity();
+    private LearningModule buildModule(String id, String stage) {
+        LearningModule m = new LearningModule();
         m.setId(id);
         m.setAvatarId("avatar-1");
         m.setWikiPageSlug("slug");

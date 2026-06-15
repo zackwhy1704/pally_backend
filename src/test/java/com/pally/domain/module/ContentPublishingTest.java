@@ -1,6 +1,5 @@
 package com.pally.domain.module;
 
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,13 +12,13 @@ class ContentPublishingTest {
 
     @Test
     void newItem_defaultStatus_isLive() {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         assertThat(item.getStatus()).isEqualTo("LIVE");
     }
 
     @Test
     void centreItem_draftToApprovedToLive() {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setStatus("DRAFT");
 
         assertThat(item.getStatus()).isEqualTo("DRAFT");
@@ -33,7 +32,7 @@ class ContentPublishingTest {
 
     @Test
     void liveItem_canBeArchived() {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setStatus("LIVE");
 
         item.setStatus("ARCHIVED");
@@ -42,7 +41,7 @@ class ContentPublishingTest {
 
     @Test
     void draftItem_canBeRejected() {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setStatus("DRAFT");
 
         // Rejection = delete; we verify the status transitions are valid
@@ -53,7 +52,7 @@ class ContentPublishingTest {
     @Test
     void personalAvatarItem_autoLive() {
         // Personal avatar items should be created with LIVE status
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         // Default is LIVE — no manual override needed for personal avatars
         assertThat(item.getStatus()).isEqualTo("LIVE");
     }

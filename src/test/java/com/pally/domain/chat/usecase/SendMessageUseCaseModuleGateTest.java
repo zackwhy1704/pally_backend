@@ -25,8 +25,8 @@ import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaEntity;
 import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
+import com.pally.domain.module.LearningModule;
+import com.pally.domain.module.LearningModuleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -64,7 +64,7 @@ class SendMessageUseCaseModuleGateTest {
     @Mock private AvatarSlotGuard avatarSlotGuard;
     @Mock private PremiumService premiumService;
     @Mock private WikiRepository wikiRepository;
-    @Mock private LearningModuleJpaRepository learningModuleRepo;
+    @Mock private LearningModuleRepository learningModuleRepo;
     @Mock private ContentGapSignalJpaRepository contentGapSignalRepo;
 
     private SendMessageUseCase useCase;
@@ -96,7 +96,7 @@ class SendMessageUseCaseModuleGateTest {
     @Test
     void moduleContextChat_onTopicQuestion_allowed() {
         // Module about fractions; question about fractions
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
+        LearningModule module = new LearningModule();
         module.setId("mod-1");
         module.setWikiPageSlug("fractions");
         module.setTitle("Fractions");
@@ -145,7 +145,7 @@ class SendMessageUseCaseModuleGateTest {
     @Test
     void moduleContextChat_offTopicQuestion_refused() {
         // Module about fractions; question about French Revolution
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
+        LearningModule module = new LearningModule();
         module.setId("mod-1");
         module.setWikiPageSlug("fractions");
         module.setTitle("Fractions");
@@ -222,7 +222,7 @@ class SendMessageUseCaseModuleGateTest {
             field.set(centreAvatar, "class-42");
         } catch (Exception ignored) {}
 
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
+        LearningModule module = new LearningModule();
         module.setId("mod-1");
         module.setWikiPageSlug("photosynthesis");
         module.setTitle("Photosynthesis");

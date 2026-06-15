@@ -8,11 +8,6 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,14 +21,13 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class ModuleContentGeneratorTest {
 
     @Mock private GeminiCompletionService geminiCompletion;
-    @Mock private LearningModuleJpaRepository moduleRepository;
-    @Mock private ModuleContentItemJpaRepository itemRepository;
+    @Mock private LearningModuleRepository moduleRepository;
+    @Mock private ModuleContentItemRepository itemRepository;
     @Mock private PremiumService premiumService;
 
     private ModuleContentGenerator generator;
@@ -90,7 +84,7 @@ class ModuleContentGeneratorTest {
                         [{"question":"A pizza has 8 slices...","answer":"3/8","explanation":"3 out of 8","difficulty":"easy"}]
                         """);
 
-        LearningModuleJpaEntity result = generator.generate(avatar, page);
+        LearningModule result = generator.generate(avatar, page);
 
         assertThat(result).isNotNull();
         assertThat(result.getStage()).isEqualTo("LEARN");
@@ -99,9 +93,9 @@ class ModuleContentGeneratorTest {
 
         // Verify items saved: 4 micro-cards + 2 hot-takes + 1 spot-mistake + 1 challenge = 8
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ModuleContentItemJpaEntity>> captor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<ModuleContentItem>> captor = ArgumentCaptor.forClass(List.class);
         verify(itemRepository).saveAll(captor.capture());
-        List<ModuleContentItemJpaEntity> items = captor.getValue();
+        List<ModuleContentItem> items = captor.getValue();
         assertThat(items).hasSize(8);
 
         long learnCount = items.stream().filter(i -> "LEARN".equals(i.getStage())).count();
@@ -157,14 +151,14 @@ class ModuleContentGeneratorTest {
                         ]
                         """);
 
-        LearningModuleJpaEntity result = generator.generate(avatar, page);
+        LearningModule result = generator.generate(avatar, page);
 
         assertThat(result.getTier()).isEqualTo("CENTRE");
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ModuleContentItemJpaEntity>> captor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<ModuleContentItem>> captor = ArgumentCaptor.forClass(List.class);
         verify(itemRepository).saveAll(captor.capture());
-        List<ModuleContentItemJpaEntity> items = captor.getValue();
+        List<ModuleContentItem> items = captor.getValue();
 
         // 6 micro-cards + 3 hot-takes + 1 spot-mistake + 3 challenges = 13
         assertThat(items).hasSize(13);
@@ -172,14 +166,14 @@ class ModuleContentGeneratorTest {
 
     @Test
     void generateProveQuestions_returnsExpectedNumberOfQuestions() {
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
+        LearningModule module = new LearningModule();
         module.setId("mod-1");
         module.setAvatarId("avatar-1");
         module.setTier("FREE");
 
         WikiPage page = WikiPage.create("avatar-1", "test-slug", "Test Topic", "Content here.");
 
-        ModuleProgressJpaEntity p1 = new ModuleProgressJpaEntity();
+        ModuleProgress p1 = new ModuleProgress();
         p1.setTargetConcept("concept-a");
         p1.setScore(BigDecimal.valueOf(0.3));
 
@@ -196,7 +190,7 @@ class ModuleContentGeneratorTest {
                         ]
                         """);
 
-        List<ModuleContentItemJpaEntity> result =
+        List<ModuleContentItem> result =
                 generator.generateProveQuestions(module, page, List.of(p1), "FREE");
 
         assertThat(result).hasSize(3);

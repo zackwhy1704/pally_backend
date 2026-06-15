@@ -2,7 +2,6 @@ package com.pally.domain.module;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.ai.GeminiCompletionService;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,7 +27,7 @@ class ModuleProveEvaluatorTest {
 
     @Test
     void evaluateAnswer_conceptFullyCovered_returnsHighScore() throws Exception {
-        ModuleContentItemJpaEntity item = buildProveItem(
+        ModuleContentItem item = buildProveItem(
                 "Explain photosynthesis", "photosynthesis",
                 new String[]{"sunlight", "carbon dioxide", "water"});
 
@@ -50,7 +49,7 @@ class ModuleProveEvaluatorTest {
 
     @Test
     void evaluateAnswer_conceptPartiallyCovered_returnsMediumScore() throws Exception {
-        ModuleContentItemJpaEntity item = buildProveItem(
+        ModuleContentItem item = buildProveItem(
                 "What is evaporation?", "evaporation",
                 new String[]{"liquid to gas", "heat energy", "surface"});
 
@@ -71,7 +70,7 @@ class ModuleProveEvaluatorTest {
 
     @Test
     void evaluateAnswer_tooShortAnswer_returnsZeroWithoutCallingLLM() {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
 
         ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, "ok");
@@ -86,7 +85,7 @@ class ModuleProveEvaluatorTest {
 
     @Test
     void evaluateAnswer_nullAnswer_returnsZero() {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
 
         ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, null);
@@ -97,7 +96,7 @@ class ModuleProveEvaluatorTest {
 
     @Test
     void evaluateAnswer_llmReturnsInvalidJson_returnsGracefulFallback() throws Exception {
-        ModuleContentItemJpaEntity item = buildProveItem(
+        ModuleContentItem item = buildProveItem(
                 "What is gravity?", "gravity", new String[]{"force"});
 
         when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval")))
@@ -112,7 +111,7 @@ class ModuleProveEvaluatorTest {
 
     @Test
     void evaluateAnswer_scoreClampedTo0And1() throws Exception {
-        ModuleContentItemJpaEntity item = buildProveItem(
+        ModuleContentItem item = buildProveItem(
                 "Q", "concept", new String[]{"kp"});
 
         when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval")))
@@ -127,9 +126,9 @@ class ModuleProveEvaluatorTest {
         assertThat(result.score()).isLessThanOrEqualTo(1.0);
     }
 
-    private ModuleContentItemJpaEntity buildProveItem(
+    private ModuleContentItem buildProveItem(
             String question, String concept, String[] keyPoints) throws Exception {
-        ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+        ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
         item.setModuleId("mod-1");
         item.setStage("PROVE");

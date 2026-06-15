@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.ai.GeminiCompletionService;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -42,7 +41,7 @@ public class ModuleProveEvaluator {
      * @param studentAnswer the student's free-text answer
      * @return evaluation result
      */
-    public ProveResult evaluateAnswer(ModuleContentItemJpaEntity proveQuestion, String studentAnswer) {
+    public ProveResult evaluateAnswer(ModuleContentItem proveQuestion, String studentAnswer) {
         if (studentAnswer == null || studentAnswer.trim().length() < 5) {
             return new ProveResult(false, List.of(), List.of(),
                     "Try writing a bit more to show what you know!", 0.0);

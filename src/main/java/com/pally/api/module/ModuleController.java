@@ -4,8 +4,8 @@ import com.pally.api.module.dto.SubmitModuleAnswersRequest;
 import com.pally.domain.assignment.AssignmentService;
 import com.pally.domain.module.ModuleService;
 import com.pally.domain.module.NarrationService;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleNarrationJpaEntity;
+import com.pally.domain.module.LearningModule;
+import com.pally.domain.module.ModuleNarration;
 import com.pally.shared.response.ApiResponse;
 import com.pally.shared.util.DurationClamp;
 import jakarta.validation.Valid;
@@ -48,7 +48,7 @@ public class ModuleController {
             @PathVariable String avatarId
     ) {
         log.info("[Module] Generate modules request user={} avatar={}", userId, avatarId);
-        List<LearningModuleJpaEntity> created = moduleService.generateModules(avatarId);
+        List<LearningModule> created = moduleService.generateModules(avatarId);
 
         List<Map<String, Object>> response = created.stream()
                 .map(m -> Map.<String, Object>of(

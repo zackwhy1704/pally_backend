@@ -1,13 +1,8 @@
 package com.pally.domain.module;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.port.StoragePort;
 import com.pally.domain.module.port.TtsPort;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleNarrationJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleNarrationJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,20 +10,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,8 +25,8 @@ class NarrationServiceTest {
 
     @Mock private TtsPort ttsPort;
     @Mock private StoragePort storagePort;
-    @Mock private ModuleNarrationJpaRepository narrationRepo;
-    @Mock private ModuleContentItemJpaRepository itemRepo;
+    @Mock private ModuleNarrationRepository narrationRepo;
+    @Mock private ModuleContentItemRepository itemRepo;
 
     private NarrationService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -60,10 +48,10 @@ class NarrationServiceTest {
 
         assertThat(narrationId).isNotNull().isNotBlank();
 
-        ArgumentCaptor<ModuleNarrationJpaEntity> captor =
-                ArgumentCaptor.forClass(ModuleNarrationJpaEntity.class);
+        ArgumentCaptor<ModuleNarration> captor =
+                ArgumentCaptor.forClass(ModuleNarration.class);
         verify(narrationRepo).save(captor.capture());
-        ModuleNarrationJpaEntity saved = captor.getValue();
+        ModuleNarration saved = captor.getValue();
         assertThat(saved.getModuleId()).isEqualTo("mod-1");
         assertThat(saved.getStatus()).isEqualTo("GENERATING");
         assertThat(saved.getVoiceId()).isEqualTo("default");
@@ -71,7 +59,7 @@ class NarrationServiceTest {
 
     @Test
     void generateAsync_existingReady_returnsExistingId() {
-        ModuleNarrationJpaEntity existing = new ModuleNarrationJpaEntity();
+        ModuleNarration existing = new ModuleNarration();
         existing.setId("existing-id");
         existing.setModuleId("mod-1");
         existing.setStatus("READY");
@@ -85,7 +73,7 @@ class NarrationServiceTest {
 
     @Test
     void generateAsync_existingGenerating_returnsExistingId() {
-        ModuleNarrationJpaEntity existing = new ModuleNarrationJpaEntity();
+        ModuleNarration existing = new ModuleNarration();
         existing.setId("gen-id");
         existing.setModuleId("mod-1");
         existing.setStatus("GENERATING");
@@ -98,7 +86,7 @@ class NarrationServiceTest {
 
     @Test
     void generateAsync_existingFailed_deletesAndRetries() {
-        ModuleNarrationJpaEntity failed = new ModuleNarrationJpaEntity();
+        ModuleNarration failed = new ModuleNarration();
         failed.setId("fail-id");
         failed.setModuleId("mod-1");
         failed.setStatus("FAILED");
@@ -116,13 +104,13 @@ class NarrationServiceTest {
 
     @Test
     void get_existingModule_returnsNarration() {
-        ModuleNarrationJpaEntity entity = new ModuleNarrationJpaEntity();
+        ModuleNarration entity = new ModuleNarration();
         entity.setId("narr-1");
         entity.setModuleId("mod-1");
         entity.setStatus("READY");
         when(narrationRepo.findByModuleId("mod-1")).thenReturn(Optional.of(entity));
 
-        Optional<ModuleNarrationJpaEntity> result = service.get("mod-1");
+        Optional<ModuleNarration> result = service.get("mod-1");
 
         assertThat(result).isPresent();
         assertThat(result.get().getId()).isEqualTo("narr-1");
@@ -132,7 +120,7 @@ class NarrationServiceTest {
     void get_noNarration_returnsEmpty() {
         when(narrationRepo.findByModuleId("mod-x")).thenReturn(Optional.empty());
 
-        Optional<ModuleNarrationJpaEntity> result = service.get("mod-x");
+        Optional<ModuleNarration> result = service.get("mod-x");
 
         assertThat(result).isEmpty();
     }

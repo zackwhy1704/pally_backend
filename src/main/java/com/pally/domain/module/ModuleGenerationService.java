@@ -4,8 +4,6 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +24,7 @@ import java.util.Optional;
 @Slf4j
 public class ModuleGenerationService {
 
-    private final LearningModuleJpaRepository moduleRepository;
+    private final LearningModuleRepository moduleRepository;
     private final ModuleContentGenerator contentGenerator;
     private final AvatarRepository avatarRepository;
     private final WikiRepository wikiRepository;
@@ -36,7 +34,7 @@ public class ModuleGenerationService {
      * pages that already have a module.
      */
     @Transactional
-    public List<LearningModuleJpaEntity> generateModules(String avatarId) {
+    public List<LearningModule> generateModules(String avatarId) {
         Avatar avatar = avatarRepository.findById(avatarId)
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
@@ -47,10 +45,10 @@ public class ModuleGenerationService {
         if (pages.isEmpty()) {
             throw new BusinessException("NO_NOTES", 409);
         }
-        List<LearningModuleJpaEntity> created = new ArrayList<>();
+        List<LearningModule> created = new ArrayList<>();
 
         for (WikiPage page : pages) {
-            Optional<LearningModuleJpaEntity> existing =
+            Optional<LearningModule> existing =
                     moduleRepository.findByAvatarIdAndWikiPageSlug(avatarId, page.getSlug());
             if (existing.isPresent()) {
                 log.debug("[Module] Skipping existing module for slug={}", page.getSlug());
@@ -58,7 +56,7 @@ public class ModuleGenerationService {
             }
 
             try {
-                LearningModuleJpaEntity module = contentGenerator.generate(avatar, page);
+                LearningModule module = contentGenerator.generate(avatar, page);
                 created.add(module);
             } catch (Exception e) {
                 log.error("[Module] Failed to generate module for slug={}: {}",

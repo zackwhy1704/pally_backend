@@ -11,7 +11,7 @@ import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaEntity;
 import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
+import com.pally.domain.module.LearningModuleRepository;
 import com.pally.domain.chat.ChatMessage;
 import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSession;
@@ -79,7 +79,7 @@ public class SendMessageUseCase {
     private final AvatarSlotGuard avatarSlotGuard;
     private final PremiumService premiumService;
     private final WikiRepository wikiRepository;
-    private final LearningModuleJpaRepository learningModuleRepo;
+    private final LearningModuleRepository learningModuleRepo;
     private final ContentGapSignalJpaRepository contentGapSignalRepo;
 
     @Value("${centre.closedbook.enabled:true}")
@@ -107,7 +107,7 @@ public class SendMessageUseCase {
             AvatarSlotGuard avatarSlotGuard,
             PremiumService premiumService,
             WikiRepository wikiRepository,
-            LearningModuleJpaRepository learningModuleRepo,
+            LearningModuleRepository learningModuleRepo,
             ContentGapSignalJpaRepository contentGapSignalRepo
     ) {
         this.avatarRepository = avatarRepository;

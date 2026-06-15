@@ -1,6 +1,5 @@
 package com.pally.domain.module;
 
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -25,7 +24,7 @@ public class ModuleService {
     private final ModuleExamReadinessService examReadinessService;
 
     // ── Generation ──────────────────────────────────────────────────────
-    public List<LearningModuleJpaEntity> generateModules(String avatarId) {
+    public List<LearningModule> generateModules(String avatarId) {
         return generationService.generateModules(avatarId);
     }
 
@@ -57,7 +56,7 @@ public class ModuleService {
         return progressionService.getResults(moduleId, userId);
     }
 
-    public Map<String, Object> startRevision(LearningModuleJpaEntity module, String userId) {
+    public Map<String, Object> startRevision(LearningModule module, String userId) {
         return progressionService.startRevision(module, userId);
     }
 

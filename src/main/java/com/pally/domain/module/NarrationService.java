@@ -4,10 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.port.StoragePort;
 import com.pally.domain.module.port.TtsPort;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleNarrationJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleNarrationJpaRepository;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,8 +35,8 @@ public class NarrationService {
 
     private final TtsPort ttsPort;
     private final StoragePort storagePort;
-    private final ModuleNarrationJpaRepository narrationRepo;
-    private final ModuleContentItemJpaRepository itemRepo;
+    private final ModuleNarrationRepository narrationRepo;
+    private final ModuleContentItemRepository itemRepo;
     private final ObjectMapper objectMapper;
 
     private final ExecutorService ttsPool = Executors.newFixedThreadPool(2);
@@ -54,7 +50,7 @@ public class NarrationService {
      * @return narration ID
      */
     public String generateAsync(String moduleId, String voiceId) {
-        Optional<ModuleNarrationJpaEntity> existing = narrationRepo.findByModuleId(moduleId);
+        Optional<ModuleNarration> existing = narrationRepo.findByModuleId(moduleId);
         if (existing.isPresent()) {
             String status = existing.get().getStatus();
             if ("READY".equals(status) || "GENERATING".equals(status)) {
@@ -68,7 +64,7 @@ public class NarrationService {
         String narrationId = IdGenerator.newId();
         String resolvedVoice = (voiceId != null && !voiceId.isBlank()) ? voiceId : "default";
 
-        ModuleNarrationJpaEntity narration = new ModuleNarrationJpaEntity();
+        ModuleNarration narration = new ModuleNarration();
         narration.setId(narrationId);
         narration.setModuleId(moduleId);
         narration.setVoiceId(resolvedVoice);
@@ -87,10 +83,10 @@ public class NarrationService {
     }
 
     /**
-     * Returns the narration entity for a module, if it exists.
+     * Returns the narration domain object for a module, if it exists.
      */
     @Transactional(readOnly = true)
-    public Optional<ModuleNarrationJpaEntity> get(String moduleId) {
+    public Optional<ModuleNarration> get(String moduleId) {
         return narrationRepo.findByModuleId(moduleId);
     }
 
@@ -98,7 +94,7 @@ public class NarrationService {
 
     private void generateInBackground(String narrationId, String moduleId, String voiceId) {
         try {
-            List<ModuleContentItemJpaEntity> learnItems =
+            List<ModuleContentItem> learnItems =
                     itemRepo.findByModuleIdAndStageOrderBySortOrder(moduleId, ModuleStage.LEARN.name());
 
             if (learnItems.isEmpty()) {
@@ -111,7 +107,7 @@ public class NarrationService {
             int totalDurationMs = 0;
 
             for (int i = 0; i < learnItems.size(); i++) {
-                ModuleContentItemJpaEntity item = learnItems.get(i);
+                ModuleContentItem item = learnItems.get(i);
                 String narrationText = extractNarrationHint(item.getContentJson());
 
                 if (narrationText == null || narrationText.isBlank()) {

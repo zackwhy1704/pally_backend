@@ -6,8 +6,6 @@ import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +31,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ModuleGenerationServiceTest {
 
-    @Mock private LearningModuleJpaRepository moduleRepository;
+    @Mock private LearningModuleRepository moduleRepository;
     @Mock private ModuleContentGenerator contentGenerator;
     @Mock private AvatarRepository avatarRepository;
     @Mock private WikiRepository wikiRepository;
@@ -74,9 +72,9 @@ class ModuleGenerationServiceTest {
         when(wikiRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(page));
 
         when(moduleRepository.findByAvatarIdAndWikiPageSlug(avatar.getId(), "fractions"))
-                .thenReturn(Optional.of(new LearningModuleJpaEntity()));
+                .thenReturn(Optional.of(new LearningModule()));
 
-        List<LearningModuleJpaEntity> result = service.generateModules(avatar.getId());
+        List<LearningModule> result = service.generateModules(avatar.getId());
         assertThat(result).isEmpty();
         verify(contentGenerator, never()).generate(any(), any());
     }
@@ -91,11 +89,11 @@ class ModuleGenerationServiceTest {
         when(moduleRepository.findByAvatarIdAndWikiPageSlug(avatar.getId(), "fractions"))
                 .thenReturn(Optional.empty());
 
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
+        LearningModule module = new LearningModule();
         module.setId("mod-1");
         when(contentGenerator.generate(avatar, page)).thenReturn(module);
 
-        List<LearningModuleJpaEntity> result = service.generateModules(avatar.getId());
+        List<LearningModule> result = service.generateModules(avatar.getId());
         assertThat(result).hasSize(1);
         verify(contentGenerator).generate(avatar, page);
     }

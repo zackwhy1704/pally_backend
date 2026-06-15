@@ -2,10 +2,6 @@ package com.pally.domain.module;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,8 +23,8 @@ import java.util.Map;
 @Slf4j
 public class ModuleExamReadinessService {
 
-    private final LearningModuleJpaRepository moduleRepository;
-    private final ModuleProgressJpaRepository progressRepository;
+    private final LearningModuleRepository moduleRepository;
+    private final ModuleProgressRepository progressRepository;
     private final AvatarRepository avatarRepository;
 
     /**
@@ -39,22 +35,22 @@ public class ModuleExamReadinessService {
         Avatar avatar = avatarRepository.findById(avatarId)
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
-        List<LearningModuleJpaEntity> modules = moduleRepository.findByAvatarId(avatarId);
-        List<LearningModuleJpaEntity> complete = modules.stream()
+        List<LearningModule> modules = moduleRepository.findByAvatarId(avatarId);
+        List<LearningModule> complete = modules.stream()
                 .filter(m -> "COMPLETE".equals(m.getStage()))
                 .toList();
 
         // Gather per-concept mastery from PROVE progress across all complete modules
         List<Map<String, Object>> concepts = new ArrayList<>();
-        for (LearningModuleJpaEntity mod : complete) {
+        for (LearningModule mod : complete) {
             // We gather all PROVE progress for this module
-            List<ModuleProgressJpaEntity> proveProgress =
+            List<ModuleProgress> proveProgress =
                     progressRepository.findByModuleIdAndUserId(mod.getId(),
                             avatar.getUserId()).stream()
                             .filter(p -> ModuleStage.PROVE.name().equals(p.getStage()))
                             .toList();
 
-            for (ModuleProgressJpaEntity p : proveProgress) {
+            for (ModuleProgress p : proveProgress) {
                 if (p.getTargetConcept() == null) continue;
                 Map<String, Object> c = new HashMap<>();
                 c.put("concept", p.getTargetConcept());
@@ -109,16 +105,16 @@ public class ModuleExamReadinessService {
      * Class-wide exam readiness: per-concept average mastery, students below threshold.
      */
     public Map<String, Object> getClassExamReadiness(String classId) {
-        List<LearningModuleJpaEntity> classModules = moduleRepository.findByClassId(classId);
-        List<LearningModuleJpaEntity> complete = classModules.stream()
+        List<LearningModule> classModules = moduleRepository.findByClassId(classId);
+        List<LearningModule> complete = classModules.stream()
                 .filter(m -> "COMPLETE".equals(m.getStage()))
                 .toList();
 
         // Aggregate per-concept across all students
         Map<String, List<Double>> conceptScores = new HashMap<>();
 
-        for (LearningModuleJpaEntity mod : complete) {
-            List<ModuleProgressJpaEntity> allProgress =
+        for (LearningModule mod : complete) {
+            List<ModuleProgress> allProgress =
                     progressRepository.findByModuleIdAndUserId(mod.getId(), null);
             // findByModuleIdAndUserId won't work for "all users", need a different approach
             // Use module-level mastery instead

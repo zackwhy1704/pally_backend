@@ -4,10 +4,6 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,8 +28,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ModuleExamReadinessServiceTest {
 
-    @Mock private LearningModuleJpaRepository moduleRepository;
-    @Mock private ModuleProgressJpaRepository progressRepository;
+    @Mock private LearningModuleRepository moduleRepository;
+    @Mock private ModuleProgressRepository progressRepository;
     @Mock private AvatarRepository avatarRepository;
 
     private ModuleExamReadinessService service;
@@ -49,21 +45,21 @@ class ModuleExamReadinessServiceTest {
         Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
         when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
 
-        LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE");
+        LearningModule mod1 = buildModule("mod-1", "COMPLETE");
         mod1.setAvatarId(avatar.getId());
         mod1.setTitle("Fractions");
-        LearningModuleJpaEntity mod2 = buildModule("mod-2", "COMPLETE");
+        LearningModule mod2 = buildModule("mod-2", "COMPLETE");
         mod2.setAvatarId(avatar.getId());
         mod2.setTitle("Decimals");
         when(moduleRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(mod1, mod2));
 
-        ModuleProgressJpaEntity p1 = new ModuleProgressJpaEntity();
+        ModuleProgress p1 = new ModuleProgress();
         p1.setStage("PROVE");
         p1.setTargetConcept("addition");
         p1.setScore(BigDecimal.valueOf(0.9));
         p1.setCompletedAt(Instant.now());
 
-        ModuleProgressJpaEntity p2 = new ModuleProgressJpaEntity();
+        ModuleProgress p2 = new ModuleProgress();
         p2.setStage("PROVE");
         p2.setTargetConcept("subtraction");
         p2.setScore(BigDecimal.valueOf(0.4));
@@ -94,10 +90,10 @@ class ModuleExamReadinessServiceTest {
 
     @Test
     void getClassExamReadiness_returnsSuggestionWhenBelow60() {
-        LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE");
+        LearningModule mod1 = buildModule("mod-1", "COMPLETE");
         mod1.setMasteryPct(BigDecimal.valueOf(45.0));
         mod1.setClassId("class-1");
-        LearningModuleJpaEntity mod2 = buildModule("mod-2", "COMPLETE");
+        LearningModule mod2 = buildModule("mod-2", "COMPLETE");
         mod2.setMasteryPct(BigDecimal.valueOf(80.0));
         mod2.setClassId("class-1");
         when(moduleRepository.findByClassId("class-1")).thenReturn(List.of(mod1, mod2));
@@ -108,8 +104,8 @@ class ModuleExamReadinessServiceTest {
         assertThat((int) result.get("completedModules")).isEqualTo(2);
     }
 
-    private LearningModuleJpaEntity buildModule(String id, String stage) {
-        LearningModuleJpaEntity m = new LearningModuleJpaEntity();
+    private LearningModule buildModule(String id, String stage) {
+        LearningModule m = new LearningModule();
         m.setId(id);
         m.setAvatarId("avatar-1");
         m.setWikiPageSlug("slug");

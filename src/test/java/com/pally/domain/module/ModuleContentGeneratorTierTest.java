@@ -7,8 +7,6 @@ import com.pally.domain.avatar.Subject;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,8 +26,8 @@ import static org.mockito.Mockito.when;
 class ModuleContentGeneratorTierTest {
 
     @Mock private GeminiCompletionService geminiCompletion;
-    @Mock private LearningModuleJpaRepository moduleRepository;
-    @Mock private ModuleContentItemJpaRepository itemRepository;
+    @Mock private LearningModuleRepository moduleRepository;
+    @Mock private ModuleContentItemRepository itemRepository;
     @Mock private PremiumService premiumService;
 
     private ModuleContentGenerator generator;

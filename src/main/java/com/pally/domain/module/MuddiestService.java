@@ -4,13 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.group.ClassGroupService;
 import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
-import com.pally.infrastructure.persistence.module.MuddiestVoteJpaEntity;
-import com.pally.infrastructure.persistence.module.MuddiestVoteJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -43,10 +36,10 @@ public class MuddiestService {
     /** Stage that marks a student as having "completed" the module. */
     private static final String COMPLETER_STAGE = "PROVE";
 
-    private final MuddiestVoteJpaRepository voteRepo;
-    private final LearningModuleJpaRepository moduleRepo;
-    private final ModuleContentItemJpaRepository itemRepo;
-    private final ModuleProgressJpaRepository progressRepo;
+    private final MuddiestVoteRepository voteRepo;
+    private final LearningModuleRepository moduleRepo;
+    private final ModuleContentItemRepository itemRepo;
+    private final ModuleProgressRepository progressRepo;
     private final ClassGroupService classGroupService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -57,7 +50,7 @@ public class MuddiestService {
      */
     @Transactional
     public Map<String, Object> vote(String moduleId, String userId, String conceptId) {
-        LearningModuleJpaEntity module = moduleRepo.findById(moduleId)
+        LearningModule module = moduleRepo.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
         if (conceptId == null || conceptId.isBlank()) {
             throw new BusinessException("conceptId is required", 400);
@@ -68,9 +61,9 @@ public class MuddiestService {
                     "conceptId is not one of this module's concepts", 400);
         }
 
-        MuddiestVoteJpaEntity vote = voteRepo.findByModuleIdAndUserId(moduleId, userId)
+        MuddiestVote vote = voteRepo.findByModuleIdAndUserId(moduleId, userId)
                 .orElseGet(() -> {
-                    MuddiestVoteJpaEntity v = new MuddiestVoteJpaEntity();
+                    MuddiestVote v = new MuddiestVote();
                     v.setId(IdGenerator.newId());
                     v.setModuleId(moduleId);
                     v.setUserId(userId);
@@ -113,7 +106,7 @@ public class MuddiestService {
 
     // ── Threshold post ───────────────────────────────────────────────────
 
-    private void maybePostThreshold(LearningModuleJpaEntity module) {
+    private void maybePostThreshold(LearningModule module) {
         String classId = module.getClassId();
         if (classId == null || classId.isBlank()) return; // personal module, no class group
 
@@ -151,7 +144,7 @@ public class MuddiestService {
      */
     private Map<String, String> conceptLabels(String moduleId) {
         Map<String, String> labels = new LinkedHashMap<>();
-        for (ModuleContentItemJpaEntity item : itemRepo.findByModuleIdOrderBySortOrder(moduleId)) {
+        for (ModuleContentItem item : itemRepo.findByModuleIdOrderBySortOrder(moduleId)) {
             extractConcept(item.getAnswerJson(), labels);
             extractConcept(item.getContentJson(), labels);
         }

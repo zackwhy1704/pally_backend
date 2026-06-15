@@ -63,7 +63,7 @@ class SendMessageUseCaseOpenPathTest {
     @Mock private AvatarSlotGuard avatarSlotGuard;
     @Mock private PremiumService premiumService;
     @Mock private WikiRepository wikiRepository;
-    @Mock private com.pally.infrastructure.persistence.module.LearningModuleJpaRepository learningModuleRepo;
+    @Mock private com.pally.domain.module.LearningModuleRepository learningModuleRepo;
     @Mock private com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository contentGapSignalRepo;
 
     private SendMessageUseCase useCase;

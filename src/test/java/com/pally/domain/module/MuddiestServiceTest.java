@@ -2,13 +2,6 @@ package com.pally.domain.module;
 
 import com.pally.domain.group.ClassGroupService;
 import com.pally.infrastructure.persistence.group.GroupSystemPostJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
-import com.pally.infrastructure.persistence.module.MuddiestVoteJpaEntity;
-import com.pally.infrastructure.persistence.module.MuddiestVoteJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,10 +29,10 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class MuddiestServiceTest {
 
-    @Mock MuddiestVoteJpaRepository voteRepo;
-    @Mock LearningModuleJpaRepository moduleRepo;
-    @Mock ModuleContentItemJpaRepository itemRepo;
-    @Mock ModuleProgressJpaRepository progressRepo;
+    @Mock MuddiestVoteRepository voteRepo;
+    @Mock LearningModuleRepository moduleRepo;
+    @Mock ModuleContentItemRepository itemRepo;
+    @Mock ModuleProgressRepository progressRepo;
     @Mock ClassGroupService classGroupService;
 
     @InjectMocks MuddiestService service;
@@ -47,16 +40,16 @@ class MuddiestServiceTest {
     private static final String MODULE = "module-1";
     private static final String CLASS = "class-1";
 
-    private LearningModuleJpaEntity module(String classId) {
-        LearningModuleJpaEntity m = new LearningModuleJpaEntity();
+    private LearningModule module(String classId) {
+        LearningModule m = new LearningModule();
         m.setId(MODULE);
         m.setClassId(classId);
         m.setTitle("Photosynthesis");
         return m;
     }
 
-    private ModuleContentItemJpaEntity itemWithConcept(String concept) {
-        ModuleContentItemJpaEntity it = new ModuleContentItemJpaEntity();
+    private ModuleContentItem itemWithConcept(String concept) {
+        ModuleContentItem it = new ModuleContentItem();
         it.setId("it-" + concept);
         it.setModuleId(MODULE);
         it.setContentJson("{}");
@@ -80,7 +73,7 @@ class MuddiestServiceTest {
         when(moduleRepo.findById(MODULE)).thenReturn(Optional.of(module(CLASS)));
         when(itemRepo.findByModuleIdOrderBySortOrder(MODULE))
                 .thenReturn(List.of(itemWithConcept("light-reaction"), itemWithConcept("calvin-cycle")));
-        MuddiestVoteJpaEntity existing = new MuddiestVoteJpaEntity();
+        MuddiestVote existing = new MuddiestVote();
         existing.setId("v1");
         existing.setModuleId(MODULE);
         existing.setUserId("u1");
@@ -90,7 +83,7 @@ class MuddiestServiceTest {
 
         service.vote(MODULE, "u1", "calvin-cycle");
 
-        ArgumentCaptor<MuddiestVoteJpaEntity> c = ArgumentCaptor.forClass(MuddiestVoteJpaEntity.class);
+        ArgumentCaptor<MuddiestVote> c = ArgumentCaptor.forClass(MuddiestVote.class);
         verify(voteRepo).save(c.capture());
         assertThat(c.getValue().getId()).isEqualTo("v1"); // same row → upsert
         assertThat(c.getValue().getConceptId()).isEqualTo("calvin-cycle");

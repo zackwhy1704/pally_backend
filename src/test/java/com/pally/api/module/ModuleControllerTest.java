@@ -1,14 +1,13 @@
 package com.pally.api.module;
 
+import com.pally.domain.module.LearningModule;
 import com.pally.domain.module.ModuleService;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -17,7 +16,6 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,7 +26,7 @@ class ModuleControllerTest {
 
     @Test
     void generateModules_returnsCreatedModules() {
-        LearningModuleJpaEntity module = buildModule("mod-1", "LEARN", "FREE");
+        LearningModule module = buildModule("mod-1", "LEARN", "FREE");
         when(moduleService.generateModules("avatar-1")).thenReturn(List.of(module));
 
         var response = controller.generateModules("user-1", "avatar-1");
@@ -117,8 +115,8 @@ class ModuleControllerTest {
         assertThat(response.getBody().data().get("moduleId")).isEqualTo("mod-1");
     }
 
-    private LearningModuleJpaEntity buildModule(String id, String stage, String tier) {
-        LearningModuleJpaEntity m = new LearningModuleJpaEntity();
+    private LearningModule buildModule(String id, String stage, String tier) {
+        LearningModule m = new LearningModule();
         m.setId(id);
         m.setAvatarId("avatar-1");
         m.setWikiPageSlug("fractions");

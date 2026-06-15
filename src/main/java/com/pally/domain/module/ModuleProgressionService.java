@@ -3,12 +3,6 @@ package com.pally.domain.module;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +29,9 @@ import java.util.Map;
 @Slf4j
 public class ModuleProgressionService {
 
-    private final LearningModuleJpaRepository moduleRepository;
-    private final ModuleContentItemJpaRepository itemRepository;
-    private final ModuleProgressJpaRepository progressRepository;
+    private final LearningModuleRepository moduleRepository;
+    private final ModuleContentItemRepository itemRepository;
+    private final ModuleProgressRepository progressRepository;
     private final ModuleContentGenerator contentGenerator;
     private final ModuleProveEvaluator proveEvaluator;
     private final WikiRepository wikiRepository;
@@ -53,10 +47,10 @@ public class ModuleProgressionService {
      * List all modules for an avatar with stage, mastery, and item counts.
      */
     public List<Map<String, Object>> listModules(String avatarId) {
-        List<LearningModuleJpaEntity> modules = moduleRepository.findByAvatarId(avatarId);
+        List<LearningModule> modules = moduleRepository.findByAvatarId(avatarId);
         List<Map<String, Object>> result = new ArrayList<>();
 
-        for (LearningModuleJpaEntity module : modules) {
+        for (LearningModule module : modules) {
             Map<String, Object> m = new HashMap<>();
             m.put("id", module.getId());
             m.put("title", module.getTitle());
@@ -83,16 +77,16 @@ public class ModuleProgressionService {
      * Get module detail with all items and progress for the current user.
      */
     public Map<String, Object> getModuleDetail(String moduleId, String userId) {
-        LearningModuleJpaEntity module = moduleRepository.findById(moduleId)
+        LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
 
-        List<ModuleContentItemJpaEntity> items =
+        List<ModuleContentItem> items =
                 itemRepository.findByModuleIdOrderBySortOrder(moduleId);
-        List<ModuleProgressJpaEntity> progress =
+        List<ModuleProgress> progress =
                 progressRepository.findByModuleIdAndUserId(moduleId, userId);
 
-        Map<String, ModuleProgressJpaEntity> progressMap = new HashMap<>();
-        for (ModuleProgressJpaEntity p : progress) {
+        Map<String, ModuleProgress> progressMap = new HashMap<>();
+        for (ModuleProgress p : progress) {
             progressMap.put(p.getItemId(), p);
         }
 
@@ -105,7 +99,7 @@ public class ModuleProgressionService {
         result.put("tier", module.getTier());
 
         List<Map<String, Object>> itemList = new ArrayList<>();
-        for (ModuleContentItemJpaEntity item : items) {
+        for (ModuleContentItem item : items) {
             Map<String, Object> itemMap = new HashMap<>();
             itemMap.put("id", item.getId());
             itemMap.put("stage", item.getStage());
@@ -114,7 +108,7 @@ public class ModuleProgressionService {
             itemMap.put("sortOrder", item.getSortOrder());
             itemMap.put("tierRequired", item.getTierRequired());
 
-            ModuleProgressJpaEntity prog = progressMap.get(item.getId());
+            ModuleProgress prog = progressMap.get(item.getId());
             if (prog != null) {
                 itemMap.put("completed", prog.getCompletedAt() != null);
                 itemMap.put("score", prog.getScore());
@@ -137,7 +131,7 @@ public class ModuleProgressionService {
      */
     @Transactional
     public Map<String, Object> startModule(String moduleId, String userId) {
-        LearningModuleJpaEntity module = moduleRepository.findById(moduleId)
+        LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
 
         ModuleStage currentStage = ModuleStage.valueOf(module.getStage());
@@ -155,7 +149,7 @@ public class ModuleProgressionService {
             }
         }
 
-        List<ModuleContentItemJpaEntity> stageItems =
+        List<ModuleContentItem> stageItems =
                 itemRepository.findByModuleIdAndStageOrderBySortOrder(
                         moduleId, currentStage.name());
 
@@ -200,7 +194,7 @@ public class ModuleProgressionService {
             List<Map<String, String>> submissions,
             int durationSeconds) {
 
-        LearningModuleJpaEntity module = moduleRepository.findById(moduleId)
+        LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
 
         ModuleStage currentStage = ModuleStage.valueOf(module.getStage());
@@ -218,7 +212,7 @@ public class ModuleProgressionService {
                 throw new BusinessException("itemId is required in each submission", 400);
             }
 
-            ModuleContentItemJpaEntity item = itemRepository.findById(itemId)
+            ModuleContentItem item = itemRepository.findById(itemId)
                     .orElseThrow(() -> new BusinessException("Item not found: " + itemId, 404));
 
             // Stage enforcement: only accept items for the current stage
@@ -229,10 +223,10 @@ public class ModuleProgressionService {
             }
 
             // Record progress (upsert)
-            ModuleProgressJpaEntity progress = progressRepository
+            ModuleProgress progress = progressRepository
                     .findByModuleIdAndUserIdAndItemId(moduleId, userId, itemId)
                     .orElseGet(() -> {
-                        ModuleProgressJpaEntity p = new ModuleProgressJpaEntity();
+                        ModuleProgress p = new ModuleProgress();
                         p.setId(IdGenerator.newId());
                         p.setModuleId(moduleId);
                         p.setUserId(userId);
@@ -359,22 +353,22 @@ public class ModuleProgressionService {
      * Full results with per-concept mastery breakdown.
      */
     public Map<String, Object> getResults(String moduleId, String userId) {
-        LearningModuleJpaEntity module = moduleRepository.findById(moduleId)
+        LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
 
-        List<ModuleProgressJpaEntity> allProgress =
+        List<ModuleProgress> allProgress =
                 progressRepository.findByModuleIdAndUserId(moduleId, userId);
 
-        Map<String, List<ModuleProgressJpaEntity>> byStage = new HashMap<>();
-        for (ModuleProgressJpaEntity p : allProgress) {
+        Map<String, List<ModuleProgress>> byStage = new HashMap<>();
+        for (ModuleProgress p : allProgress) {
             byStage.computeIfAbsent(p.getStage(), k -> new ArrayList<>()).add(p);
         }
 
         // Concept mastery breakdown from PROVE results
         List<Map<String, Object>> conceptMastery = new ArrayList<>();
-        List<ModuleProgressJpaEntity> proveProgress =
+        List<ModuleProgress> proveProgress =
                 byStage.getOrDefault(ModuleStage.PROVE.name(), List.of());
-        for (ModuleProgressJpaEntity p : proveProgress) {
+        for (ModuleProgress p : proveProgress) {
             Map<String, Object> cm = new HashMap<>();
             cm.put("concept", p.getTargetConcept());
             cm.put("score", p.getScore());
@@ -393,7 +387,7 @@ public class ModuleProgressionService {
         Map<String, Object> stageSummary = new HashMap<>();
         for (ModuleStage s : ModuleStage.values()) {
             if (s == ModuleStage.COMPLETE) continue;
-            List<ModuleProgressJpaEntity> stageProgress =
+            List<ModuleProgress> stageProgress =
                     byStage.getOrDefault(s.name(), List.of());
             int total = itemRepository.countByModuleIdAndStage(moduleId, s.name());
             int completed = stageProgress.size();
@@ -418,7 +412,7 @@ public class ModuleProgressionService {
      * trend analysis; the module stays COMPLETE after the new round updates mastery.
      */
     @Transactional
-    public Map<String, Object> startRevision(LearningModuleJpaEntity module, String userId) {
+    public Map<String, Object> startRevision(LearningModule module, String userId) {
         log.info("[Module] Starting revision for module={} user={}", module.getId(), userId);
 
         // Set back to PROVE stage for fresh questions
@@ -430,7 +424,7 @@ public class ModuleProgressionService {
         generateProveItemsAdaptively(module, userId);
 
         // Return the new PROVE items
-        List<ModuleContentItemJpaEntity> proveItems =
+        List<ModuleContentItem> proveItems =
                 itemRepository.findByModuleIdAndStageOrderBySortOrder(
                         module.getId(), ModuleStage.PROVE.name());
 
@@ -458,7 +452,7 @@ public class ModuleProgressionService {
     /// proof is the module's {@code wikiPageSlug} — that's the slug we nudge.
     /// Returns the delta applied (0.0 when the score is in the neutral band or
     /// the slug is missing) so callers/tests can assert behaviour.
-    double adjustCertaintyForProve(LearningModuleJpaEntity module, double score) {
+    double adjustCertaintyForProve(LearningModule module, double score) {
         String slug = module.getWikiPageSlug();
         if (slug == null || slug.isBlank()) return 0.0;
 
@@ -483,9 +477,9 @@ public class ModuleProgressionService {
         return delta;
     }
 
-    private void generateProveItemsAdaptively(LearningModuleJpaEntity module, String userId) {
+    private void generateProveItemsAdaptively(LearningModule module, String userId) {
         // Get TEST results to analyze weaknesses
-        List<ModuleProgressJpaEntity> testProgress =
+        List<ModuleProgress> testProgress =
                 progressRepository.findByModuleIdAndUserId(module.getId(), userId)
                         .stream()
                         .filter(p -> ModuleStage.TEST.name().equals(p.getStage()))
@@ -504,8 +498,8 @@ public class ModuleProgressionService {
         contentGenerator.generateProveQuestions(module, page, testProgress, module.getTier());
     }
 
-    private void updateMastery(LearningModuleJpaEntity module, String userId) {
-        List<ModuleProgressJpaEntity> proveProgress =
+    private void updateMastery(LearningModule module, String userId) {
+        List<ModuleProgress> proveProgress =
                 progressRepository.findByModuleIdAndUserId(module.getId(), userId)
                         .stream()
                         .filter(p -> ModuleStage.PROVE.name().equals(p.getStage()))

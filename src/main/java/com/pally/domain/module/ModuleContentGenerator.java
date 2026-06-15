@@ -7,11 +7,6 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
-import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaEntity;
-import com.pally.infrastructure.persistence.module.ModuleContentItemJpaRepository;
-import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,8 +34,8 @@ public class ModuleContentGenerator {
 
     private final GeminiCompletionService geminiCompletion;
     private final ObjectMapper objectMapper;
-    private final LearningModuleJpaRepository moduleRepository;
-    private final ModuleContentItemJpaRepository itemRepository;
+    private final LearningModuleRepository moduleRepository;
+    private final ModuleContentItemRepository itemRepository;
     private final PremiumService premiumService;
 
     /**
@@ -48,16 +43,16 @@ public class ModuleContentGenerator {
      * PROVE items are NOT generated here — they are generated on-demand in
      * {@link #generateProveQuestions}.
      *
-     * @return the saved module entity
+     * @return the saved module domain object
      */
     @Transactional
-    public LearningModuleJpaEntity generate(Avatar avatar, WikiPage page) {
+    public LearningModule generate(Avatar avatar, WikiPage page) {
         String tier = resolveContentTier(avatar);
         String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
         String subject = avatar.getSubject().label();
 
-        // Create module entity
-        LearningModuleJpaEntity module = new LearningModuleJpaEntity();
+        // Create module
+        LearningModule module = new LearningModule();
         module.setId(IdGenerator.newId());
         module.setAvatarId(avatar.getId());
         module.setClassId(avatar.getClassId());
@@ -70,7 +65,7 @@ public class ModuleContentGenerator {
         module = moduleRepository.save(module);
 
         String content = truncate(page.getContent(), 3000);
-        List<ModuleContentItemJpaEntity> allItems = new ArrayList<>();
+        List<ModuleContentItem> allItems = new ArrayList<>();
 
         // Generate LEARN items (micro-cards)
         allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier));
@@ -92,10 +87,10 @@ public class ModuleContentGenerator {
      * Targets concepts the student scored poorly on.
      */
     @Transactional
-    public List<ModuleContentItemJpaEntity> generateProveQuestions(
-            LearningModuleJpaEntity module,
+    public List<ModuleContentItem> generateProveQuestions(
+            LearningModule module,
             WikiPage page,
-            List<ModuleProgressJpaEntity> testResults,
+            List<ModuleProgress> testResults,
             String tier) {
 
         String level = "primary school"; // fallback; caller can improve
@@ -127,13 +122,13 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
 
-            List<ModuleContentItemJpaEntity> items = new ArrayList<>();
+            List<ModuleContentItem> items = new ArrayList<>();
             int existingCount = itemRepository.countByModuleIdAndStage(
                     module.getId(), ModuleStage.PROVE.name());
 
             for (int i = 0; i < parsed.size(); i++) {
                 Map<String, Object> q = parsed.get(i);
-                ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+                ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(module.getId());
                 item.setStage(ModuleStage.PROVE.name());
@@ -168,7 +163,7 @@ public class ModuleContentGenerator {
 
     // ── LEARN: micro-cards ───────────────────────────────────────────────
 
-    private List<ModuleContentItemJpaEntity> generateMicroCards(
+    private List<ModuleContentItem> generateMicroCards(
             String moduleId, String content, String level, String subject, String tier) {
         int n = "CENTRE".equals(tier) ? 6 : 4;
 
@@ -190,9 +185,9 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
 
-            List<ModuleContentItemJpaEntity> items = new ArrayList<>();
+            List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
-                ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+                ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(moduleId);
                 item.setStage(ModuleStage.LEARN.name());
@@ -213,7 +208,7 @@ public class ModuleContentGenerator {
 
     // ── TEST: hot takes ──────────────────────────────────────────────────
 
-    private List<ModuleContentItemJpaEntity> generateHotTakes(
+    private List<ModuleContentItem> generateHotTakes(
             String moduleId, String content, String level, String subject, String tier) {
         int n = "CENTRE".equals(tier) ? 3 : 2;
 
@@ -234,10 +229,10 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
 
-            List<ModuleContentItemJpaEntity> items = new ArrayList<>();
+            List<ModuleContentItem> items = new ArrayList<>();
             int offset = 100; // hot takes start at sort_order 100
             for (int i = 0; i < parsed.size(); i++) {
-                ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+                ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(moduleId);
                 item.setStage(ModuleStage.TEST.name());
@@ -262,7 +257,7 @@ public class ModuleContentGenerator {
 
     // ── TEST: spot the mistake ───────────────────────────────────────────
 
-    private List<ModuleContentItemJpaEntity> generateSpotMistake(
+    private List<ModuleContentItem> generateSpotMistake(
             String moduleId, String content, String level, String subject) {
 
         String prompt = """
@@ -282,7 +277,7 @@ public class ModuleContentGenerator {
             Map<String, Object> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
 
-            ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+            ModuleContentItem item = new ModuleContentItem();
             item.setId(IdGenerator.newId());
             item.setModuleId(moduleId);
             item.setStage(ModuleStage.TEST.name());
@@ -306,7 +301,7 @@ public class ModuleContentGenerator {
 
     // ── TEST: challenges ─────────────────────────────────────────────────
 
-    private List<ModuleContentItemJpaEntity> generateChallenges(
+    private List<ModuleContentItem> generateChallenges(
             String moduleId, String content, String level, String subject, String tier) {
         int n = "CENTRE".equals(tier) ? 3 : 1;
 
@@ -327,10 +322,10 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
 
-            List<ModuleContentItemJpaEntity> items = new ArrayList<>();
+            List<ModuleContentItem> items = new ArrayList<>();
             int offset = 300; // challenges start at sort_order 300
             for (int i = 0; i < parsed.size(); i++) {
-                ModuleContentItemJpaEntity item = new ModuleContentItemJpaEntity();
+                ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(moduleId);
                 item.setStage(ModuleStage.TEST.name());
