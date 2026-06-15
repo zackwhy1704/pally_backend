@@ -1,6 +1,7 @@
 package com.pally.infrastructure.ai;
 
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.chat.port.ChatSessionCachePort;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class CacheKeepAliveService {
+public class CacheKeepAliveService implements ChatSessionCachePort {
 
     private static final int KEEPALIVE_INTERVAL_MINUTES = 4;
 

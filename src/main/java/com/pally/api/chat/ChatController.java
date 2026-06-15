@@ -7,18 +7,11 @@ import com.pally.api.chat.dto.ChatSyncRequest;
 import com.pally.api.chat.dto.FeedbackRequest;
 import com.pally.api.chat.dto.PhotoQuestionRequest;
 import com.pally.api.chat.dto.PhotoQuestionResponse;
-import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.TeachingMode;
-import com.pally.domain.chat.ChatMessage;
-import com.pally.domain.chat.ChatRepository;
-import com.pally.domain.chat.usecase.ChatFeedbackService;
-import com.pally.domain.chat.usecase.ChatHistoryService;
-import com.pally.domain.chat.usecase.ChatSyncService;
+import com.pally.domain.chat.ChatOrchestrationService;
 import com.pally.domain.chat.usecase.SendMessageUseCase;
 import com.pally.domain.chat.usecase.SolvePhotoQuestionsUseCase;
-import com.pally.infrastructure.ai.CacheKeepAliveService;
 import com.pally.infrastructure.ratelimit.ChatRateLimiter;
-import com.pally.shared.exception.AvatarNotFoundException;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,8 +35,13 @@ import java.util.Map;
 /**
  * REST controller for chat endpoints.
  *
- * <p>Streaming chat uses Server-Sent Events (SSE) over WebFlux.
- * Chat history is served as a standard JSON response.
+ * <p>This controller is intentionally thin: each handler validates input /
+ * extracts the principal, delegates to one service, and returns the result.
+ * All business logic, repository calls, and post-session side-effects live
+ * in {@link ChatOrchestrationService} or the streaming use cases.
+ *
+ * <p>Streaming chat uses Server-Sent Events (SSE). All other endpoints use
+ * standard JSON.
  */
 @RestController
 @RequestMapping("/api/v1/avatars/{avatarId}")
@@ -51,23 +49,11 @@ import java.util.Map;
 @Slf4j
 public class ChatController {
 
-    private static final int HISTORY_PAGE_SIZE = 50;
-
+    private final ChatOrchestrationService chatOrchestrationService;
     private final SendMessageUseCase sendMessageUseCase;
-    private final com.pally.domain.consent.ConsentGuard consentGuard;
     private final SolvePhotoQuestionsUseCase solvePhotoQuestionsUseCase;
-    private final ChatRepository chatRepository;
-    private final ChatMapper chatMapper;
-    private final ChatSyncService chatSyncService;
-    private final ChatHistoryService chatHistoryService;
-    private final ChatFeedbackService chatFeedbackService;
-    private final CacheKeepAliveService cacheKeepAliveService;
+    private final com.pally.domain.consent.ConsentGuard consentGuard;
     private final ChatRateLimiter chatRateLimiter;
-    private final AvatarRepository avatarRepository;
-    private final com.pally.domain.user.UserRepository userRepository;
-    private final com.pally.domain.progress.ActivityLogService activityLogService;
-    private final com.pally.domain.progress.BadgeService badgeService;
-    private final com.pally.domain.progress.XpService xpService;
 
     /**
      * Streams a chat response from the avatar via Server-Sent Events.
@@ -78,11 +64,6 @@ public class ChatController {
      *   <li>{@code done}  — signals stream completion</li>
      *   <li>{@code error} — signals a streaming error</li>
      * </ul>
-     *
-     * @param userId   user identifier from {@code X-User-Id} header
-     * @param avatarId avatar identifier
-     * @param request  chat request containing the user's message
-     * @return SSE stream of chat events
      */
     @PostMapping("/chat")
     public void chat(
@@ -144,30 +125,17 @@ public class ChatController {
 
     /**
      * Returns the chat history for an avatar (most recent messages first).
-     *
-     * @param userId   user identifier from {@code X-User-Id} header
-     * @param avatarId avatar identifier
-     * @return list of chat messages
      */
     @GetMapping("/chat/history")
     public List<ChatMessageResponse> getChatHistory(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
-        avatarRepository.findById(avatarId)
-                .filter(a -> a.getUserId().equals(userId))
-                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
-        List<ChatMessage> messages = chatRepository.findByAvatarId(avatarId, HISTORY_PAGE_SIZE);
-        return chatMapper.toResponseList(messages);
+        return chatOrchestrationService.getChatHistory(userId, avatarId);
     }
 
     /**
-     * Solves photo homework questions. Accepts either:
-     * <ul>
-     *   <li>JSON body with {@code questions} array (text-only, legacy path)</li>
-     *   <li>Multipart with {@code file} (image) + {@code questions} (JSON array string)
-     *       — the image is sent directly to the vision model for STEM accuracy</li>
-     * </ul>
+     * Solves photo homework questions. Accepts a JSON body with {@code questions} array.
      */
     @PostMapping("/photo-question")
     public PhotoQuestionResponse solvePhotoQuestion(
@@ -220,8 +188,7 @@ public class ChatController {
             @PathVariable String avatarId,
             @RequestBody ChatSyncRequest request
     ) {
-        int upserted = chatSyncService.sync(avatarId, userId, request.messages());
-        return Map.of("upserted", upserted);
+        return chatOrchestrationService.syncMessages(userId, avatarId, request.messages());
     }
 
     @GetMapping("/chat/history/full")
@@ -230,7 +197,7 @@ public class ChatController {
             @PathVariable String avatarId,
             @RequestParam(defaultValue = "50") int limit
     ) {
-        return new ChatHistoryResponse(chatHistoryService.getHistory(avatarId, limit));
+        return chatOrchestrationService.getFullHistory(avatarId, limit);
     }
 
     @PostMapping("/chat/{messageId}/feedback")
@@ -241,7 +208,7 @@ public class ChatController {
             @PathVariable String messageId,
             @RequestBody FeedbackRequest request
     ) {
-        chatFeedbackService.submitFeedback(messageId, request.feedbackType());
+        chatOrchestrationService.submitFeedback(messageId, request.feedbackType());
     }
 
     @PostMapping("/chat/session-start")
@@ -249,45 +216,19 @@ public class ChatController {
     public void sessionStart(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
-        cacheKeepAliveService.startKeepalive(avatarId);
+        chatOrchestrationService.sessionStart(avatarId);
     }
 
     /**
-     * Credits +5 XP for ending a chat session — capped at <b>once per
-     * avatar per SGT day</b> via {@code XpService.awardForChat}. Rapid
-     * open/close no longer farms XP. Returns the level-up signal so the
-     * client can celebrate on the legitimate first credit.
+     * Credits +5 XP for ending a chat session — capped at once per avatar per SGT day.
+     * Returns the level-up signal so the client can celebrate on the first legitimate credit.
      */
     @PostMapping("/chat/session-end")
     @ResponseStatus(HttpStatus.OK)
     public Map<String, Object> sessionEnd(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
-        cacheKeepAliveService.stopKeepalive(avatarId);
-
-        boolean levelledUp = false;
-        int newLevel = 0;
-        boolean alreadyCredited = false;
-        try {
-            var award = xpService.awardForChat(userId, avatarId);
-            levelledUp = award.creditResult().levelledUp();
-            newLevel = award.creditResult().newLevel();
-            alreadyCredited = award.alreadyCreditedToday();
-            // Only log to activity_log when we actually credited — otherwise
-            // we'd corrupt the dedup signal (it counts CHAT activity rows).
-            if (!alreadyCredited) {
-                activityLogService.log(userId, avatarId,
-                        com.pally.domain.progress.ActivityLogService.TYPE_CHAT,
-                        0, award.xpGranted());
-                badgeService.grantFirstAction(userId,
-                        com.pally.domain.progress.BadgeService.BadgeType.FIRST_CHAT);
-                badgeService.checkAndGrantMilestones(userId);
-            }
-        } catch (Exception ignored) {}
-        return Map.of(
-                "levelledUp", levelledUp,
-                "newLevel", newLevel,
-                "alreadyCreditedToday", alreadyCredited);
+        return chatOrchestrationService.sessionEnd(userId, avatarId);
     }
 
     @PatchMapping("/teaching-mode")
@@ -304,13 +245,6 @@ public class ChatController {
         } catch (IllegalArgumentException e) {
             mode = TeachingMode.TEACHING;
         }
-
-        var avatar = avatarRepository.findById(avatarId)
-                .filter(a -> a.getUserId().equals(userId))
-                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
-        avatar.setTeachingMode(mode);
-        avatarRepository.save(avatar);
-
-        return Map.of("mode", mode.name());
+        return chatOrchestrationService.setTeachingMode(userId, avatarId, mode);
     }
 }
