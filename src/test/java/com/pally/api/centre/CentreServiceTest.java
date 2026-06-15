@@ -1,7 +1,6 @@
 package com.pally.api.centre;
 
 import com.pally.domain.account.AccountType;
-
 import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.organization.ClassEnrollmentService;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
@@ -17,14 +16,12 @@ import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.BusinessException;
-import com.pally.shared.response.ApiResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.ResponseEntity;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -41,8 +38,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * Unit tests for {@link CentreService} — student redeem/leave flows, owner
+ * dashboard, onboarding idempotency, activity, and the mark-centre guard.
+ * (Logic moved here from CentreController in the controller→service refactor;
+ * the controller is now a thin delegator.)
+ */
 @ExtendWith(MockitoExtension.class)
-class CentreControllerTest {
+class CentreServiceTest {
 
     @Mock CentreAccessService accessService;
     @Mock OrganizationJpaRepository orgRepo;
@@ -54,7 +57,7 @@ class CentreControllerTest {
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
     @Mock AvatarJpaRepository avatarJpaRepository;
 
-    @InjectMocks CentreController controller;
+    @InjectMocks CentreService service;
 
     private static final String OWNER_ID  = "owner-1";
     private static final String ORG_ID    = "org-1";
@@ -75,7 +78,7 @@ class CentreControllerTest {
         lenient().when(accessService.ensureOwner(OWNER_ID, ORG_ID)).thenReturn(org);
     }
 
-    // ── POST /redeem-class-code ──────────────────────────────────────────
+    // ── redeem-class-code ────────────────────────────────────────────────
 
     private OrgClassJpaEntity classEntity() {
         OrgClassJpaEntity cls = new OrgClassJpaEntity();
@@ -96,13 +99,11 @@ class CentreControllerTest {
         when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(user));
         when(classEnrollmentService.enroll(cls, STUDENT_A)).thenReturn(AVATAR_ID);
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
-                controller.redeemClassCode(STUDENT_A, Map.of("code", "abcd2345"));
+        Map<String, Object> data = service.redeemClassCode(STUDENT_A, Map.of("code", "abcd2345"));
 
         assertThat(user.getCentreId()).isEqualTo(ORG_ID);
         assertThat(user.getCohortLabel()).isEqualTo("P4 Math");
         verify(classEnrollmentService).enroll(cls, STUDENT_A);
-        Map<String, Object> data = resp.getBody().data();
         assertThat(data.get("classId")).isEqualTo("class-1");
         assertThat(data.get("className")).isEqualTo("P4 Math");
         assertThat(data.get("avatarId")).isEqualTo(AVATAR_ID);
@@ -113,7 +114,7 @@ class CentreControllerTest {
         when(classRepo.findByJoinCode("ZZZZ9999")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                controller.redeemClassCode(STUDENT_A, Map.of("code", "ZZZZ9999")))
+                service.redeemClassCode(STUDENT_A, Map.of("code", "ZZZZ9999")))
                 .isInstanceOf(BusinessException.class);
         verify(classEnrollmentService, never()).enroll(any(), anyString());
     }
@@ -121,12 +122,12 @@ class CentreControllerTest {
     @Test
     void redeemClassCode_blankCode_is400() {
         assertThatThrownBy(() ->
-                controller.redeemClassCode(STUDENT_A, Map.of("code", "  ")))
+                service.redeemClassCode(STUDENT_A, Map.of("code", "  ")))
                 .isInstanceOf(BusinessException.class);
         verify(classEnrollmentService, never()).enroll(any(), anyString());
     }
 
-    // ── POST /leave-class ────────────────────────────────────────────────
+    // ── leave-class ──────────────────────────────────────────────────────
 
     @Test
     void leaveClass_lastClassInCentre_clearsCentreId() {
@@ -139,12 +140,12 @@ class CentreControllerTest {
         user.setCohortLabel("P4 Math");
         when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(user));
 
-        var resp = controller.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
+        Map<String, Object> data = service.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
 
         verify(classEnrollmentService).leave(cls, STUDENT_A);
         assertThat(user.getCentreId()).isNull();
         assertThat(user.getCohortLabel()).isNull();
-        assertThat(resp.getBody().data().get("leftCentre")).isEqualTo(true);
+        assertThat(data.get("leftCentre")).isEqualTo(true);
     }
 
     @Test
@@ -161,21 +162,21 @@ class CentreControllerTest {
         cls2.setOrganizationId(ORG_ID); // same centre
         when(classRepo.findById("class-2")).thenReturn(Optional.of(cls2));
 
-        var resp = controller.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
+        Map<String, Object> data = service.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
 
         verify(classEnrollmentService).leave(cls, STUDENT_A);
         verify(userRepo, never()).save(any(UserJpaEntity.class));
-        assertThat(resp.getBody().data().get("leftCentre")).isEqualTo(false);
+        assertThat(data.get("leftCentre")).isEqualTo(false);
     }
 
     @Test
     void leaveClass_blankClassId_is400() {
-        assertThatThrownBy(() -> controller.leaveClass(STUDENT_A, Map.of("classId", "  ")))
+        assertThatThrownBy(() -> service.leaveClass(STUDENT_A, Map.of("classId", "  ")))
                 .isInstanceOf(BusinessException.class);
         verify(classEnrollmentService, never()).leave(any(), anyString());
     }
 
-    // ── GET /me ──────────────────────────────────────────────────────────
+    // ── me ───────────────────────────────────────────────────────────────
 
     @Test
     void me_ownerWithNoStudents_returnsOrgDetails() {
@@ -183,10 +184,8 @@ class CentreControllerTest {
         when(userRepo.countByCentreId(ORG_ID)).thenReturn(0L);
         when(userRepo.findByCentreId(ORG_ID)).thenReturn(Collections.emptyList());
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> response = controller.me(OWNER_ID);
+        Map<String, Object> body = service.me(OWNER_ID);
 
-        assertThat(response.getStatusCodeValue()).isEqualTo(200);
-        Map<String, Object> body = response.getBody().data();
         assertThat(body.get("orgId")).isEqualTo(ORG_ID);
         assertThat(body.get("orgName")).isEqualTo("Test Centre");
         assertThat(body.get("seatsUsed")).isEqualTo(0L);
@@ -204,8 +203,7 @@ class CentreControllerTest {
         UserJpaEntity u3 = makeUser("student-c", "Sec3A");
         when(userRepo.findByCentreId(ORG_ID)).thenReturn(List.of(u1, u2, u3));
 
-        var response = controller.me(OWNER_ID);
-        Map<String, Object> body = response.getBody().data();
+        Map<String, Object> body = service.me(OWNER_ID);
         assertThat(body.get("seatsUsed")).isEqualTo(3L);
         @SuppressWarnings("unchecked")
         List<String> cohorts = (List<String>) body.get("cohorts");
@@ -216,12 +214,12 @@ class CentreControllerTest {
     void me_notOwner_throws403() {
         when(orgRepo.findFirstByOwnerUserId("nobody")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> controller.me("nobody"))
+        assertThatThrownBy(() -> service.me("nobody"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("No centre access");
     }
 
-    // ── POST /organizations/{orgId}/avatars/{avatarId}/mark-centre ───────
+    // ── mark-centre ──────────────────────────────────────────────────────
 
     @Test
     void markCentre_avatarInOrg_setsCentreAvatarTrue() {
@@ -232,10 +230,8 @@ class CentreControllerTest {
         student.setCentreId(ORG_ID);
         when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(student));
 
-        var response = controller.markCentre(OWNER_ID, ORG_ID, AVATAR_ID);
+        Map<String, Object> body = service.markCentre(OWNER_ID, ORG_ID, AVATAR_ID);
 
-        assertThat(response.getStatusCodeValue()).isEqualTo(200);
-        Map<String, Object> body = response.getBody().data();
         assertThat(body.get("avatarId")).isEqualTo(AVATAR_ID);
         assertThat(body.get("centreAvatar")).isEqualTo(true);
         verify(avatarJpaRepository).save(avatar);
@@ -246,7 +242,7 @@ class CentreControllerTest {
     void markCentre_avatarNotFound_throws404() {
         when(avatarJpaRepository.findById("no-such")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> controller.markCentre(OWNER_ID, ORG_ID, "no-such"))
+        assertThatThrownBy(() -> service.markCentre(OWNER_ID, ORG_ID, "no-such"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Avatar not found");
     }
@@ -260,7 +256,7 @@ class CentreControllerTest {
         student.setCentreId("other-org"); // different org
         when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(student));
 
-        assertThatThrownBy(() -> controller.markCentre(OWNER_ID, ORG_ID, AVATAR_ID))
+        assertThatThrownBy(() -> service.markCentre(OWNER_ID, ORG_ID, AVATAR_ID))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("not in this org");
     }
@@ -270,21 +266,19 @@ class CentreControllerTest {
         when(accessService.ensureOwner("intruder", ORG_ID))
                 .thenThrow(new BusinessException("You don't own this organization", 403));
 
-        assertThatThrownBy(() -> controller.markCentre("intruder", ORG_ID, AVATAR_ID))
+        assertThatThrownBy(() -> service.markCentre("intruder", ORG_ID, AVATAR_ID))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("don't own");
     }
 
-    // ── GET /organizations/{orgId}/activity ─────────────────────────────
+    // ── activity ─────────────────────────────────────────────────────────
 
     @Test
     void activity_returnsCountAndSince() {
         when(quizResultRepo.countResultsForCentreSince(anyString(), any())).thenReturn(42L);
 
-        var response = controller.activity(OWNER_ID, ORG_ID, "2026-06-01T00:00:00Z");
+        Map<String, Object> body = service.activity(OWNER_ID, ORG_ID, "2026-06-01T00:00:00Z");
 
-        assertThat(response.getStatusCodeValue()).isEqualTo(200);
-        Map<String, Object> body = response.getBody().data();
         assertThat(body.get("quizResultCount")).isEqualTo(42L);
         assertThat(body.get("activeSince")).isNotNull();
     }
@@ -293,19 +287,18 @@ class CentreControllerTest {
     void activity_invalidSinceParam_defaultsToSevenDays() {
         when(quizResultRepo.countResultsForCentreSince(anyString(), any())).thenReturn(5L);
 
-        var response = controller.activity(OWNER_ID, ORG_ID, "not-a-date");
+        Map<String, Object> body = service.activity(OWNER_ID, ORG_ID, "not-a-date");
 
-        assertThat(response.getStatusCodeValue()).isEqualTo(200);
-        assertThat(response.getBody().data().get("quizResultCount")).isEqualTo(5L);
+        assertThat(body.get("quizResultCount")).isEqualTo(5L);
     }
 
     @Test
     void activity_missingSinceParam_defaultsToSevenDays() {
         when(quizResultRepo.countResultsForCentreSince(anyString(), any())).thenReturn(0L);
 
-        var response = controller.activity(OWNER_ID, ORG_ID, null);
+        Map<String, Object> body = service.activity(OWNER_ID, ORG_ID, null);
 
-        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+        assertThat(body.get("quizResultCount")).isEqualTo(0L);
     }
 
     @Test
@@ -313,12 +306,12 @@ class CentreControllerTest {
         when(accessService.ensureOwner("intruder", ORG_ID))
                 .thenThrow(new BusinessException("You don't own this organization", 403));
 
-        assertThatThrownBy(() -> controller.activity("intruder", ORG_ID, null))
+        assertThatThrownBy(() -> service.activity("intruder", ORG_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("don't own");
     }
 
-    // ── Self-serve onboarding ────────────────────────────────────────────
+    // ── onboarding ───────────────────────────────────────────────────────
 
     @Test
     void onboard_createsOrg_whenCallerOwnsNone_seatingThemAsOwner() {
@@ -328,15 +321,13 @@ class CentreControllerTest {
         when(userRepo.findById("u-new")).thenReturn(Optional.of(user));
         when(orgRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
-                controller.onboard("u-new", Map.of("centreName", "ABC Learning"));
+        Map<String, Object> body = service.onboard("u-new", Map.of("centreName", "ABC Learning"));
 
-        Map<String, Object> body = resp.getBody().data();
         assertThat(body.get("orgName")).isEqualTo("ABC Learning");
         assertThat(body.get("alreadyOwned")).isEqualTo(false);
         assertThat(body.get("orgId")).isNotNull();
-        // Ownership is recorded on the org; we must NOT overflow the VARCHAR(10)
-        // account_type column, and the owner is not seated as a student.
+        // Ownership is on the org; do NOT overflow VARCHAR(10) account_type,
+        // and the owner is not seated as a student.
         verify(orgRepo).save(any(OrganizationJpaEntity.class));
         assertThat(user.getAccountType()).isEqualTo(AccountType.SOLO); // unchanged
         assertThat(user.getCentreId()).isNull();
@@ -350,10 +341,8 @@ class CentreControllerTest {
         existing.setOwnerUserId("u1");
         when(orgRepo.findFirstByOwnerUserId("u1")).thenReturn(Optional.of(existing));
 
-        ResponseEntity<ApiResponse<Map<String, Object>>> resp =
-                controller.onboard("u1", Map.of("centreName", "Ignored"));
+        Map<String, Object> body = service.onboard("u1", Map.of("centreName", "Ignored"));
 
-        Map<String, Object> body = resp.getBody().data();
         assertThat(body.get("orgId")).isEqualTo("org-x");
         assertThat(body.get("alreadyOwned")).isEqualTo(true);
         verify(orgRepo, never()).save(any());
@@ -362,7 +351,7 @@ class CentreControllerTest {
     @Test
     void onboard_blankName_isRejected() {
         when(orgRepo.findFirstByOwnerUserId("u2")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> controller.onboard("u2", Map.of("centreName", "  ")))
+        assertThatThrownBy(() -> service.onboard("u2", Map.of("centreName", "  ")))
                 .isInstanceOf(BusinessException.class);
         verify(orgRepo, never()).save(any());
     }
