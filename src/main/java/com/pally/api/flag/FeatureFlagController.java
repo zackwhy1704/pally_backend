@@ -27,8 +27,8 @@ import java.util.Map;
  * </ul>
  *
  * <p>Defaults to off (no row = disabled). Admin endpoints are protected by the
- * same JWT filter as the rest of the API; in production they should also be
- * gated behind a role check (TODO).
+ * JWT filter and the {@code hasRole("ADMIN")} gate in {@code SecurityConfig}
+ * on {@code /api/v1/admin/**}.
  */
 @RestController
 @RequestMapping("/api/v1")
