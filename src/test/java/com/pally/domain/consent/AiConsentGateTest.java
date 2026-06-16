@@ -21,14 +21,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for the ALWAYS-ON AI data-transfer consent gate in ConsentGuard.
+ * Unit tests for the under-13 AI data-transfer consent gate in ConsentGuard.
  *
- * <p>The legacy {@code app.ai-consent.enabled} flag is gone — the gate is now
- * unconditional. Invariants verified:
+ * <p>The gate applies ONLY to under-13 users (PDPC 2024). Users aged 13 and
+ * over self-consent and must never be blocked. Invariants verified:
  * <ul>
- *   <li>No consent record → throws AiConsentRequiredException("AI_DATA_TRANSFER").</li>
- *   <li>A record without the AI_DATA_TRANSFER purpose → still throws.</li>
- *   <li>A record WITH the AI_DATA_TRANSFER purpose → allowed.</li>
+ *   <li>Under-13, no consent record → throws AiConsentRequiredException("AI_DATA_TRANSFER").</li>
+ *   <li>Under-13, record without AI_DATA_TRANSFER purpose → still throws.</li>
+ *   <li>Under-13, consent granted → allowed.</li>
+ *   <li>13+ user → always allowed, regardless of consent records.</li>
  * </ul>
  */
 @ExtendWith(MockitoExtension.class)
@@ -38,9 +39,27 @@ class AiConsentGateTest {
     @Mock ConsentRecordJpaRepository consentRecordRepo;
 
     private static final String USER_ID = "user-test";
+    // 2026 - 2015 = 11 → under 13
+    private static final int UNDER_13_BIRTH_YEAR = 2015;
+    // 2026 - 2010 = 16 → 13+
+    private static final int OVER_13_BIRTH_YEAR = 2010;
 
     private ConsentGuard guard() {
         return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService());
+    }
+
+    private User under13User() {
+        User u = new User();
+        u.setId(USER_ID);
+        u.setBirthYear(UNDER_13_BIRTH_YEAR);
+        return u;
+    }
+
+    private User over13User() {
+        User u = new User();
+        u.setId(USER_ID);
+        u.setBirthYear(OVER_13_BIRTH_YEAR);
+        return u;
     }
 
     private ConsentRecordJpaEntity consentRecord(String purposes) {
@@ -52,10 +71,11 @@ class AiConsentGateTest {
         return r;
     }
 
-    // ── Always-on: no consent → blocked ────────────────────────────────────
+    // ── Under-13: no consent → blocked ─────────────────────────────────────
 
     @Test
-    void requireAiConsent_noConsentRecord_throwsAiConsentRequired() {
+    void requireAiConsent_under13_noConsentRecord_throwsAiConsentRequired() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
         when(consentRecordRepo.findAll()).thenReturn(List.of());
 
         assertThatThrownBy(() -> guard().requireAiConsent(USER_ID))
@@ -66,7 +86,8 @@ class AiConsentGateTest {
     }
 
     @Test
-    void requireAiConsent_recordWithoutAiPurpose_throws() {
+    void requireAiConsent_under13_recordWithoutAiPurpose_throws() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
         when(consentRecordRepo.findAll()).thenReturn(List.of(
                 consentRecord("[\"tutoring\"]") // no AI_DATA_TRANSFER purpose
         ));
@@ -76,7 +97,8 @@ class AiConsentGateTest {
     }
 
     @Test
-    void requireAiConsent_recordForDifferentUser_throws() {
+    void requireAiConsent_under13_recordForDifferentUser_throws() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
         ConsentRecordJpaEntity other = consentRecord("[\"AI_DATA_TRANSFER\"]");
         other.setUserId("someone-else");
         when(consentRecordRepo.findAll()).thenReturn(List.of(other));
@@ -85,13 +107,25 @@ class AiConsentGateTest {
                 .isInstanceOf(AiConsentRequiredException.class);
     }
 
-    // ── Always-on: consent granted → allowed ───────────────────────────────
+    // ── Under-13: consent granted → allowed ────────────────────────────────
 
     @Test
-    void requireAiConsent_consentGranted_allowed() {
+    void requireAiConsent_under13_consentGranted_allowed() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
         when(consentRecordRepo.findAll()).thenReturn(List.of(
                 consentRecord("[\"AI_DATA_TRANSFER\",\"tutoring\"]")
         ));
+
+        assertThatCode(() -> guard().requireAiConsent(USER_ID))
+                .doesNotThrowAnyException();
+    }
+
+    // ── 13+: gate is always a no-op ────────────────────────────────────────
+
+    @Test
+    void requireAiConsent_over13_noConsentRecord_allowed() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(over13User()));
+        // No consent records at all — must still pass for 13+ users.
 
         assertThatCode(() -> guard().requireAiConsent(USER_ID))
                 .doesNotThrowAnyException();

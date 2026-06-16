@@ -88,32 +88,31 @@ public class ConsentGuard {
     }
 
     /**
-     * Checks that the user has granted AI data-transfer consent before sending their
-     * data to third-party AI processors (Anthropic Claude, Google Gemini).
+     * Checks that an <em>under-13</em> user has granted AI data-transfer consent
+     * before sending their data to third-party AI processors (Anthropic Claude,
+     * Google Gemini). Users aged 13 and over self-consent and are never blocked here.
      *
-     * <p>This gate is ALWAYS enforced. The plain-language disclosure naming Anthropic
-     * (Claude) and Google (Gemini) as overseas AI processors must be shown in the UI
-     * BEFORE the user's first upload or chat; the client then POSTs
+     * <p>For under-13 users: the plain-language disclosure naming Anthropic (Claude)
+     * and Google (Gemini) as overseas AI processors must be shown in the UI BEFORE
+     * the user's first upload or chat; the client then POSTs
      * {@code /consent/ai-data-transfer} which records the consent that satisfies this
      * gate. Until then this throws {@link AiConsentRequiredException} with reason
      * {@link #REASON_AI_DATA_TRANSFER}, mapped to HTTP 403 / code AI_CONSENT_REQUIRED.
      *
-     * <p>Wire this check at the TOP of:
-     * <ul>
-     *   <li>The upload pipeline entry point ({@code UploadFileUseCase.execute})</li>
-     *   <li>{@code SendMessageUseCase.executeStream} — after the slot-guard check</li>
-     * </ul>
-     *
      * @param userId the authenticated user
      */
     public void requireAiConsent(String userId) {
+        User user = userRepo.findById(userId).orElse(null);
+        if (user == null) return; // user not found → fail open
+        if (!userAgeService.isUnder13(user)) return; // 13+ → self-consent, no gate
+
         boolean hasConsented = consentRecordRepo.findAll().stream()
                 .anyMatch(r -> userId.equals(r.getUserId())
                         && r.getPurposes() != null
                         && r.getPurposes().contains(REASON_AI_DATA_TRANSFER));
 
         if (!hasConsented) {
-            log.info("[Consent] AI_DATA_TRANSFER consent required for user={}", userId);
+            log.info("[Consent] AI_DATA_TRANSFER consent required for under-13 user={}", userId);
             throw new AiConsentRequiredException(REASON_AI_DATA_TRANSFER);
         }
     }

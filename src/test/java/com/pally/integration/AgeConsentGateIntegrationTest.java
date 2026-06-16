@@ -121,17 +121,36 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void unconsentedUser_hitsAiConsentRequiredFirst() {
-        AuthResult user = registerUser(
-                "noconsent-" + System.nanoTime() + "@test.com", "password123");
-        avatarId = createAvatar(user.token());
+    void under13_unconsentedUser_hitsAiConsentRequired() {
+        // AI consent gate only applies to under-13 users. Register without
+        // calling grantAiConsent so the gate fires.
+        AuthResult kid = registerUserWithBirthYear(
+                "noconsent-" + System.nanoTime() + "@test.com", "password123", sgYear() - 10);
+        avatarId = createAvatar(kid.token());
 
-        ResponseEntity<Map> resp = uploadBytes(user.token(),
+        ResponseEntity<Map> resp = uploadBytes(kid.token(),
                 "Fractions: numerator over denominator.".getBytes(StandardCharsets.UTF_8),
                 "frac.txt", "text/plain");
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         Map<String, Object> data = (Map<String, Object>) resp.getBody().get("data");
         assertThat(data).containsEntry("code", "AI_CONSENT_REQUIRED");
+    }
+
+    @Test
+    void thirteenPlus_unconsentedUser_isNeverBlockedByAiConsentGate() {
+        // 13+ users self-consent — the AI disclosure gate must be a no-op for them.
+        AuthResult teen = registerUserWithBirthYear(
+                "noconsent13plus-" + System.nanoTime() + "@test.com", "password123", sgYear() - 16);
+        avatarId = createAvatar(teen.token());
+
+        ResponseEntity<Map> resp = uploadBytes(teen.token(),
+                "Fractions: numerator over denominator.".getBytes(StandardCharsets.UTF_8),
+                "frac.txt", "text/plain");
+        // Upload should succeed (or fail for another reason) — never with AI_CONSENT_REQUIRED.
+        if (resp.getStatusCode() == HttpStatus.FORBIDDEN) {
+            Map<String, Object> data = (Map<String, Object>) resp.getBody().get("data");
+            assertThat(data).doesNotContainEntry("code", "AI_CONSENT_REQUIRED");
+        }
     }
 
     @Test
