@@ -62,6 +62,20 @@ never re-implemented inline in handlers.
   user-facing time · editing a shipped migration · changing an API response shape during a refactor ·
   hardcoded secrets.
 
+## API ERROR CONTRACT
+- **SSE endpoints** use `ResponseType.stream` on the Flutter client — Dio never decodes the error body
+  as JSON. Write error JSON with `response.setStatus(403)` + `response.getWriter().write(json)` BEFORE
+  the SSE Flux starts. Never throw inside the Flux (the client won't see it).
+- **All non-SSE endpoints**: throw a mapped domain exception — the global `@ControllerAdvice` handler
+  converts it to `ApiResponse` with the correct HTTP status. Never `write()` raw JSON to
+  `HttpServletResponse` outside the global handler.
+- **Railway idle timeout is 60 s**. Streaming endpoints must emit an SSE heartbeat or first event within
+  55 s; never block the response thread past 55 s.
+
+## DON'T (additions)
+- SSE error written inside the Flux body · raw JSON to `HttpServletResponse` outside the global handler ·
+  thread blocked >55 s without streaming · UTC for any user-facing day/streak/report boundary.
+
 ## Common commands
 ```
 ./gradlew compileJava      # compile
