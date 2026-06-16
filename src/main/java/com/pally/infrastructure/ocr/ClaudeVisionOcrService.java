@@ -21,8 +21,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * OCR via Claude Haiku vision — no native binaries, works on Railway out
- * of the box. Replaces {@link TesseractOcrService} (which was a stub) for
- * every {@link OcrPort} injection point because of {@link Primary}.
+ * of the box. Primary engine in the ResilientOcrService chain.
  *
  * <p>Retries 429 (rate-limit) and 5xx (server error) up to 3 times with
  * exponential backoff (2s → 4s → 8s). This is the single point of failure

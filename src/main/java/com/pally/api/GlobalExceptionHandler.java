@@ -5,6 +5,7 @@ import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
 import com.pally.shared.exception.GuardianRequiredException;
+import com.pally.shared.exception.OcrUnavailableException;
 import com.pally.shared.exception.PallyException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import com.pally.shared.response.ApiResponse;
@@ -129,6 +130,19 @@ public class GlobalExceptionHandler {
         Map<String, Object> payload = Map.of("status", ex.getReviewStatus());
         return ResponseEntity.status(410)
                 .body(new ApiResponse<>(payload, ex.getMessage(), 410));
+    }
+
+    /// Safety-net for any {@link OcrUnavailableException} that escapes use-case
+    /// catch blocks. Upload use cases catch it first and convert to UploadResult.Failure;
+    /// this 422 covers any other call site that doesn't.
+    @ExceptionHandler(OcrUnavailableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOcrUnavailable(OcrUnavailableException ex) {
+        log.warn("OCR unavailable: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiResponse.error(
+                        "Couldn't extract text from this file — our image reading service is temporarily "
+                        + "unavailable. Please try again shortly.", 422));
     }
 
     /**

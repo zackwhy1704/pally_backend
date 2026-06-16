@@ -1,17 +1,21 @@
 package com.pally.infrastructure.ocr;
 
 import com.pally.domain.knowledge.port.OcrPort;
+import com.pally.shared.exception.OcrUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 /**
- * Composite OCR service that chains: Claude Vision -> Gemini Vision -> Tesseract (stub).
+ * Composite OCR service that chains: Claude Vision → Gemini Vision.
  *
  * <p>Marked {@code @Primary} so all {@link OcrPort} injection points get the
  * resilient chain instead of a single engine. Quality guard: if extracted text
  * is suspiciously short (<10 chars) for an image >10KB, the next engine is tried.
+ *
+ * <p>Throws {@link OcrUnavailableException} when both engines fail or return
+ * insufficient text — no silent empty-string fallback.
  *
  * <p>Records which engine actually served via {@link #getLastResult()}, which
  * callers can use to set the {@code ocrEngine} field on KnowledgeFile.
@@ -30,18 +34,15 @@ public class ResilientOcrService implements OcrPort {
 
     private final ClaudeVisionOcrService claudeOcr;
     private final GeminiVisionOcrService geminiOcr;
-    private final TesseractOcrService tesseractOcr;
 
     /** ThreadLocal to avoid thread-safety issues when returning which engine served. */
     private final ThreadLocal<OcrResult> lastResult = new ThreadLocal<>();
 
     public ResilientOcrService(
             ClaudeVisionOcrService claudeOcr,
-            GeminiVisionOcrService geminiOcr,
-            TesseractOcrService tesseractOcr) {
+            GeminiVisionOcrService geminiOcr) {
         this.claudeOcr = claudeOcr;
         this.geminiOcr = geminiOcr;
-        this.tesseractOcr = tesseractOcr;
     }
 
     @Override
@@ -52,6 +53,7 @@ public class ResilientOcrService implements OcrPort {
         }
 
         boolean largeImage = fileBytes.length > QUALITY_MIN_IMAGE_BYTES;
+        String claudeFailReason = null;
 
         // ── Engine 1: Claude Vision (primary) ───────────────────────────────
         try {
@@ -62,14 +64,14 @@ public class ResilientOcrService implements OcrPort {
                 log.info("[ResilientOCR] Claude served: {} chars", text.length());
                 return text;
             }
-            log.warn("[ResilientOCR] Claude returned insufficient text ({} chars) — trying Gemini",
-                    text.length());
+            claudeFailReason = "insufficient text (" + (text == null ? 0 : text.length()) + " chars)";
+            log.warn("[ResilientOCR] Claude returned {} — trying Gemini", claudeFailReason);
         } catch (Exception e) {
-            log.warn("[ResilientOCR] Claude OCR failed: {} — trying Gemini",
-                    e.getMessage());
+            claudeFailReason = e.getMessage();
+            log.warn("[ResilientOCR] Claude OCR failed: {} — trying Gemini", claudeFailReason);
         }
 
-        // ── Engine 2: Gemini Vision (fallback) ──────────────────────────────
+        // ── Engine 2: Gemini Vision (fallback, terminal) ─────────────────────
         if (geminiOcr.isAvailable()) {
             try {
                 String text = geminiOcr.extractText(fileBytes, mimeType);
@@ -79,32 +81,26 @@ public class ResilientOcrService implements OcrPort {
                     log.info("[ResilientOCR] Gemini served (degraded): {} chars", text.length());
                     return text;
                 }
-                log.warn("[ResilientOCR] Gemini returned insufficient text ({} chars) — trying Tesseract",
-                        text.length());
+                String geminiReason = "insufficient text (" + (text == null ? 0 : text.length()) + " chars)";
+                log.warn("[ResilientOCR] Gemini returned {} — all engines exhausted", geminiReason);
+                throw new OcrUnavailableException(
+                        "All OCR engines exhausted. Claude: " + claudeFailReason + "; Gemini: " + geminiReason);
+            } catch (OcrUnavailableException e) {
+                lastResult.set(OcrResult.empty("all-failed"));
+                throw e;
             } catch (Exception e) {
-                log.warn("[ResilientOCR] Gemini OCR failed: {} — trying Tesseract",
-                        e.getMessage());
+                log.warn("[ResilientOCR] Gemini OCR failed: {}", e.getMessage());
+                lastResult.set(OcrResult.empty("all-failed"));
+                throw new OcrUnavailableException(
+                        "All OCR engines exhausted. Claude: " + claudeFailReason + "; Gemini: " + e.getMessage(), e);
             }
-        } else {
-            log.debug("[ResilientOCR] Gemini not available (no API key) — trying Tesseract");
         }
 
-        // ── Engine 3: Tesseract (last resort, stub) ─────────────────────────
-        try {
-            String text = tesseractOcr.extractText(fileBytes, mimeType);
-            OcrResult result = OcrResult.of(text, "tesseract", true);
-            lastResult.set(result);
-            if (!text.isEmpty()) {
-                log.info("[ResilientOCR] Tesseract served (degraded): {} chars", text.length());
-            } else {
-                log.warn("[ResilientOCR] All 3 OCR engines failed or returned empty text");
-            }
-            return text;
-        } catch (Exception e) {
-            log.error("[ResilientOCR] All OCR engines failed", e);
-            lastResult.set(OcrResult.empty("all-failed"));
-            return "";
-        }
+        // Gemini not configured — only engine available was Claude and it failed.
+        log.warn("[ResilientOCR] Gemini not available (no API key); Claude also failed: {}", claudeFailReason);
+        lastResult.set(OcrResult.empty("all-failed"));
+        throw new OcrUnavailableException(
+                "OCR unavailable: Claude failed (" + claudeFailReason + ") and Gemini is not configured.");
     }
 
     /**

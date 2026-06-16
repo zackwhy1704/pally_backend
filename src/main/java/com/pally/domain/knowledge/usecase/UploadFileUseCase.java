@@ -18,6 +18,7 @@ import com.pally.infrastructure.ocr.PdfTextExtractor;
 import com.pally.domain.knowledge.port.OcrPort;
 import com.pally.infrastructure.storage.StorageService;
 import com.pally.shared.exception.AvatarNotFoundException;
+import com.pally.shared.exception.OcrUnavailableException;
 import com.pally.shared.util.TextSampler;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -201,6 +202,13 @@ public class UploadFileUseCase {
                 pageCount = 1;
                 log.info("[Pipeline:Upload] OCR extracted fileId={} chars={}", fileId, extractedText.length());
             }
+        } catch (OcrUnavailableException e) {
+            log.warn("[Upload] OCR unavailable for fileId={}: {}", fileId, e.getMessage());
+            kf.markFailed();
+            knowledgeRepository.save(kf);
+            return new UploadResult.Failure(
+                    "Couldn't read text from this photo — our image reading service is temporarily unavailable. "
+                    + "Please try again in a few minutes, or copy-paste the text instead.", null);
         } catch (IOException e) {
             log.error("Extraction failure for fileId={}", fileId, e);
             kf.markFailed();

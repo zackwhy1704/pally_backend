@@ -1,5 +1,6 @@
 package com.pally.infrastructure.ocr;
 
+import com.pally.shared.exception.OcrUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -7,27 +8,27 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
  * Tests for the OCR fallback chain logic in ResilientOcrService.
- * Verifies: Claude -> Gemini -> Tesseract cascade, quality guard,
- * and servedBy/degraded metadata.
+ * Verifies: Claude → Gemini cascade, quality guard, servedBy/degraded metadata,
+ * and OcrUnavailableException when both engines fail.
  */
 @ExtendWith(MockitoExtension.class)
 class ResilientOcrServiceTest {
 
     @Mock ClaudeVisionOcrService claudeOcr;
     @Mock GeminiVisionOcrService geminiOcr;
-    @Mock TesseractOcrService tesseractOcr;
 
     private ResilientOcrService service;
 
     @BeforeEach
     void setUp() {
-        service = new ResilientOcrService(claudeOcr, geminiOcr, tesseractOcr);
+        service = new ResilientOcrService(claudeOcr, geminiOcr);
     }
 
     @Test
@@ -61,21 +62,28 @@ class ResilientOcrServiceTest {
     }
 
     @Test
-    void extractText_claudeAndGeminiFail_tesseractServes() {
+    void extractText_claudeAndGeminiBothReturnEmpty_throwsOcrUnavailable() {
+        when(claudeOcr.extractText(any(), any())).thenReturn("");
+        when(geminiOcr.isAvailable()).thenReturn(true);
+        when(geminiOcr.extractText(any(), any())).thenReturn("");
+
+        assertThatThrownBy(() -> service.extractText(new byte[100], "image/jpeg"))
+                .isInstanceOf(OcrUnavailableException.class);
+
+        assertThat(service.getLastResult().servedBy()).isEqualTo("all-failed");
+    }
+
+    @Test
+    void extractText_claudeAndGeminiBothThrow_throwsOcrUnavailable() {
         when(claudeOcr.extractText(any(), any()))
-                .thenReturn(""); // empty = unacceptable
+                .thenThrow(new RuntimeException("Claude timeout"));
         when(geminiOcr.isAvailable()).thenReturn(true);
         when(geminiOcr.extractText(any(), any()))
-                .thenReturn(""); // also empty
-        when(tesseractOcr.extractText(any(byte[].class), any()))
-                .thenReturn("Tesseract text");
+                .thenThrow(new RuntimeException("Gemini timeout"));
 
-        String result = service.extractText(new byte[100], "image/jpeg");
-
-        assertThat(result).isEqualTo("Tesseract text");
-        OcrResult meta = service.getLastResult();
-        assertThat(meta.servedBy()).isEqualTo("tesseract");
-        assertThat(meta.degraded()).isTrue();
+        assertThatThrownBy(() -> service.extractText(new byte[100], "image/jpeg"))
+                .isInstanceOf(OcrUnavailableException.class)
+                .hasMessageContaining("Gemini timeout");
     }
 
     @Test
@@ -95,7 +103,7 @@ class ResilientOcrServiceTest {
 
     @Test
     void extractText_smallImage_shortTextAccepted() {
-        // Small image (<10KB) — short text is OK
+        // Small image (<10KB) — short text is OK, no quality threshold applies
         byte[] smallImage = new byte[5_000];
         when(claudeOcr.extractText(any(), any())).thenReturn("A=5");
 
@@ -107,29 +115,15 @@ class ResilientOcrServiceTest {
     }
 
     @Test
-    void extractText_geminiNotAvailable_skipsToTesseract() {
+    void extractText_geminiNotAvailable_claudeFails_throwsOcrUnavailable() {
         when(claudeOcr.extractText(any(), any())).thenReturn("");
         when(geminiOcr.isAvailable()).thenReturn(false);
-        when(tesseractOcr.extractText(any(byte[].class), any()))
-                .thenReturn("Tesseract only");
 
-        String result = service.extractText(new byte[100], "image/jpeg");
+        assertThatThrownBy(() -> service.extractText(new byte[100], "image/jpeg"))
+                .isInstanceOf(OcrUnavailableException.class)
+                .hasMessageContaining("Gemini is not configured");
 
-        assertThat(result).isEqualTo("Tesseract only");
         verify(geminiOcr, never()).extractText(any(byte[].class), any());
-    }
-
-    @Test
-    void extractText_allEnginesFail_returnsEmpty() {
-        when(claudeOcr.extractText(any(), any())).thenReturn("");
-        when(geminiOcr.isAvailable()).thenReturn(true);
-        when(geminiOcr.extractText(any(), any())).thenReturn("");
-        when(tesseractOcr.extractText(any(byte[].class), any())).thenReturn("");
-
-        String result = service.extractText(new byte[100], "image/jpeg");
-
-        assertThat(result).isEmpty();
-        assertThat(service.getLastResult().servedBy()).isEqualTo("tesseract");
     }
 
     @Test
