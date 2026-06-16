@@ -8,6 +8,7 @@ import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository;
 import com.pally.infrastructure.persistence.module.ModuleProgressJpaEntity;
 import com.pally.infrastructure.persistence.module.ModuleProgressJpaRepository;
+import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
@@ -128,7 +129,8 @@ class ClassBriefServiceTest {
         ClassBriefService.BriefInputs inputs = new ClassBriefService.BriefInputs(
                 List.of(new ClassBriefService.ConceptSignal("Quadratics", 0.8, List.of("Student #1"))),
                 List.of(new ClassBriefService.StudentSignal("Student #1", 0.2, List.of("Quadratics"))),
-                Map.of("Student #1", "Alice"),
+                Map.of("user-alice", "Student #1"),   // anonById
+                Map.of("Student #1", "Alice"),          // nameByAnon
                 1);
 
         String result = service.generate(inputs);
@@ -144,7 +146,7 @@ class ClassBriefServiceTest {
                 .thenReturn(VALID_BRIEF_JSON);
 
         ClassBriefService.BriefInputs inputs = new ClassBriefService.BriefInputs(
-                List.of(), List.of(), Map.of(), 1);
+                List.of(), List.of(), Map.of(), Map.of(), 1);
 
         String result = service.generate(inputs);
         assertThat(result).contains("openWith");
@@ -160,7 +162,7 @@ class ClassBriefServiceTest {
                 .thenReturn("also not json");
 
         ClassBriefService.BriefInputs inputs = new ClassBriefService.BriefInputs(
-                List.of(), List.of(), Map.of(), 1);
+                List.of(), List.of(), Map.of(), Map.of(), 1);
 
         assertThatThrownBy(() -> service.generate(inputs))
                 .isInstanceOf(BusinessException.class)
@@ -171,12 +173,14 @@ class ClassBriefServiceTest {
 
     @Test
     void getOrGenerate_cacheFresh_doesNotCallAI() {
+        // null anonMapJson → legacy path (fallback to current roster)
         ClassBrief cached = ClassBrief.create("id-1", CLASS_ID, MODULE_ID,
-                VALID_BRIEF_JSON, Instant.now());
+                VALID_BRIEF_JSON, null, Instant.now());
         when(briefRepo.findByClassIdAndModuleId(CLASS_ID, MODULE_ID))
                 .thenReturn(Optional.of(cached));
         when(briefRepo.findMaxProgressCompletedAt(CLASS_ID, MODULE_ID))
                 .thenReturn(Optional.of(Instant.now().minusSeconds(3600))); // older than brief
+        // Legacy fallback calls these to rebuild anon map from current roster
         when(briefRepo.findActiveStudentIds(CLASS_ID)).thenReturn(List.of(STUDENT_1));
         when(userRepo.findAllById(any())).thenReturn(List.of());
 
@@ -196,6 +200,59 @@ class ClassBriefServiceTest {
                 .hasMessageContaining("No students");
     }
 
+    /**
+     * B1 regression: roster changes between generate and read must not shift identities.
+     * Alice was "Student #1" when the brief was generated. Aaron joins later and would be
+     * first alphabetically on the current roster. The stored anon map must ensure Alice
+     * is still resolved as the flagged student, not Aaron.
+     */
+    @Test
+    void getOrGenerate_rosterChangedAfterGeneration_storedAnonMapPreservesIdentity()
+            throws Exception {
+        String aliceId = "user-alice";
+        String bobId   = "user-bob";
+        String carolId = "user-carol";
+
+        // Anon map captured at generation: Alice = #1, Bob = #2, Carol = #3
+        String storedAnonMap = objectMapper.writeValueAsString(Map.of(
+                aliceId, "Student #1",
+                bobId,   "Student #2",
+                carolId, "Student #3"));
+
+        String briefJson = """
+                {
+                  "openWith": "Review",
+                  "focusConcepts": [],
+                  "checkOn": ["Student #1"],
+                  "suggestedGroups": [],
+                  "skipLine": null
+                }
+                """;
+
+        ClassBrief cached = ClassBrief.create(
+                "id-1", CLASS_ID, MODULE_ID, briefJson, storedAnonMap, Instant.now());
+        when(briefRepo.findByClassIdAndModuleId(CLASS_ID, MODULE_ID))
+                .thenReturn(Optional.of(cached));
+        // Cache is still fresh (no new progress)
+        when(briefRepo.findMaxProgressCompletedAt(CLASS_ID, MODULE_ID))
+                .thenReturn(Optional.of(Instant.now().minusSeconds(3600)));
+
+        // Fresh name lookup returns Alice by her userId (Aaron is NOT here — wasn't in original map)
+        UserJpaEntity alice = makeUser(aliceId, "Alice");
+        UserJpaEntity bob   = makeUser(bobId,   "Bob");
+        UserJpaEntity carol = makeUser(carolId, "Carol");
+        when(userRepo.findAllById(any())).thenReturn(List.of(alice, bob, carol));
+
+        Map<String, Object> result = service.getOrGenerate(CLASS_ID, MODULE_ID);
+
+        @SuppressWarnings("unchecked")
+        List<String> checkOn = (List<String>) result.get("checkOn");
+        assertThat(checkOn)
+                .as("Student #1 should resolve to Alice (stored at generation), not Aaron")
+                .containsExactly("Alice")
+                .doesNotContain("Aaron");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ModuleProgressJpaEntity makeProgress(
@@ -207,5 +264,12 @@ class ClassBriefServiceTest {
         e.setScore(new BigDecimal(String.valueOf(score)));
         e.setStage("TEST");
         return e;
+    }
+
+    private UserJpaEntity makeUser(String id, String displayName) {
+        UserJpaEntity u = new UserJpaEntity();
+        u.setId(id);
+        u.setDisplayName(displayName);
+        return u;
     }
 }

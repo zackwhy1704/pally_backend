@@ -11,9 +11,9 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 /**
- * Sends a safety alert email when a user accumulates {@value #FLAG_ALERT_THRESHOLD}
- * or more moderation flags within a 24-hour window. Each flag that crosses or
- * re-crosses the threshold triggers an email so the admin doesn't miss escalations.
+ * Sends a safety alert email when a HIGH-severity flag arrives, or when a user
+ * hits exactly {@value #FLAG_ALERT_THRESHOLD} flags within a 24-hour window.
+ * The exact-match debounce prevents a flood of emails when the count climbs past 3.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,21 +29,31 @@ public class SafetyAlertService {
     private String alertEmail;
 
     /**
-     * Checks the 24-hour flag count for {@code userId}; sends an alert if it
-     * has reached (or passed) the threshold. Call this AFTER the flag has been
-     * written to the DB by {@link ModerationService}.
+     * Determines whether to send an admin alert after a flag has been written.
+     *
+     * <ul>
+     *   <li>HIGH severity → immediate alert, regardless of total count.
+     *   <li>LOW/MEDIUM → alert only on the 3rd flag in 24 h (count == threshold,
+     *       not ≥, to avoid an email per subsequent flag).
+     * </ul>
      *
      * <p>This method is intentionally synchronous and safe to call from any thread.
      * Never call it on a Project Reactor scheduler thread — submit it via
      * {@code CompletableFuture.runAsync()} instead.
      */
-    public void checkAndAlert(String userId, String avatarId, String messageId) {
+    public void checkAndAlert(String userId, String avatarId, String messageId, String severity) {
         try {
+            if ("HIGH".equals(severity)) {
+                log.warn("[Safety] HIGH-severity flag — immediate alert user={} msg={}", userId, messageId);
+                sendAlert(userId, avatarId, messageId, 1);
+                return;
+            }
+
             Instant since = Instant.now().minus(24, ChronoUnit.HOURS);
             long count = flagRepo.countByChildUserIdAndCreatedAtAfter(userId, since);
 
-            if (count >= FLAG_ALERT_THRESHOLD) {
-                log.warn("[Safety] User={} has {} flags in last 24h — sending alert", userId, count);
+            if (count == FLAG_ALERT_THRESHOLD) {
+                log.warn("[Safety] User={} reached {} flags in 24h — sending alert", userId, count);
                 sendAlert(userId, avatarId, messageId, count);
             }
         } catch (Exception e) {

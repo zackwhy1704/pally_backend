@@ -30,6 +30,9 @@ public class ClassBriefJpaEntity {
     @Column(name = "brief_json", nullable = false, columnDefinition = "TEXT")
     private String briefJson;
 
+    @Column(name = "anon_map_json", columnDefinition = "TEXT")
+    private String anonMapJson;
+
     @Column(name = "generated_at", nullable = false)
     private Instant generatedAt;
 }

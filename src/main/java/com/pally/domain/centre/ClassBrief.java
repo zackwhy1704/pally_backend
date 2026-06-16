@@ -19,16 +19,19 @@ public class ClassBrief {
     private String classId;
     private String moduleId; // null = whole-class scope
     private String briefJson;
+    /** JSON map of userId → "Student #N" as captured at generation time. */
+    private String anonMapJson;
     private Instant generatedAt;
 
     public static ClassBrief create(
             String id, String classId, String moduleId,
-            String briefJson, Instant generatedAt) {
+            String briefJson, String anonMapJson, Instant generatedAt) {
         ClassBrief b = new ClassBrief();
         b.id = id;
         b.classId = classId;
         b.moduleId = moduleId;
         b.briefJson = briefJson;
+        b.anonMapJson = anonMapJson;
         b.generatedAt = generatedAt;
         return b;
     }

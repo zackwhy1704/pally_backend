@@ -27,7 +27,6 @@ import com.pally.infrastructure.ai.CacheMetrics;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
 import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.ai.ModelRouter;
-import com.pally.infrastructure.ai.SafetyAlertService;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -77,7 +76,6 @@ public class SendMessageUseCase {
     private final ChatSessionSummariser sessionSummariser;
     private final ConsentGuard consentGuard;
     private final ModerationService moderationService;
-    private final SafetyAlertService safetyAlertService;
     private final AvatarSlotGuard avatarSlotGuard;
     private final PremiumService premiumService;
     private final WikiRepository wikiRepository;
@@ -106,7 +104,6 @@ public class SendMessageUseCase {
             ChatSessionSummariser sessionSummariser,
             ConsentGuard consentGuard,
             ModerationService moderationService,
-            SafetyAlertService safetyAlertService,
             AvatarSlotGuard avatarSlotGuard,
             PremiumService premiumService,
             WikiRepository wikiRepository,
@@ -125,7 +122,6 @@ public class SendMessageUseCase {
         this.sessionSummariser = sessionSummariser;
         this.consentGuard = consentGuard;
         this.moderationService = moderationService;
-        this.safetyAlertService = safetyAlertService;
         this.avatarSlotGuard = avatarSlotGuard;
         this.premiumService = premiumService;
         this.wikiRepository = wikiRepository;
@@ -409,11 +405,7 @@ public class SendMessageUseCase {
                         final String replySnapshot = cleanReply;
                         CompletableFuture.runAsync(() -> {
                             try {
-                                ModerationService.ModerationResult outputMod =
-                                        moderationService.screenOutput(userId, avatarId, savedId, replySnapshot);
-                                if (outputMod.flagged()) {
-                                    safetyAlertService.checkAndAlert(userId, avatarId, savedId);
-                                }
+                                moderationService.screenOutput(userId, avatarId, savedId, replySnapshot);
                             } catch (Exception e) {
                                 log.warn("[Chat] Post-hoc moderation failed for msg={}: {}",
                                         savedId, e.getMessage());

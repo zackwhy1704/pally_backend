@@ -23,7 +23,6 @@ import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
 import com.pally.infrastructure.ai.ModerationService;
-import com.pally.infrastructure.ai.SafetyAlertService;
 import com.pally.infrastructure.ai.ModelRouter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +59,6 @@ class SendMessageUseCaseCorpusRedirectTest {
     @Mock private ChatSessionSummariser sessionSummariser;
     @Mock private ConsentGuard consentGuard;
     @Mock private ModerationService moderationService;
-    @Mock private SafetyAlertService safetyAlertService;
     @Mock private AvatarSlotGuard avatarSlotGuard;
     @Mock private PremiumService premiumService;
     @Mock private WikiRepository wikiRepository;
@@ -75,7 +73,7 @@ class SendMessageUseCaseCorpusRedirectTest {
                 avatarRepository, chatRepository, chatPort, contextAssembler,
                 hintTreeRepository, chatSessionRepository, topicClassifier,
                 socraticPromptBuilder, modelRouter, sessionSummariser,
-                consentGuard, moderationService, safetyAlertService, avatarSlotGuard,
+                consentGuard, moderationService, avatarSlotGuard,
                 premiumService, wikiRepository,
                 learningModuleRepo, contentGapSignalRepo);
         ReflectionTestUtils.setField(useCase, "closedBookEnabled", true);

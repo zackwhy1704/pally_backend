@@ -44,7 +44,7 @@ public class ClassBriefRepositoryAdapter implements ClassBriefRepository {
 
     private ClassBrief toDomain(ClassBriefJpaEntity e) {
         return ClassBrief.create(e.getId(), e.getClassId(), e.getModuleId(),
-                e.getBriefJson(), e.getGeneratedAt());
+                e.getBriefJson(), e.getAnonMapJson(), e.getGeneratedAt());
     }
 
     private ClassBriefJpaEntity toEntity(ClassBrief d) {
@@ -53,6 +53,7 @@ public class ClassBriefRepositoryAdapter implements ClassBriefRepository {
         e.setClassId(d.getClassId());
         e.setModuleId(d.getModuleId());
         e.setBriefJson(d.getBriefJson());
+        e.setAnonMapJson(d.getAnonMapJson());
         e.setGeneratedAt(d.getGeneratedAt());
         return e;
     }

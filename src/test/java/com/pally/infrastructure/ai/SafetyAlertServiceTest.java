@@ -29,33 +29,43 @@ class SafetyAlertServiceTest {
     }
 
     @Test
-    void checkAndAlert_belowThreshold_noEmailSent() {
+    void checkAndAlert_lowSeverity_belowThreshold_noEmailSent() {
         when(flagRepo.countByChildUserIdAndCreatedAtAfter(anyString(), any(Instant.class)))
                 .thenReturn(2L);
 
-        service.checkAndAlert("user-1", "avatar-1", "msg-1");
+        service.checkAndAlert("user-1", "avatar-1", "msg-1", "LOW");
 
         verify(emailService, never()).sendHtml(any(), any(), any());
     }
 
     @Test
-    void checkAndAlert_atThreshold_emailSent() {
+    void checkAndAlert_mediumSeverity_exactlyAtThreshold_emailSent() {
         when(flagRepo.countByChildUserIdAndCreatedAtAfter(anyString(), any(Instant.class)))
                 .thenReturn(3L);
 
-        service.checkAndAlert("user-1", "avatar-1", "msg-1");
+        service.checkAndAlert("user-1", "avatar-1", "msg-1", "MEDIUM");
 
         verify(emailService).sendHtml(eq("admin@example.com"), contains("3"), anyString());
     }
 
     @Test
-    void checkAndAlert_aboveThreshold_emailSent() {
+    void checkAndAlert_lowSeverity_aboveThreshold_debounced_noEmail() {
+        // count > 3 — debounce: only the 3rd flag triggers the alert, not subsequent ones
         when(flagRepo.countByChildUserIdAndCreatedAtAfter(anyString(), any(Instant.class)))
                 .thenReturn(5L);
 
-        service.checkAndAlert("user-1", "avatar-1", "msg-1");
+        service.checkAndAlert("user-1", "avatar-1", "msg-1", "LOW");
 
-        verify(emailService).sendHtml(eq("admin@example.com"), contains("5"), anyString());
+        verify(emailService, never()).sendHtml(any(), any(), any());
+    }
+
+    @Test
+    void checkAndAlert_highSeverity_immediateAlert_withoutCountingFlags() {
+        // HIGH severity → alert immediately; flagRepo.count must NOT be called
+        service.checkAndAlert("user-1", "avatar-1", "msg-1", "HIGH");
+
+        verify(emailService).sendHtml(eq("admin@example.com"), anyString(), anyString());
+        verify(flagRepo, never()).countByChildUserIdAndCreatedAtAfter(any(), any());
     }
 
     @Test
@@ -63,7 +73,7 @@ class SafetyAlertServiceTest {
         when(flagRepo.countByChildUserIdAndCreatedAtAfter(anyString(), any(Instant.class)))
                 .thenThrow(new RuntimeException("DB down"));
 
-        service.checkAndAlert("user-1", "avatar-1", "msg-1"); // must not throw
+        service.checkAndAlert("user-1", "avatar-1", "msg-1", "LOW"); // must not throw
 
         verify(emailService, never()).sendHtml(any(), any(), any());
     }

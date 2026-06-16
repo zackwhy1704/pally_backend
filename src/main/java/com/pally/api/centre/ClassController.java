@@ -1,8 +1,10 @@
 package com.pally.api.centre;
 
-import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.domain.centre.CentreAccessService;
-import com.pally.domain.centre.ClassService;
+import com.pally.domain.centre.ClassBriefService;
+import com.pally.domain.centre.ClassCrudService;
+import com.pally.domain.centre.ClassMembershipService;
+import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,23 +18,16 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import org.springframework.web.bind.annotation.RequestParam;
-
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Centre classes (subject×level). A class owns a join code, a shared corpus,
- * a branded Mochi, and its own roster. Admins create classes and assign centre
- * members into them; each assignment provisions the student's branded, closed-book
- * centre avatar. All endpoints are owner-gated via {@link CentreAccessService}
- * (enforced inside {@link ClassService}).
- *
- * <p>Thin HTTP layer: every method parses the request, delegates to
- * {@link ClassService}, and wraps the result in {@link ApiResponse}. All business
- * logic and repository access live in the service.
+ * Thin HTTP delegator for centre class endpoints.
+ * Business logic lives in ClassCrudService, ClassMembershipService, and ClassBriefService.
  */
 @RestController
 @RequestMapping("/api/v1/centre/organizations/{orgId}")
@@ -40,7 +35,10 @@ import java.util.Map;
 @Slf4j
 public class ClassController {
 
-    private final ClassService classService;
+    private final ClassCrudService classCrudService;
+    private final ClassMembershipService classMembershipService;
+    private final ClassBriefService classBriefService;
+    private final CentreAccessService accessService;
 
     // ── Create a class ────────────────────────────────────────────────────────
 
@@ -49,7 +47,7 @@ public class ClassController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId,
             @RequestBody Map<String, Object> body) {
-        return ResponseEntity.ok(ApiResponse.success(classService.createClass(userId, orgId, body)));
+        return ResponseEntity.ok(ApiResponse.success(classCrudService.createClass(userId, orgId, body)));
     }
 
     // ── List classes ──────────────────────────────────────────────────────────
@@ -58,7 +56,7 @@ public class ClassController {
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listClasses(
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId) {
-        return ResponseEntity.ok(ApiResponse.success(classService.listClasses(userId, orgId)));
+        return ResponseEntity.ok(ApiResponse.success(classCrudService.listClasses(userId, orgId)));
     }
 
     // ── Edit a class ───────────────────────────────────────────────────────────
@@ -70,7 +68,7 @@ public class ClassController {
             @PathVariable String classId,
             @RequestBody Map<String, Object> body) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.updateClass(userId, orgId, classId, body)));
+                ApiResponse.success(classCrudService.updateClass(userId, orgId, classId, body)));
     }
 
     // ── Delete a class ─────────────────────────────────────────────────────────
@@ -80,11 +78,11 @@ public class ClassController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId,
             @PathVariable String classId) {
-        classService.deleteClass(userId, orgId, classId);
+        classCrudService.deleteClass(userId, orgId, classId);
         return ResponseEntity.noContent().build();
     }
 
-    // ── Set the class Mochi customization config ───────────────────────────────
+    // ── Mochi config ───────────────────────────────────────────────────────────
 
     @PatchMapping("/classes/{classId}/mochi-config")
     public ResponseEntity<ApiResponse<MochiConfig>> updateMochiConfig(
@@ -93,10 +91,10 @@ public class ClassController {
             @PathVariable String classId,
             @RequestBody MochiConfig config) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.updateMochiConfig(userId, orgId, classId, config)));
+                ApiResponse.success(classCrudService.updateMochiConfig(userId, orgId, classId, config)));
     }
 
-    // ── Set the class teaching style ───────────────────────────────────────────
+    // ── Teaching style ─────────────────────────────────────────────────────────
 
     @PatchMapping("/classes/{classId}/teaching-style")
     public ResponseEntity<ApiResponse<Map<String, Object>>> updateTeachingStyle(
@@ -105,7 +103,7 @@ public class ClassController {
             @PathVariable String classId,
             @RequestBody Map<String, String> body) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.updateTeachingStyle(userId, orgId, classId, body)));
+                ApiResponse.success(classCrudService.updateTeachingStyle(userId, orgId, classId, body)));
     }
 
     // ── Centre members ──────────────────────────────────────────────────────────
@@ -114,10 +112,10 @@ public class ClassController {
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> members(
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId) {
-        return ResponseEntity.ok(ApiResponse.success(classService.members(userId, orgId)));
+        return ResponseEntity.ok(ApiResponse.success(classMembershipService.members(userId, orgId)));
     }
 
-    // ── Assign a member to a class ─────────────────────────────────────────────
+    // ── Assign a member ────────────────────────────────────────────────────────
 
     @PostMapping("/classes/{classId}/members")
     public ResponseEntity<ApiResponse<Map<String, Object>>> assign(
@@ -126,7 +124,7 @@ public class ClassController {
             @PathVariable String classId,
             @RequestBody Map<String, Object> body) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.assign(userId, orgId, classId, body)));
+                ApiResponse.success(classMembershipService.assign(userId, orgId, classId, body)));
     }
 
     // ── Remove a member ────────────────────────────────────────────────────────
@@ -138,7 +136,7 @@ public class ClassController {
             @PathVariable String classId,
             @PathVariable String studentId) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.remove(userId, orgId, classId, studentId)));
+                ApiResponse.success(classMembershipService.remove(userId, orgId, classId, studentId)));
     }
 
     // ── Class roster ──────────────────────────────────────────────────────────
@@ -149,10 +147,10 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.roster(userId, orgId, classId)));
+                ApiResponse.success(classMembershipService.roster(userId, orgId, classId)));
     }
 
-    // ── Class analytics: roster with grasp ─────────────────────────────────────
+    // ── Analytics: roster with grasp ──────────────────────────────────────────
 
     @GetMapping("/classes/{classId}/analytics/roster")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> classRosterAnalytics(
@@ -160,10 +158,10 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.classRosterAnalytics(userId, orgId, classId)));
+                ApiResponse.success(classMembershipService.classRosterAnalytics(userId, orgId, classId)));
     }
 
-    // ── Class analytics: heatmap ───────────────────────────────────────────────
+    // ── Analytics: heatmap ────────────────────────────────────────────────────
 
     @GetMapping("/classes/{classId}/analytics/heatmap")
     public ResponseEntity<ApiResponse<Map<String, Object>>> classHeatmap(
@@ -171,7 +169,7 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.classHeatmap(userId, orgId, classId)));
+                ApiResponse.success(classMembershipService.classHeatmap(userId, orgId, classId)));
     }
 
     // ── Backfill CLASS groups (one-time, idempotent) ───────────────────────────
@@ -181,10 +179,10 @@ public class ClassController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId) {
         return ResponseEntity.ok(
-                ApiResponse.success(classService.backfillClassGroups(userId, orgId)));
+                ApiResponse.success(classCrudService.backfillClassGroups(userId, orgId)));
     }
 
-    // ── Centre narration ───────────────────────────────────────────────────────
+    // ── Narration ─────────────────────────────────────────────────────────────
 
     @PostMapping("/classes/{classId}/modules/{moduleId}/narration/generate")
     public ResponseEntity<ApiResponse<Map<String, Object>>> generateClassNarration(
@@ -193,9 +191,9 @@ public class ClassController {
             @PathVariable String classId,
             @PathVariable String moduleId,
             @RequestBody(required = false) Map<String, String> body) {
-        String narrationId =
-                classService.generateClassNarration(userId, orgId, classId, moduleId, body);
-        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        String narrationId = classCrudService.generateClassNarration(
+                userId, orgId, classId, moduleId, body);
+        Map<String, Object> response = new LinkedHashMap<>();
         response.put("narrationId", narrationId);
         response.put("status", "GENERATING");
         return ResponseEntity.status(HttpStatus.ACCEPTED)
@@ -208,7 +206,7 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @PathVariable String moduleId) {
-        return classService.getClassNarration(userId, orgId, classId, moduleId)
+        return classCrudService.getClassNarration(userId, orgId, classId, moduleId)
                 .map(resp -> ResponseEntity.ok(ApiResponse.success(resp)))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error("Narration not found for this module", 404)));
@@ -222,8 +220,10 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @RequestParam(required = false) String moduleId) {
+        accessService.ensureOwner(userId, orgId);
+        classCrudService.getClass(orgId, classId);
         return ResponseEntity.ok(
-                ApiResponse.success(classService.getClassBrief(userId, orgId, classId, moduleId)));
+                ApiResponse.success(classBriefService.getOrGenerate(classId, moduleId)));
     }
 
     @PostMapping("/classes/{classId}/class-brief/refresh")
@@ -232,7 +232,9 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @RequestParam(required = false) String moduleId) {
+        accessService.ensureOwner(userId, orgId);
+        classCrudService.getClass(orgId, classId);
         return ResponseEntity.ok(
-                ApiResponse.success(classService.refreshClassBrief(userId, orgId, classId, moduleId)));
+                ApiResponse.success(classBriefService.refresh(classId, moduleId)));
     }
 }

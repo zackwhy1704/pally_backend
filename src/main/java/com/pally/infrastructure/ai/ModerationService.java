@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Content-moderation layer for child-facing chat messages.
@@ -35,6 +36,7 @@ public class ModerationService {
     private final ObjectMapper objectMapper;
     private final ModelRouter modelRouter;
     private final ChatSafetyFlagJpaRepository flagRepo;
+    private final SafetyAlertService safetyAlertService;
 
     public record ModerationResult(
             boolean flagged,
@@ -157,6 +159,8 @@ public class ModerationService {
             flag.setResolved(false);
             flag.setCreatedAt(Instant.now());
             flagRepo.save(flag);
+            CompletableFuture.runAsync(() ->
+                    safetyAlertService.checkAndAlert(userId, avatarId, messageId, severity));
         } catch (Exception e) {
             log.error("[Moderation] Failed to write flag: {}", e.getMessage());
         }

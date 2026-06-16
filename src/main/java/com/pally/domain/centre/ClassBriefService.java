@@ -1,6 +1,7 @@
 package com.pally.domain.centre;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.ai.ClaudeApiClient;
@@ -18,7 +19,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -34,6 +34,10 @@ import java.util.stream.Collectors;
  *
  * <p>Flow: gather → anonymise → prompt → parse → re-identify → cache.
  * Cache is invalidated when new module_progress rows exist after the brief's generatedAt.
+ *
+ * <p>The anon map (userId → "Student #N") is PERSISTED at generation time so that
+ * a subsequent roster change (join/leave/name rename) never shifts alphabetical
+ * positions and re-assigns "Student #3" to a different person at read time.
  */
 @Service
 @RequiredArgsConstructor
@@ -70,7 +74,7 @@ public class ClassBriefService {
                     && maxProgress.get().isAfter(brief.getGeneratedAt());
             if (!stale) {
                 log.debug("[ClassBrief] cache hit class={} module={}", classId, moduleId);
-                return parseAndReidentify(brief.getBriefJson(), classId);
+                return parseAndReidentify(brief.getBriefJson(), brief.getAnonMapJson(), classId);
             }
             log.info("[ClassBrief] cache stale — regenerating class={} module={}", classId, moduleId);
         }
@@ -94,12 +98,21 @@ public class ClassBriefService {
 
         String briefJson = generate(inputs);
 
+        // Persist the anon map so re-identification is stable across roster changes.
+        String anonMapJson;
+        try {
+            anonMapJson = objectMapper.writeValueAsString(inputs.anonById());
+        } catch (JsonProcessingException e) {
+            log.warn("[ClassBrief] Could not serialize anon map: {}", e.getMessage());
+            anonMapJson = null;
+        }
+
         ClassBrief saved = briefRepository.save(ClassBrief.create(
-                IdGenerator.newId(), classId, moduleId, briefJson, Instant.now()));
+                IdGenerator.newId(), classId, moduleId, briefJson, anonMapJson, Instant.now()));
 
         log.info("[ClassBrief] generated class={} module={} concepts={} students={}",
                 classId, moduleId, inputs.conceptSignals().size(), inputs.studentCount());
-        return parseAndReidentify(saved.getBriefJson(), classId);
+        return parseAndReidentify(saved.getBriefJson(), saved.getAnonMapJson(), classId);
     }
 
     // ── Gather phase ──────────────────────────────────────────────────────────
@@ -107,7 +120,7 @@ public class ClassBriefService {
     BriefInputs gather(String classId, String moduleId) {
         List<String> studentIds = briefRepository.findActiveStudentIds(classId);
         if (studentIds.isEmpty()) {
-            return new BriefInputs(List.of(), List.of(), Map.of(), 0);
+            return new BriefInputs(List.of(), List.of(), Map.of(), Map.of(), 0);
         }
 
         // Build anon map: userId → "Student #N" (stable alphabetical sort by displayName)
@@ -140,7 +153,7 @@ public class ClassBriefService {
         for (ModuleProgressJpaEntity row : rows) {
             if (row.getTargetConcept() == null || row.getScore() == null) continue;
             String anon = anonById.get(row.getUserId());
-            if (anon == null) continue; // student not in active roster
+            if (anon == null) continue;
             String concept = row.getTargetConcept().trim();
             double score = row.getScore().doubleValue();
             accByConc.computeIfAbsent(concept, k -> new ConceptAccumulator())
@@ -168,7 +181,7 @@ public class ClassBriefService {
                 .sorted(Comparator.comparingDouble(StudentSignal::passRate))
                 .collect(Collectors.toList());
 
-        return new BriefInputs(conceptSignals, studentSignals, nameByAnon, sortedIds.size());
+        return new BriefInputs(conceptSignals, studentSignals, anonById, nameByAnon, sortedIds.size());
     }
 
     private double resolveMasteryThreshold(String classId, String moduleId) {
@@ -176,7 +189,6 @@ public class ClassBriefService {
         for (AssignmentJpaEntity a : assignments) {
             if (a.getMasteryThreshold() == null) continue;
             if (moduleId == null) return a.getMasteryThreshold().doubleValue();
-            // Check if this assignment covers the requested module
             String modIds = a.getModuleIds();
             if (modIds != null && modIds.contains(moduleId)) {
                 return a.getMasteryThreshold().doubleValue();
@@ -196,7 +208,6 @@ public class ClassBriefService {
                     arr.forEach(n -> { if (!n.asText().isBlank()) ids.add(n.asText()); });
                 }
             } catch (JsonProcessingException ignored) {
-                // module_ids is comma-separated in some older rows
                 for (String id : a.getModuleIds().split(",")) {
                     String trimmed = id.trim();
                     if (!trimmed.isEmpty()) ids.add(trimmed);
@@ -212,7 +223,6 @@ public class ClassBriefService {
         String prompt = buildPrompt(inputs);
         String raw = geminiCompletion.complete(BRIEF_MAX_TOKENS, prompt, BRIEF_TASK);
 
-        // Validate JSON — retry with Haiku on parse failure
         try {
             objectMapper.readTree(raw);
             return extractJson(raw);
@@ -277,7 +287,6 @@ public class ClassBriefService {
         return sb.toString();
     }
 
-    /** Extracts the first {...} JSON block from a possibly prose-wrapped response. */
     private String extractJson(String raw) {
         int start = raw.indexOf('{');
         int end = raw.lastIndexOf('}');
@@ -290,11 +299,29 @@ public class ClassBriefService {
     // ── Re-identify phase ─────────────────────────────────────────────────────
 
     /**
-     * The brief JSON contains "Student #N" anon IDs. This method replaces them
-     * with real display names by looking up the current anon map from active students.
+     * Replaces "Student #N" anon tokens in the brief JSON with real display names.
+     *
+     * <p>Uses the STORED anon map (persisted at generation time) so that a roster
+     * change (join/leave/rename) after generation never shifts identities.
+     * Falls back to rebuilding from the current roster if the stored map is absent
+     * (legacy rows written before V78).
      */
-    private Map<String, Object> parseAndReidentify(String briefJson, String classId) {
-        Map<String, String> nameByAnon = buildAnonMapForClass(classId);
+    private Map<String, Object> parseAndReidentify(
+            String briefJson, String anonMapJson, String classId) {
+        Map<String, String> nameByAnon;
+        if (anonMapJson != null && !anonMapJson.isBlank()) {
+            try {
+                nameByAnon = buildAnonMapFromStored(anonMapJson);
+            } catch (Exception e) {
+                log.warn("[ClassBrief] Could not restore stored anon map for class={}: {}",
+                        classId, e.getMessage());
+                nameByAnon = buildAnonMapForClass(classId);
+            }
+        } else {
+            log.warn("[ClassBrief] No stored anon map for class={} — falling back to current roster sort", classId);
+            nameByAnon = buildAnonMapForClass(classId);
+        }
+
         try {
             String replaced = replaceAnonIds(briefJson, nameByAnon);
             //noinspection unchecked
@@ -309,6 +336,27 @@ public class ClassBriefService {
             fallback.put("skipLine", null);
             return fallback;
         }
+    }
+
+    /**
+     * Restores nameByAnon from the stored anon map.
+     * Stored format: {"userId1":"Student #1","userId2":"Student #2"}
+     * Returns: {"Student #1":"Alice","Student #2":"Bob"} with fresh name lookup.
+     */
+    private Map<String, String> buildAnonMapFromStored(String anonMapJson) throws Exception {
+        Map<String, String> anonById =
+                objectMapper.readValue(anonMapJson, new TypeReference<Map<String, String>>() {});
+        // Invert: "Student #N" → userId
+        Map<String, String> anonToUserId = new LinkedHashMap<>();
+        anonById.forEach((uid, anon) -> anonToUserId.put(anon, uid));
+        // Fresh name lookup — names can change harmlessly; identity cannot
+        Map<String, String> nameById = new HashMap<>();
+        userRepo.findAllById(anonById.keySet()).forEach(u ->
+                nameById.put(u.getId(), u.getDisplayName() != null ? u.getDisplayName() : ""));
+        Map<String, String> nameByAnon = new LinkedHashMap<>();
+        anonToUserId.forEach((anon, uid) ->
+                nameByAnon.put(anon, nameById.getOrDefault(uid, anon)));
+        return nameByAnon;
     }
 
     private Map<String, String> buildAnonMapForClass(String classId) {
@@ -328,7 +376,6 @@ public class ClassBriefService {
     }
 
     private String replaceAnonIds(String json, Map<String, String> nameByAnon) {
-        // Replace longest keys first to avoid "Student #1" matching inside "Student #10"
         List<String> keys = new ArrayList<>(nameByAnon.keySet());
         keys.sort(Comparator.comparingInt(String::length).reversed());
         for (String anon : keys) {
@@ -389,6 +436,7 @@ public class ClassBriefService {
     record BriefInputs(
             List<ConceptSignal> conceptSignals,
             List<StudentSignal> studentSignals,
-            Map<String, String> nameByAnon,
+            Map<String, String> anonById,    // userId → "Student #N" — persisted at generation
+            Map<String, String> nameByAnon,  // "Student #N" → displayName — used in prompt
             int studentCount) {}
 }
