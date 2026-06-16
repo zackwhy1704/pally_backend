@@ -3,10 +3,12 @@ package com.pally.domain.consent;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
+import com.pally.infrastructure.email.EmailService;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,10 @@ public class ConsentService {
     private final ConsentRepository consentRepository;
     private final UserRepository    userRepository;
     private final PremiumService    premiumService;
+    private final EmailService      emailService;
+
+    @Value("${pally.web-base-url:https://apalchi.com}")
+    private String webBaseUrl;
 
     // ── Status ────────────────────────────────────────────────────────────────
 
@@ -101,9 +107,9 @@ public class ConsentService {
         );
         consentRepository.saveRequest(req);
 
-        // TODO: wire real email sending here (reuse the email-verification mail path)
         log.info("[Consent] Consent request created user={} parentEmail={} token={}",
                 userId, email, token);
+        sendConsentEmail(email, token);
 
         return Map.of(
                 "status", "PENDING",
@@ -182,6 +188,42 @@ public class ConsentService {
                 req.childUserId(), req.parentEmail());
 
         return Map.of("status", "APPROVED", "childUserId", req.childUserId());
+    }
+
+    private void sendConsentEmail(String parentEmail, String token) {
+        try {
+            String approveUrl = webBaseUrl + "/consent/approve?token=" + token;
+            String html = """
+                    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#1F1733">
+                      <h2 style="color:#7042ED">Your child wants to use Apalchi 📚</h2>
+                      <p>Your child has signed up to <strong>Apalchi</strong>, an AI study tutor
+                         that helps students learn from their own notes.</p>
+                      <p>To activate their account, please click the button below to grant consent.
+                         This link is valid for 7 days.</p>
+                      <p style="margin:32px 0;text-align:center">
+                        <a href="%s"
+                           style="background:#7042ED;color:white;text-decoration:none;
+                                  padding:14px 28px;border-radius:8px;font-weight:700;font-size:16px;
+                                  display:inline-block">
+                          ✅ Approve & Activate
+                        </a>
+                      </p>
+                      <p style="color:#6B618A;font-size:13px">
+                        If you did not expect this email, you can safely ignore it — no account
+                        will be activated without your approval.
+                      </p>
+                      <hr style="border:none;border-top:1px solid #E0DAF0;margin:24px 0"/>
+                      <p style="color:#A8A0BD;font-size:11px">
+                        Apalchi &middot; apalchi.com &middot; Questions? Reply to this email.
+                      </p>
+                    </div>
+                    """.formatted(approveUrl);
+
+            emailService.sendHtml(parentEmail,
+                    "Action required: approve your child's Apalchi account", html);
+        } catch (Exception e) {
+            log.warn("[Consent] Failed to send consent email to={}: {}", parentEmail, e.getMessage());
+        }
     }
 
     // ── Self-consent ──────────────────────────────────────────────────────────

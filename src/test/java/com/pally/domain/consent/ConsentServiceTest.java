@@ -3,6 +3,7 @@ package com.pally.domain.consent;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
+import com.pally.infrastructure.email.EmailService;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.contains;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +40,7 @@ class ConsentServiceTest {
     @Mock ConsentRepository consentRepository;
     @Mock UserRepository    userRepository;
     @Mock PremiumService    premiumService;
+    @Mock EmailService      emailService;
 
     @InjectMocks ConsentService service;
 
@@ -219,6 +222,21 @@ class ConsentServiceTest {
         assertThatThrownBy(() -> service.requestParentConsent(USER_ID, "notanemail"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("valid parent email");
+    }
+
+    @Test
+    void requestParentConsent_sendsConsentEmailToParent() {
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(activeUser()));
+        when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(consentRepository.saveRequest(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(emailService.isConfigured()).thenReturn(true);
+
+        service.requestParentConsent(USER_ID, "parent@example.com");
+
+        verify(emailService).sendHtml(
+                eq("parent@example.com"),
+                contains("approve"),
+                anyString());
     }
 
     // ══════════════════════════════════════════════════════════════════════
