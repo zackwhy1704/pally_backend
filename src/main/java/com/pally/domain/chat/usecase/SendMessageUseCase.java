@@ -293,7 +293,7 @@ public class SendMessageUseCase {
             hintTree = topicSlug
                     .flatMap(slug -> hintTreeRepository.findByAvatarIdAndSlug(avatarId, slug));
             session = chatSessionRepository
-                    .findByAvatarIdAndDate(avatarId, LocalDate.now())
+                    .findByAvatarIdAndDate(avatarId, LocalDate.now(com.pally.shared.util.PallyTime.SGT))
                     .orElseGet(() -> ChatSession.createToday(avatarId));
         } catch (Exception e) {
             log.warn("[Chat] Optional pre-stream steps failed for avatar={} — using defaults: {}",

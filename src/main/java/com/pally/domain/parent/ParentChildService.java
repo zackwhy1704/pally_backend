@@ -209,8 +209,8 @@ public class ParentChildService {
         }
 
         // Daily cap check
-        Instant dayStart = LocalDate.now()
-                .atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        Instant dayStart = LocalDate.now(com.pally.shared.util.PallyTime.SGT)
+                .atStartOfDay(com.pally.shared.util.PallyTime.SGT).toInstant();
         int awardedToday = starAwardLogRepo.sumAmountByParentIdSince(parentId, dayStart);
         if (awardedToday + amount > STAR_AWARD_DAILY_CAP) {
             throw new BusinessException(

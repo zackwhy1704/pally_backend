@@ -194,8 +194,8 @@ public class ParentService {
                     "Invalid weekId, expected yyyy-Www (e.g. 2026-W22)", 400);
         }
         LocalDate weekEnd = weekStart.plusDays(6);
-        Instant from = weekStart.atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant to = weekEnd.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant from = weekStart.atStartOfDay(com.pally.shared.util.PallyTime.SGT).toInstant();
+        Instant to = weekEnd.plusDays(1).atStartOfDay(com.pally.shared.util.PallyTime.SGT).toInstant();
 
         User u = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));

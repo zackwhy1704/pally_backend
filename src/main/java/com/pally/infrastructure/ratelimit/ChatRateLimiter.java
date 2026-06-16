@@ -7,9 +7,9 @@ import com.pally.shared.exception.UpgradeRequiredException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import com.pally.shared.util.PallyTime;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
@@ -97,7 +97,7 @@ public class ChatRateLimiter {
         if (dailyLimit == Integer.MAX_VALUE) return; // unlimited — skip counter
 
         LocalDate today = Instant.ofEpochMilli(now)
-                .atOffset(ZoneOffset.UTC).toLocalDate();
+                .atZone(PallyTime.SGT).toLocalDate();
         DailyCount prev = dailyHits.get(userId);
         int nextCount = (prev != null && prev.day.equals(today))
                 ? prev.count + 1
@@ -112,7 +112,7 @@ public class ChatRateLimiter {
     /// cap without having to call check() 80 times (which would trip the
     /// burst limiter at 30/min first).
     void seedDailyCountForTest(String userId, int count) {
-        LocalDate today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate();
+        LocalDate today = Instant.now().atZone(PallyTime.SGT).toLocalDate();
         dailyHits.put(userId, new DailyCount(today, count));
     }
 
@@ -123,7 +123,7 @@ public class ChatRateLimiter {
     public int dailyHitsToday(String userId) {
         if (userId == null || userId.isBlank()) return 0;
         LocalDate today = Instant.now()
-                .atOffset(ZoneOffset.UTC).toLocalDate();
+                .atZone(PallyTime.SGT).toLocalDate();
         DailyCount d = dailyHits.get(userId);
         return (d != null && d.day.equals(today)) ? d.count : 0;
     }

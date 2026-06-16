@@ -66,7 +66,7 @@ public class WikiRecompileScheduler {
     private static final int DAILY_COMPILE_HARD_CAP        = 50;
     private final ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> dailyCompileCount =
             new ConcurrentHashMap<>();
-    private volatile java.time.LocalDate dailyCountDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+    private volatile java.time.LocalDate dailyCountDate = java.time.LocalDate.now(com.pally.shared.util.PallyTime.SGT);
 
     private final ThreadPoolExecutor  aiTaskExecutor;
     private final CompileWikiUseCase  compileWikiUseCase;
@@ -159,7 +159,7 @@ public class WikiRecompileScheduler {
 
     private void runCompile(String avatarId) {
         // Daily compile budget guard — resets at UTC midnight automatically
-        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+        java.time.LocalDate today = java.time.LocalDate.now(com.pally.shared.util.PallyTime.SGT);
         if (!today.equals(dailyCountDate)) {
             dailyCountDate = today;
             dailyCompileCount.clear();

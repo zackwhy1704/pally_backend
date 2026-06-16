@@ -69,7 +69,7 @@ public class ModerationService {
         if (text == null || text.isBlank()) return safe();
 
         String prompt = """
-                You are a child-safety content classifier for an educational app for children aged 8-17.
+                You are a child-safety content classifier for a study app used by students aged 13-25.
                 Classify the following message into ONE of these categories:
                 - SAFE: normal tutoring/study content
                 - SELF_HARM: mentions of self-harm, suicide, eating disorders, self-destructive ideation

@@ -55,7 +55,7 @@ public class UsageController {
         body.put("isPremium", premium);
         body.put("source", ent.source());
         body.put("subscriptionTier", tier.name());
-        body.put("date", LocalDate.now(ZoneOffset.UTC).toString());
+        body.put("date", LocalDate.now(com.pally.shared.util.PallyTime.SGT).toString());
 
         // Trial info — always expose so the countdown banner can show
         // even when the user is currently premium via trial.

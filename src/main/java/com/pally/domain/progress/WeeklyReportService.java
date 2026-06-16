@@ -13,9 +13,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import com.pally.shared.util.PallyTime;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ public class WeeklyReportService {
 
     public List<WeeklyReportSummary> listReports(String userId) {
         List<WeeklyReportSummary> reports = new ArrayList<>();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(PallyTime.SGT);
         for (int i = 0; i < WEEKS_TO_LIST; i++) {
             LocalDate weekStart = isoWeekStart(today.minusWeeks(i));
             LocalDate weekEnd = weekStart.plusDays(6);
@@ -52,8 +52,8 @@ public class WeeklyReportService {
     public WeeklyReportDetail getReport(String userId, String weekId) {
         LocalDate weekStart = parseWeekId(weekId);
         LocalDate weekEnd = weekStart.plusDays(6);
-        Instant from = weekStart.atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant to = weekEnd.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant from = weekStart.atStartOfDay(PallyTime.SGT).toInstant();
+        Instant to = weekEnd.plusDays(1).atStartOfDay(PallyTime.SGT).toInstant();
 
         int sessions = orZero(activityRepo.countBetween(userId, from, to));
         int minutes = orZero(activityRepo.sumMinutesBetween(userId, from, to));
@@ -95,8 +95,8 @@ public class WeeklyReportService {
     }
 
     public WeeklyReportSummary buildSummary(String userId, LocalDate start, LocalDate end) {
-        Instant from = start.atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant to = end.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        Instant from = start.atStartOfDay(PallyTime.SGT).toInstant();
+        Instant to = end.plusDays(1).atStartOfDay(PallyTime.SGT).toInstant();
         return new WeeklyReportSummary(
                 isoWeekId(start), start, end,
                 orZero(activityRepo.countBetween(userId, from, to)),

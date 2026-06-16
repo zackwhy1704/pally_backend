@@ -343,7 +343,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                                      List<WikiPage> existingPages) {
         StringBuilder sb = new StringBuilder();
         sb.append("""
-                You are a knowledge organiser for a children's educational tutoring app (ages 8-14).
+                You are a knowledge organiser for a student study app used by learners aged 13-25.
                 Avatar: %s | Subject: %s
 
                 ## TASK
@@ -475,7 +475,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                                 List<WikiPage> existingPages) {
         StringBuilder sb = new StringBuilder();
         sb.append("""
-                You are a knowledge organiser for a children's educational tutoring app (ages 8-14).
+                You are a knowledge organiser for a student study app used by learners aged 13-25.
 
                 Avatar name: %s
                 Subject: %s
@@ -489,7 +489,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                    wiki page exactly as stated in the source material.
                 2. Each wiki page covers ONE topic (e.g., "Photosynthesis", "Electrical Circuits").
                 3. Use markdown: ## for headings, - for bullet points, **bold** for key terms.
-                4. Use simple, clear language for children aged 8-14.
+                4. Use clear, accurate language suitable for secondary and university students (ages 13-25).
                 5. Each page: 200-500 words — comprehensive but not overwhelming.
 
                 ## EXAMPLE OUTPUT FORMAT

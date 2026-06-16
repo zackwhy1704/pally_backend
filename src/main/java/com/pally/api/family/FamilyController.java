@@ -97,7 +97,7 @@ public class FamilyController {
         LocalDate lastActive = child.getLastActiveDate();
         long daysInactive = lastActive == null
                 ? 999
-                : java.time.temporal.ChronoUnit.DAYS.between(lastActive, LocalDate.now());
+                : java.time.temporal.ChronoUnit.DAYS.between(lastActive, LocalDate.now(com.pally.shared.util.PallyTime.SGT));
 
         if (daysInactive >= 6) return "needs_attention";
         if (daysInactive >= 4) return "behind";

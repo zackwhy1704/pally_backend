@@ -8,8 +8,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.pally.shared.util.PallyTime;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -56,7 +56,7 @@ public class StreakService {
     /// short-circuit after the activity-day upsert.
     @Transactional
     public StreakUpdateResult recordActiveDay(String userId) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(PallyTime.SGT);
         try {
             dayRepo.recordDay(userId, today);
         } catch (Exception e) {

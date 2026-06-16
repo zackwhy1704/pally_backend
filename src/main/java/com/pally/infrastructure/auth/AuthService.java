@@ -120,7 +120,7 @@ public class AuthService {
     /// freezes + lastActiveDate before we add the XP on top.
     private void updateLoginStreak(UserJpaEntity user) {
         java.time.LocalDate last = user.getLastActiveDate();
-        if (last != null && last.equals(java.time.LocalDate.now())) {
+        if (last != null && last.equals(java.time.LocalDate.now(com.pally.shared.util.PallyTime.SGT))) {
             return;
         }
         var result = streakService.recordActiveDay(user.getId());

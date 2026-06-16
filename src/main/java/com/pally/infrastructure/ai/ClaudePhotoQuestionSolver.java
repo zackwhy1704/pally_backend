@@ -230,8 +230,8 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
                 """ : "";
 
         return """
-                You are %s, a friendly AI tutor for children studying %s (ages 8-14).
-                Solve every question below. Use simple language and short sentences.
+                You are %s, a friendly AI study companion for students studying %s (ages 13-25).
+                Solve every question below. Use clear, concise explanations.
                 Show clear working steps. Be encouraging.
 
                 IMPORTANT — For any arithmetic calculation, use the calculator tool.

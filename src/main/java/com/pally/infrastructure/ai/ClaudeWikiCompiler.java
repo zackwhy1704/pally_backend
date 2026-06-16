@@ -223,7 +223,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                                ChunkContext chunkContext) {
         StringBuilder sb = new StringBuilder();
         sb.append("""
-                You are a knowledge organiser for a children's educational tutoring app (ages 8-14).
+                You are a knowledge organiser for a student study app used by learners aged 13-25.
 
                 Avatar name: %s
                 Subject: %s
@@ -240,7 +240,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                    "Electrical Circuits").
                 3. Use markdown formatting: ## for headings, - for bullet points,
                    **bold** for key terms.
-                4. Use simple, clear language suitable for children aged 8-14.
+                4. Use clear, accurate language suitable for secondary and university students (ages 13-25).
                 5. If the content mentions an equation, write it out in full.
                 6. If the content contains an experiment, include ALL steps.
                 7. Each page should be 200-500 words — comprehensive but not overwhelming.

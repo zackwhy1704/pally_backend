@@ -39,7 +39,7 @@ public final class ChatSession {
     public static ChatSession createToday(String avatarId) {
         return new ChatSession(
                 IdGenerator.newId(), avatarId, null,
-                0, false, LocalDate.now(), Instant.now());
+                0, false, LocalDate.now(com.pally.shared.util.PallyTime.SGT), Instant.now());
     }
 
     public static ChatSession reconstitute(

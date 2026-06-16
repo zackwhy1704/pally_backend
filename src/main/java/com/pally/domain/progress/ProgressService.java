@@ -181,7 +181,7 @@ public class ProgressService {
     public Map<String, Object> getStreak(String userId) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(SGT);
         LocalDate sixDaysAgo = today.minusDays(6);
         Set<LocalDate> activeDays = new HashSet<>(dailyDayRepo.daysSince(userId, sixDaysAgo));
         List<Boolean> last7 = new ArrayList<>(7);
@@ -206,9 +206,9 @@ public class ProgressService {
     public Map<String, Object> getToday(String userId) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
-        LocalDate today = LocalDate.now();
-        Instant from = today.atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant to = today.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(SGT);
+        Instant from = today.atStartOfDay(SGT).toInstant();
+        Instant to = today.plusDays(1).atStartOfDay(SGT).toInstant();
 
         String type = user.getDailyGoalType();
         int target = Math.max(1, user.getDailyGoalTarget());
