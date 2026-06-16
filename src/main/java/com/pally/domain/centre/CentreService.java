@@ -2,6 +2,7 @@ package com.pally.domain.centre;
 
 import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.organization.ClassEnrollmentService;
+import com.pally.shared.AdminSecretGuard;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreEnrollCodeJpaRepository;
@@ -46,6 +47,7 @@ public class CentreService {
     private static final char[] ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
     private static final int CODE_LEN = 6;
 
+    private final AdminSecretGuard adminSecretGuard;
     private final CentreAccessService accessService;
     private final OrganizationJpaRepository orgRepo;
     private final CentreEnrollCodeJpaRepository codeRepo;
@@ -274,10 +276,7 @@ public class CentreService {
 
     @Transactional
     public Map<String, Object> createOrg(Map<String, Object> body, String adminSecret) {
-        String expected = System.getenv("ADMIN_SECRET");
-        if (expected == null || expected.isBlank() || !expected.equals(adminSecret)) {
-            throw new BusinessException("Admin access required", 403);
-        }
+        adminSecretGuard.require(adminSecret);
         String name = (String) body.get("name");
         String ownerEmail = (String) body.get("ownerEmail");
         if (name == null || name.isBlank() || ownerEmail == null) {

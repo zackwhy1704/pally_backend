@@ -16,4 +16,7 @@ public interface ChatSafetyFlagJpaRepository
             String childUserId);
 
     long countByChildUserIdAndCreatedAtAfter(String childUserId, Instant since);
+
+    List<ChatSafetyFlagJpaEntity> findByChildUserIdAndCreatedAtAfterOrderByCreatedAtDesc(
+            String childUserId, Instant since);
 }

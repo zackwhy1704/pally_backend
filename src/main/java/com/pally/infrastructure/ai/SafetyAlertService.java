@@ -28,6 +28,9 @@ public class SafetyAlertService {
     @Value("${pally.safety-alert-email:zhengyi1704@gmail.com}")
     private String alertEmail;
 
+    @Value("${pally.web-base-url:https://apalchi.com}")
+    private String webBaseUrl;
+
     /**
      * Determines whether to send an admin alert after a flag has been written.
      *
@@ -77,8 +80,14 @@ public class SafetyAlertService {
                   <tr><td style="padding:4px 8px;font-weight:bold">Flags (24h)</td>
                       <td style="padding:4px 8px">%d</td></tr>
                 </table>
-                <p style="margin-top:16px">Review the <code>chat_safety_flags</code> table for details.</p>
-                """.formatted(userId, count, userId, avatarId, messageId, count);
+                <p style="margin-top:16px">
+                  <a href="%s/admin/safety?userId=%s"
+                     style="display:inline-block;padding:10px 20px;background:#7042ED;color:#fff;
+                            border-radius:6px;text-decoration:none;font-weight:bold">
+                    Review flagged content →
+                  </a>
+                </p>
+                """.formatted(userId, count, userId, avatarId, messageId, count, webBaseUrl, userId);
 
         emailService.sendHtml(alertEmail, subject, html);
     }

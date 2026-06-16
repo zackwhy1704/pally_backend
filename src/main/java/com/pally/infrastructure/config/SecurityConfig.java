@@ -53,7 +53,10 @@ public class SecurityConfig {
                     "/api/v1/review/**",
                     "/actuator/health",
                     "/actuator/info",
-                    "/actuator/prometheus"
+                    "/actuator/prometheus",
+                    // Email-link-driven admin safety console — gated by X-Admin-Secret header,
+                    // not JWT (no user session when following an email link).
+                    "/api/v1/admin/safety-flags"
                 ).permitAll()
                 // Admin endpoints — must be checked BEFORE the catch-all
                 // authenticated() so /admin/** with a USER token returns 403,

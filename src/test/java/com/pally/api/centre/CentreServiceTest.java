@@ -16,6 +16,7 @@ import com.pally.infrastructure.persistence.organization.OrganizationJpaReposito
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
+import com.pally.shared.AdminSecretGuard;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CentreServiceTest {
 
+    @Mock AdminSecretGuard adminSecretGuard;
     @Mock CentreAccessService accessService;
     @Mock OrganizationJpaRepository orgRepo;
     @Mock CentreEnrollCodeJpaRepository codeRepo;
