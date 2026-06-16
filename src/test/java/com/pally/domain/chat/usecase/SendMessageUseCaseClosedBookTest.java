@@ -112,7 +112,7 @@ class SendMessageUseCaseClosedBookTest {
         SendMessageUseCase uc = new SendMessageUseCase(
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
-                null, null, null, null, null
+                null, null, null, null, null, null
         );
         ReflectionTestUtils.setField(uc, "closedBookEnabled", true);
         ReflectionTestUtils.setField(uc, "closedBookThreshold", 0.55);

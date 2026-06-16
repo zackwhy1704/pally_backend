@@ -27,6 +27,7 @@ import com.pally.infrastructure.ai.CacheMetrics;
 import com.pally.infrastructure.ai.ClaudeContextAssembler;
 import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.ai.ModelRouter;
+import com.pally.infrastructure.ai.SafetyAlertService;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -75,6 +77,7 @@ public class SendMessageUseCase {
     private final ChatSessionSummariser sessionSummariser;
     private final ConsentGuard consentGuard;
     private final ModerationService moderationService;
+    private final SafetyAlertService safetyAlertService;
     private final AvatarSlotGuard avatarSlotGuard;
     private final PremiumService premiumService;
     private final WikiRepository wikiRepository;
@@ -103,6 +106,7 @@ public class SendMessageUseCase {
             ChatSessionSummariser sessionSummariser,
             ConsentGuard consentGuard,
             ModerationService moderationService,
+            SafetyAlertService safetyAlertService,
             AvatarSlotGuard avatarSlotGuard,
             PremiumService premiumService,
             WikiRepository wikiRepository,
@@ -121,6 +125,7 @@ public class SendMessageUseCase {
         this.sessionSummariser = sessionSummariser;
         this.consentGuard = consentGuard;
         this.moderationService = moderationService;
+        this.safetyAlertService = safetyAlertService;
         this.avatarSlotGuard = avatarSlotGuard;
         this.premiumService = premiumService;
         this.wikiRepository = wikiRepository;
@@ -382,16 +387,6 @@ public class SendMessageUseCase {
                         String cleanReply = SOURCE_TRAILER.matcher(
                                 replyBuffer.toString()).replaceFirst("").trim();
 
-                        // Output moderation is intentionally NOT called here.
-                        // Reason: doOnComplete() runs on a reactor-http-epoll thread.
-                        // completeFast() calls .block() which is forbidden on reactor
-                        // threads → FAST FAILED every turn → keyword fallback only →
-                        // moderation never actually ran. The SSE stream has already been
-                        // fully emitted to the client by the time doOnComplete fires, so
-                        // we can't replace the content anyway. Removing this saves one
-                        // failed call attempt per message (the 1ms FAST FAILED log).
-                        // TODO: buffer the stream, screen before emit (requires reactive rewrite).
-
                         // PENDING accounts: skip persisting the assistant reply.
                         if (ephemeral) {
                             log.debug("[Chat] Ephemeral (PENDING) — skipping persist user={}", userId);
@@ -405,6 +400,25 @@ public class SendMessageUseCase {
                         );
                         ChatMessage saved = chatRepository.save(assistantMsg);
                         assistantMessageId.set(saved.getId());
+
+                        // Post-hoc output moderation — runs off the reactor thread via
+                        // CompletableFuture so completeFast().block() is permitted.
+                        // The SSE stream is already fully emitted so we can't intercept
+                        // content; purpose here is flagging + admin alert only.
+                        final String savedId = saved.getId();
+                        final String replySnapshot = cleanReply;
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                ModerationService.ModerationResult outputMod =
+                                        moderationService.screenOutput(userId, avatarId, savedId, replySnapshot);
+                                if (outputMod.flagged()) {
+                                    safetyAlertService.checkAndAlert(userId, avatarId, savedId);
+                                }
+                            } catch (Exception e) {
+                                log.warn("[Chat] Post-hoc moderation failed for msg={}: {}",
+                                        savedId, e.getMessage());
+                            }
+                        });
 
                         try {
                             chatRepository.updateModelUsed(saved.getId(), selectedModel);
