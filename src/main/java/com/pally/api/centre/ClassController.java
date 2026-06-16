@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.web.bind.annotation.RequestParam;
+
 import java.util.List;
 import java.util.Map;
 
@@ -210,5 +212,27 @@ public class ClassController {
                 .map(resp -> ResponseEntity.ok(ApiResponse.success(resp)))
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error("Narration not found for this module", 404)));
+    }
+
+    // ── AI class brief ─────────────────────────────────────────────────────────
+
+    @GetMapping("/classes/{classId}/class-brief")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getClassBrief(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @RequestParam(required = false) String moduleId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(classService.getClassBrief(userId, orgId, classId, moduleId)));
+    }
+
+    @PostMapping("/classes/{classId}/class-brief/refresh")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> refreshClassBrief(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @RequestParam(required = false) String moduleId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(classService.refreshClassBrief(userId, orgId, classId, moduleId)));
     }
 }

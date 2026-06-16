@@ -23,4 +23,14 @@ public interface ModuleProgressJpaRepository extends JpaRepository<ModuleProgres
             + "WHERE p.moduleId = :moduleId AND p.stage = :stage")
     long countDistinctCompletersByStage(@Param("moduleId") String moduleId,
                                         @Param("stage") String stage);
+
+    /**
+     * All progress rows for a set of students across a set of modules —
+     * used by ClassBriefService to compute per-concept mastery signals.
+     */
+    @Query("SELECT p FROM ModuleProgressJpaEntity p "
+            + "WHERE p.moduleId IN :moduleIds AND p.userId IN :userIds")
+    List<ModuleProgressJpaEntity> findByModuleIdInAndUserIdIn(
+            @Param("moduleIds") List<String> moduleIds,
+            @Param("userIds") List<String> userIds);
 }

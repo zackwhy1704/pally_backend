@@ -68,6 +68,7 @@ public class ClassService {
     private final ClassGroupService classGroupService;
     private final ClassEnrollmentService classEnrollmentService;
     private final ObjectMapper objectMapper;
+    private final ClassBriefService classBriefService;
 
     // ── Create a class ────────────────────────────────────────────────────────
 
@@ -542,6 +543,24 @@ public class ClassService {
             }
             return resp;
         });
+    }
+
+    // ── AI class brief ────────────────────────────────────────────────────────
+
+    /** Owner-gated. Returns cached (or freshly generated) class brief. */
+    public Map<String, Object> getClassBrief(
+            String userId, String orgId, String classId, String moduleId) {
+        accessService.ensureOwner(userId, orgId);
+        requireClass(orgId, classId);
+        return classBriefService.getOrGenerate(classId, moduleId);
+    }
+
+    /** Owner-gated. Force-regenerates the class brief. */
+    public Map<String, Object> refreshClassBrief(
+            String userId, String orgId, String classId, String moduleId) {
+        accessService.ensureOwner(userId, orgId);
+        requireClass(orgId, classId);
+        return classBriefService.refresh(classId, moduleId);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
