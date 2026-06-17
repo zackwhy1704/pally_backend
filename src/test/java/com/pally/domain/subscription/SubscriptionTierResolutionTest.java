@@ -93,16 +93,18 @@ class SubscriptionTierResolutionTest {
     }
 
     @Test
-    void resolveTier_centreMonthlyPlan_returnsCentre() {
+    void resolveTier_legacyCentreMonthlyPlan_resolvedToMax() {
+        // CENTRE consumer tier is removed — V79 migrates these rows to max_monthly,
+        // but any unmigrated row should still produce MAX (legacy fallthrough).
         when(userRepo.findById("u6")).thenReturn(Optional.of(soloUser("u6")));
         when(subRepo.findById("u6")).thenReturn(Optional.of(activeSub("u6", "centre_monthly")));
 
-        assertThat(premiumService.resolveTier("u6")).isEqualTo(SubscriptionTier.CENTRE);
+        assertThat(premiumService.resolveTier("u6")).isEqualTo(SubscriptionTier.MAX);
     }
 
     @Test
     void resolveTier_legacyIndividualMonthlyPlan_returnsMax() {
-        // Legacy plans without pro/max/family/centre → treated as MAX
+        // Legacy plans without pro/max/family → treated as MAX
         when(userRepo.findById("u7")).thenReturn(Optional.of(soloUser("u7")));
         when(subRepo.findById("u7")).thenReturn(Optional.of(activeSub("u7", "individual_monthly")));
 
@@ -128,12 +130,15 @@ class SubscriptionTierResolutionTest {
     }
 
     @Test
-    void resolveTier_centreWinsPrecedenceOverFamily() {
-        // Hypothetical plan that contains both "centre" and "family" — CENTRE wins
+    void resolveTier_noCentreCanEverBeReturned() {
+        // Guard: no plan string should produce a CENTRE tier value since the enum case is gone.
+        // centre_monthly → MAX (legacy fallthrough, migrated by V79).
         when(userRepo.findById("u9")).thenReturn(Optional.of(soloUser("u9")));
         when(subRepo.findById("u9")).thenReturn(Optional.of(activeSub("u9", "centre_family_plan")));
 
-        assertThat(premiumService.resolveTier("u9")).isEqualTo(SubscriptionTier.CENTRE);
+        SubscriptionTier resolved = premiumService.resolveTier("u9");
+        // Must be FAMILY (plan contains "family") — never CENTRE.
+        assertThat(resolved).isEqualTo(SubscriptionTier.FAMILY);
     }
 
     @Test

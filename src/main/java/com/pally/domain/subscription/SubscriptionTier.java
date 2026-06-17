@@ -3,8 +3,9 @@ package com.pally.domain.subscription;
 /**
  * Tier classification derived from the user's active subscription plan.
  *
- * <p>Resolution order: CENTRE > FAMILY > MAX > PRO > FREE.
+ * <p>Resolution order: FAMILY > MAX > PRO > FREE.
  * Legacy plans (individual_monthly, admin) are treated as MAX.
+ * Centre-source students (B2B) inherit entitlements server-side; no consumer CENTRE plan exists.
  */
 public enum SubscriptionTier {
     /** No active subscription — 20 chats/day, 1-2 Mochis (level-gated). */
@@ -14,7 +15,5 @@ public enum SubscriptionTier {
     /** Plan contains "max" — unlimited chats, unlimited Mochis, Sonnet for complex questions. */
     MAX,
     /** Plan contains "family" — up to 4 children linked, each gets unlimited chats. */
-    FAMILY,
-    /** Plan contains "centre" — up to 15 students linked, each gets unlimited chats. */
-    CENTRE
+    FAMILY
 }

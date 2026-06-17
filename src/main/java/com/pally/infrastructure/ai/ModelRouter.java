@@ -57,13 +57,13 @@ public class ModelRouter {
     /**
      * Selects the chat model for the given user message and subscription tier.
      *
-     * <p>MAX / FAMILY / CENTRE users are routed to Sonnet for complex questions
+     * <p>MAX / FAMILY users are routed to Sonnet for complex questions
      * so they get meaningfully better answers on hard maths/science problems.
      * FREE and PRO users always get Haiku (cost control).
      */
     public String forChat(String userMessage, SubscriptionTier tier) {
-        if ((tier == SubscriptionTier.MAX || tier == SubscriptionTier.FAMILY
-                || tier == SubscriptionTier.CENTRE) && isComplexQuestion(userMessage)) {
+        if ((tier == SubscriptionTier.MAX || tier == SubscriptionTier.FAMILY)
+                && isComplexQuestion(userMessage)) {
             log.info("[ModelRouter] SONNET for Max-tier complex chat: \"{}\"",
                     userMessage == null ? "" :
                     userMessage.substring(0, Math.min(60, userMessage.length())));

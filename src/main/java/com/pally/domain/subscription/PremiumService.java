@@ -152,14 +152,13 @@ public class PremiumService {
      *
      * <p>Plan string matching is intentionally loose (contains) so both
      * {@code pro_monthly} and {@code pro_annual} resolve to PRO, etc.
-     * Legacy plans ({@code individual_monthly}, {@code admin}) fall through
-     * to MAX so existing paying users keep the highest-tier behaviour.
+     * Legacy plans ({@code individual_monthly}, {@code admin}, any old
+     * {@code centre_*} rows migrated to MAX) fall through to MAX.
      */
     public SubscriptionTier resolveTier(String userId) {
         Entitlement ent = resolve(userId);
         if (!ent.isPremium()) return SubscriptionTier.FREE;
         String plan = ent.plan() != null ? ent.plan().toLowerCase() : "";
-        if (plan.contains("centre")) return SubscriptionTier.CENTRE;
         if (plan.contains("family")) return SubscriptionTier.FAMILY;
         if (plan.contains("max"))    return SubscriptionTier.MAX;
         if (plan.contains("pro"))    return SubscriptionTier.PRO;

@@ -52,11 +52,10 @@ public class CreateAvatarUseCase {
         // off-by-one on the call that's trying to create the next tutor.
         // FREE users: L5+ gets an extra slot per LevelRewards.freeTutorCap.
         // PRO users: 5 tutors.
-        // MAX / FAMILY / CENTRE: unlimited.
+        // MAX / FAMILY: unlimited.
         SubscriptionTier tier = premiumService.resolveTier(userId);
         if (tier != SubscriptionTier.MAX
-                && tier != SubscriptionTier.FAMILY
-                && tier != SubscriptionTier.CENTRE) {
+                && tier != SubscriptionTier.FAMILY) {
             int existing = avatarRepository.findByUserId(userId).size();
             int level = userRepository.findById(userId)
                     .map(u -> u.getLevel())

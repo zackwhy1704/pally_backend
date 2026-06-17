@@ -82,7 +82,7 @@ class ClassGroupModerationTest {
     @Test
     void student_cannotSelfJoinClassGroupByCode_returns403() {
         when(premiumService.resolveTier(STUDENT))
-                .thenReturn(com.pally.domain.subscription.SubscriptionTier.CENTRE);
+                .thenReturn(com.pally.domain.subscription.SubscriptionTier.MAX);
         when(groupRepo.findByInviteCode("CLS123")).thenReturn(Optional.of(classGroup()));
 
         assertThatThrownBy(() -> service.join(STUDENT, Map.of("inviteCode", "CLS123")))

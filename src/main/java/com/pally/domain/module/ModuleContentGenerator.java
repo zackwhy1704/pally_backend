@@ -364,7 +364,7 @@ public class ModuleContentGenerator {
         try {
             SubscriptionTier subTier = premiumService.resolveTier(avatar.getUserId());
             return switch (subTier) {
-                case PRO, MAX, FAMILY, CENTRE -> "CENTRE";
+                case PRO, MAX, FAMILY -> "CENTRE";
                 case FREE -> "FREE";
             };
         } catch (Exception e) {

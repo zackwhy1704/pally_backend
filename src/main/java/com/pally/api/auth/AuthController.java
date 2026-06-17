@@ -6,6 +6,7 @@ import com.pally.api.auth.dto.LoginRequest;
 import com.pally.api.auth.dto.RegisterRequest;
 import com.pally.api.auth.dto.SetupRequest;
 import com.pally.api.auth.dto.SocialAuthRequest;
+import com.pally.domain.centre.CentreInviteService;
 import com.pally.infrastructure.auth.AuthService;
 import com.pally.infrastructure.auth.SocialTokenVerifier;
 import com.pally.infrastructure.ratelimit.SlidingWindowRateLimiter;
@@ -22,6 +23,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,6 +48,7 @@ public class AuthController {
     private static final long FORGOT_WINDOW_MS = 60L * 60_000;
 
     private final AuthService authService;
+    private final CentreInviteService inviteService;
     private final SlidingWindowRateLimiter rateLimiter;
     private final SocialTokenVerifier socialTokenVerifier;
 
@@ -232,6 +235,23 @@ public class AuthController {
         authService.updateDefaultAnswerMode(userId, mode);
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("defaultAnswerMode", mode.equalsIgnoreCase("ANSWER") ? "ANSWER" : "GUIDE")));
+    }
+
+    // ── Centre invite (public — no auth required) ─────────────────────────────
+
+    @GetMapping("/invite/{token}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getInvite(
+            @PathVariable String token
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(inviteService.getInvite(token)));
+    }
+
+    @PostMapping("/accept-invite")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> acceptInvite(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, Object> body
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(inviteService.acceptInvite(userId, body)));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

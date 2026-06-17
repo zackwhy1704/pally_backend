@@ -92,7 +92,7 @@ public class UsageController {
         int chatLimit = switch (tier) {
             case FREE                -> ChatRateLimiter.FREE_DAILY_LIMIT;
             case PRO                 -> ChatRateLimiter.PRO_DAILY_LIMIT;
-            case MAX, FAMILY, CENTRE -> -1; // unlimited
+            case MAX, FAMILY -> -1; // unlimited
         };
         body.put("chatUsed", chatUsed);
         body.put("chatLimit", chatLimit);

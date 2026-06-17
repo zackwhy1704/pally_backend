@@ -51,7 +51,7 @@ public class ChatRateLimiter {
         return switch (tier) {
             case FREE                    -> FREE_DAILY_LIMIT;
             case PRO                     -> PRO_DAILY_LIMIT;
-            case MAX, FAMILY, CENTRE     -> Integer.MAX_VALUE;
+            case MAX, FAMILY             -> Integer.MAX_VALUE;
         };
     }
 
@@ -83,7 +83,7 @@ public class ChatRateLimiter {
             deque.addLast(now);
         }
 
-        // Daily cap is tier-based. Resolve tier once per call; MAX/FAMILY/CENTRE
+        // Daily cap is tier-based. Resolve tier once per call; MAX/FAMILY
         // skip the counter entirely (unlimited). FREE and PRO increment and
         // compare against their respective daily cap.
         SubscriptionTier tier;

@@ -19,7 +19,7 @@ public final class SubscriptionLimits {
      * <p>FREE users are still level-gated per {@link LevelRewards#freeTutorCap(int)}
      * so that L5 serves as a meaningful progression milestone.
      * PRO users get a fixed cap of 5.
-     * MAX / FAMILY / CENTRE users get -1 (UNLIMITED sentinel).
+     * MAX / FAMILY users get -1 (UNLIMITED sentinel).
      *
      * <p>Delegates to {@link Entitlements#forTier(SubscriptionTier, int)}.
      */
@@ -30,7 +30,7 @@ public final class SubscriptionLimits {
     }
 
     /**
-     * How many children/students a parent/centre account may link.
+     * How many children a parent account may link.
      *
      * <p>Delegates to {@link Entitlements#forTier(SubscriptionTier)}.
      *
@@ -42,9 +42,8 @@ public final class SubscriptionLimits {
         // themselves), but legacy callers of familyChildCap expect 0 for
         // tiers that don't support linking children.
         return switch (tier) {
-            case FAMILY  -> cap;
-            case CENTRE  -> cap;
-            default      -> 0;
+            case FAMILY -> cap;
+            default     -> 0;
         };
     }
 }

@@ -85,17 +85,6 @@ class SubscriptionEntitlementsTest {
         assertThat(ent.priorityAi()).isTrue();
     }
 
-    // ── CENTRE ────────────────────────────────────────────────────────────────
-
-    @Test
-    void centreTier_hasCorrectLimits() {
-        var ent = Entitlements.forTier(SubscriptionTier.CENTRE);
-        assertThat(ent.maxStudents()).isEqualTo(15);
-        assertThat(ent.parentDashboard()).isEqualTo(Entitlements.ParentDashboard.PER_STUDENT);
-        assertThat(ent.groups()).isTrue();
-        assertThat(ent.priorityAi()).isTrue();
-    }
-
     // ── isUnlimited sentinel ──────────────────────────────────────────────────
 
     @Test

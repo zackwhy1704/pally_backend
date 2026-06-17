@@ -60,9 +60,11 @@ class DevSeedTierMatrixTest {
     }
 
     @Test
-    void centreAccount_resolves_centreTier() {
-        when(premiumService.resolveTier(CENTRE_USER)).thenReturn(SubscriptionTier.CENTRE);
-        assertThat(premiumService.resolveTier(CENTRE_USER)).isEqualTo(SubscriptionTier.CENTRE);
+    void centreAccount_resolves_maxTier_afterTierRemoval() {
+        // CENTRE consumer tier removed (V79 migration). Legacy seeded centre account
+        // resolves to MAX — the same unlimited entitlement it previously had.
+        when(premiumService.resolveTier(CENTRE_USER)).thenReturn(SubscriptionTier.MAX);
+        assertThat(premiumService.resolveTier(CENTRE_USER)).isEqualTo(SubscriptionTier.MAX);
     }
 
     /**

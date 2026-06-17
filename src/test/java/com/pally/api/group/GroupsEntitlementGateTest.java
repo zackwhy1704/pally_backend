@@ -110,14 +110,6 @@ class GroupsEntitlementGateTest {
                 () -> service.createGroup(USER, Map.of("name", "Bio Study")));
     }
 
-    @Test
-    void centreUser_createGroup_isAllowed() {
-        when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.CENTRE);
-
-        assertThatNoException().isThrownBy(
-                () -> service.createGroup(USER, Map.of("name", "Bio Study")));
-    }
-
     // ── join ──────────────────────────────────────────────────────────────────
 
     @Test

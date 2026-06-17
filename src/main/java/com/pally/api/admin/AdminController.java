@@ -1,15 +1,25 @@
 package com.pally.api.admin;
 
+import com.pally.domain.centre.CentreInviteService;
 import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
+import com.pally.infrastructure.persistence.progress.UserJpaEntity;
+import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -19,6 +29,9 @@ import java.util.Map;
 public class AdminController {
 
     private final ChatMessageJpaRepository chatRepo;
+    private final OrganizationJpaRepository orgRepo;
+    private final UserJpaRepository userRepo;
+    private final CentreInviteService inviteService;
 
     @GetMapping("/model-usage")
     public Map<String, Object> getModelUsage(
@@ -82,6 +95,73 @@ public class AdminController {
         } catch (Exception e) {
             return Map.of("status", "error", "error", e.getClass().getSimpleName() + ": " + e.getMessage());
         }
+    }
+
+    // ── Centres ───────────────────────────────────────────────────────────────
+
+    @GetMapping("/organizations")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listOrganizations() {
+        List<Map<String, Object>> orgs = orgRepo.findAll().stream()
+                .map(this::orgDto)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(orgs));
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+
+    @GetMapping("/users")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listUsers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size
+    ) {
+        int safeSize = Math.max(1, Math.min(size, 200));
+        var pageable = org.springframework.data.domain.PageRequest.of(
+                Math.max(0, page), safeSize,
+                org.springframework.data.domain.Sort.by("createdAt").descending());
+        List<Map<String, Object>> users = userRepo.findAll(pageable).stream()
+                .map(this::userDto)
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(users));
+    }
+
+    // ── Invites ───────────────────────────────────────────────────────────────
+
+    @GetMapping("/invites")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listInvites() {
+        return ResponseEntity.ok(ApiResponse.success(inviteService.listInvites()));
+    }
+
+    @PostMapping("/invites")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> createInvite(
+            @AuthenticationPrincipal String adminUserId,
+            @RequestBody Map<String, Object> body
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(inviteService.createInvite(adminUserId, body)));
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private Map<String, Object> orgDto(OrganizationJpaEntity org) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", org.getId());
+        m.put("name", org.getName());
+        m.put("ownerUserId", org.getOwnerUserId());
+        m.put("seatLimit", org.getSeatLimit());
+        m.put("createdAt", org.getCreatedAt().toString());
+        return m;
+    }
+
+    private Map<String, Object> userDto(UserJpaEntity u) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("userId", u.getId());
+        m.put("email", u.getEmail() != null ? u.getEmail() : "");
+        m.put("displayName", u.getDisplayName() != null ? u.getDisplayName() : "");
+        m.put("role", u.getRole() != null ? u.getRole() : "USER");
+        m.put("isPremium", u.isPremium());
+        m.put("level", u.getLevel());
+        m.put("centreId", u.getCentreId());
+        m.put("createdAt", u.getCreatedAt() != null ? u.getCreatedAt().toString() : null);
+        return m;
     }
 
     private double estimateCost(long haiku, long sonnet) {

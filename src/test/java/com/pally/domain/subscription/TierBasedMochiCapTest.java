@@ -56,12 +56,6 @@ class TierBasedMochiCapTest {
                 .isEqualTo(Integer.MAX_VALUE);
     }
 
-    @Test
-    void centreTier_anyLevel_capIsUnlimited() {
-        assertThat(SubscriptionLimits.mochiCap(SubscriptionTier.CENTRE, 1))
-                .isEqualTo(Integer.MAX_VALUE);
-    }
-
     // ── Boundary: free user at exactly L5 can create a second Mochi ──────
 
     @Test

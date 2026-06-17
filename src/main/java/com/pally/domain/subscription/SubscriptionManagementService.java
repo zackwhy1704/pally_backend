@@ -103,6 +103,11 @@ public class SubscriptionManagementService {
         if (plan == null || plan.isBlank()) {
             throw new BusinessException("plan is required", 400);
         }
+        // "centre" was a legacy consumer tier; it no longer exists as a purchasable plan.
+        // B2B centre coverage is handled server-side, not via a self-serve Stripe checkout.
+        if (plan.toLowerCase().contains("centre")) {
+            throw new BusinessException("Plan '" + plan + "' is not available for purchase", 400);
+        }
         if (!isLive()) {
             log.info("[Subscription] MOCK checkout user={} plan={}", userId, plan);
             return Map.of(

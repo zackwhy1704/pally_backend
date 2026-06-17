@@ -111,7 +111,6 @@ public class FamilyController {
         return switch (tier) {
             case FREE, PRO, MAX -> 1;
             case FAMILY -> 4;
-            case CENTRE -> 15;
         };
     }
 

@@ -19,11 +19,6 @@ class FamilyChildCapTest {
     }
 
     @Test
-    void centreTier_capIsFifteen() {
-        assertThat(SubscriptionLimits.familyChildCap(SubscriptionTier.CENTRE)).isEqualTo(15);
-    }
-
-    @Test
     void freeTier_capIsZero() {
         assertThat(SubscriptionLimits.familyChildCap(SubscriptionTier.FREE)).isEqualTo(0);
     }
@@ -49,12 +44,4 @@ class FamilyChildCapTest {
         assertThat(4).isGreaterThanOrEqualTo(cap);
     }
 
-    @Test
-    void centreTier_fourteenChildrenAllowed_sixteenthBlocked() {
-        int cap = SubscriptionLimits.familyChildCap(SubscriptionTier.CENTRE);
-        // 14 students — adding a 15th should be allowed
-        assertThat(14).isLessThan(cap);
-        // 15 students — adding a 16th should be blocked
-        assertThat(15).isGreaterThanOrEqualTo(cap);
-    }
 }

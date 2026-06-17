@@ -34,11 +34,10 @@ public record Entitlements(
      */
     public static Entitlements forTier(SubscriptionTier tier, int userLevel) {
         return switch (tier) {
-            case FREE   -> new Entitlements(20,  LevelRewards.freeTutorCap(userLevel), 1,  ParentDashboard.NONE,        false, false, true, true);
-            case PRO    -> new Entitlements(100, 5,                                    1,  ParentDashboard.FAMILY_WIDE, true,  false, true, true);
-            case MAX    -> new Entitlements(-1,  -1,                                   1,  ParentDashboard.FAMILY_WIDE, true,  true,  true, true);
-            case FAMILY -> new Entitlements(-1,  -1,                                   4,  ParentDashboard.FAMILY_WIDE, true,  true,  true, true);
-            case CENTRE -> new Entitlements(-1,  -1,                                   15, ParentDashboard.PER_STUDENT, true,  true,  true, true);
+            case FREE   -> new Entitlements(20,  LevelRewards.freeTutorCap(userLevel), 1, ParentDashboard.NONE,        false, false, true, true);
+            case PRO    -> new Entitlements(100, 5,                                    1, ParentDashboard.FAMILY_WIDE, true,  false, true, true);
+            case MAX    -> new Entitlements(-1,  -1,                                   1, ParentDashboard.FAMILY_WIDE, true,  true,  true, true);
+            case FAMILY -> new Entitlements(-1,  -1,                                   4, ParentDashboard.FAMILY_WIDE, true,  true,  true, true);
         };
     }
 

@@ -5,6 +5,7 @@ import com.pally.domain.account.AccountType;
 import com.pally.domain.auth.dto.AuthResponse;
 import com.pally.domain.shop.CharacterShopService;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -27,6 +28,7 @@ import java.time.ZoneId;
 public class AuthService {
 
     private final UserJpaRepository userRepo;
+    private final OrganizationJpaRepository orgRepo;
     private final JwtService jwtService;
     private final BCryptPasswordEncoder passwordEncoder;
     private final CharacterShopService characterShopService;
@@ -178,6 +180,7 @@ public class AuthService {
     public Map<String, Object> getUser(String userId) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
+        boolean isCentreStaff = orgRepo.findFirstByOwnerUserId(userId).isPresent();
         var m = new java.util.HashMap<String, Object>();
         m.put("userId", user.getId());
         m.put("email", user.getEmail() != null ? user.getEmail() : "");
@@ -188,6 +191,8 @@ public class AuthService {
                 user.getAccountStatus() != null ? user.getAccountStatus() : "ACTIVE");
         m.put("defaultAnswerMode",
                 user.getDefaultAnswerMode() != null ? user.getDefaultAnswerMode() : "GUIDE");
+        m.put("role", user.getRole() != null ? user.getRole() : "USER");
+        m.put("isCentreStaff", isCentreStaff);
         return m;
     }
 
