@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -350,6 +351,36 @@ class CentreAnalyticsServiceTest {
         assertThatThrownBy(() -> service.studentProgress(ORG_ID, STUDENT_A))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("not found");
+    }
+
+    @Test
+    void studentProgress_graspQueriesRouteOnlyThroughCentreAvatarScopedPort() {
+        // INV-2 (PRIVACY): the weekly-grasp and topic-grasp queries must only reach
+        // centre-avatar results. At the service level this is enforced by routing all
+        // reads through QuizQuestionResultRepository (the domain port), whose JPA
+        // implementation has JOIN avatars a ON a.centre_avatar = TRUE. This test
+        // verifies the service never bypasses the port to call an unconstrained method.
+        User student = makeUser(STUDENT_A, "Alice Tan", ORG_ID);
+        when(userRepository.findById(STUDENT_A)).thenReturn(Optional.of(student));
+        // Port returns centre-only rows (SOLO results are filtered at the SQL level).
+        when(quizResultRepository.findWeeklyGraspForStudent(STUDENT_A))
+                .thenReturn(rows(trendRow("2026-06-01", 0.72)));
+        when(quizResultRepository.findTopicGraspForStudent(STUDENT_A))
+                .thenReturn(rows(topicGraspRow("algebra", 0.65, 8)));
+        lenient().when(quizResultRepository.findStudentActivity(eq(ORG_ID), isNull()))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> result = service.studentProgress(ORG_ID, STUDENT_A);
+
+        // Service must call the constrained port methods exactly once each.
+        verify(quizResultRepository).findWeeklyGraspForStudent(STUDENT_A);
+        verify(quizResultRepository).findTopicGraspForStudent(STUDENT_A);
+        // Results surfaced to the teacher come only from what the port returned.
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> graspOverTime =
+                (List<Map<String, Object>>) result.get("graspOverTime");
+        assertThat(graspOverTime).hasSize(1);
+        assertThat(graspOverTime.get(0).get("value")).isEqualTo(0.72);
     }
 
     @Test

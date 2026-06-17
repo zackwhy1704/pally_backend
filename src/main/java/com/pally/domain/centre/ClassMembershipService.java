@@ -100,18 +100,35 @@ public class ClassMembershipService {
     @Transactional
     public Map<String, Object> remove(String userId, String orgId, String classId, String studentId) {
         accessService.ensureOwner(userId, orgId);
-        requireClass(orgId, classId);
-        ClassMembershipJpaEntity m = membershipRepo.findByClassIdAndUserId(classId, studentId)
+        OrgClassJpaEntity cls = requireClass(orgId, classId);
+        ClassMembershipJpaEntity existing = membershipRepo.findByClassIdAndUserId(classId, studentId)
                 .orElseThrow(() -> new BusinessException("Membership not found", 404));
-        m.setStatus(ClassMembershipJpaEntity.STATUS_REMOVED);
-        membershipRepo.save(m);
-        classGroupService.syncStudentLeave(classId, studentId);
-        if (m.getStudentAvatarId() != null) {
-            avatarRepository.findById(m.getStudentAvatarId()).ifPresent(a -> {
-                a.lockAvatar();
-                avatarRepository.save(a);
+
+        // Idempotent: already removed — legacy soft-lock rows or duplicate calls.
+        if (!ClassMembershipJpaEntity.STATUS_ACTIVE.equals(existing.getStatus())) {
+            return Map.of("removed", true);
+        }
+
+        // Hard-delete avatar + membership, mirrors student-initiated leaveClass (INV-3).
+        classEnrollmentService.leave(cls, studentId);
+
+        // Clear centreId only if the student has no other active class in this centre.
+        boolean stillInCentre = membershipRepo.findByUserId(studentId).stream()
+                .filter(m -> ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus()))
+                .map(m -> classRepo.findById(m.getClassId()).orElse(null))
+                .filter(c -> c != null)
+                .anyMatch(c -> orgId.equals(c.getOrganizationId()));
+        if (!stillInCentre) {
+            userRepo.findById(studentId).ifPresent(u -> {
+                if (orgId.equals(u.getCentreId())) {
+                    u.setCentreId(null);
+                    u.setCohortLabel(null);
+                    userRepo.save(u);
+                }
             });
         }
+        log.info("[Class] teacher-removed student={} class={} stillInCentre={}",
+                studentId, classId, stillInCentre);
         return Map.of("removed", true);
     }
 

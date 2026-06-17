@@ -125,8 +125,9 @@ class ClassMembershipServiceTest {
     // ── remove ────────────────────────────────────────────────────────────
 
     @Test
-    void remove_locksAvatar_andMarksMembershipRemoved() {
-        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
+    void remove_delegatesToEnrollmentLeave_andDoesNotSoftLockAvatar() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
         ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
         m.setId("m-1");
         m.setClassId(CLASS_ID);
@@ -135,16 +136,81 @@ class ClassMembershipServiceTest {
         m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
         when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
                 .thenReturn(Optional.of(m));
-        Avatar avatar = Avatar.create(STUDENT_ID, "P4 Math",
-                com.pally.domain.avatar.Subject.MATHS,
-                com.pally.domain.avatar.CharacterType.MOCHI);
-        when(avatarRepository.findById("avatar-1")).thenReturn(Optional.of(avatar));
+        // No remaining memberships after leave.
+        when(membershipRepo.findByUserId(STUDENT_ID)).thenReturn(List.of());
 
         service.remove(OWNER_ID, ORG_ID, CLASS_ID, STUDENT_ID);
 
-        assertThat(m.getStatus()).isEqualTo(ClassMembershipJpaEntity.STATUS_REMOVED);
-        assertThat(avatar.isAvatarLocked()).isTrue();
-        verify(avatarRepository).save(avatar);
+        // Hard-delete path (mirrors student leave) — not a soft-lock (INV-3).
+        verify(classEnrollmentService).leave(cls, STUDENT_ID);
+        verify(avatarRepository, never()).save(any());
+        verify(membershipRepo, never()).save(any());
+    }
+
+    @Test
+    void remove_lastClassInCentre_clearsCentreId() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setClassId(CLASS_ID);
+        m.setUserId(STUDENT_ID);
+        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
+                .thenReturn(Optional.of(m));
+        when(membershipRepo.findByUserId(STUDENT_ID)).thenReturn(List.of());
+        UserJpaEntity u = new UserJpaEntity();
+        u.setId(STUDENT_ID);
+        u.setCentreId(ORG_ID);
+        u.setCohortLabel("P4 Math");
+        when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(u));
+
+        service.remove(OWNER_ID, ORG_ID, CLASS_ID, STUDENT_ID);
+
+        assertThat(u.getCentreId()).isNull();
+        assertThat(u.getCohortLabel()).isNull();
+        verify(userRepo).save(u);
+    }
+
+    @Test
+    void remove_otherActiveClassInSameCentre_keepsCentreId() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setClassId(CLASS_ID);
+        m.setUserId(STUDENT_ID);
+        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
+                .thenReturn(Optional.of(m));
+        // Second active class still in the same org.
+        ClassMembershipJpaEntity other = new ClassMembershipJpaEntity();
+        other.setClassId("class-2");
+        other.setUserId(STUDENT_ID);
+        other.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByUserId(STUDENT_ID)).thenReturn(List.of(other));
+        OrgClassJpaEntity cls2 = new OrgClassJpaEntity();
+        cls2.setId("class-2");
+        cls2.setOrganizationId(ORG_ID);
+        when(classRepo.findById("class-2")).thenReturn(Optional.of(cls2));
+
+        service.remove(OWNER_ID, ORG_ID, CLASS_ID, STUDENT_ID);
+
+        verify(userRepo, never()).save(any());
+    }
+
+    @Test
+    void remove_alreadyRemovedMembership_isIdempotentAndDoesNotCallLeaveAgain() {
+        when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(classEntity()));
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setClassId(CLASS_ID);
+        m.setUserId(STUDENT_ID);
+        m.setStatus(ClassMembershipJpaEntity.STATUS_REMOVED);
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID))
+                .thenReturn(Optional.of(m));
+
+        Map<String, Object> result = service.remove(OWNER_ID, ORG_ID, CLASS_ID, STUDENT_ID);
+
+        assertThat(result.get("removed")).isEqualTo(true);
+        verify(classEnrollmentService, never()).leave(any(), anyString());
     }
 
     // ── tenant isolation ─────────────────────────────────────────────────

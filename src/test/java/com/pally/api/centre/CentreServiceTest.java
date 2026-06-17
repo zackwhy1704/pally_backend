@@ -179,6 +179,33 @@ class CentreServiceTest {
         verify(classEnrollmentService, never()).leave(any(), anyString());
     }
 
+    @Test
+    void leaveClass_neverTouchesPersonalAvatarOrWikiOrXp_onlyDelegatesToEnrollmentLeave() {
+        // INV-1: personal SOLO avatar, wiki pages, XP, and streak data must survive
+        // any centre join/leave. The entire CENTRE_CLASS avatar destruction is
+        // delegated to classEnrollmentService.leave() — CentreService itself must
+        // never call avatarJpaRepository.deleteById() or any wiki/XP write directly.
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findById("class-1")).thenReturn(Optional.of(cls));
+        when(membershipRepo.findByUserId(STUDENT_A)).thenReturn(List.of());
+        UserJpaEntity user = new UserJpaEntity();
+        user.setId(STUDENT_A);
+        user.setCentreId(ORG_ID);
+        user.setXp(500);
+        user.setStreakDays(14);
+        when(userRepo.findById(STUDENT_A)).thenReturn(Optional.of(user));
+
+        service.leaveClass(STUDENT_A, Map.of("classId", "class-1"));
+
+        // Avatar deletion delegated — CentreService must not call avatarJpaRepository directly.
+        verify(avatarJpaRepository, never()).deleteById(anyString());
+        // XP and streak are untouched: only centreId/cohortLabel were cleared.
+        assertThat(user.getXp()).isEqualTo(500);
+        assertThat(user.getStreakDays()).isEqualTo(14);
+        // classEnrollmentService.leave() is the sole mechanism for centre-class cleanup.
+        verify(classEnrollmentService).leave(cls, STUDENT_A);
+    }
+
     // ── me ───────────────────────────────────────────────────────────────
 
     @Test

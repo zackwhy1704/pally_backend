@@ -171,10 +171,13 @@ public interface QuizQuestionResultJpaRepository
 
     /// Per-student weekly grasp trend for the student progress detail page.
     /// Returns up to 12 weeks, oldest first.
+    /// PRIVACY: joined to avatars with centre_avatar = TRUE so SOLO-avatar quiz
+    /// results are never surfaced to the teacher dashboard (INV-2).
     @Query(nativeQuery = true, value = """
             SELECT DATE_TRUNC('week', r.created_at) AS week,
                    AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp
             FROM quiz_question_results r
+            JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE
             WHERE r.user_id = :userId
               AND r.created_at >= NOW() - INTERVAL '12 weeks'
             GROUP BY DATE_TRUNC('week', r.created_at)
@@ -185,11 +188,14 @@ public interface QuizQuestionResultJpaRepository
     /// Per-student per-topic grasp for the topic-bars section of the student
     /// progress page. Only topics with ≥ 2 attempts. Sorted weakest-first so
     /// the teacher sees the most actionable gaps at the top.
+    /// PRIVACY: joined to avatars with centre_avatar = TRUE so SOLO-avatar quiz
+    /// results are never surfaced to the teacher dashboard (INV-2).
     @Query(nativeQuery = true, value = """
             SELECT r.topic_slug,
                    AVG(CASE WHEN r.was_correct THEN 1.0 ELSE 0.0 END) AS grasp,
                    COUNT(*) AS n
             FROM quiz_question_results r
+            JOIN avatars a ON a.id = r.avatar_id AND a.centre_avatar = TRUE
             WHERE r.user_id = :userId AND r.topic_slug IS NOT NULL
             GROUP BY r.topic_slug HAVING COUNT(*) >= 2
             ORDER BY grasp ASC
