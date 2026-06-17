@@ -333,12 +333,12 @@ class CentreServiceTest {
 
     @Test
     void activity_nonOwner_throws403() {
-        when(accessService.ensureOwner("intruder", ORG_ID))
-                .thenThrow(new BusinessException("You don't own this organization", 403));
+        when(accessService.ensureStaff("intruder", ORG_ID))
+                .thenThrow(new BusinessException("You don't have access to this organization", 403));
 
         assertThatThrownBy(() -> service.activity("intruder", ORG_ID, null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("don't own");
+                .hasMessageContaining("don't have access");
     }
 
     // ── onboarding ───────────────────────────────────────────────────────

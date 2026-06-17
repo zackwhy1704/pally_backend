@@ -245,7 +245,7 @@ class ClassCrudServiceTest {
 
     @Test
     void updateMochiConfig_nonOwner_isForbidden() {
-        when(accessService.ensureOwner("intruder", ORG_ID))
+        when(accessService.ensureStaff("intruder", ORG_ID))
                 .thenThrow(new BusinessException("Not the centre owner", 403));
         assertThatThrownBy(() ->
                 service.updateMochiConfig("intruder", ORG_ID, CLASS_ID,

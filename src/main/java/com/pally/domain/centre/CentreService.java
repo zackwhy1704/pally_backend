@@ -161,7 +161,7 @@ public class CentreService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> roster(String userId, String orgId, String cohort, int page, int size) {
-        OrganizationJpaEntity orgEntity = accessService.ensureOwner(userId, orgId);
+        OrganizationJpaEntity orgEntity = accessService.ensureStaff(userId, orgId);
         // Page-size cap protects against pulling the whole roster in one shot.
         int safeSize = Math.max(1, Math.min(size, 200));
         var pageable = org.springframework.data.domain.PageRequest.of(
@@ -196,7 +196,7 @@ public class CentreService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> analytics(String userId, String orgId, String cohort) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         String cohortFilter = (cohort == null || cohort.isBlank()) ? null : cohort;
         long studentCount = cohortFilter == null
                 ? userRepo.countByCentreId(orgId)
@@ -223,7 +223,7 @@ public class CentreService {
 
     @Transactional(readOnly = true)
     public String exportCsv(String userId, String orgId, String cohort, String format) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         if (!"csv".equalsIgnoreCase(format)) {
             // PDF is a follow-up; honest 501 here keeps the contract clean.
             throw new BusinessException("Only CSV export is supported in v1", 501);
@@ -247,7 +247,7 @@ public class CentreService {
 
     @Transactional
     public Map<String, Object> mintCode(String userId, String orgId, Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         String cohortLabel = body == null ? null : (String) body.get("cohortLabel");
         if (cohortLabel == null || cohortLabel.isBlank()) {
             throw new BusinessException("cohortLabel is required", 400);
@@ -367,7 +367,7 @@ public class CentreService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> activity(String userId, String orgId, String since) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         Instant sinceInstant;
         try {
             sinceInstant = (since != null && !since.isBlank())

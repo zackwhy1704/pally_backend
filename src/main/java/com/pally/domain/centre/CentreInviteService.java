@@ -2,6 +2,8 @@ package com.pally.domain.centre;
 
 import com.pally.infrastructure.persistence.organization.CentreInviteTokenJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreInviteTokenJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
@@ -36,6 +38,7 @@ public class CentreInviteService {
 
     private final CentreInviteTokenJpaRepository inviteRepo;
     private final OrganizationJpaRepository orgRepo;
+    private final OrgStaffJpaRepository staffRepo;
     private final UserJpaRepository userRepo;
 
     // ── Admin: create invite ──────────────────────────────────────────────────
@@ -94,9 +97,11 @@ public class CentreInviteService {
     // ── Public: accept invite ─────────────────────────────────────────────────
 
     /**
-     * Accepts the invite. Creates the org and records the accepting user as its
-     * owner. Idempotent: if the same user calls again the already-created org is
-     * returned.
+     * Accepts the invite. Branches on role:
+     * <ul>
+     *   <li>OWNER — creates a new org and records the user as its owner (idempotent).</li>
+     *   <li>STAFF — inserts an org_staff row linking the user to the existing org.</li>
+     * </ul>
      */
     @Transactional
     public Map<String, Object> acceptInvite(String userId, Map<String, Object> body) {
@@ -106,6 +111,14 @@ public class CentreInviteService {
         }
         CentreInviteTokenJpaEntity invite = requireValid(token);
 
+        if ("STAFF".equals(invite.getRole())) {
+            return acceptStaffInvite(userId, token, invite);
+        }
+        return acceptOwnerInvite(userId, token, invite);
+    }
+
+    private Map<String, Object> acceptOwnerInvite(
+            String userId, String token, CentreInviteTokenJpaEntity invite) {
         // Idempotent for the same user.
         if (userId.equals(invite.getAcceptedBy()) && invite.getOrgId() != null) {
             OrganizationJpaEntity org = orgRepo.findById(invite.getOrgId())
@@ -113,7 +126,6 @@ public class CentreInviteService {
             return orgResponse(org, false);
         }
 
-        // Check for existing org owned by this user (protect against double-accept).
         orgRepo.findFirstByOwnerUserId(userId).ifPresent(existing -> {
             throw new BusinessException("You already own an organisation", 409);
         });
@@ -134,7 +146,38 @@ public class CentreInviteService {
         invite.setOrgId(org.getId());
         inviteRepo.save(invite);
 
-        log.info("[Invite] token={} accepted by user={} → org={}", token, userId, org.getId());
+        log.info("[Invite] OWNER token={} accepted by user={} → org={}", token, userId, org.getId());
+        return orgResponse(org, true);
+    }
+
+    private Map<String, Object> acceptStaffInvite(
+            String userId, String token, CentreInviteTokenJpaEntity invite) {
+        String orgId = invite.getOrgId();
+        if (orgId == null || orgId.isBlank()) {
+            throw new BusinessException("Staff invite has no org assigned", 500);
+        }
+        OrganizationJpaEntity org = orgRepo.findById(orgId)
+                .orElseThrow(() -> new BusinessException("Organisation not found", 404));
+
+        // Idempotent: already attached.
+        if (staffRepo.existsByOrgIdAndUserIdAndStatus(orgId, userId, OrgStaffJpaEntity.STATUS_ACTIVE)) {
+            return orgResponse(org, false);
+        }
+
+        userRepo.findById(userId).orElseThrow(
+                () -> new BusinessException("User not found", 404));
+
+        OrgStaffJpaEntity staff = new OrgStaffJpaEntity();
+        staff.setId(IdGenerator.newId());
+        staff.setOrgId(orgId);
+        staff.setUserId(userId);
+        staffRepo.save(staff);
+
+        invite.setAcceptedBy(userId);
+        invite.setAcceptedAt(Instant.now());
+        inviteRepo.save(invite);
+
+        log.info("[Invite] STAFF token={} accepted by user={} → org={}", token, userId, orgId);
         return orgResponse(org, true);
     }
 
@@ -165,6 +208,7 @@ public class CentreInviteService {
         m.put("token", invite.getToken());
         m.put("centreName", invite.getCentreName());
         m.put("contactEmail", invite.getContactEmail());
+        m.put("role", invite.getRole());
         m.put("createdBy", invite.getCreatedBy());
         m.put("acceptedBy", invite.getAcceptedBy());
         m.put("orgId", invite.getOrgId());

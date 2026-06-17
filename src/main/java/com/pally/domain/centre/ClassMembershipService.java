@@ -49,7 +49,7 @@ public class ClassMembershipService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> members(String userId, String orgId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         Map<String, String> classNames = new HashMap<>();
         for (OrgClassJpaEntity c : classRepo.findByOrganizationId(orgId)) {
             classNames.put(c.getId(), c.getName());
@@ -79,7 +79,7 @@ public class ClassMembershipService {
     @Transactional
     public Map<String, Object> assign(
             String userId, String orgId, String classId, Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         OrgClassJpaEntity cls = requireClass(orgId, classId);
         String studentId = str(body.get("userId"));
         if (studentId == null || studentId.isBlank())
@@ -99,7 +99,7 @@ public class ClassMembershipService {
 
     @Transactional
     public Map<String, Object> remove(String userId, String orgId, String classId, String studentId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         OrgClassJpaEntity cls = requireClass(orgId, classId);
         ClassMembershipJpaEntity existing = membershipRepo.findByClassIdAndUserId(classId, studentId)
                 .orElseThrow(() -> new BusinessException("Membership not found", 404));
@@ -136,7 +136,7 @@ public class ClassMembershipService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> roster(String userId, String orgId, String classId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
         List<Map<String, Object>> out = new ArrayList<>();
         for (ClassMembershipJpaEntity m : membershipRepo.findByClassId(classId)) {
@@ -156,7 +156,7 @@ public class ClassMembershipService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> classRosterAnalytics(
             String userId, String orgId, String classId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         List<Object[]> rows;
@@ -189,7 +189,7 @@ public class ClassMembershipService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> classHeatmap(String userId, String orgId, String classId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         List<Object[]> rows;

@@ -62,7 +62,7 @@ public class ClassCrudService {
 
     @Transactional
     public Map<String, Object> createClass(String userId, String orgId, Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
 
         String name = str(body.get("name"));
         if (name == null || name.isBlank()) throw new BusinessException("name is required", 400);
@@ -105,7 +105,7 @@ public class ClassCrudService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listClasses(String userId, String orgId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         List<Map<String, Object>> out = new ArrayList<>();
         for (OrgClassJpaEntity cls : classRepo.findByOrganizationId(orgId)) {
             long count = membershipRepo.countByClassIdAndStatus(
@@ -120,7 +120,7 @@ public class ClassCrudService {
     @Transactional
     public Map<String, Object> updateClass(
             String userId, String orgId, String classId, Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         OrgClassJpaEntity cls = requireClass(orgId, classId);
 
         if (body.containsKey("name")) cls.setName(str(body.get("name")));
@@ -173,7 +173,7 @@ public class ClassCrudService {
     @Transactional
     public MochiConfig updateMochiConfig(
             String userId, String orgId, String classId, MochiConfig config) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         OrgClassJpaEntity cls = requireClass(orgId, classId);
 
         if (config == null) throw new BusinessException("mochi-config body is required", 400);
@@ -193,7 +193,7 @@ public class ClassCrudService {
     @Transactional
     public Map<String, Object> updateTeachingStyle(
             String userId, String orgId, String classId, Map<String, String> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         OrgClassJpaEntity cls = requireClass(orgId, classId);
         if (cls.getCorpusAvatarId() == null) {
             throw new BusinessException("This class has no content corpus yet.", 400);
@@ -218,7 +218,7 @@ public class ClassCrudService {
 
     public String generateClassNarration(
             String userId, String orgId, String classId, String moduleId, Map<String, String> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         String voiceId = (body != null) ? body.getOrDefault("voiceId", "default") : "default";
         log.info("[Narration] Centre generate request user={} class={} module={} voice={}",
                 userId, classId, moduleId, voiceId);
@@ -227,7 +227,7 @@ public class ClassCrudService {
 
     public Optional<Map<String, Object>> getClassNarration(
             String userId, String orgId, String classId, String moduleId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         return narrationService.get(moduleId).map(n -> {
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("id", n.getId());

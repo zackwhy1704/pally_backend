@@ -2,6 +2,8 @@ package com.pally.domain.centre;
 
 import com.pally.infrastructure.persistence.organization.CentreInviteTokenJpaEntity;
 import com.pally.infrastructure.persistence.organization.CentreInviteTokenJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
@@ -33,6 +35,7 @@ class CentreInviteServiceTest {
 
     @Mock CentreInviteTokenJpaRepository inviteRepo;
     @Mock OrganizationJpaRepository orgRepo;
+    @Mock OrgStaffJpaRepository staffRepo;
     @Mock UserJpaRepository userRepo;
 
     @InjectMocks CentreInviteService service;
@@ -55,6 +58,7 @@ class CentreInviteServiceTest {
     void setUp() {
         lenient().when(inviteRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(orgRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(staffRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     // ── createInvite ──────────────────────────────────────────────────────────
@@ -156,5 +160,61 @@ class CentreInviteServiceTest {
         assertThatThrownBy(() -> service.acceptInvite(OWNER_ID, Map.of("token", TOKEN)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 409);
+    }
+
+    // ── Staff invite (STAFF role) ─────────────────────────────────────────────
+
+    @Test
+    void acceptInvite_staffRole_createsOrgStaffRow() {
+        String staffUserId = "staff-1";
+        String orgId = "org-abc";
+
+        CentreInviteTokenJpaEntity staffInvite = validInvite();
+        staffInvite.setRole("STAFF");
+        staffInvite.setOrgId(orgId);
+
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId(orgId);
+        org.setName("Bright Stars Tuition");
+
+        UserJpaEntity user = new UserJpaEntity();
+        user.setId(staffUserId);
+
+        when(inviteRepo.findById(TOKEN)).thenReturn(Optional.of(staffInvite));
+        when(orgRepo.findById(orgId)).thenReturn(Optional.of(org));
+        when(staffRepo.existsByOrgIdAndUserIdAndStatus(orgId, staffUserId, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(false);
+        when(userRepo.findById(staffUserId)).thenReturn(Optional.of(user));
+
+        Map<String, Object> result = service.acceptInvite(staffUserId, Map.of("token", TOKEN));
+
+        assertThat(result.get("created")).isEqualTo(true);
+        assertThat(result.get("orgId")).isEqualTo(orgId);
+        verify(staffRepo).save(any(OrgStaffJpaEntity.class));
+        verify(orgRepo, never()).save(any(OrganizationJpaEntity.class));
+    }
+
+    @Test
+    void acceptInvite_staffRoleAlreadyActive_idempotent() {
+        String staffUserId = "staff-1";
+        String orgId = "org-abc";
+
+        CentreInviteTokenJpaEntity staffInvite = validInvite();
+        staffInvite.setRole("STAFF");
+        staffInvite.setOrgId(orgId);
+
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId(orgId);
+        org.setName("Bright Stars Tuition");
+
+        when(inviteRepo.findById(TOKEN)).thenReturn(Optional.of(staffInvite));
+        when(orgRepo.findById(orgId)).thenReturn(Optional.of(org));
+        when(staffRepo.existsByOrgIdAndUserIdAndStatus(orgId, staffUserId, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(true);
+
+        Map<String, Object> result = service.acceptInvite(staffUserId, Map.of("token", TOKEN));
+
+        assertThat(result.get("created")).isEqualTo(false);
+        verify(staffRepo, never()).save(any());
     }
 }

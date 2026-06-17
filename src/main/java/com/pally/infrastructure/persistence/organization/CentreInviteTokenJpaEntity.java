@@ -42,6 +42,9 @@ public class CentreInviteTokenJpaEntity {
     @Column(name = "accepted_at")
     private Instant acceptedAt;
 
+    @Column(name = "role", nullable = false, length = 10)
+    private String role = "OWNER";
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 }
