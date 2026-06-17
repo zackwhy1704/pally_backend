@@ -43,6 +43,7 @@ class AssignmentControllerTest {
     private AssignmentController controller;
 
     private static final String OWNER_ID = "owner-1";
+    private static final String STAFF_ID = "staff-1";
     private static final String ORG_ID = "org-1";
     private static final String CLASS_ID = "class-1";
 
@@ -51,17 +52,26 @@ class AssignmentControllerTest {
         controller = new AssignmentController(accessService, assignmentService, classRepo, classGroupService);
     }
 
-    private void stubClassAndOwner() {
+    private void stubClass() {
         OrgClassJpaEntity cls = new OrgClassJpaEntity();
         cls.setId(CLASS_ID);
         cls.setOrganizationId(ORG_ID);
         when(classRepo.findById(CLASS_ID)).thenReturn(Optional.of(cls));
-        when(accessService.ensureOwner(OWNER_ID, ORG_ID)).thenReturn(new OrganizationJpaEntity());
+    }
+
+    private void stubClassAndStaff() {
+        stubClass();
+        when(accessService.ensureStaff(OWNER_ID, ORG_ID)).thenReturn(new OrganizationJpaEntity());
+    }
+
+    private void stubClassAndStaffMember() {
+        stubClass();
+        when(accessService.ensureStaff(STAFF_ID, ORG_ID)).thenReturn(new OrganizationJpaEntity());
     }
 
     @Test
     void createAssignment_201_returnsCreatedAssignment() {
-        stubClassAndOwner();
+        stubClassAndStaff();
         AssignmentJpaEntity entity = new AssignmentJpaEntity();
         entity.setId("assign-1");
         entity.setClassId(CLASS_ID);
@@ -94,7 +104,7 @@ class AssignmentControllerTest {
 
     @Test
     void listAssignments_200_returnsList() {
-        stubClassAndOwner();
+        stubClassAndStaff();
         AssignmentJpaEntity a1 = new AssignmentJpaEntity();
         a1.setId("a1");
         a1.setClassId(CLASS_ID);
@@ -115,7 +125,7 @@ class AssignmentControllerTest {
 
     @Test
     void getAssignment_200_returnsDetail() {
-        stubClassAndOwner();
+        stubClassAndStaff();
         Map<String, Object> detail = Map.of("id", "a1", "title", "HW1", "completedCount", 3);
         when(assignmentService.getDetail("a1")).thenReturn(detail);
 
@@ -128,7 +138,7 @@ class AssignmentControllerTest {
 
     @Test
     void deleteAssignment_200_delegatesToService() {
-        stubClassAndOwner();
+        stubClassAndStaff();
         ResponseEntity<ApiResponse<Map<String, Object>>> response =
                 controller.deleteAssignment(OWNER_ID, ORG_ID, CLASS_ID, "a1");
 
@@ -137,14 +147,36 @@ class AssignmentControllerTest {
     }
 
     @Test
-    void createAssignment_wrongOrg_throws403() {
-        when(accessService.ensureOwner("other-user", ORG_ID))
-                .thenThrow(new BusinessException("Not owner", 403));
+    void createAssignment_staffMember_returns201() {
+        stubClassAndStaffMember();
+        AssignmentJpaEntity entity = new AssignmentJpaEntity();
+        entity.setId("a-staff");
+        entity.setClassId(CLASS_ID);
+        entity.setTitle("Staff HW");
+        entity.setType("PRE_CLASS");
+        entity.setDueDate(Instant.now().plus(7, ChronoUnit.DAYS));
+        entity.setCreatedBy(STAFF_ID);
+        entity.setCreatedAt(Instant.now());
+        when(assignmentService.create(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(entity);
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> response =
+                controller.createAssignment(STAFF_ID, ORG_ID, CLASS_ID,
+                        Map.of("title", "Staff HW", "type", "PRE_CLASS",
+                                "dueDate", Instant.now().plus(7, ChronoUnit.DAYS).toString()));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(201);
+    }
+
+    @Test
+    void createAssignment_unrelatedUser_throws403() {
+        when(accessService.ensureStaff("other-user", ORG_ID))
+                .thenThrow(new BusinessException("You don't have access to this organization", 403));
 
         assertThatThrownBy(() -> controller.createAssignment(
                 "other-user", ORG_ID, CLASS_ID, Map.of()))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Not owner");
+                .hasFieldOrPropertyWithValue("httpStatus", 403);
     }
 
     @Test

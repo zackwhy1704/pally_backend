@@ -47,7 +47,7 @@ public class AssignmentController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @RequestBody Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         String title = str(body.get("title"));
@@ -78,7 +78,7 @@ public class AssignmentController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId,
             @PathVariable String classId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         List<Map<String, Object>> result = assignmentService.listForClass(classId)
@@ -92,7 +92,7 @@ public class AssignmentController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @PathVariable String assignmentId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         Map<String, Object> detail = assignmentService.getDetail(assignmentId);
@@ -105,7 +105,7 @@ public class AssignmentController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @PathVariable String assignmentId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         assignmentService.delete(assignmentId);
@@ -121,7 +121,7 @@ public class AssignmentController {
             @PathVariable String classId,
             @PathVariable String assignmentId,
             @RequestBody Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
         // Accept a structured JSON object OR a plain string. Serialize objects.
         Object modelAnswerRaw = body.get("modelAnswer");
@@ -141,7 +141,7 @@ public class AssignmentController {
             @PathVariable String classId,
             @PathVariable String assignmentId,
             @RequestBody(required = false) Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         Instant releaseAt = null;

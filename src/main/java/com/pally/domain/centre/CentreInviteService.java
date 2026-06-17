@@ -89,8 +89,7 @@ public class CentreInviteService {
         CentreInviteTokenJpaEntity invite = requireValid(token);
         return Map.of(
                 "centreName", invite.getCentreName(),
-                "contactEmail", invite.getContactEmail(),
-                "expiresAt", invite.getExpiresAt().toString()
+                "role", invite.getRole()
         );
     }
 

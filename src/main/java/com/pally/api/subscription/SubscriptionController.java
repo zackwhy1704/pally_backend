@@ -15,19 +15,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Subscription endpoints — Stripe-shaped, but degrades to a deterministic
- * mock when {@code STRIPE_SECRET_KEY} is not configured. That way the
- * Flutter client has a stable contract through pilots while real Stripe
- * wiring (Java SDK + webhook signature verification + price IDs) is
- * delivered as a focused ops follow-up.
+ * Subscription endpoints — Stripe-backed, degrades gracefully to a mock
+ * when {@code STRIPE_SECRET_KEY} is not set (useful for local dev / QA).
  *
- * <p>In mock mode:
- *  - {@code POST /checkout} returns a fake {@code checkoutUrl} pointing
- *    at the Railway host (the client treats any 2xx as "open this URL").
- *  - {@code POST /webhook} accepts any JSON body and bumps the user's
- *    subscription to {@code active} for 30 days — useful for QA + demos.
- *  - {@code GET /status} returns the row from {@code subscriptions} or
- *    a synthetic {@code free} record when none exists.
+ * <p>In live mode, {@code POST /webhook} verifies Stripe's HMAC signature
+ * via {@code handleLiveWebhook} before processing any event.
+ * In mock mode (no {@code Stripe-Signature} header), {@code X-Mock-Secret}
+ * is required; on match, {@code handleMockWebhook} bumps the subscription
+ * to {@code active} for 30 days without touching Stripe.
+ *
+ * <p>{@code POST /checkout} always returns a {@code checkoutUrl}; in mock
+ * mode this is a synthetic URL that the client can open to simulate a
+ * completed purchase.
  */
 @RestController
 @RequestMapping("/api/v1/subscription")

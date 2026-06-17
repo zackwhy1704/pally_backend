@@ -42,6 +42,7 @@ class CentreAnalyticsControllerTest {
     @InjectMocks CentreAnalyticsController controller;
 
     private static final String OWNER_ID = "owner-1";
+    private static final String STAFF_ID = "staff-1";
     private static final String ORG_ID   = "org-1";
 
     private OrganizationJpaEntity org;
@@ -53,7 +54,13 @@ class CentreAnalyticsControllerTest {
         org.setName("Test Centre");
         org.setOwnerUserId(OWNER_ID);
 
+        // Owner satisfies both ensureStaff (for widened routes) and ensureOwner (costSummary).
+        lenient().when(accessService.ensureStaff(OWNER_ID, ORG_ID)).thenReturn(org);
         lenient().when(accessService.ensureOwner(OWNER_ID, ORG_ID)).thenReturn(org);
+        // Staff member satisfies ensureStaff but NOT ensureOwner.
+        lenient().when(accessService.ensureStaff(STAFF_ID, ORG_ID)).thenReturn(org);
+        lenient().when(accessService.ensureOwner(STAFF_ID, ORG_ID))
+                .thenThrow(new BusinessException("You don't have access to this organization", 403));
     }
 
     // ── Overview ──────────────────────────────────────────────────────────
@@ -72,13 +79,23 @@ class CentreAnalyticsControllerTest {
     }
 
     @Test
-    void overview_nonOwner_throws403() {
-        when(accessService.ensureOwner("intruder", ORG_ID))
-                .thenThrow(new BusinessException("You don't own this organization", 403));
+    void overview_staffMember_returns200() {
+        when(analyticsService.overview(anyString(), any())).thenReturn(Map.of("activeThisWeek", 2L));
+
+        ResponseEntity<ApiResponse<Map<String, Object>>> response =
+                controller.overview(STAFF_ID, ORG_ID, null);
+
+        assertThat(response.getStatusCodeValue()).isEqualTo(200);
+    }
+
+    @Test
+    void overview_unrelatedUser_throws403() {
+        when(accessService.ensureStaff("intruder", ORG_ID))
+                .thenThrow(new BusinessException("You don't have access to this organization", 403));
 
         assertThatThrownBy(() -> controller.overview("intruder", ORG_ID, null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("don't own");
+                .hasFieldOrPropertyWithValue("httpStatus", 403);
     }
 
     // ── Cohorts ───────────────────────────────────────────────────────────
@@ -97,14 +114,13 @@ class CentreAnalyticsControllerTest {
     }
 
     @Test
-    void classes_emptyCentre_returns200EmptyList() {
+    void classes_staffMember_returns200() {
         when(analyticsService.cohorts(ORG_ID)).thenReturn(Collections.emptyList());
 
         ResponseEntity<ApiResponse<List<Map<String, Object>>>> response =
-                controller.classes(OWNER_ID, ORG_ID);
+                controller.classes(STAFF_ID, ORG_ID);
 
         assertThat(response.getStatusCodeValue()).isEqualTo(200);
-        assertThat(response.getBody().data()).isEmpty();
     }
 
     // ── Heatmap ───────────────────────────────────────────────────────────
@@ -124,13 +140,20 @@ class CentreAnalyticsControllerTest {
     }
 
     @Test
-    void heatmap_nonOwner_throws403() {
-        when(accessService.ensureOwner("intruder", ORG_ID))
-                .thenThrow(new BusinessException("You don't own this organization", 403));
+    void heatmap_staffMember_returns200() {
+        when(analyticsService.heatmap(anyString(), anyString())).thenReturn(Map.of());
+
+        assertThat(controller.heatmap(STAFF_ID, ORG_ID, "Sec3A").getStatusCodeValue()).isEqualTo(200);
+    }
+
+    @Test
+    void heatmap_unrelatedUser_throws403() {
+        when(accessService.ensureStaff("intruder", ORG_ID))
+                .thenThrow(new BusinessException("You don't have access to this organization", 403));
 
         assertThatThrownBy(() -> controller.heatmap("intruder", ORG_ID, "Sec3A"))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("don't own");
+                .hasFieldOrPropertyWithValue("httpStatus", 403);
     }
 
     // ── Student progress ──────────────────────────────────────────────────
@@ -149,7 +172,14 @@ class CentreAnalyticsControllerTest {
         verify(analyticsService).studentProgress(ORG_ID, studentId);
     }
 
-    // ── Cost summary ──────────────────────────────────────────────────────
+    @Test
+    void studentProgress_staffMember_returns200() {
+        when(analyticsService.studentProgress(ORG_ID, "s-1")).thenReturn(Map.of("studentId", "s-1"));
+
+        assertThat(controller.studentProgress(STAFF_ID, ORG_ID, "s-1").getStatusCodeValue()).isEqualTo(200);
+    }
+
+    // ── Cost summary — owner-only ─────────────────────────────────────────
 
     @Test
     void costSummary_owner_returns200AndDelegates() {
@@ -163,5 +193,12 @@ class CentreAnalyticsControllerTest {
         assertThat(response.getStatusCodeValue()).isEqualTo(200);
         assertThat((Double) response.getBody().data().get("totalCostCents")).isEqualTo(0.0);
         verify(analyticsService).costSummary(ORG_ID, meterRegistry);
+    }
+
+    @Test
+    void costSummary_staffMember_throws403() {
+        assertThatThrownBy(() -> controller.costSummary(STAFF_ID, ORG_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 403);
     }
 }

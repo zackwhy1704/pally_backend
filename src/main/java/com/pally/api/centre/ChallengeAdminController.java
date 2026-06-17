@@ -45,7 +45,7 @@ public class ChallengeAdminController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @RequestBody Map<String, Object> body) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
         String question = str(body.get("question"));

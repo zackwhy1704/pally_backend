@@ -220,7 +220,7 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @RequestParam(required = false) String moduleId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         classCrudService.getClass(orgId, classId);
         return ResponseEntity.ok(
                 ApiResponse.success(classBriefService.getOrGenerate(classId, moduleId)));
@@ -232,7 +232,7 @@ public class ClassController {
             @PathVariable String orgId,
             @PathVariable String classId,
             @RequestParam(required = false) String moduleId) {
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         classCrudService.getClass(orgId, classId);
         return ResponseEntity.ok(
                 ApiResponse.success(classBriefService.refresh(classId, moduleId)));

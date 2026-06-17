@@ -22,10 +22,12 @@ import java.util.Map;
 /**
  * Centre analytics endpoints for the admin web dashboard.
  *
- * <p>Authorization: all routes require the caller to be the organization's
- * {@code owner_user_id} — enforced via {@link CentreAccessService#ensureOwner}.
+ * <p>Authorization: most routes require the caller to be an active org owner
+ * OR staff member — enforced via {@link CentreAccessService#ensureStaff}.
+ * The {@code /cost-summary} route is owner-only (financial data) and uses
+ * {@link CentreAccessService#ensureOwner}.
  *
- * <p>This controller is a thin routing shell: it enforces ownership, decodes
+ * <p>This controller is a thin routing shell: it enforces access, decodes
  * path variables, then delegates all query and aggregation logic to
  * {@link CentreAnalyticsService}.
  */
@@ -47,7 +49,7 @@ public class CentreAnalyticsController {
             @PathVariable String orgId,
             @RequestParam(required = false) String cohort) {
 
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         Map<String, Object> result = analyticsService.overview(orgId, CentreAnalyticsService.blankToNull(cohort));
         return ResponseEntity.ok(ApiResponse.success(result));
     }
@@ -59,7 +61,7 @@ public class CentreAnalyticsController {
             @AuthenticationPrincipal String userId,
             @PathVariable String orgId) {
 
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         return ResponseEntity.ok(ApiResponse.success(analyticsService.cohorts(orgId)));
     }
 
@@ -71,7 +73,7 @@ public class CentreAnalyticsController {
             @PathVariable String orgId,
             @PathVariable String cohort) {
 
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         String decodedCohort = URLDecoder.decode(cohort, StandardCharsets.UTF_8);
         return ResponseEntity.ok(ApiResponse.success(analyticsService.heatmap(orgId, decodedCohort)));
     }
@@ -84,7 +86,7 @@ public class CentreAnalyticsController {
             @PathVariable String orgId,
             @PathVariable String studentUserId) {
 
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         return ResponseEntity.ok(ApiResponse.success(analyticsService.studentProgress(orgId, studentUserId)));
     }
 
@@ -96,7 +98,7 @@ public class CentreAnalyticsController {
             @PathVariable String orgId,
             @PathVariable String classId) {
 
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         return ResponseEntity.ok(ApiResponse.success(analyticsService.classModules(classId)));
     }
 
@@ -108,7 +110,7 @@ public class CentreAnalyticsController {
             @PathVariable String orgId,
             @PathVariable String classId) {
 
-        accessService.ensureOwner(userId, orgId);
+        accessService.ensureStaff(userId, orgId);
         return ResponseEntity.ok(ApiResponse.success(analyticsService.conceptMastery(classId)));
     }
 

@@ -87,13 +87,14 @@ class CentreInviteServiceTest {
     // ── getInvite ─────────────────────────────────────────────────────────────
 
     @Test
-    void getInvite_validToken_returnsCentreNameAndEmail() {
+    void getInvite_validToken_returnsCentreNameAndRole() {
         when(inviteRepo.findById(TOKEN)).thenReturn(Optional.of(validInvite()));
 
         Map<String, Object> result = service.getInvite(TOKEN);
 
         assertThat(result.get("centreName")).isEqualTo("Bright Stars Tuition");
-        assertThat(result.get("contactEmail")).isEqualTo("owner@example.com");
+        assertThat(result.get("role")).isEqualTo("OWNER");
+        assertThat(result).doesNotContainKey("contactEmail");
     }
 
     @Test
