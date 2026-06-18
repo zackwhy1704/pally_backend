@@ -59,7 +59,9 @@ public class SecurityConfig {
                     "/api/v1/admin/safety-flags",
                     // Centre invite lookup — public so the accept-invite page can
                     // display the centre name before the user logs in.
-                    "/api/v1/auth/invite/**"
+                    "/api/v1/auth/invite/**",
+                    // Lead-capture for demo requests — no auth required.
+                    "/api/v1/demo-request"
                 ).permitAll()
                 // Admin endpoints — must be checked BEFORE the catch-all
                 // authenticated() so /admin/** with a USER token returns 403,

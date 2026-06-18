@@ -10,4 +10,5 @@ public interface OrgStaffJpaRepository extends JpaRepository<OrgStaffJpaEntity, 
     List<OrgStaffJpaEntity> findByOrgIdAndStatus(String orgId, String status);
     boolean existsByOrgIdAndUserIdAndStatus(String orgId, String userId, String status);
     boolean existsByUserIdAndStatus(String userId, String status);
+    Optional<OrgStaffJpaEntity> findFirstByUserIdAndStatus(String userId, String status);
 }

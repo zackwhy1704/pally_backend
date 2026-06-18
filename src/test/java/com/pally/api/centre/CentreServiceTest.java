@@ -11,6 +11,8 @@ import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntit
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
@@ -59,6 +61,7 @@ class CentreServiceTest {
     @Mock UserJpaRepository userRepo;
     @Mock QuizQuestionResultJpaRepository quizResultRepo;
     @Mock AvatarJpaRepository avatarJpaRepository;
+    @Mock OrgStaffJpaRepository staffRepo;
 
     @InjectMocks CentreService service;
 
@@ -241,8 +244,33 @@ class CentreServiceTest {
     }
 
     @Test
-    void me_notOwner_throws403() {
+    void me_staffMember_returnsOrgDetails() {
+        String staffId = "staff-1";
+        OrgStaffJpaEntity staffRow = new OrgStaffJpaEntity();
+        staffRow.setId("row-1");
+        staffRow.setUserId(staffId);
+        staffRow.setOrgId(ORG_ID);
+        staffRow.setStatus(OrgStaffJpaEntity.STATUS_ACTIVE);
+
+        when(orgRepo.findFirstByOwnerUserId(staffId)).thenReturn(Optional.empty());
+        when(staffRepo.findFirstByUserIdAndStatus(staffId, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(Optional.of(staffRow));
+        when(orgRepo.findById(ORG_ID)).thenReturn(Optional.of(org));
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(2L);
+        when(userRepo.findByCentreId(ORG_ID)).thenReturn(List.of(makeUser("s1", "Sec2A"), makeUser("s2", "Sec2A")));
+
+        Map<String, Object> body = service.me(staffId);
+
+        assertThat(body.get("orgId")).isEqualTo(ORG_ID);
+        assertThat(body.get("orgName")).isEqualTo("Test Centre");
+        assertThat(body.get("seatsUsed")).isEqualTo(2L);
+    }
+
+    @Test
+    void me_neitherOwnerNorStaff_throws403() {
         when(orgRepo.findFirstByOwnerUserId("nobody")).thenReturn(Optional.empty());
+        when(staffRepo.findFirstByUserIdAndStatus("nobody", OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.me("nobody"))
                 .isInstanceOf(BusinessException.class)

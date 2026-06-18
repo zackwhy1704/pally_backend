@@ -12,6 +12,8 @@ import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
@@ -57,6 +59,7 @@ public class CentreService {
     private final UserJpaRepository userRepo;
     private final QuizQuestionResultJpaRepository quizResultRepo;
     private final AvatarJpaRepository avatarJpaRepository;
+    private final OrgStaffJpaRepository staffRepo;
 
     // ── Student-side: redeem an enrollment code ───────────────────────
 
@@ -347,7 +350,10 @@ public class CentreService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> me(String userId) {
+        // Owners first, then active staff members.
         OrganizationJpaEntity org = orgRepo.findFirstByOwnerUserId(userId)
+                .or(() -> staffRepo.findFirstByUserIdAndStatus(userId, OrgStaffJpaEntity.STATUS_ACTIVE)
+                        .flatMap(s -> orgRepo.findById(s.getOrgId())))
                 .orElseThrow(() -> new BusinessException("No centre access", 403));
         long seats = userRepo.countByCentreId(org.getId());
         List<String> cohorts = userRepo.findByCentreId(org.getId())
