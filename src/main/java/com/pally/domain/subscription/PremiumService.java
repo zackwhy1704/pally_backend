@@ -158,6 +158,7 @@ public class PremiumService {
     public SubscriptionTier resolveTier(String userId) {
         Entitlement ent = resolve(userId);
         if (!ent.isPremium()) return SubscriptionTier.FREE;
+        if ("TRIAL".equals(ent.source())) return SubscriptionTier.MAX;
         String plan = ent.plan() != null ? ent.plan().toLowerCase() : "";
         if (plan.contains("family")) return SubscriptionTier.FAMILY;
         if (plan.contains("max"))    return SubscriptionTier.MAX;

@@ -1,6 +1,7 @@
 package com.pally.domain.subscription;
 
 import com.pally.domain.account.AccountType;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
@@ -125,6 +126,20 @@ class PremiumServiceTest {
 
         assertThat(e.isPremium()).isFalse();
         assertThat(e.source()).isEqualTo("NONE");
+    }
+
+    @Test
+    void resolveTier_trialUser_returnsMAX() {
+        User u = solo("trial_u");
+        u.setTrialStatus(PremiumService.TRIAL_ACTIVE);
+        u.setTrialStartedAt(Instant.now().minusSeconds(3600));
+        u.setTrialEndsAt(Instant.now().plusSeconds(86_400 * 6));
+        when(userRepo.findById("trial_u")).thenReturn(Optional.of(u));
+        when(subRepo.findById("trial_u")).thenReturn(Optional.empty());
+
+        SubscriptionTier tier = premiumService.resolveTier("trial_u");
+
+        assertThat(tier).isEqualTo(SubscriptionTier.MAX);
     }
 
     @Test
