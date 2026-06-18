@@ -171,16 +171,15 @@ stripe:
     max-annual: ${STRIPE_PRICE_MAX_ANNUAL:price_1TeXmaE1t2gQ3tvLLcex7STR}
     family-monthly-new: ${STRIPE_PRICE_FAMILY_MONTHLY_NEW:price_1TeXmiE1t2gQ3tvLjl0AbsfL}
     family-annual: ${STRIPE_PRICE_FAMILY_ANNUAL:price_1TeXmnE1t2gQ3tvLLF9V3xbk}
-    # B2B tiers (per-class, human-close). Amounts in SGD.
-    # SOLO: S$99/mo · S$990/yr per org (1 class cap configured at pilot)
-    # CENTRE: S$149/class/mo (volume: S$129 past 5 classes) — annual default
-    # School: custom / no Stripe Price — invoice manually
-    # NOTE: create new Stripe Prices in the dashboard at the new amounts and update
-    #       STRIPE_PRICE_CENTRE_MONTHLY and STRIPE_PRICE_CENTRE_ANNUAL in Railway env vars.
-    #       The current IDs (price_1TeXmuE1t2gQ3tvL... / price_1TeXn1E1t2gQ3tvL...) were created for
-    #       the old consumer centre tier and need new amounts.
-    centre-monthly: ${STRIPE_PRICE_CENTRE_MONTHLY:}   # B2B — update in Railway
-    centre-annual:  ${STRIPE_PRICE_CENTRE_ANNUAL:}    # B2B — update in Railway
+    # B2B tiers (per-class, human-close). Amounts in SGD. Human-close only — admin
+    # creates subscriptions in Stripe Dashboard; set quantity = number of classes for CENTRE.
+    # SOLO:   S$99/mo · S$990/yr per org (1 class, quantity=1)
+    # CENTRE: S$149/class/mo · S$1,490/class/yr (~17% discount, 2 months free)
+    # School: custom — invoice manually, no Stripe Price needed
+    solo-monthly:   ${STRIPE_PRICE_SOLO_MONTHLY:price_1Tjgj7E1t2gQ3tvLSagx9n8U}
+    solo-annual:    ${STRIPE_PRICE_SOLO_ANNUAL:price_1TjgjBE1t2gQ3tvLF37bpn5N}
+    centre-monthly: ${STRIPE_PRICE_CENTRE_MONTHLY:price_1TjgioE1t2gQ3tvLmP8H33R7}
+    centre-annual:  ${STRIPE_PRICE_CENTRE_ANNUAL:price_1TjgiuE1t2gQ3tvLu6Fcqrax}
 
 centre:
   closedbook:
