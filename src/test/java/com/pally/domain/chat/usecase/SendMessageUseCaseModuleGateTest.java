@@ -86,9 +86,12 @@ class SendMessageUseCaseModuleGateTest {
 
         lenient().doNothing().when(avatarSlotGuard).requireActive(anyString(), anyString());
         lenient().when(premiumService.resolveTier(anyString())).thenReturn(SubscriptionTier.FREE);
+        lenient().when(premiumService.resolveTierContext(anyString()))
+                .thenReturn(new PremiumService.TierContext(SubscriptionTier.FREE, false));
         lenient().when(consentGuard.isPending(anyString())).thenReturn(false);
         lenient().when(moderationService.screenInput(anyString(), anyString(), any(), anyString()))
                 .thenReturn(new ModerationService.ModerationResult(false, "SAFE", "SAFE", null));
+        lenient().when(modelRouter.forChat(anyString(), any(), anyBoolean())).thenReturn("claude-haiku-4-5-20251001");
     }
 
     @Test
@@ -122,7 +125,7 @@ class SendMessageUseCaseModuleGateTest {
                 .thenReturn(Optional.of(ChatSession.createToday("av-1")));
         when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
                 .thenReturn(java.util.Map.of("type", "text", "text", ""));
-        when(modelRouter.forChat(anyString(), any())).thenReturn("claude-sonnet-4-20250514");
+        when(modelRouter.forChat(anyString(), any(), anyBoolean())).thenReturn("claude-sonnet-4-20250514");
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just(
                         new ChatStreamEvent.Token("answer"),
@@ -190,7 +193,7 @@ class SendMessageUseCaseModuleGateTest {
                 .thenReturn(Optional.of(ChatSession.createToday("av-1")));
         when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
                 .thenReturn(java.util.Map.of("type", "text", "text", ""));
-        when(modelRouter.forChat(anyString(), any())).thenReturn("claude-sonnet-4-20250514");
+        when(modelRouter.forChat(anyString(), any(), anyBoolean())).thenReturn("claude-sonnet-4-20250514");
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just(
                         new ChatStreamEvent.Token("hello"),

@@ -152,13 +152,14 @@ public class SendMessageUseCase {
 
         // Resolve tier once at the start of the turn so the model selection
         // and logging are consistent within the same request.
-        SubscriptionTier userTier;
+        PremiumService.TierContext tierCtx;
         try {
-            userTier = premiumService.resolveTier(userId);
+            tierCtx = premiumService.resolveTierContext(userId);
         } catch (Exception ignored) {
-            userTier = SubscriptionTier.FREE;
+            tierCtx = new PremiumService.TierContext(SubscriptionTier.FREE, false);
         }
-        final SubscriptionTier tier = userTier;
+        final SubscriptionTier tier = tierCtx.tier();
+        final boolean isCentreSourced = tierCtx.isCentreSourced();
 
         Avatar avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
@@ -368,7 +369,7 @@ public class SendMessageUseCase {
         AtomicReference<CacheMetrics> capturedMetrics = new AtomicReference<>();
         AtomicReference<String> capturedSourceFile = new AtomicReference<>();
 
-        String selectedModel = modelRouter.forChat(userMessage, tier);
+        String selectedModel = modelRouter.forChat(userMessage, tier, isCentreSourced);
         return chatProxy.streamChat(systemBlocks, history, userMessage, capturedMetrics::set, selectedModel)
                 .doOnNext(event -> {
                     if (event instanceof ChatStreamEvent.Token token) {

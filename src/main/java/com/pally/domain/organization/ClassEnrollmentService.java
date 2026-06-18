@@ -8,6 +8,8 @@ import com.pally.domain.group.ClassGroupService;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class ClassEnrollmentService {
     private final AvatarRepository avatarRepository;
     private final ClassMembershipJpaRepository membershipRepo;
     private final ClassGroupService classGroupService;
+    private final OrganizationJpaRepository orgRepo;
 
     /**
      * Provisions (or returns the existing) branded class avatar for a student and
@@ -51,6 +54,28 @@ public class ClassEnrollmentService {
                 && ClassMembershipJpaEntity.STATUS_ACTIVE.equals(existing.get().getStatus())
                 && existing.get().getStudentAvatarId() != null) {
             return existing.get().getStudentAvatarId();
+        }
+
+        // B2B gates: only apply when the org is in an active B2B lifecycle state
+        // (PILOT or ACTIVE). Legacy/teacher-only orgs with tier=NONE are exempt.
+        OrganizationJpaEntity org = orgRepo.findById(cls.getOrganizationId())
+                .orElseThrow(() -> new BusinessException("Organisation not found", 404));
+        boolean isManagedB2B = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                || OrganizationJpaEntity.STATUS_ACTIVE.equals(org.getSubStatus());
+        if (isManagedB2B) {
+            // DPA gate: terms must be accepted before any student can join a managed centre
+            if (org.getTermsAcceptedAt() == null) {
+                throw new BusinessException(
+                        "Your centre admin must accept educator terms before students can join.", 403);
+            }
+            // Student cap
+            long activeCount = membershipRepo.countByClassIdAndStatus(
+                    cls.getId(), ClassMembershipJpaEntity.STATUS_ACTIVE);
+            if (org.getClassStudentCap() > 0 && activeCount >= org.getClassStudentCap()) {
+                throw new BusinessException(
+                        "Class is full (" + org.getClassStudentCap() + " students) — "
+                        + "open another class to add more.", 403);
+            }
         }
 
         // Branded closed-book class avatar the student studies with — CENTRE_CLASS

@@ -1,9 +1,14 @@
 package com.pally.domain.subscription;
 
 import com.pally.domain.account.AccountType;
+import com.pally.domain.centre.OrgSubscriptionService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import org.junit.jupiter.api.Test;
@@ -13,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +32,10 @@ class PremiumServiceTest {
 
     @Mock UserRepository userRepo;
     @Mock SubscriptionJpaRepository subRepo;
+    @Mock ClassMembershipJpaRepository membershipRepo;
+    @Mock OrgClassJpaRepository classRepo;
+    @Mock OrganizationJpaRepository orgRepo;
+    @Mock OrgSubscriptionService orgSubService;
 
     @InjectMocks PremiumService premiumService;
 
@@ -156,5 +166,41 @@ class PremiumServiceTest {
         // trialEndsAt populated when status=trialing so the UI can show
         // the 7-day countdown.
         assertThat(e.trialEndsAt()).isNotNull();
+    }
+
+    @Test
+    void resolveTier_centreSourced_returnsPRO_andIsCentreSourcedTrue() {
+        // Arrange: user with no own subscription and no parent, but an active centre enrolment
+        User u = solo("centre-student");
+        when(userRepo.findById("centre-student")).thenReturn(Optional.of(u));
+        when(subRepo.findById("centre-student")).thenReturn(Optional.empty());
+
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setId("mem-1");
+        m.setUserId("centre-student");
+        m.setClassId("class-1");
+        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByUserId("centre-student")).thenReturn(List.of(m));
+
+        com.pally.infrastructure.persistence.organization.OrgClassJpaEntity cls =
+                new com.pally.infrastructure.persistence.organization.OrgClassJpaEntity();
+        cls.setId("class-1");
+        cls.setOrganizationId("org-1");
+        when(classRepo.findById("class-1")).thenReturn(Optional.of(cls));
+
+        com.pally.infrastructure.persistence.organization.OrganizationJpaEntity org =
+                new com.pally.infrastructure.persistence.organization.OrganizationJpaEntity();
+        org.setId("org-1");
+        org.setTier("CENTRE");
+        org.setSubStatus(com.pally.infrastructure.persistence.organization.OrganizationJpaEntity.STATUS_ACTIVE);
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(org));
+        when(orgSubService.isEntitled(org)).thenReturn(true);
+
+        // Act
+        PremiumService.TierContext ctx = premiumService.resolveTierContext("centre-student");
+
+        // Assert: CENTRE source maps to PRO tier, and the centre-sourced flag is set
+        assertThat(ctx.tier()).isEqualTo(SubscriptionTier.PRO);
+        assertThat(ctx.isCentreSourced()).isTrue();
     }
 }

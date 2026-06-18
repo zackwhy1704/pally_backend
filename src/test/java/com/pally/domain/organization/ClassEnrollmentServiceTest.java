@@ -6,6 +6,9 @@ import com.pally.domain.group.ClassGroupService;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
+import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -13,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +32,7 @@ class ClassEnrollmentServiceTest {
     @Mock AvatarRepository avatarRepository;
     @Mock ClassMembershipJpaRepository membershipRepo;
     @Mock ClassGroupService classGroupService;
+    @Mock OrganizationJpaRepository orgRepo;
 
     @InjectMocks ClassEnrollmentService service;
 
@@ -49,10 +54,27 @@ class ClassEnrollmentServiceTest {
         return cls;
     }
 
+    private OrganizationJpaEntity orgWithTerms() {
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId("org-1");
+        org.setSubStatus(OrganizationJpaEntity.STATUS_PILOT);  // managed B2B
+        org.setTermsAcceptedAt(Instant.now().minusSeconds(3600));
+        org.setClassStudentCap(20);
+        return org;
+    }
+
+    private OrganizationJpaEntity unmangedOrg() {
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId("org-1");
+        org.setSubStatus(OrganizationJpaEntity.STATUS_NONE);  // non-B2B org — no gates apply
+        return org;
+    }
+
     @Test
     void enroll_provisionsBrandedClosedBookAvatar_boundToCorpus_andJoinsGroup() {
         OrgClassJpaEntity cls = classEntity();
         when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(unmangedOrg()));
         when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
 
         service.enroll(cls, STUDENT_ID);
@@ -118,5 +140,44 @@ class ClassEnrollmentServiceTest {
         assertThat(avatarId).isEqualTo("avatar-existing");
         verify(avatarRepository, never()).save(any());
         verify(membershipRepo, never()).save(any());
+    }
+
+    @Test
+    void enroll_termsNotAccepted_throwsBusinessException() {
+        // Only enforced for managed B2B orgs (PILOT or ACTIVE status)
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+
+        OrganizationJpaEntity orgNoTerms = new OrganizationJpaEntity();
+        orgNoTerms.setId("org-1");
+        orgNoTerms.setSubStatus(OrganizationJpaEntity.STATUS_PILOT);  // managed B2B
+        orgNoTerms.setTermsAcceptedAt(null);  // terms NOT accepted
+        orgNoTerms.setClassStudentCap(20);
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(orgNoTerms));
+
+        assertThatThrownBy(() -> service.enroll(cls, STUDENT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("educator terms");
+
+        verify(avatarRepository, never()).save(any());
+    }
+
+    @Test
+    void enroll_pastStudentCap_throwsBusinessException() {
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+
+        OrganizationJpaEntity orgFull = orgWithTerms(); // PILOT + terms accepted
+        orgFull.setClassStudentCap(20);
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(orgFull));
+        // Class is already at cap
+        when(membershipRepo.countByClassIdAndStatus(CLASS_ID, ClassMembershipJpaEntity.STATUS_ACTIVE))
+                .thenReturn(20L);
+
+        assertThatThrownBy(() -> service.enroll(cls, STUDENT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Class is full");
+
+        verify(avatarRepository, never()).save(any());
     }
 }

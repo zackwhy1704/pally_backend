@@ -1,16 +1,27 @@
 package com.pally.api.admin;
 
 import com.pally.domain.centre.CentreInviteService;
+import com.pally.domain.centre.OrgSubscriptionService;
+import com.pally.domain.demo.DemoLeadService;
 import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
+import com.pally.infrastructure.persistence.demo.DemoLeadJpaEntity;
+import com.pally.infrastructure.persistence.demo.DemoLeadJpaRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,6 +43,11 @@ public class AdminController {
     private final OrganizationJpaRepository orgRepo;
     private final UserJpaRepository userRepo;
     private final CentreInviteService inviteService;
+    private final DemoLeadJpaRepository leadRepo;
+    private final OrgSubscriptionService orgSubService;
+    private final DemoLeadService leadService;
+    private final OrgClassJpaRepository classRepo;
+    private final ClassMembershipJpaRepository membershipRepo;
 
     @GetMapping("/model-usage")
     public Map<String, Object> getModelUsage(
@@ -137,6 +153,109 @@ public class AdminController {
             @RequestBody Map<String, Object> body
     ) {
         return ResponseEntity.ok(ApiResponse.success(inviteService.createInvite(adminUserId, body)));
+    }
+
+    // ── Leads ─────────────────────────────────────────────────────────────────
+
+    @GetMapping("/leads")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listLeads() {
+        List<Map<String, Object>> out = leadRepo.findAllByOrderByCreatedAtDesc().stream()
+                .map(l -> {
+                    var m = new LinkedHashMap<String, Object>();
+                    m.put("id", l.getId());
+                    m.put("orgName", l.getOrgName());
+                    m.put("contactName", l.getContactName());
+                    m.put("email", l.getEmail());
+                    m.put("phone", l.getPhone());
+                    m.put("segment", l.getSegment());
+                    m.put("estClasses", l.getEstClasses());
+                    m.put("estStudents", l.getEstStudents());
+                    m.put("status", l.getStatus());
+                    m.put("orgId", l.getOrgId());
+                    m.put("notes", l.getNotes());
+                    m.put("createdAt", l.getCreatedAt());
+                    return (Map<String, Object>) m;
+                }).toList();
+        return ResponseEntity.ok(ApiResponse.success(out));
+    }
+
+    @PatchMapping("/leads/{id}/status")
+    public ResponseEntity<ApiResponse<Void>> updateLeadStatus(
+            @PathVariable String id, @RequestBody Map<String, String> body) {
+        DemoLeadJpaEntity lead = leadRepo.findById(id)
+                .orElseThrow(() -> new BusinessException("Lead not found", 404));
+        String newStatus = body.get("status");
+        if (newStatus == null || newStatus.isBlank())
+            throw new BusinessException("status is required", 400);
+        lead.setStatus(newStatus.toUpperCase());
+        if (body.containsKey("notes")) lead.setNotes(body.get("notes"));
+        lead.setUpdatedAt(Instant.now());
+        leadRepo.save(lead);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    @PostMapping("/leads/{id}/provision")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> provisionPilot(
+            @PathVariable String id, @RequestBody Map<String, Object> body) {
+        DemoLeadJpaEntity lead = leadRepo.findById(id)
+                .orElseThrow(() -> new BusinessException("Lead not found", 404));
+        String orgId = (String) body.get("orgId");
+        String tier = (String) body.getOrDefault("tier", "CENTRE");
+        int classLimit = ((Number) body.getOrDefault("classLimit", 1)).intValue();
+        if (orgId == null) throw new BusinessException("orgId is required", 400);
+        orgSubService.startPilot(orgId, tier.toUpperCase(), classLimit);
+        lead.setOrgId(orgId);
+        lead.setStatus(DemoLeadJpaEntity.STATUS_PILOT_ACTIVE);
+        lead.setUpdatedAt(Instant.now());
+        leadRepo.save(lead);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("orgId", orgId)));
+    }
+
+    // ── Org billing management ─────────────────────────────────────────────────
+
+    @PostMapping("/orgs/{orgId}/activate")
+    public ResponseEntity<ApiResponse<Void>> activateOrg(
+            @PathVariable String orgId, @RequestBody Map<String, String> body) {
+        String billingRef = body.getOrDefault("billingRef", "manual");
+        orgSubService.activate(orgId, billingRef);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    @PostMapping("/orgs/{orgId}/expire")
+    public ResponseEntity<ApiResponse<Void>> expireOrg(@PathVariable String orgId) {
+        orgSubService.expire(orgId);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    @GetMapping("/orgs/{orgId}/billing-detail")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> orgBillingDetail(
+            @PathVariable String orgId) {
+        OrganizationJpaEntity org = orgRepo.findById(orgId)
+                .orElseThrow(() -> new BusinessException("Organisation not found", 404));
+        List<OrgClassJpaEntity> classes = classRepo.findByOrganizationId(orgId);
+        List<Map<String, Object>> classDetail = classes.stream().map(cls -> {
+            long linked = membershipRepo.countByClassIdAndStatus(
+                    cls.getId(), ClassMembershipJpaEntity.STATUS_ACTIVE);
+            var m = new LinkedHashMap<String, Object>();
+            m.put("classId", cls.getId());
+            m.put("className", cls.getName());
+            m.put("studentsLinked", linked);
+            m.put("studentCap", org.getClassStudentCap());
+            return (Map<String, Object>) m;
+        }).toList();
+        var out = new LinkedHashMap<String, Object>();
+        out.put("orgId", org.getId());
+        out.put("name", org.getName());
+        out.put("tier", org.getTier());
+        out.put("subStatus", org.getSubStatus());
+        out.put("pilotEndsAt", org.getPilotEndsAt());
+        out.put("classesUsed", classes.size());
+        out.put("classLimit", org.getClassLimit());
+        out.put("classStudentCap", org.getClassStudentCap());
+        out.put("termsAccepted", org.getTermsAcceptedAt() != null);
+        out.put("termsAcceptedAt", org.getTermsAcceptedAt());
+        out.put("perClass", classDetail);
+        return ResponseEntity.ok(ApiResponse.success(out));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

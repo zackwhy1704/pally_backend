@@ -10,6 +10,7 @@ import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepos
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,7 @@ class ClassCrudServiceTest {
     @Mock AvatarRepository avatarRepository;
     @Mock ClassGroupService classGroupService;
     @Mock NarrationService narrationService;
+    @Mock OrganizationJpaRepository orgRepo;
     @Spy com.fasterxml.jackson.databind.ObjectMapper objectMapper =
             new com.fasterxml.jackson.databind.ObjectMapper();
 
@@ -55,7 +57,10 @@ class ClassCrudServiceTest {
         OrganizationJpaEntity org = new OrganizationJpaEntity();
         org.setId(ORG_ID);
         org.setOwnerUserId(OWNER_ID);
+        org.setClassLimit(0);  // 0 = unlimited by default
         lenient().when(accessService.ensureOwner(OWNER_ID, ORG_ID)).thenReturn(org);
+        lenient().when(accessService.ensureStaff(OWNER_ID, ORG_ID)).thenReturn(org);
+        lenient().when(orgRepo.findById(ORG_ID)).thenReturn(Optional.of(org));
         lenient().when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
@@ -268,5 +273,42 @@ class ClassCrudServiceTest {
         assertThat(roundTripped.body()).isEqualTo(11);
         assertThat(roundTripped.accessory()).isEqualTo("headband");
         assertThat(roundTripped.aura()).isEqualTo("electric");
+    }
+
+    // ── createClass class-limit enforcement ────────────────────────────────
+
+    @Test
+    void createClass_pastClassLimit_throwsBusinessException() {
+        // Org with a class limit of 2, already has 2 classes
+        OrganizationJpaEntity limitedOrg = new OrganizationJpaEntity();
+        limitedOrg.setId(ORG_ID);
+        limitedOrg.setOwnerUserId(OWNER_ID);
+        limitedOrg.setClassLimit(2);
+        when(orgRepo.findById(ORG_ID)).thenReturn(Optional.of(limitedOrg));
+
+        // Two existing classes — at the cap
+        OrgClassJpaEntity c1 = new OrgClassJpaEntity(); c1.setId("cls-a"); c1.setOrganizationId(ORG_ID);
+        OrgClassJpaEntity c2 = new OrgClassJpaEntity(); c2.setId("cls-b"); c2.setOrganizationId(ORG_ID);
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(c1, c2));
+
+        assertThatThrownBy(() -> service.createClass(
+                OWNER_ID, ORG_ID, Map.of("name", "New Class")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Class limit reached");
+
+        verify(classRepo, never()).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void createClass_withUnlimitedClassLimit_allowsCreation() {
+        // Org with classLimit = 0 means unlimited
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(classEntity(), classEntity()));
+        when(classRepo.findByJoinCode(anyString())).thenReturn(Optional.empty());
+
+        Map<String, Object> result = service.createClass(
+                OWNER_ID, ORG_ID, Map.of("name", "Extra Class"));
+
+        assertThat(result.get("name")).isEqualTo("Extra Class");
+        verify(classRepo).save(any(OrgClassJpaEntity.class));
     }
 }

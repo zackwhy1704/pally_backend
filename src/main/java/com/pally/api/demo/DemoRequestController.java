@@ -41,8 +41,10 @@ public class DemoRequestController {
                     "Too many requests. Try again in " + r.retryAfterSeconds() + "s.", 429);
         }
 
-        demoLeadService.submitLead(body.orgName(), body.contactName(), body.email(), body.phone());
-        return ResponseEntity.ok(ApiResponse.success(Map.of("ok", true)));
+        String leadId = demoLeadService.submitLead(
+                body.orgName(), body.contactName(), body.email(), body.phone(),
+                body.segment(), body.estClasses(), body.estStudents());
+        return ResponseEntity.ok(ApiResponse.success(Map.of("ok", true, "leadId", leadId)));
     }
 
     private String clientIp(HttpServletRequest request) {

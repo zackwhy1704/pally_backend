@@ -73,6 +73,16 @@ public class ModelRouter {
     }
 
     /**
+     * Centre-sourced override: always returns Haiku regardless of tier.
+     * Belt-and-suspenders guard so centre students never accidentally
+     * get Sonnet even if a future tier mapping changes.
+     */
+    public String forChat(String userMessage, SubscriptionTier tier, boolean isCentreSourced) {
+        if (isCentreSourced) return haiku;
+        return forChat(userMessage, tier);
+    }
+
+    /**
      * Backward-compatible overload — treats as FREE tier (always Haiku).
      * Used by code paths that don't yet have a tier context.
      */

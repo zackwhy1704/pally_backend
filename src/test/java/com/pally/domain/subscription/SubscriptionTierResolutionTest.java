@@ -1,8 +1,12 @@
 package com.pally.domain.subscription;
 
 import com.pally.domain.account.AccountType;
+import com.pally.domain.centre.OrgSubscriptionService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import org.junit.jupiter.api.Test;
@@ -29,6 +33,10 @@ class SubscriptionTierResolutionTest {
 
     @Mock UserRepository userRepo;
     @Mock SubscriptionJpaRepository subRepo;
+    @Mock ClassMembershipJpaRepository membershipRepo;
+    @Mock OrgClassJpaRepository classRepo;
+    @Mock OrganizationJpaRepository orgRepo;
+    @Mock OrgSubscriptionService orgSubService;
 
     @InjectMocks PremiumService premiumService;
 

@@ -1,10 +1,16 @@
 package com.pally.domain.subscription;
 
 import com.pally.domain.account.AccountType;
-
+import com.pally.domain.centre.OrgSubscriptionService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.config.CacheConfig;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -44,6 +51,10 @@ public class PremiumService {
 
     private final UserRepository userRepo;
     private final SubscriptionJpaRepository subRepo;
+    private final ClassMembershipJpaRepository membershipRepo;
+    private final OrgClassJpaRepository classRepo;
+    private final OrganizationJpaRepository orgRepo;
+    private final OrgSubscriptionService orgSubService;
 
     public record Entitlement(
             boolean isPremium,
@@ -87,6 +98,11 @@ public class PremiumService {
             }
         }
 
+        // Centre premium — student inherits from the centre they're enrolled in.
+        // Runs between PARENT and TRIAL so a paying parent still wins over a free pilot.
+        Entitlement centre = resolveCentre(user);
+        if (centre != null) return centre;
+
         // Cardless trial — inserted between paid sources and free/NONE so
         // it never shadows a live Stripe subscription.
         Entitlement trial = resolveLocalTrial(user);
@@ -128,6 +144,39 @@ public class PremiumService {
         return "trialing".equals(sub.getStatus());
     }
 
+    // ── Centre entitlement ────────────────────────────────────────────────────
+
+    /**
+     * Returns a CENTRE entitlement if the user is an active member of any class
+     * whose org has an entitled subscription (active or live pilot). Returns null
+     * if no entitled centre membership exists.
+     *
+     * <p>The {@code @Cacheable} on {@link #resolve} means this runs at most once
+     * per 60s TTL per user. {@code OrgSubscriptionService.evictAllStudents()} handles
+     * invalidation on org lifecycle changes.
+     */
+    private Entitlement resolveCentre(User user) {
+        List<ClassMembershipJpaEntity> memberships = membershipRepo.findByUserId(user.getId())
+                .stream()
+                .filter(m -> ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus()))
+                .toList();
+        for (ClassMembershipJpaEntity m : memberships) {
+            OrgClassJpaEntity cls = classRepo.findById(m.getClassId()).orElse(null);
+            if (cls == null) continue;
+            OrganizationJpaEntity org = orgRepo.findById(cls.getOrganizationId()).orElse(null);
+            if (org == null) continue;
+            if (orgSubService.isEntitled(org)) {
+                String status = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                        ? "trialing" : "active";
+                Instant ends = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                        ? org.getPilotEndsAt() : null;
+                persistFlag(user, true);
+                return new Entitlement(true, "CENTRE", org.getTier().toLowerCase(), status, ends);
+            }
+        }
+        return null;
+    }
+
     // ── Local cardless trial ──────────────────────────────────────────────────
 
     private Entitlement resolveLocalTrial(User user) {
@@ -148,6 +197,12 @@ public class PremiumService {
     }
 
     /**
+     * Tier + centre-sourcing context for callers that need both bits
+     * (e.g. model routing where CENTRE students must never get Sonnet).
+     */
+    public record TierContext(SubscriptionTier tier, boolean isCentreSourced) {}
+
+    /**
      * Resolves the user's tier based on their active entitlement.
      *
      * <p>Plan string matching is intentionally loose (contains) so both
@@ -156,15 +211,28 @@ public class PremiumService {
      * {@code centre_*} rows migrated to MAX) fall through to MAX.
      */
     public SubscriptionTier resolveTier(String userId) {
+        return tierFromEntitlement(resolve(userId));
+    }
+
+    /**
+     * Resolves tier + centre flag in a single {@link #resolve} call.
+     * Use this in model-routing paths so CENTRE students are never
+     * accidentally routed to Sonnet.
+     */
+    public TierContext resolveTierContext(String userId) {
         Entitlement ent = resolve(userId);
+        return new TierContext(tierFromEntitlement(ent), "CENTRE".equals(ent.source()));
+    }
+
+    private SubscriptionTier tierFromEntitlement(Entitlement ent) {
         if (!ent.isPremium()) return SubscriptionTier.FREE;
-        if ("TRIAL".equals(ent.source())) return SubscriptionTier.MAX;
+        if ("CENTRE".equals(ent.source())) return SubscriptionTier.PRO;
+        if ("TRIAL".equals(ent.source()))  return SubscriptionTier.MAX;
         String plan = ent.plan() != null ? ent.plan().toLowerCase() : "";
         if (plan.contains("family")) return SubscriptionTier.FAMILY;
         if (plan.contains("max"))    return SubscriptionTier.MAX;
         if (plan.contains("pro"))    return SubscriptionTier.PRO;
-        // Legacy plans (individual_monthly, admin) → treat as MAX
-        return SubscriptionTier.MAX;
+        return SubscriptionTier.MAX; // legacy plans
     }
 
     /**

@@ -13,6 +13,8 @@ import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntit
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +52,7 @@ public class ClassCrudService {
     private final ClassGroupService classGroupService;
     private final ObjectMapper objectMapper;
     private final NarrationService narrationService;
+    private final OrganizationJpaRepository orgRepo;
 
     // ── Public lookup (used by controller brief delegation) ───────────────────
 
@@ -66,6 +69,15 @@ public class ClassCrudService {
 
         String name = str(body.get("name"));
         if (name == null || name.isBlank()) throw new BusinessException("name is required", 400);
+
+        // B2B class-limit enforcement — check before creating any resources.
+        OrganizationJpaEntity org = orgRepo.findById(orgId)
+                .orElseThrow(() -> new BusinessException("Organisation not found", 404));
+        long activeClasses = classRepo.findByOrganizationId(orgId).stream().count();
+        if (org.getClassLimit() > 0 && activeClasses >= org.getClassLimit()) {
+            throw new BusinessException(
+                    "Class limit reached — add class licenses to create more classes.", 403);
+        }
 
         OrgClassJpaEntity cls = new OrgClassJpaEntity();
         cls.setId(IdGenerator.newId());
