@@ -60,6 +60,14 @@ public class ClassEnrollmentService {
         // (PILOT or ACTIVE). Legacy/teacher-only orgs with tier=NONE are exempt.
         OrganizationJpaEntity org = orgRepo.findById(cls.getOrganizationId())
                 .orElseThrow(() -> new BusinessException("Organisation not found", 404));
+
+        // Hard block: expired or cancelled centres must not accept new students.
+        if (OrganizationJpaEntity.STATUS_EXPIRED.equals(org.getSubStatus())
+                || OrganizationJpaEntity.STATUS_CANCELED.equals(org.getSubStatus())) {
+            throw new BusinessException(
+                    "This centre's subscription has ended — new students cannot join.", 403);
+        }
+
         boolean isManagedB2B = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
                 || OrganizationJpaEntity.STATUS_ACTIVE.equals(org.getSubStatus());
         if (isManagedB2B) {

@@ -105,7 +105,7 @@ public class ContentReviewService {
 
     private Map<String, Object> toDto(ContentReviewPort.ContentItemView item) {
         java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
-        m.put("id", item.id());
+        m.put("itemId", item.id());
         m.put("moduleId", item.moduleId());
         m.put("stage", item.stage());
         m.put("type", item.type());

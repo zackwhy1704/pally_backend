@@ -1,5 +1,6 @@
 package com.pally.api.centre;
 
+import com.pally.domain.centre.CentreRegenerateService;
 import com.pally.domain.centre.ContentReviewService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +19,7 @@ import java.util.Map;
 
 /**
  * Thin centre content review + publishing lifecycle controller.
- * Delegates all logic to {@link ContentReviewService}.
+ * Delegates all logic to {@link ContentReviewService} and {@link CentreRegenerateService}.
  */
 @RestController
 @RequestMapping("/api/v1/centre/organizations/{orgId}/classes/{classId}")
@@ -26,6 +27,7 @@ import java.util.Map;
 public class ContentReviewController {
 
     private final ContentReviewService contentReviewService;
+    private final CentreRegenerateService centreRegenerateService;
 
     /**
      * List content items with DRAFT status for review.
@@ -64,6 +66,23 @@ public class ContentReviewController {
             @PathVariable String classId) {
         return ResponseEntity.ok(
                 ApiResponse.success(contentReviewService.approveAll(userId, orgId, classId)));
+    }
+
+    /**
+     * Regenerate LEARN + TEST content for a specific wiki page topic with optional
+     * teacher guidance. Existing items are replaced with new DRAFT items.
+     * Rate-limited to 3 calls per page per 24 hours.
+     */
+    @PostMapping("/content/{pageSlug}/regenerate")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> regeneratePageContent(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String pageSlug,
+            @RequestBody(required = false) Map<String, Object> body) {
+        String guidance = body != null ? (String) body.get("guidance") : null;
+        return ResponseEntity.ok(ApiResponse.success(
+                centreRegenerateService.regeneratePageContent(userId, orgId, classId, pageSlug, guidance)));
     }
 
     /**

@@ -91,7 +91,7 @@ class ContentReviewServiceTest {
                 USER, ORG_ID, CLASS_ID, ITEM_ID, Map.of("status", "APPROVED"));
 
         assertThat(result.get("status")).isEqualTo("APPROVED");
-        assertThat(result.get("id")).isEqualTo(ITEM_ID);
+        assertThat(result.get("itemId")).isEqualTo(ITEM_ID);
     }
 
     @Test

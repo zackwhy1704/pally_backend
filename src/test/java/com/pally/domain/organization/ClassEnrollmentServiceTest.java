@@ -180,4 +180,38 @@ class ClassEnrollmentServiceTest {
 
         verify(avatarRepository, never()).save(any());
     }
+
+    @Test
+    void enroll_expiredOrg_throwsSubscriptionEndedError() {
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+
+        OrganizationJpaEntity expiredOrg = new OrganizationJpaEntity();
+        expiredOrg.setId("org-1");
+        expiredOrg.setSubStatus(OrganizationJpaEntity.STATUS_EXPIRED);
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(expiredOrg));
+
+        assertThatThrownBy(() -> service.enroll(cls, STUDENT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("subscription has ended");
+
+        verify(avatarRepository, never()).save(any());
+    }
+
+    @Test
+    void enroll_canceledOrg_throwsSubscriptionEndedError() {
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+
+        OrganizationJpaEntity canceledOrg = new OrganizationJpaEntity();
+        canceledOrg.setId("org-1");
+        canceledOrg.setSubStatus(OrganizationJpaEntity.STATUS_CANCELED);
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(canceledOrg));
+
+        assertThatThrownBy(() -> service.enroll(cls, STUDENT_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("subscription has ended");
+
+        verify(avatarRepository, never()).save(any());
+    }
 }

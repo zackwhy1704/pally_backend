@@ -19,6 +19,7 @@ import java.util.Map;
 public class ContentReviewPortAdapter implements ContentReviewPort {
 
     private final ModuleContentItemJpaRepository jpa;
+    private final LearningModuleJpaRepository moduleJpa;
 
     @Override
     @Transactional(readOnly = true)
@@ -84,9 +85,15 @@ public class ContentReviewPortAdapter implements ContentReviewPort {
     }
 
     private Map<String, Object> toView(ModuleContentItemJpaEntity e) {
+        // Enrich with module title + page slug so the UI can group correctly and
+        // know which page to target for a regenerate call.
+        LearningModuleJpaEntity mod = moduleJpa.findById(e.getModuleId()).orElse(null);
+
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", e.getId());
+        m.put("itemId", e.getId());        // matches ReviewItem.itemId in the web app
         m.put("moduleId", e.getModuleId());
+        m.put("moduleTitle", mod != null ? mod.getTitle() : "Uncategorized");
+        m.put("pageSlug", mod != null ? mod.getWikiPageSlug() : null);
         m.put("stage", e.getStage());
         m.put("type", e.getType());
         m.put("contentJson", e.getContentJson());

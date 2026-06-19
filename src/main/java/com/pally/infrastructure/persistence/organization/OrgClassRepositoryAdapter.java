@@ -20,4 +20,9 @@ public class OrgClassRepositoryAdapter implements OrgClassRepository {
     public Optional<String> findOrganizationIdByClassId(String classId) {
         return jpa.findById(classId).map(OrgClassJpaEntity::getOrganizationId);
     }
+
+    @Override
+    public Optional<String> findCorpusAvatarIdByClassId(String classId) {
+        return jpa.findById(classId).map(OrgClassJpaEntity::getCorpusAvatarId);
+    }
 }

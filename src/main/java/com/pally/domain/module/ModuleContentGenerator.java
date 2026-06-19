@@ -83,6 +83,190 @@ public class ModuleContentGenerator {
     }
 
     /**
+     * Re-generates content items for an existing module with optional teacher guidance.
+     * Deletes all existing items first, then generates fresh LEARN + TEST items as DRAFT
+     * so the centre can review before they go live. PROVE items are omitted (adaptive,
+     * generated on-demand from student results as before).
+     *
+     * @param guidance optional free-text feedback from the teacher; prepended to each
+     *                 generation prompt so the model respects it
+     */
+    @Transactional
+    public void regenerateAsDraft(Avatar avatar, WikiPage page, LearningModule module, String guidance) {
+        // Wipe existing items — teacher asked for a full redo
+        itemRepository.deleteByModuleId(module.getId());
+
+        String tier = resolveContentTier(avatar);
+        String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
+        String subject = avatar.getSubject().label();
+        String content = truncate(page.getContent(), 3000);
+
+        String guidanceSection = (guidance != null && !guidance.isBlank())
+                ? "\n\nTeacher guidance to incorporate:\n" + guidance.strip() + "\n"
+                : "";
+
+        List<ModuleContentItem> allItems = new ArrayList<>();
+        allItems.addAll(generateMicroCardsDraft(module.getId(), content, level, subject, tier, guidanceSection));
+        allItems.addAll(generateHotTakesDraft(module.getId(), content, level, subject, tier, guidanceSection));
+        allItems.addAll(generateSpotMistakeDraft(module.getId(), content, level, subject, guidanceSection));
+        allItems.addAll(generateChallengesDraft(module.getId(), content, level, subject, tier, guidanceSection));
+
+        itemRepository.saveAll(allItems);
+        log.info("[CentreRegen] Regenerated module={} slug={} items={} withGuidance={}",
+                module.getId(), page.getSlug(), allItems.size(), guidance != null && !guidance.isBlank());
+    }
+
+    private List<ModuleContentItem> generateMicroCardsDraft(
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
+        int n = "CENTRE".equals(tier) ? 6 : 4;
+        String prompt = """
+                Split this educational content into %d bite-size concept cards for a %s student studying %s.
+                Each card covers ONE concept, under 60 words, with key terms in bold.
+                Include a narration_hint field (how you'd explain this conversationally — for TTS narration).%s
+
+                Content:
+                %s
+
+                Reply ONLY with a JSON array:
+                [{"title":"...","body":"...","keyTerms":["..."],"narration_hint":"..."}]
+                """.formatted(n, level, subject, guidanceSection, content);
+
+        try {
+            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-learn");
+            String json = extractJson(raw, '[', ']');
+            List<Map<String, Object>> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            List<ModuleContentItem> items = new ArrayList<>();
+            for (int i = 0; i < parsed.size(); i++) {
+                items.add(buildDraftItem(moduleId, ModuleStage.LEARN.name(), ContentItemType.MICRO_CARD.name(),
+                        objectMapper.writeValueAsString(parsed.get(i)), null, i));
+            }
+            return items;
+        } catch (Exception e) {
+            log.error("[CentreRegen] micro-cards failed moduleId={}: {}", moduleId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<ModuleContentItem> generateHotTakesDraft(
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
+        int n = "CENTRE".equals(tier) ? 3 : 2;
+        String prompt = """
+                Generate %d true/false statements about this content for a %s student.
+                At least one must be a common misconception (false).%s
+
+                Content:
+                %s
+
+                Reply ONLY with a JSON array:
+                [{"statement":"...","isTrue":true,"explanation":"..."}]
+                """.formatted(n, level, guidanceSection, content);
+
+        try {
+            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-hottake");
+            String json = extractJson(raw, '[', ']');
+            List<Map<String, Object>> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            List<ModuleContentItem> items = new ArrayList<>();
+            for (int i = 0; i < parsed.size(); i++) {
+                String contentJson = objectMapper.writeValueAsString(
+                        Map.of("statement", parsed.get(i).getOrDefault("statement", "")));
+                String answerJson = objectMapper.writeValueAsString(Map.of(
+                        "isTrue", parsed.get(i).getOrDefault("isTrue", true),
+                        "explanation", parsed.get(i).getOrDefault("explanation", "")));
+                items.add(buildDraftItem(moduleId, ModuleStage.TEST.name(), ContentItemType.HOT_TAKE.name(),
+                        contentJson, answerJson, 100 + i));
+            }
+            return items;
+        } catch (Exception e) {
+            log.error("[CentreRegen] hot-takes failed moduleId={}: {}", moduleId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<ModuleContentItem> generateSpotMistakeDraft(
+            String moduleId, String content, String level, String subject, String guidanceSection) {
+        String prompt = """
+                Write ONE plausible but WRONG worked solution for a problem from this content.
+                Introduce a common %s-student misconception. The student must find the error.%s
+
+                Content:
+                %s
+
+                Reply ONLY with JSON:
+                {"problem":"...","wrongSolution":"...","errorDescription":"...","correctSolution":"..."}
+                """.formatted(level, guidanceSection, content);
+
+        try {
+            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-spotmistake");
+            String json = extractJson(raw, '{', '}');
+            Map<String, Object> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            String contentJson = objectMapper.writeValueAsString(Map.of(
+                    "problem", parsed.getOrDefault("problem", ""),
+                    "wrongSolution", parsed.getOrDefault("wrongSolution", "")));
+            String answerJson = objectMapper.writeValueAsString(Map.of(
+                    "errorDescription", parsed.getOrDefault("errorDescription", ""),
+                    "correctSolution", parsed.getOrDefault("correctSolution", "")));
+            return List.of(buildDraftItem(moduleId, ModuleStage.TEST.name(),
+                    ContentItemType.SPOT_MISTAKE.name(), contentJson, answerJson, 200));
+        } catch (Exception e) {
+            log.error("[CentreRegen] spot-mistake failed moduleId={}: {}", moduleId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private List<ModuleContentItem> generateChallengesDraft(
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
+        int n = "CENTRE".equals(tier) ? 3 : 1;
+        String prompt = """
+                Generate %d application questions that test whether a %s student can USE these concepts.
+                Include word problems where possible.%s
+
+                Content:
+                %s
+
+                Reply ONLY with a JSON array:
+                [{"question":"...","answer":"...","explanation":"...","difficulty":"easy"}]
+                """.formatted(n, level, guidanceSection, content);
+
+        try {
+            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-challenges");
+            String json = extractJson(raw, '[', ']');
+            List<Map<String, Object>> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            List<ModuleContentItem> items = new ArrayList<>();
+            for (int i = 0; i < parsed.size(); i++) {
+                String contentJson = objectMapper.writeValueAsString(Map.of(
+                        "question", parsed.get(i).getOrDefault("question", ""),
+                        "difficulty", parsed.get(i).getOrDefault("difficulty", "easy")));
+                String answerJson = objectMapper.writeValueAsString(Map.of(
+                        "answer", parsed.get(i).getOrDefault("answer", ""),
+                        "explanation", parsed.get(i).getOrDefault("explanation", "")));
+                items.add(buildDraftItem(moduleId, ModuleStage.TEST.name(),
+                        ContentItemType.CHALLENGE.name(), contentJson, answerJson, 300 + i));
+            }
+            return items;
+        } catch (Exception e) {
+            log.error("[CentreRegen] challenges failed moduleId={}: {}", moduleId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private ModuleContentItem buildDraftItem(
+            String moduleId, String stage, String type,
+            String contentJson, String answerJson, int sortOrder) {
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId(com.pally.shared.util.IdGenerator.newId());
+        item.setModuleId(moduleId);
+        item.setStage(stage);
+        item.setType(type);
+        item.setContentJson(contentJson);
+        item.setAnswerJson(answerJson);
+        item.setSortOrder(sortOrder);
+        item.setTierRequired("FREE");
+        item.setCreatedAt(java.time.Instant.now());
+        item.setStatus("DRAFT");
+        return item;
+    }
+
+    /**
      * Generates adaptive PROVE questions based on TEST results.
      * Targets concepts the student scored poorly on.
      */

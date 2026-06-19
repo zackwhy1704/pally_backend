@@ -4,6 +4,7 @@ import com.pally.domain.module.ModuleContentItem;
 import com.pally.domain.module.ModuleContentItemRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -50,6 +51,12 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
     @Override
     public int countByModuleIdAndStage(String moduleId, String stage) {
         return jpa.countByModuleIdAndStage(moduleId, stage);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByModuleId(String moduleId) {
+        jpa.deleteByModuleId(moduleId);
     }
 
     // ── Mapping helpers ────────────────────────────────────────────────────

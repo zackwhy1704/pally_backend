@@ -20,4 +20,11 @@ public interface ModuleContentItemRepository {
     List<ModuleContentItem> findByModuleIdAndStageOrderBySortOrder(String moduleId, String stage);
 
     int countByModuleIdAndStage(String moduleId, String stage);
+
+    /**
+     * Deletes all content items belonging to the given module.
+     * Used by the centre regenerate flow to clear stale draft items before
+     * re-generating with teacher guidance.
+     */
+    void deleteByModuleId(String moduleId);
 }

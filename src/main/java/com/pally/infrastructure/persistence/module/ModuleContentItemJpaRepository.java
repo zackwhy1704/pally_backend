@@ -11,4 +11,6 @@ public interface ModuleContentItemJpaRepository extends JpaRepository<ModuleCont
     List<ModuleContentItemJpaEntity> findByModuleIdAndStageOrderBySortOrder(String moduleId, String stage);
 
     int countByModuleIdAndStage(String moduleId, String stage);
+
+    void deleteByModuleId(String moduleId);
 }
