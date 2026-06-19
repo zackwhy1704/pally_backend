@@ -170,8 +170,9 @@ class ClassEnrollmentServiceTest {
         OrganizationJpaEntity orgFull = orgWithTerms(); // PILOT + terms accepted
         orgFull.setClassStudentCap(20);
         when(orgRepo.findById("org-1")).thenReturn(Optional.of(orgFull));
-        // Class is already at cap
-        when(membershipRepo.countByClassIdAndStatus(CLASS_ID, ClassMembershipJpaEntity.STATUS_ACTIVE))
+        // Cap is checked via countByClassIdAndStatusAndRole (STUDENT only)
+        when(membershipRepo.countByClassIdAndStatusAndRole(
+                CLASS_ID, ClassMembershipJpaEntity.STATUS_ACTIVE, ClassMembershipJpaEntity.ROLE_STUDENT))
                 .thenReturn(20L);
 
         assertThatThrownBy(() -> service.enroll(cls, STUDENT_ID))
@@ -179,6 +180,79 @@ class ClassEnrollmentServiceTest {
                 .hasMessageContaining("Class is full");
 
         verify(avatarRepository, never()).save(any());
+    }
+
+    @Test
+    void enroll_staffSeatsDoNotCountAgainstStudentCap() {
+        // If there are 20 active memberships but only 19 are STUDENT role,
+        // a new STUDENT should be allowed to join.
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, STUDENT_ID)).thenReturn(Optional.empty());
+
+        OrganizationJpaEntity org = orgWithTerms();
+        org.setClassStudentCap(20);
+        when(orgRepo.findById("org-1")).thenReturn(Optional.of(org));
+        // 19 STUDENT role + 1 STAFF = 20 total, but cap query counts only STUDENT
+        when(membershipRepo.countByClassIdAndStatusAndRole(
+                CLASS_ID, ClassMembershipJpaEntity.STATUS_ACTIVE, ClassMembershipJpaEntity.ROLE_STUDENT))
+                .thenReturn(19L);
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Should NOT throw
+        service.enroll(cls, STUDENT_ID);
+        verify(avatarRepository).save(any());
+    }
+
+    @Test
+    void enrollStaff_provisionsBrandedAvatar_withStaffRole_andNoGroupJoin() {
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, "teacher-1")).thenReturn(Optional.empty());
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.enrollStaff(cls, "teacher-1");
+
+        ArgumentCaptor<ClassMembershipJpaEntity> captor =
+                ArgumentCaptor.forClass(ClassMembershipJpaEntity.class);
+        verify(membershipRepo).save(captor.capture());
+        ClassMembershipJpaEntity saved = captor.getValue();
+        assertThat(saved.getRole()).isEqualTo(ClassMembershipJpaEntity.ROLE_STAFF);
+        assertThat(saved.getStatus()).isEqualTo(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        assertThat(saved.getUserId()).isEqualTo("teacher-1");
+
+        // STAFF preview must not put the teacher into student groups
+        verify(classGroupService, never()).syncStudentJoin(any(), any());
+    }
+
+    @Test
+    void enrollStaff_isIdempotent_returnsExistingAvatarWithoutReprovisioning() {
+        OrgClassJpaEntity cls = classEntity();
+        ClassMembershipJpaEntity existing = new ClassMembershipJpaEntity();
+        existing.setId("m-staff");
+        existing.setClassId(CLASS_ID);
+        existing.setUserId("teacher-1");
+        existing.setStudentAvatarId("staff-avatar-existing");
+        existing.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, "teacher-1"))
+                .thenReturn(Optional.of(existing));
+
+        String avatarId = service.enrollStaff(cls, "teacher-1");
+
+        assertThat(avatarId).isEqualTo("staff-avatar-existing");
+        verify(avatarRepository, never()).save(any());
+    }
+
+    @Test
+    void enrollStaff_doesNotCheckStudentCap_orOrgSubscriptionStatus() {
+        // enrollStaff skips all cap and status checks — staff can always preview
+        OrgClassJpaEntity cls = classEntity();
+        when(membershipRepo.findByClassIdAndUserId(CLASS_ID, "teacher-1")).thenReturn(Optional.empty());
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Even if org is EXPIRED, enrollStaff should succeed (no call to orgRepo needed)
+        service.enrollStaff(cls, "teacher-1");
+
+        verify(orgRepo, never()).findById(any());
+        verify(membershipRepo).save(any());
     }
 
     @Test

@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -139,8 +140,9 @@ public class ClassMembershipService {
         accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
         List<Map<String, Object>> out = new ArrayList<>();
-        for (ClassMembershipJpaEntity m : membershipRepo.findByClassId(classId)) {
-            if (!ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus())) continue;
+        // Exclude STAFF role — only students appear in the public roster
+        for (ClassMembershipJpaEntity m : membershipRepo.findByClassIdAndStatusAndRole(
+                classId, ClassMembershipJpaEntity.STATUS_ACTIVE, ClassMembershipJpaEntity.ROLE_STUDENT)) {
             UserJpaEntity u = userRepo.findById(m.getUserId()).orElse(null);
             if (u == null) continue;
             out.add(Map.of(
@@ -159,6 +161,14 @@ public class ClassMembershipService {
         accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
+        // Build allow-list of STUDENT-role member IDs to exclude STAFF preview data
+        Set<String> studentIds = membershipRepo
+                .findByClassIdAndStatusAndRole(classId, ClassMembershipJpaEntity.STATUS_ACTIVE,
+                        ClassMembershipJpaEntity.ROLE_STUDENT)
+                .stream()
+                .map(ClassMembershipJpaEntity::getUserId)
+                .collect(java.util.stream.Collectors.toSet());
+
         List<Object[]> rows;
         try {
             rows = quizResultRepo.findStudentActivityByClass(classId);
@@ -170,6 +180,7 @@ public class ClassMembershipService {
         List<Map<String, Object>> out = new ArrayList<>();
         for (Object[] row : rows) {
             String studentId = (String) row[0];
+            if (!studentIds.contains(studentId)) continue; // skip STAFF
             String name = row[1] != null ? (String) row[1] : "";
             double grasp = row[2] != null ? round(((Number) row[2]).doubleValue()) : 0.0;
             long attempts = row[3] != null ? ((Number) row[3]).longValue() : 0L;
@@ -191,6 +202,14 @@ public class ClassMembershipService {
     public Map<String, Object> classHeatmap(String userId, String orgId, String classId) {
         accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
+
+        // Build allow-list of STUDENT-role member IDs to exclude STAFF preview data
+        Set<String> studentMemberIds = membershipRepo
+                .findByClassIdAndStatusAndRole(classId, ClassMembershipJpaEntity.STATUS_ACTIVE,
+                        ClassMembershipJpaEntity.ROLE_STUDENT)
+                .stream()
+                .map(ClassMembershipJpaEntity::getUserId)
+                .collect(java.util.stream.Collectors.toSet());
 
         List<Object[]> rows;
         try {
@@ -215,6 +234,7 @@ public class ClassMembershipService {
         Map<String, Map<String, Double>> matrix = new LinkedHashMap<>();
         for (Object[] row : rows) {
             String sid = (String) row[0];
+            if (!studentMemberIds.contains(sid)) continue; // skip STAFF preview data
             String topic = (String) row[1];
             double grasp = row[2] != null ? ((Number) row[2]).doubleValue() : 0.0;
             long n = row[3] != null ? ((Number) row[3]).longValue() : 0L;
@@ -283,6 +303,25 @@ public class ClassMembershipService {
         result.put("weakest", weakest);
         log.info("[Class] heatmap class={} students={} topics={}", classId, studentIds.size(), topics.size());
         return result;
+    }
+
+    // ── Staff preview ─────────────────────────────────────────────────────────
+
+    /**
+     * Lazily provisions a STAFF-role membership + class avatar so the caller
+     * can preview the class Mochi exactly as students see it.
+     * Access guard: must be owner or active staff of the org.
+     * The resulting membership is invisible to roster/analytics/cap counts.
+     *
+     * @return the staff member's class avatar id
+     */
+    @Transactional
+    public Map<String, Object> staffPreview(String userId, String orgId, String classId) {
+        accessService.ensureStaff(userId, orgId);
+        OrgClassJpaEntity cls = requireClass(orgId, classId);
+        String avatarId = classEnrollmentService.enrollStaff(cls, userId);
+        log.info("[Class] staff-preview: userId={} class={} avatar={}", userId, classId, avatarId);
+        return Map.of("avatarId", avatarId, "classId", classId, "role", "STAFF");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -76,10 +76,11 @@ public class ClassEnrollmentService {
                 throw new BusinessException(
                         "Your centre admin must accept educator terms before students can join.", 403);
             }
-            // Student cap
-            long activeCount = membershipRepo.countByClassIdAndStatus(
-                    cls.getId(), ClassMembershipJpaEntity.STATUS_ACTIVE);
-            if (org.getClassStudentCap() > 0 && activeCount >= org.getClassStudentCap()) {
+            // Student cap — count only STUDENT role so staff preview seats don't consume quota
+            long activeStudents = membershipRepo.countByClassIdAndStatusAndRole(
+                    cls.getId(), ClassMembershipJpaEntity.STATUS_ACTIVE,
+                    ClassMembershipJpaEntity.ROLE_STUDENT);
+            if (org.getClassStudentCap() > 0 && activeStudents >= org.getClassStudentCap()) {
                 throw new BusinessException(
                         "Class is full (" + org.getClassStudentCap() + " students) — "
                         + "open another class to add more.", 403);
@@ -107,10 +108,58 @@ public class ClassEnrollmentService {
         m.setUserId(studentId);
         m.setStudentAvatarId(saved.getId());
         m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        m.setRole(ClassMembershipJpaEntity.ROLE_STUDENT);
         membershipRepo.save(m);
 
         classGroupService.syncStudentJoin(cls, studentId);
         log.info("[Enroll] student={} class={} avatar={}", studentId, cls.getId(), saved.getId());
+        return saved.getId();
+    }
+
+    /**
+     * Provisions (or returns the existing) branded class avatar for a staff member
+     * for preview purposes. Unlike {@link #enroll}, this:
+     * <ul>
+     *   <li>Skips the student cap check — staff seats are not paid slots.</li>
+     *   <li>Skips the EXPIRED/CANCELLED block — teachers can always preview.</li>
+     *   <li>Records {@code role = STAFF} so the row is excluded from cap/analytics.</li>
+     *   <li>Does NOT call {@code classGroupService.syncStudentJoin} — staff are not in student groups.</li>
+     * </ul>
+     *
+     * @return the staff member's class avatar id
+     */
+    @Transactional
+    public String enrollStaff(OrgClassJpaEntity cls, String staffUserId) {
+        Optional<ClassMembershipJpaEntity> existing =
+                membershipRepo.findByClassIdAndUserId(cls.getId(), staffUserId);
+        if (existing.isPresent()
+                && ClassMembershipJpaEntity.STATUS_ACTIVE.equals(existing.get().getStatus())
+                && existing.get().getStudentAvatarId() != null) {
+            return existing.get().getStudentAvatarId();
+        }
+
+        Avatar avatar = Avatar.create(
+                staffUserId,
+                brandedName(cls),
+                parseSubject(cls.getSubject()),
+                parseCharacter(cls.getCharacterType()),
+                cls.getLevel(), null);
+        avatar.markCentreClassAvatar();
+        avatar.setClassId(cls.getId());
+        avatar.setCorpusAvatarId(cls.getCorpusAvatarId());
+        applyClassConfig(avatar, cls);
+        Avatar saved = avatarRepository.save(avatar);
+
+        ClassMembershipJpaEntity m = existing.orElseGet(ClassMembershipJpaEntity::new);
+        if (m.getId() == null) m.setId(IdGenerator.newId());
+        m.setClassId(cls.getId());
+        m.setUserId(staffUserId);
+        m.setStudentAvatarId(saved.getId());
+        m.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+        m.setRole(ClassMembershipJpaEntity.ROLE_STAFF);
+        membershipRepo.save(m);
+
+        log.info("[Enroll] staff-preview: userId={} class={} avatar={}", staffUserId, cls.getId(), saved.getId());
         return saved.getId();
     }
 

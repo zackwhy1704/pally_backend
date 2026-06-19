@@ -212,6 +212,22 @@ public class ClassController {
                         .body(ApiResponse.error("Narration not found for this module", 404)));
     }
 
+    // ── Staff preview (Phase 4) ────────────────────────────────────────────────
+
+    /**
+     * Lazily enrolls the calling staff member into the class as STAFF so they
+     * can preview the class Mochi. Idempotent — safe to call multiple times.
+     * Excluded from student cap, roster, and analytics.
+     */
+    @PostMapping("/classes/{classId}/staff-preview")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> staffPreview(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(classMembershipService.staffPreview(userId, orgId, classId)));
+    }
+
     // ── AI class brief ─────────────────────────────────────────────────────────
 
     @GetMapping("/classes/{classId}/class-brief")

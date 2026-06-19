@@ -8,6 +8,9 @@ import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
@@ -35,6 +38,7 @@ class PremiumServiceTest {
     @Mock ClassMembershipJpaRepository membershipRepo;
     @Mock OrgClassJpaRepository classRepo;
     @Mock OrganizationJpaRepository orgRepo;
+    @Mock OrgStaffJpaRepository staffRepo;
     @Mock OrgSubscriptionService orgSubService;
 
     @InjectMocks PremiumService premiumService;
@@ -202,5 +206,111 @@ class PremiumServiceTest {
         // Assert: CENTRE source maps to PRO tier, and the centre-sourced flag is set
         assertThat(ctx.tier()).isEqualTo(SubscriptionTier.PRO);
         assertThat(ctx.isCentreSourced()).isTrue();
+    }
+
+    // ── Phase 2: ADMIN and staff/owner branches ───────────────────────────────
+
+    @Test
+    void resolve_adminUser_returnsMaxTier_notCentreSourced() {
+        User u = solo("admin-1");
+        u.setRole("ADMIN");
+        when(userRepo.findById("admin-1")).thenReturn(Optional.of(u));
+
+        PremiumService.Entitlement ent = premiumService.resolve("admin-1");
+
+        assertThat(ent.isPremium()).isTrue();
+        assertThat(ent.source()).isEqualTo("ADMIN");
+        assertThat(ent.plan()).isEqualTo("max");
+
+        PremiumService.TierContext ctx = premiumService.resolveTierContext("admin-1");
+        assertThat(ctx.tier()).isEqualTo(SubscriptionTier.MAX);
+        assertThat(ctx.isCentreSourced()).isFalse();
+    }
+
+    @Test
+    void resolve_orgOwnerWithEntitledOrg_returnsProCentreSourced() {
+        User u = solo("owner-1");
+        u.setRole("USER");
+        when(userRepo.findById("owner-1")).thenReturn(Optional.of(u));
+        when(subRepo.findById("owner-1")).thenReturn(Optional.empty());
+
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId("org-1");
+        org.setOwnerUserId("owner-1");
+        org.setSubStatus(OrganizationJpaEntity.STATUS_ACTIVE);
+        when(orgRepo.findByOwnerUserId("owner-1")).thenReturn(List.of(org));
+        when(orgSubService.isEntitled(org)).thenReturn(true);
+
+        PremiumService.TierContext ctx = premiumService.resolveTierContext("owner-1");
+
+        assertThat(ctx.tier()).isEqualTo(SubscriptionTier.PRO);
+        assertThat(ctx.isCentreSourced()).isTrue();
+    }
+
+    @Test
+    void resolve_activeStaffMemberWithEntitledOrg_returnsProCentreSourced() {
+        User u = solo("teacher-1");
+        u.setRole("USER");
+        when(userRepo.findById("teacher-1")).thenReturn(Optional.of(u));
+        when(subRepo.findById("teacher-1")).thenReturn(Optional.empty());
+        when(orgRepo.findByOwnerUserId("teacher-1")).thenReturn(List.of()); // not an owner
+
+        OrgStaffJpaEntity staffRow = new OrgStaffJpaEntity();
+        staffRow.setUserId("teacher-1");
+        staffRow.setOrgId("org-2");
+        staffRow.setStatus(OrgStaffJpaEntity.STATUS_ACTIVE);
+        when(staffRepo.findFirstByUserIdAndStatus("teacher-1", OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(Optional.of(staffRow));
+
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId("org-2");
+        org.setSubStatus(OrganizationJpaEntity.STATUS_PILOT);
+        org.setPilotEndsAt(Instant.now().plusSeconds(86_400 * 30));
+        when(orgRepo.findById("org-2")).thenReturn(Optional.of(org));
+        when(orgSubService.isEntitled(org)).thenReturn(true);
+
+        PremiumService.TierContext ctx = premiumService.resolveTierContext("teacher-1");
+
+        assertThat(ctx.tier()).isEqualTo(SubscriptionTier.PRO);
+        assertThat(ctx.isCentreSourced()).isTrue();
+    }
+
+    @Test
+    void resolve_staffOfLapsedOrg_isNotGrantedPro() {
+        User u = solo("teacher-2");
+        u.setRole("USER");
+        when(userRepo.findById("teacher-2")).thenReturn(Optional.of(u));
+        when(subRepo.findById("teacher-2")).thenReturn(Optional.empty());
+        when(orgRepo.findByOwnerUserId("teacher-2")).thenReturn(List.of());
+
+        OrgStaffJpaEntity staffRow = new OrgStaffJpaEntity();
+        staffRow.setUserId("teacher-2");
+        staffRow.setOrgId("org-expired");
+        staffRow.setStatus(OrgStaffJpaEntity.STATUS_ACTIVE);
+        when(staffRepo.findFirstByUserIdAndStatus("teacher-2", OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(Optional.of(staffRow));
+
+        OrganizationJpaEntity org = new OrganizationJpaEntity();
+        org.setId("org-expired");
+        org.setSubStatus(OrganizationJpaEntity.STATUS_EXPIRED);
+        when(orgRepo.findById("org-expired")).thenReturn(Optional.of(org));
+        when(orgSubService.isEntitled(org)).thenReturn(false);
+
+        PremiumService.Entitlement ent = premiumService.resolve("teacher-2");
+
+        assertThat(ent.source()).isNotEqualTo("CENTRE");
+        assertThat(ent.isPremium()).isFalse();
+    }
+
+    @Test
+    void adminDoesNotGetBlockedBySelfSubCheck_MaxTierWins() {
+        // ADMIN branch fires before subRepo is ever consulted — no subscription stub needed.
+        User u = solo("admin-2");
+        u.setRole("ADMIN");
+        when(userRepo.findById("admin-2")).thenReturn(Optional.of(u));
+
+        PremiumService.Entitlement ent = premiumService.resolve("admin-2");
+        assertThat(ent.source()).isEqualTo("ADMIN");
+        assertThat(ent.plan()).isEqualTo("max");
     }
 }

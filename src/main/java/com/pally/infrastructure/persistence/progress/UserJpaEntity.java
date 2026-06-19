@@ -221,6 +221,7 @@ public class UserJpaEntity {
         u.setLastSlotChangeAt(lastSlotChangeAt);
         u.setCentreId(centreId);
         u.setCohortLabel(cohortLabel);
+        u.setRole(role != null ? role : "USER");
         u.setScreenTimeEnabled(screenTimeEnabled);
         u.setScreenTimeMinutes(screenTimeMinutes);
         u.setLinkCode(linkCode);

@@ -37,6 +37,7 @@ public class User {
     private Instant lastSlotChangeAt;
     private String centreId;
     private String cohortLabel;
+    private String role = "USER";
 
     // ── Parental controls ─────────────────────────────────────────────────
     private boolean screenTimeEnabled;

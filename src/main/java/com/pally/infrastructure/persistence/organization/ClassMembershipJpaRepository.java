@@ -14,4 +14,9 @@ public interface ClassMembershipJpaRepository extends JpaRepository<ClassMembers
     Optional<ClassMembershipJpaEntity> findByClassIdAndUserId(String classId, String userId);
 
     long countByClassIdAndStatus(String classId, String status);
+
+    long countByClassIdAndStatusAndRole(String classId, String status, String role);
+
+    List<ClassMembershipJpaEntity> findByClassIdAndStatusAndRole(
+            String classId, String status, String role);
 }

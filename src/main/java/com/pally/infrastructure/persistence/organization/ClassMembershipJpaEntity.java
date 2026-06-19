@@ -21,8 +21,10 @@ import java.time.Instant;
 @NoArgsConstructor
 public class ClassMembershipJpaEntity {
 
-    public static final String STATUS_ACTIVE = "ACTIVE";
+    public static final String STATUS_ACTIVE  = "ACTIVE";
     public static final String STATUS_REMOVED = "REMOVED";
+    public static final String ROLE_STUDENT   = "STUDENT";
+    public static final String ROLE_STAFF     = "STAFF";
 
     @Id
     @Column(length = 36)
@@ -39,6 +41,9 @@ public class ClassMembershipJpaEntity {
 
     @Column(nullable = false, length = 20)
     private String status = STATUS_ACTIVE;
+
+    @Column(nullable = false, length = 20)
+    private String role = ROLE_STUDENT;
 
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt = Instant.now();

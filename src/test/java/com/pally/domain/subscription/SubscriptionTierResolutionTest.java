@@ -6,6 +6,7 @@ import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
@@ -36,6 +37,7 @@ class SubscriptionTierResolutionTest {
     @Mock ClassMembershipJpaRepository membershipRepo;
     @Mock OrgClassJpaRepository classRepo;
     @Mock OrganizationJpaRepository orgRepo;
+    @Mock OrgStaffJpaRepository staffRepo;
     @Mock OrgSubscriptionService orgSubService;
 
     @InjectMocks PremiumService premiumService;

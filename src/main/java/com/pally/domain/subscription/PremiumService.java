@@ -9,6 +9,8 @@ import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntit
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaEntity;
@@ -54,6 +56,7 @@ public class PremiumService {
     private final ClassMembershipJpaRepository membershipRepo;
     private final OrgClassJpaRepository classRepo;
     private final OrganizationJpaRepository orgRepo;
+    private final OrgStaffJpaRepository staffRepo;
     private final OrgSubscriptionService orgSubService;
 
     public record Entitlement(
@@ -74,6 +77,13 @@ public class PremiumService {
         User user = userRepo.findById(userId).orElse(null);
         if (user == null) {
             return new Entitlement(false, "NONE", null, "free", null);
+        }
+
+        // Admin gets Max tier for internal testing — placed first so it wins
+        // unconditionally. Not centre-sourced (may route to Sonnet).
+        if ("ADMIN".equals(user.getRole())) {
+            persistFlag(user, true);
+            return new Entitlement(true, "ADMIN", "max", "active", null);
         }
 
         // Self check first — own subscription wins over inherited so the
@@ -97,6 +107,11 @@ public class PremiumService {
                         isTrialing(parentSub) ? parentSub.getCurrentPeriodEnd() : null);
             }
         }
+
+        // Centre staff/owner — Pro on Haiku regardless of class enrollment.
+        // Runs before resolveCentre so staff get Pro even with no class membership.
+        Entitlement staffEnt = resolveStaff(user);
+        if (staffEnt != null) return staffEnt;
 
         // Centre premium — student inherits from the centre they're enrolled in.
         // Runs between PARENT and TRIAL so a paying parent still wins over a free pilot.
@@ -177,6 +192,47 @@ public class PremiumService {
         return null;
     }
 
+    // ── Owner / teacher entitlement ───────────────────────────────────────────
+
+    /**
+     * Returns a CENTRE/Pro entitlement for centre owners and active staff members,
+     * gated on the org being in an entitled lifecycle state (PILOT or ACTIVE).
+     * isCentreSourced=true → ModelRouter always routes these users to Haiku.
+     * Returns null if the user is neither an owner nor active staff of any entitled org.
+     */
+    private Entitlement resolveStaff(User user) {
+        // Owner path: does this user own any org?
+        List<OrganizationJpaEntity> ownedOrgs = orgRepo.findByOwnerUserId(user.getId());
+        for (OrganizationJpaEntity org : ownedOrgs) {
+            if (orgSubService.isEntitled(org)) {
+                String status = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                        ? "trialing" : "active";
+                Instant ends = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                        ? org.getPilotEndsAt() : null;
+                persistFlag(user, true);
+                log.info("[Premium] staff/owner entitlement: user={} org={}", user.getId(), org.getId());
+                return new Entitlement(true, "CENTRE", "pro", status, ends);
+            }
+        }
+        // Staff path: is this user an active org_staff member of an entitled org?
+        OrgStaffJpaEntity staffRow = staffRepo
+                .findFirstByUserIdAndStatus(user.getId(), OrgStaffJpaEntity.STATUS_ACTIVE)
+                .orElse(null);
+        if (staffRow != null) {
+            OrganizationJpaEntity org = orgRepo.findById(staffRow.getOrgId()).orElse(null);
+            if (org != null && orgSubService.isEntitled(org)) {
+                String status = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                        ? "trialing" : "active";
+                Instant ends = OrganizationJpaEntity.STATUS_PILOT.equals(org.getSubStatus())
+                        ? org.getPilotEndsAt() : null;
+                persistFlag(user, true);
+                log.info("[Premium] teacher entitlement: user={} org={}", user.getId(), org.getId());
+                return new Entitlement(true, "CENTRE", "pro", status, ends);
+            }
+        }
+        return null;
+    }
+
     // ── Local cardless trial ──────────────────────────────────────────────────
 
     private Entitlement resolveLocalTrial(User user) {
@@ -221,11 +277,15 @@ public class PremiumService {
      */
     public TierContext resolveTierContext(String userId) {
         Entitlement ent = resolve(userId);
-        return new TierContext(tierFromEntitlement(ent), "CENTRE".equals(ent.source()));
+        // ADMIN is not centre-sourced — may use Sonnet on complex questions.
+        // CENTRE source (staff + students) is always centre-sourced → Haiku only.
+        boolean isCentreSourced = "CENTRE".equals(ent.source());
+        return new TierContext(tierFromEntitlement(ent), isCentreSourced);
     }
 
     private SubscriptionTier tierFromEntitlement(Entitlement ent) {
         if (!ent.isPremium()) return SubscriptionTier.FREE;
+        if ("ADMIN".equals(ent.source()))  return SubscriptionTier.MAX;
         if ("CENTRE".equals(ent.source())) return SubscriptionTier.PRO;
         if ("TRIAL".equals(ent.source()))  return SubscriptionTier.MAX;
         String plan = ent.plan() != null ? ent.plan().toLowerCase() : "";
