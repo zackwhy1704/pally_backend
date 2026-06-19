@@ -32,10 +32,10 @@ public class ContentReviewService {
 
     /**
      * Validates that the class exists and belongs to the organization, then
-     * asserts owner access. Throws {@link BusinessException} on any violation.
+     * asserts staff-or-owner access. Throws {@link BusinessException} on any violation.
      */
     private void assertAccess(String userId, String orgId, String classId) {
-        centreAccessService.ensureOwner(userId, orgId);
+        centreAccessService.ensureStaff(userId, orgId);
         String classOrgId = orgClassRepository.findOrganizationIdByClassId(classId)
                 .orElseThrow(() -> new BusinessException("Class not found", 404));
         if (!orgId.equals(classOrgId)) {

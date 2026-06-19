@@ -50,7 +50,7 @@ class ContentReviewServiceTest {
         List<Map<String, Object>> result = service.listDraftContent(USER, ORG_ID, CLASS_ID);
 
         assertThat(result).isEqualTo(drafts);
-        verify(centreAccessService).ensureOwner(USER, ORG_ID);
+        verify(centreAccessService).ensureStaff(USER, ORG_ID);
     }
 
     @Test
