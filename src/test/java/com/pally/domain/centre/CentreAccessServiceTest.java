@@ -1,5 +1,7 @@
 package com.pally.domain.centre;
 
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -22,6 +24,7 @@ class CentreAccessServiceTest {
 
     @Mock OrganizationJpaRepository orgRepo;
     @Mock OrgStaffJpaRepository staffRepo;
+    @Mock ClassMembershipJpaRepository membershipRepo;
 
     @InjectMocks CentreAccessService service;
 
@@ -106,5 +109,44 @@ class CentreAccessServiceTest {
         assertThatThrownBy(() -> service.ensureStaff(OWNER_ID, ORG_ID))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 404);
+    }
+
+    // ── isActiveClassMember ─────────────────────────────────────────────────────
+
+    private ClassMembershipJpaEntity membership(String status) {
+        ClassMembershipJpaEntity m = new ClassMembershipJpaEntity();
+        m.setClassId("class-1");
+        m.setUserId("student-1");
+        m.setStatus(status);
+        return m;
+    }
+
+    @Test
+    void isActiveClassMember_activeMember_returnsTrue() {
+        when(membershipRepo.findByClassIdAndUserId("class-1", "student-1"))
+                .thenReturn(Optional.of(membership(ClassMembershipJpaEntity.STATUS_ACTIVE)));
+
+        assertThat(service.isActiveClassMember("student-1", "class-1")).isTrue();
+    }
+
+    @Test
+    void isActiveClassMember_inactiveMember_returnsFalse() {
+        when(membershipRepo.findByClassIdAndUserId("class-1", "student-1"))
+                .thenReturn(Optional.of(membership("REMOVED")));
+
+        assertThat(service.isActiveClassMember("student-1", "class-1")).isFalse();
+    }
+
+    @Test
+    void isActiveClassMember_noMembership_returnsFalse() {
+        when(membershipRepo.findByClassIdAndUserId("class-1", "student-1"))
+                .thenReturn(Optional.empty());
+
+        assertThat(service.isActiveClassMember("student-1", "class-1")).isFalse();
+    }
+
+    @Test
+    void isActiveClassMember_nullClassId_returnsFalse() {
+        assertThat(service.isActiveClassMember("student-1", null)).isFalse();
     }
 }

@@ -1,6 +1,8 @@
 package com.pally.domain.module;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.shared.exception.BusinessException;
@@ -39,6 +41,8 @@ public class ModuleProgressionService {
     private final com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
     private final com.pally.domain.progress.ActivityLogService activityLogService;
     private final com.pally.domain.progress.XpService xpService;
+    private final AvatarRepository avatarRepository;
+    private final CentreAccessService centreAccessService;
 
     /// Flat XP awarded when a module is fully completed (reaches COMPLETE).
     private static final int MODULE_COMPLETE_XP = 25;
@@ -79,6 +83,7 @@ public class ModuleProgressionService {
     public Map<String, Object> getModuleDetail(String moduleId, String userId) {
         LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
+        assertModuleAccess(module, userId);
 
         List<ModuleContentItem> items =
                 itemRepository.findByModuleIdOrderBySortOrder(moduleId);
@@ -133,6 +138,7 @@ public class ModuleProgressionService {
     public Map<String, Object> startModule(String moduleId, String userId) {
         LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
+        assertModuleAccess(module, userId);
 
         ModuleStage currentStage = ModuleStage.valueOf(module.getStage());
 
@@ -196,6 +202,7 @@ public class ModuleProgressionService {
 
         LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
+        assertModuleAccess(module, userId);
 
         ModuleStage currentStage = ModuleStage.valueOf(module.getStage());
         if (currentStage == ModuleStage.COMPLETE) {
@@ -355,6 +362,7 @@ public class ModuleProgressionService {
     public Map<String, Object> getResults(String moduleId, String userId) {
         LearningModule module = moduleRepository.findById(moduleId)
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
+        assertModuleAccess(module, userId);
 
         List<ModuleProgress> allProgress =
                 progressRepository.findByModuleIdAndUserId(moduleId, userId);
@@ -445,6 +453,20 @@ public class ModuleProgressionService {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
+
+    /// IDOR guard for module-by-id endpoints: the caller must either own the
+    /// module's avatar (personal modules) OR be an active member of the module's
+    /// class (centre students share class modules). Otherwise 404 — so a stranger
+    /// can't read another user's module or mutate its progress by guessing an id.
+    private void assertModuleAccess(LearningModule module, String userId) {
+        boolean ownsAvatar = module.getAvatarId() != null
+                && avatarRepository.existsByIdAndUserId(module.getAvatarId(), userId);
+        boolean enrolledInClass = centreAccessService.isActiveClassMember(
+                userId, module.getClassId());
+        if (!ownsAvatar && !enrolledInClass) {
+            throw new BusinessException("Module not found", 404);
+        }
+    }
 
     /// Maps a PROVE score to a certainty delta and applies it to the module's
     /// wiki page. The PROVE question's free-text {@code targetConcept} is a

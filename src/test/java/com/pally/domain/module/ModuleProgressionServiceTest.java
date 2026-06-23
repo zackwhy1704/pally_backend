@@ -38,6 +38,8 @@ class ModuleProgressionServiceTest {
     @Mock private com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
     @Mock private com.pally.domain.progress.ActivityLogService activityLogService;
     @Mock private com.pally.domain.progress.XpService xpService;
+    @Mock private com.pally.domain.avatar.AvatarRepository avatarRepository;
+    @Mock private com.pally.domain.centre.CentreAccessService centreAccessService;
 
     private ModuleProgressionService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -47,7 +49,45 @@ class ModuleProgressionServiceTest {
         service = new ModuleProgressionService(
                 moduleRepository, itemRepository, progressRepository,
                 contentGenerator, proveEvaluator, wikiRepository, objectMapper,
-                milestoneNotifier, activityLogService, xpService);
+                milestoneNotifier, activityLogService, xpService,
+                avatarRepository, centreAccessService);
+        // Default: caller owns the module's avatar, so the access guard passes.
+        // Individual tests override this to exercise the IDOR rejection.
+        lenient().when(avatarRepository.existsByIdAndUserId(anyString(), anyString()))
+                .thenReturn(true);
+    }
+
+    // ── access guard (IDOR) ─────────────────────────────────────────────
+
+    @Test
+    void getModuleDetail_callerNeitherOwnerNorEnrolled_throws404() {
+        LearningModule module = buildModule("mod-x", "LEARN");
+        module.setAvatarId("avatar-x");
+        module.setClassId("class-x");
+        when(moduleRepository.findById("mod-x")).thenReturn(Optional.of(module));
+        // Not the avatar's owner AND not an active member of its class.
+        when(avatarRepository.existsByIdAndUserId("avatar-x", "attacker")).thenReturn(false);
+        when(centreAccessService.isActiveClassMember("attacker", "class-x")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getModuleDetail("mod-x", "attacker"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 404);
+    }
+
+    @Test
+    void startModule_centreStudentEnrolledInClass_isAllowed() {
+        LearningModule module = buildModule("mod-c", "LEARN");
+        module.setAvatarId("corpus-avatar");   // owned by the centre, not the student
+        module.setClassId("class-c");
+        when(moduleRepository.findById("mod-c")).thenReturn(Optional.of(module));
+        when(avatarRepository.existsByIdAndUserId("corpus-avatar", "student")).thenReturn(false);
+        when(centreAccessService.isActiveClassMember("student", "class-c")).thenReturn(true);
+        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-c", "LEARN"))
+                .thenReturn(List.of());
+
+        Map<String, Object> result = service.startModule("mod-c", "student");
+
+        assertThat(result.get("stage")).isEqualTo("LEARN");
     }
 
     // ── startModule ─────────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 package com.pally.domain.centre;
 
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -21,6 +23,7 @@ public class CentreAccessService {
 
     private final OrganizationJpaRepository orgRepo;
     private final OrgStaffJpaRepository staffRepo;
+    private final ClassMembershipJpaRepository membershipRepo;
 
     /**
      * Returns the org after verifying the caller is the owner.
@@ -49,5 +52,19 @@ public class CentreAccessService {
             throw new BusinessException("You don't have access to this organization", 403);
         }
         return org;
+    }
+
+    /**
+     * True when the caller is an active member of the class. Used to gate student
+     * learning endpoints (e.g. module start/submit) that load a resource by id —
+     * a centre student is allowed because they belong to the resource's class.
+     */
+    public boolean isActiveClassMember(String userId, String classId) {
+        if (classId == null) {
+            return false;
+        }
+        return membershipRepo.findByClassIdAndUserId(classId, userId)
+                .map(m -> ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus()))
+                .orElse(false);
     }
 }
