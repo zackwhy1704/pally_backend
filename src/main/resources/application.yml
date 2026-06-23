@@ -225,14 +225,16 @@ claude:
 gemini:
   api:
     key: ${GEMINI_API_KEY:}
-    # Fallback chain. NOTE: gemini-1.5-* was retired by Google (404s) — use 2.x.
-    #   Tier 1: gemini-2.5-flash → current, fast, 1M context (the default primary)
-    #   Tier 2: gemini-2.0-flash → cheaper fallback
+    # Fallback chain. NOTE: gemini-1.5-* AND gemini-2.0-flash are retired by
+    # Google (confirmed 404 "no longer available" in prod) — use 2.5-family only.
+    #   Tier 1: gemini-2.5-flash      → current, fast, 1M context (default primary)
+    #   Tier 2: gemini-2.5-flash-lite → cheaper, current (default secondary)
     #   Tier 3: Claude Haiku (chunked) → always available, ~10x cost of Gemini
     # Override individual tiers via GEMINI_MODEL_PRIMARY / GEMINI_MODEL_SECONDARY.
+    # Verify any model resolves for the live key: POST /api/v1/admin/smoke/gemini?model=<id>
     model:
       primary: ${GEMINI_MODEL_PRIMARY:gemini-2.5-flash}
-      secondary: ${GEMINI_MODEL_SECONDARY:gemini-2.0-flash}
+      secondary: ${GEMINI_MODEL_SECONDARY:gemini-2.5-flash-lite}
     base-url: https://generativelanguage.googleapis.com
 
 # Storage defaults to s3 (Cloudflare R2) so production needs no per-deploy flag.

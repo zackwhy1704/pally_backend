@@ -105,18 +105,33 @@ public class SmokeTestController {
      */
     @PostMapping("/gemini")
     public ResponseEntity<ApiResponse<Map<String, Object>>> smokeGemini(
-            @AuthenticationPrincipal String userId) {
+            @AuthenticationPrincipal String userId,
+            @RequestParam(defaultValue = "") String model) {
+
+        // Ad-hoc mode: probe a single arbitrary model (text ping) so any
+        // candidate can be verified against the live key without a redeploy —
+        // e.g. POST /api/v1/admin/smoke/gemini?model=gemini-2.5-flash-lite
+        if (!model.isBlank()) {
+            var single = geminiOcr.probe(model, null);
+            log.info("[Smoke] Gemini ad-hoc probe model={} status={} by admin={}",
+                    model, single.statusCode(), userId);
+            return ResponseEntity.ok(ApiResponse.success(toMap(single)));
+        }
+
         byte[] testPng = Base64.getDecoder().decode(TEST_PNG_B64);
 
         // The exact OCR path live users' images fall back to (Gemini vision).
         var visionOcr = geminiOcr.probe(geminiOcr.visionModel(), testPng);
         // The text path used by wiki compilation (primary tier).
         var text25 = geminiOcr.probe("gemini-2.5-flash", null);
-        // The configured secondary tier — expected to 404 for this key.
+        // The configured secondary tier (current).
+        var text25lite = geminiOcr.probe("gemini-2.5-flash-lite", null);
+        // The retired model — kept in the battery to prove it 404s (regression sentinel).
         var text20 = geminiOcr.probe("gemini-2.0-flash", null);
 
-        log.info("[Smoke] Gemini probe by admin={}: visionOcr={} text2.5={} text2.0={}",
-                userId, visionOcr.statusCode(), text25.statusCode(), text20.statusCode());
+        log.info("[Smoke] Gemini probe by admin={}: visionOcr={} text2.5={} lite={} text2.0={}",
+                userId, visionOcr.statusCode(), text25.statusCode(),
+                text25lite.statusCode(), text20.statusCode());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("apiKeyConfigured", geminiOcr.isAvailable());
@@ -124,6 +139,7 @@ public class SmokeTestController {
         out.put("ocrFallbackEngine", "gemini-vision (" + geminiOcr.visionModel() + ")");
         out.put("visionOcr", toMap(visionOcr));
         out.put("text_gemini_2_5_flash", toMap(text25));
+        out.put("text_gemini_2_5_flash_lite", toMap(text25lite));
         out.put("text_gemini_2_0_flash", toMap(text20));
         out.put("verdict", visionOcr.ok()
                 ? "OCR vision model resolves in prod — no 404 for live users."

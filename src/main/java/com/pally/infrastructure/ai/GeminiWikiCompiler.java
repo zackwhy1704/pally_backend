@@ -53,14 +53,14 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     @Value("${gemini.api.key:}")
     private String apiKey;
 
-    // Fallback chain: 1.5-flash-latest → 2.0-flash → Claude Haiku
-    // The primary model is faster and available on free tier.
-    // gemini-1.5-* was retired by Google (404s); defaults are current 2.x models.
+    // Fallback chain: gemini-2.5-flash → gemini-2.5-flash-lite → Claude Haiku.
+    // gemini-1.5-* AND gemini-2.0-flash are retired by Google (confirmed 404
+    // "no longer available" in prod) — defaults must stay on the 2.5 family.
     // Override either via GEMINI_MODEL_PRIMARY / GEMINI_MODEL_SECONDARY.
     @Value("${gemini.api.model.primary:gemini-2.5-flash}")
     private String modelPrimary;
 
-    @Value("${gemini.api.model.secondary:gemini-2.0-flash}")
+    @Value("${gemini.api.model.secondary:gemini-2.5-flash-lite}")
     private String modelSecondary;
 
     @Value("${gemini.api.base-url:https://generativelanguage.googleapis.com}")
