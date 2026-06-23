@@ -1,5 +1,6 @@
 package com.pally.api.quiz;
 
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.quiz.dto.FlashcardResponse;
 import com.pally.domain.quiz.dto.QuizQuestionResponse;
 import com.pally.domain.quiz.dto.RateFlashcardRequest;
@@ -26,11 +27,13 @@ import java.util.Map;
 public class QuizController {
 
     private final QuizService quizService;
+    private final ConsentGuard consentGuard;
 
     @GetMapping("/quiz/daily")
     public ResponseEntity<ApiResponse<List<QuizQuestionResponse>>> getDailyQuiz(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI quiz generation
         return ResponseEntity.ok(ApiResponse.success(quizService.getDailyQuiz(userId, avatarId)));
     }
 
@@ -54,6 +57,7 @@ public class QuizController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> generateFlashcards(
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI flashcard generation
         return ResponseEntity.ok(
                 ApiResponse.success(quizService.generateFlashcards(userId, avatarId)));
     }

@@ -6,6 +6,7 @@ import com.pally.infrastructure.persistence.consent.ConsentRecordJpaEntity;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
+import com.pally.shared.exception.GuardianRequiredException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -141,6 +142,52 @@ class AiConsentGateTest {
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
 
         assertThatCode(() -> guard().requireActive(USER_ID, "UPLOAD"))
+                .doesNotThrowAnyException();
+    }
+
+    // ── requireAiAllowed: combined gate that every AI endpoint calls ───────────
+
+    @Test
+    void requireAiAllowed_under13_noConsent_throwsAiConsentRequired() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
+        when(consentRecordRepo.findAll()).thenReturn(List.of());
+
+        assertThatThrownBy(() -> guard().requireAiAllowed(USER_ID))
+                .isInstanceOf(AiConsentRequiredException.class);
+    }
+
+    @Test
+    void requireAiAllowed_under13_consentButNoParent_throwsGuardianRequired() {
+        // AI consent granted (first gate passes) but no parent linked → guardian gate fires.
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
+        when(consentRecordRepo.findAll()).thenReturn(List.of(
+                consentRecord("[\"AI_DATA_TRANSFER\"]")
+        ));
+
+        assertThatThrownBy(() -> guard().requireAiAllowed(USER_ID))
+                .isInstanceOf(GuardianRequiredException.class)
+                .satisfies(ex -> assertThat(((ConsentRequiredException) ex).getReason())
+                        .isEqualTo(ConsentGuard.REASON_PARENT_LINK_REQUIRED));
+    }
+
+    @Test
+    void requireAiAllowed_under13_consentAndParentLinked_allowed() {
+        User u = under13User();
+        u.setParentId("parent-1");
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(u));
+        when(consentRecordRepo.findAll()).thenReturn(List.of(
+                consentRecord("[\"AI_DATA_TRANSFER\"]")
+        ));
+
+        assertThatCode(() -> guard().requireAiAllowed(USER_ID))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void requireAiAllowed_over13_alwaysAllowed() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(over13User()));
+
+        assertThatCode(() -> guard().requireAiAllowed(USER_ID))
                 .doesNotThrowAnyException();
     }
 }

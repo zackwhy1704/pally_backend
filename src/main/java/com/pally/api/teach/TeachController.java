@@ -3,6 +3,7 @@ package com.pally.api.teach;
 import com.pally.api.teach.dto.TeachRequest;
 import com.pally.api.teach.dto.TeachResponse;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.progress.ActivityLogService;
@@ -39,6 +40,7 @@ public class TeachController {
     private final ActivityLogService activityLogService;
     private final XpService xpService;
     private final AvatarSlotGuard avatarSlotGuard;
+    private final ConsentGuard consentGuard;
 
     @PostMapping
     public ResponseEntity<ApiResponse<TeachResponse>> teach(
@@ -51,6 +53,9 @@ public class TeachController {
 
         // Fix 2: Slot guard — locked avatars cannot be taught.
         avatarSlotGuard.requireActive(avatarId, userId);
+
+        // PDPA/PDPC: gate third-party AI data transfer (consent + under-13 guardian).
+        consentGuard.requireAiAllowed(userId);
 
         // Load wiki page — WikiRepositoryAdapter.findBy... is @Transactional(readOnly)
         // so the connection is held only for this brief read, not across the Claude call.

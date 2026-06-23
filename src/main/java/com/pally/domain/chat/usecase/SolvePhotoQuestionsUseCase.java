@@ -6,6 +6,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.XpService;
@@ -32,6 +33,7 @@ public class SolvePhotoQuestionsUseCase {
     private final ActivityLogService activityLogService;
     private final BadgeService badgeService;
     private final XpService xpService;
+    private final ConsentGuard consentGuard;
 
     /**
      * Text-only path (backward-compatible).
@@ -50,6 +52,10 @@ public class SolvePhotoQuestionsUseCase {
         Avatar avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
+
+        // PDPA/PDPC: a child's homework image/text must not reach a third-party AI
+        // processor without AI-data-transfer consent + (under-13) a linked guardian.
+        consentGuard.requireAiAllowed(userId);
 
         List<WikiPage> wikiPages = wikiRepository.findByAvatarId(avatarId);
 

@@ -1,5 +1,6 @@
 package com.pally.api.knowledge;
 
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.KnowledgeService;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.dto.KnowledgeFileResponse;
@@ -49,6 +50,7 @@ public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
     private final WikiPageResponseMapper wikiPageResponseMapper;
+    private final ConsentGuard consentGuard;
 
     @PostMapping("/files")
     public ResponseEntity<ApiResponse<Object>> uploadFile(
@@ -124,6 +126,7 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI wiki compilation
         KnowledgeService.CompileOutcome outcome = knowledgeService.compileWiki(userId, avatarId);
         if (outcome.async()) {
             return ResponseEntity.status(HttpStatus.ACCEPTED)
@@ -146,6 +149,7 @@ public class KnowledgeController {
             @AuthenticationPrincipal String userId,
             @PathVariable String avatarId
     ) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI wiki recompilation
         return ResponseEntity.accepted()
                 .body(ApiResponse.success(knowledgeService.recompileWiki(userId, avatarId)));
     }

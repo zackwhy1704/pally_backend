@@ -1,5 +1,6 @@
 package com.pally.api.knowledge;
 
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.knowledge.dto.WikiCompileResponse;
 import com.pally.domain.knowledge.KnowledgeService;
 import com.pally.domain.knowledge.usecase.UploadResult;
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.when;
 class KnowledgeControllerTest {
 
     @Mock private KnowledgeService knowledgeService;
+    @Mock private ConsentGuard consentGuard;
 
     @InjectMocks
     private KnowledgeController controller;

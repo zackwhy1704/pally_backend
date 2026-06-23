@@ -150,4 +150,18 @@ public class ConsentGuard {
             throw new GuardianRequiredException(REASON_PARENT_LINK_REQUIRED);
         }
     }
+
+    /**
+     * Single entry point that every AI-producing path (chat, upload, photo-question,
+     * wiki compile, modules, quiz/flashcard generation, teach-Mochi) MUST call before
+     * sending a user's personal data to a third-party AI processor. Combines the
+     * AI-data-transfer disclosure gate with the under-13 guardian gate so a caller
+     * can never enforce one but forget the other — new AI endpoints should call this.
+     *
+     * @param userId the authenticated user
+     */
+    public void requireAiAllowed(String userId) {
+        requireAiConsent(userId);
+        requireGuardianIfUnder13(userId);
+    }
 }

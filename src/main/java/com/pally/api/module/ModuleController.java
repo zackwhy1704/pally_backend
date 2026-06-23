@@ -2,6 +2,7 @@ package com.pally.api.module;
 
 import com.pally.api.module.dto.SubmitModuleAnswersRequest;
 import com.pally.domain.assignment.AssignmentService;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.module.ModuleService;
 import com.pally.domain.module.NarrationService;
 import com.pally.domain.module.LearningModule;
@@ -38,6 +39,7 @@ public class ModuleController {
     private final ModuleService moduleService;
     private final NarrationService narrationService;
     private final AssignmentService assignmentService;
+    private final ConsentGuard consentGuard;
 
     /**
      * Generate modules for all wiki pages. Idempotent — skips existing slugs.
@@ -48,6 +50,7 @@ public class ModuleController {
             @PathVariable String avatarId
     ) {
         log.info("[Module] Generate modules request user={} avatar={}", userId, avatarId);
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI module generation
         List<LearningModule> created = moduleService.generateModules(avatarId);
 
         List<Map<String, Object>> response = created.stream()
@@ -97,6 +100,7 @@ public class ModuleController {
             @PathVariable String avatarId,
             @PathVariable String moduleId
     ) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate adaptive AI item generation
         Map<String, Object> result = moduleService.startModule(moduleId, userId);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
@@ -112,6 +116,7 @@ public class ModuleController {
             @PathVariable String moduleId,
             @Valid @RequestBody SubmitModuleAnswersRequest request
     ) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI answer evaluation
         int durationSeconds = DurationClamp.clamp(request.durationSeconds());
         Map<String, Object> result = moduleService.submitAnswers(
                 moduleId, userId, request.submissions(), durationSeconds);
@@ -153,6 +158,7 @@ public class ModuleController {
             @PathVariable String moduleId,
             @RequestBody(required = false) Map<String, String> body
     ) {
+        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI narration generation
         String voiceId = (body != null) ? body.getOrDefault("voiceId", "default") : "default";
         log.info("[Narration] Generate request user={} module={} voice={}", userId, moduleId, voiceId);
 

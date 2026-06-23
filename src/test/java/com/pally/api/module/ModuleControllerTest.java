@@ -1,5 +1,6 @@
 package com.pally.api.module;
 
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.module.LearningModule;
 import com.pally.domain.module.ModuleService;
 import com.pally.shared.exception.BusinessException;
@@ -22,6 +23,7 @@ import static org.mockito.Mockito.*;
 class ModuleControllerTest {
 
     @Mock private ModuleService moduleService;
+    @Mock private ConsentGuard consentGuard;
     @InjectMocks private ModuleController controller;
 
     @Test
