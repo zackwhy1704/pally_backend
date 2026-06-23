@@ -80,6 +80,10 @@ app:
   min-version:
     ios: ${MIN_APP_VERSION_IOS:1.0.0}
     android: ${MIN_APP_VERSION_ANDROID:1.0.0}
+  revenuecat:
+    # Shared secret for the RevenueCat webhook — set this to the exact value you
+    # enter in RevenueCat's Authorization-header field. Blank = endpoint rejects all.
+    auth-secret: ${REVENUECAT_WEBHOOK_SECRET:}
   review:
     # 0–100 quality-score floor below which an INFERRED page is surfaced to the
     # client as LOW_CONFIDENCE. 60 ≈ bottom quartile of the verifier's heuristic

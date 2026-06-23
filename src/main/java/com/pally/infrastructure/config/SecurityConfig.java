@@ -63,7 +63,10 @@ public class SecurityConfig {
                     // Lead-capture for demo requests — no auth required.
                     "/api/v1/demo-request",
                     // Forced-update gate — the app checks this on launch, before login.
-                    "/api/v1/app/min-version"
+                    "/api/v1/app/min-version",
+                    // RevenueCat IAP webhook — server-to-server; auth'd by a shared
+                    // Authorization secret inside the handler, not a user JWT.
+                    "/api/v1/subscription/revenuecat-webhook"
                 ).permitAll()
                 // Admin endpoints — must be checked BEFORE the catch-all
                 // authenticated() so /admin/** with a USER token returns 403,
