@@ -102,7 +102,7 @@ class ChatControllerTest {
         chatController.submitFeedback(USER_ID, AVATAR_ID, "msg-1",
                 new com.pally.api.chat.dto.FeedbackRequest("THUMBS_UP"));
 
-        verify(chatOrchestrationService).submitFeedback("msg-1", "THUMBS_UP");
+        verify(chatOrchestrationService).submitFeedback("msg-1", "THUMBS_UP", USER_ID);
     }
 
     // ── POST /chat/session-end ────────────────────────────────────────────

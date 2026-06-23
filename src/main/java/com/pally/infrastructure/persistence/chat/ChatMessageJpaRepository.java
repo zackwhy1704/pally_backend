@@ -13,6 +13,10 @@ public interface ChatMessageJpaRepository extends JpaRepository<ChatMessageJpaEn
 
     List<ChatMessageJpaEntity> findByAvatarIdOrderByCreatedAtDescRoleAsc(String avatarId, Pageable pageable);
 
+    /// Ownership check for the feedback IDOR guard: true only when this message
+    /// belongs to the given user.
+    boolean existsByIdAndUserId(String id, String userId);
+
     List<ChatMessageJpaEntity> findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAscRoleDesc(
             String avatarId, Instant since);
 

@@ -76,8 +76,8 @@ public class ChatOrchestrationService {
     }
 
     /** Records user feedback on a specific message. */
-    public void submitFeedback(String messageId, String feedbackType) {
-        chatFeedbackService.submitFeedback(messageId, feedbackType);
+    public void submitFeedback(String messageId, String feedbackType, String userId) {
+        chatFeedbackService.submitFeedback(messageId, feedbackType, userId);
     }
 
     /** Starts the AI-cache keepalive when the user opens the chat screen. */

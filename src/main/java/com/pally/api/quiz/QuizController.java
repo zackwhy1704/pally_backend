@@ -64,11 +64,12 @@ public class QuizController {
 
     @PostMapping("/flashcards/{cardId}/rate")
     public ResponseEntity<ApiResponse<FlashcardResponse>> rateFlashcard(
+            @AuthenticationPrincipal String userId,
             @PathVariable String avatarId,
             @PathVariable String cardId,
             @Valid @RequestBody RateFlashcardRequest request) {
         return ResponseEntity.ok(
-                ApiResponse.success(quizService.rateFlashcard(avatarId, cardId, request)));
+                ApiResponse.success(quizService.rateFlashcard(userId, avatarId, cardId, request)));
     }
 
     @GetMapping("/quiz/error-patterns")

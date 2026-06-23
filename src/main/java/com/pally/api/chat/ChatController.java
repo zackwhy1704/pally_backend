@@ -218,7 +218,7 @@ public class ChatController {
             @PathVariable String messageId,
             @RequestBody FeedbackRequest request
     ) {
-        chatOrchestrationService.submitFeedback(messageId, request.feedbackType());
+        chatOrchestrationService.submitFeedback(messageId, request.feedbackType(), userId);
     }
 
     @PostMapping("/chat/session-start")

@@ -62,6 +62,12 @@ public class ChatRepositoryAdapter implements ChatRepository {
 
     @Override
     @Transactional(readOnly = true)
+    public boolean existsByIdAndUserId(String messageId, String userId) {
+        return jpaRepository.existsByIdAndUserId(messageId, userId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<ChatMessage> findByAvatarIdSince(String avatarId, Instant since) {
         return jpaRepository
                 .findByAvatarIdAndCreatedAtAfterOrderByCreatedAtAscRoleDesc(avatarId, since)

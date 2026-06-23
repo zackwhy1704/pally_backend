@@ -128,9 +128,9 @@ class ChatOrchestrationServiceTest {
 
     @Test
     void submitFeedback_delegatesToChatFeedbackService() {
-        service.submitFeedback("msg-1", "THUMBS_UP");
+        service.submitFeedback("msg-1", "THUMBS_UP", "user-1");
 
-        verify(chatFeedbackService).submitFeedback("msg-1", "THUMBS_UP");
+        verify(chatFeedbackService).submitFeedback("msg-1", "THUMBS_UP", "user-1");
     }
 
     // ── sessionStart ──────────────────────────────────────────────────────

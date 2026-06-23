@@ -98,8 +98,9 @@ public class QuizService {
         return Map.of("generated", totalGenerated, "hasWikiPages", hasWikiPages);
     }
 
-    public FlashcardResponse rateFlashcard(String avatarId, String cardId, RateFlashcardRequest request) {
-        FlashCard updated = rateFlashcardUseCase.execute(cardId, request.rating());
+    public FlashcardResponse rateFlashcard(
+            String userId, String avatarId, String cardId, RateFlashcardRequest request) {
+        FlashCard updated = rateFlashcardUseCase.execute(cardId, request.rating(), userId);
         return FlashcardResponse.from(updated);
     }
 

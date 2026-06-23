@@ -27,6 +27,10 @@ public interface ChatRepository {
 
     boolean existsById(String messageId);
 
+    /// Ownership check: true only when the message belongs to the given user.
+    /// Used to block cross-user feedback (IDOR) on /chat/{messageId}/feedback.
+    boolean existsByIdAndUserId(String messageId, String userId);
+
     /**
      * Returns messages for an avatar created after {@code since}, oldest-first.
      */

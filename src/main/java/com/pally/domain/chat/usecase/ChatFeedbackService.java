@@ -20,13 +20,15 @@ public class ChatFeedbackService {
     private final ChatRepository chatRepo;
 
     @Transactional
-    public void submitFeedback(String messageId, String feedbackType) {
+    public void submitFeedback(String messageId, String feedbackType, String userId) {
         String upper = feedbackType != null ? feedbackType.toUpperCase() : "";
         if (!VALID_TYPES.contains(upper)) {
             throw new BusinessException("Invalid feedback type: " + feedbackType, 400);
         }
 
-        if (!chatRepo.existsById(messageId)) {
+        // IDOR guard: only the message's owner may rate/save it. 404 (not 403) so
+        // another user's message existence isn't revealed.
+        if (!chatRepo.existsByIdAndUserId(messageId, userId)) {
             throw new BusinessException("Message not found: " + messageId, 404);
         }
 
