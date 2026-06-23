@@ -128,11 +128,40 @@ class CompileWikiOrphanPruneTest {
         assertThat(result.pagesUpdated()).isZero();
     }
 
+    @Test
+    void execute_readyFileWithEmptyExtractedText_skipsCompileAndSpendsNoTokens() {
+        String avatarId = "avatar-empty-source";
+        Avatar avatar = Avatar.reconstitute(avatarId, "user-1", "Glow",
+                Subject.SCIENCE, CharacterType.MOCHI, 1, Instant.now());
+
+        when(avatarRepository.findById(avatarId)).thenReturn(Optional.of(avatar));
+        // A READY file whose extracted text is empty — e.g. a scanned/image-only
+        // PDF, or a stale record from before the upload empty-text guard existed.
+        KnowledgeFile emptyFile = KnowledgeFile.create(avatarId, "user-1",
+                "scanned.pdf", "key/scanned.pdf", KnowledgeFile.UploadType.PDF);
+        emptyFile.markReady(1); // extractedText stays null → 0 chars
+        when(knowledgeRepository.findByAvatarId(avatarId)).thenReturn(List.of(emptyFile));
+        when(wikiRepository.countActiveByAvatarId(avatarId)).thenReturn(0);
+        when(wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId)).thenReturn(List.of());
+
+        CompileWikiUseCase.CompileResult result = useCase.execute(avatarId);
+
+        // The compiler must NOT be invoked — no Gemini/Haiku tokens spent on a
+        // file that can only ever yield 0 pages.
+        verify(wikiCompiler, never()).compileWithTier(any(), any(), any());
+        assertThat(result.pagesCreated()).isZero();
+        assertThat(result.pagesUpdated()).isZero();
+        assertThat(result.tierServed()).isEqualTo("skipped-empty-source");
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────────
 
     private KnowledgeFile makeReadyFile(String avatarId, String fileName) {
         KnowledgeFile kf = KnowledgeFile.create(avatarId, "user-1", fileName,
                 "key/" + fileName, KnowledgeFile.UploadType.PDF);
+        // Non-empty extracted text so the compile path runs (the zero-source
+        // guard only short-circuits when every new file has 0 chars).
+        kf.setExtractedText("Photosynthesis converts light into chemical energy.");
         kf.markReady(1);
         return kf;
     }

@@ -183,6 +183,20 @@ public class CompileWikiUseCase {
                 avatarId, newFiles.size(), skippedCount, totalChars,
                 newFiles.stream().map(KnowledgeFile::getFileName).toList());
 
+        // Zero-source guard: if every new file has empty extracted text (e.g. a
+        // stale image-only PDF uploaded before the empty-text guard existed, or
+        // a scanned PDF with no text layer), the compiler can only ever return 0
+        // pages. Skip the Gemini→Gemini→Haiku round-trip so a recompile — in
+        // particular the startup reconciler — doesn't burn AI budget on every
+        // deploy. The file stays READY; re-uploading replaces the empty text.
+        if (totalChars == 0) {
+            log.warn("[Pipeline:Compile] SKIP avatarId={} — {} new file(s) have 0 chars of "
+                    + "extracted text; nothing to compile (likely a scanned/image-only PDF "
+                    + "with no text layer). Re-upload as text or a clear photo.",
+                    avatarId, newFiles.size());
+            return new CompileResult(0, 0, List.of(), "skipped-empty-source", 0, 0);
+        }
+
         List<WikiPage> existingWikiPages = wikiRepository.findByAvatarId(avatarId);
 
         WikiCompilerPort.CompileOutput compileOutput;
