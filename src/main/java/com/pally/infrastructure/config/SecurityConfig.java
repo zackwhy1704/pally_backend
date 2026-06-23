@@ -61,7 +61,9 @@ public class SecurityConfig {
                     // display the centre name before the user logs in.
                     "/api/v1/auth/invite/**",
                     // Lead-capture for demo requests — no auth required.
-                    "/api/v1/demo-request"
+                    "/api/v1/demo-request",
+                    // Forced-update gate — the app checks this on launch, before login.
+                    "/api/v1/app/min-version"
                 ).permitAll()
                 // Admin endpoints — must be checked BEFORE the catch-all
                 // authenticated() so /admin/** with a USER token returns 403,

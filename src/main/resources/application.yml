@@ -74,6 +74,12 @@ server:
 app:
   # Public web origin used to build tokenized review URLs sent to trusted adults.
   web-base-url: ${WEB_BASE_URL:https://apalchi.com}
+  # Forced-update gate: the lowest client version the backend still supports. The
+  # mobile app fetches these on launch and blocks below them. Defaults to 1.0.0
+  # (no-op) — raise via env when a breaking backend change ships.
+  min-version:
+    ios: ${MIN_APP_VERSION_IOS:1.0.0}
+    android: ${MIN_APP_VERSION_ANDROID:1.0.0}
   review:
     # 0–100 quality-score floor below which an INFERRED page is surfaced to the
     # client as LOW_CONFIDENCE. 60 ≈ bottom quartile of the verifier's heuristic
