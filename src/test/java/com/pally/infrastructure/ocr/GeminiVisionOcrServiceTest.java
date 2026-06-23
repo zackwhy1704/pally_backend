@@ -53,4 +53,28 @@ class GeminiVisionOcrServiceTest {
         ReflectionTestUtils.setField(service, "apiKey", "test-key-123");
         assertThat(service.isAvailable()).isTrue();
     }
+
+    @Test
+    void visionModel_isCurrentMultimodalFlash_notRetired15() {
+        // The smoke probe and the live OCR path must target the same model, and
+        // it must not be a retired gemini-1.5-* model (those 404).
+        assertThat(service.visionModel()).isEqualTo("gemini-2.5-flash");
+        assertThat(service.visionModel()).doesNotContain("1.5");
+    }
+
+    @Test
+    void probe_noApiKey_returnsNotConfiguredWithoutNetworkCall() {
+        ReflectionTestUtils.setField(service, "apiKey", "");
+        GeminiVisionOcrService.ProbeResult r = service.probe("gemini-2.5-flash", null);
+        assertThat(r.ok()).isFalse();
+        assertThat(r.statusCode()).isZero();
+        assertThat(r.bodySnippet()).contains("no api key");
+    }
+
+    @Test
+    void probe_classifiesKindFromImagePresence() {
+        ReflectionTestUtils.setField(service, "apiKey", "");
+        assertThat(service.probe("m", null).kind()).isEqualTo("text");
+        assertThat(service.probe("m", new byte[]{1, 2, 3}).kind()).isEqualTo("vision");
+    }
 }

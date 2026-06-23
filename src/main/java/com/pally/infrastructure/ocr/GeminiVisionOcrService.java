@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,13 @@ public class GeminiVisionOcrService implements OcrPort {
             Output ONLY the extracted text — no commentary.
             If no readable text, output exactly: (no text found)
             """;
+
+    /**
+     * The vision model used for OCR. gemini-1.5-* was retired by Google (404s);
+     * this is the current multimodal flash. Kept as a constant so the live
+     * smoke probe ({@link #probe}) tests the exact model production uses.
+     */
+    static final String VISION_MODEL = "gemini-2.5-flash";
 
     @Value("${gemini.api.key:}")
     private String apiKey;
@@ -78,9 +86,8 @@ public class GeminiVisionOcrService implements OcrPort {
                     )
             );
 
-            // gemini-1.5-* was retired by Google (404s) — use the current multimodal flash.
             String url = baseUrl
-                    + "/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+                    + "/v1beta/models/" + VISION_MODEL + ":generateContent?key=" + apiKey;
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -133,6 +140,76 @@ public class GeminiVisionOcrService implements OcrPort {
      */
     public boolean isAvailable() {
         return apiKey != null && !apiKey.isBlank();
+    }
+
+    /** The vision/OCR model this service calls. */
+    public String visionModel() {
+        return VISION_MODEL;
+    }
+
+    /**
+     * Result of a live {@link #probe}: the raw HTTP status from the Gemini API.
+     *
+     * @param model       the model id that was probed
+     * @param kind        "text" or "vision"
+     * @param statusCode  HTTP status (200 = model resolves and answered; 404 =
+     *                    model not found/retired for this key; -1 = transport error)
+     * @param ok          true iff statusCode == 200
+     * @param elapsedMs   round-trip time
+     * @param bodySnippet first 300 chars of the response/error body
+     */
+    public record ProbeResult(String model, String kind, int statusCode,
+                              boolean ok, long elapsedMs, String bodySnippet) {}
+
+    /**
+     * Live diagnostic: sends a minimal request to {@code model} using the real
+     * configured API key and returns the raw HTTP status — without swallowing
+     * errors the way {@link #extractText} does. Used by the admin smoke endpoint
+     * to prove, against the production key, whether a model resolves (200) or is
+     * retired/unavailable (404) for both the text and vision/OCR code paths.
+     *
+     * @param model      the model id to probe (e.g. {@value #VISION_MODEL})
+     * @param imageBytes when non-null, sent as inline image data (exercises the
+     *                   exact multimodal OCR path); when null, a text-only ping
+     */
+    public ProbeResult probe(String model, byte[] imageBytes) {
+        String kind = (imageBytes != null && imageBytes.length > 0) ? "vision" : "text";
+        if (apiKey == null || apiKey.isBlank()) {
+            return new ProbeResult(model, kind, 0, false, 0, "no api key configured");
+        }
+        try {
+            List<Object> parts = new ArrayList<>();
+            if ("vision".equals(kind)) {
+                parts.add(Map.of("inline_data", Map.of(
+                        "mime_type", "image/png",
+                        "data", Base64.getEncoder().encodeToString(imageBytes))));
+                parts.add(Map.of("text", EXTRACTION_PROMPT));
+            } else {
+                parts.add(Map.of("text", "ping"));
+            }
+            Map<String, Object> body = Map.of(
+                    "contents", List.of(Map.of("parts", parts)),
+                    "generationConfig", Map.of("maxOutputTokens", 16, "temperature", 0));
+
+            String url = baseUrl + "/v1beta/models/" + model + ":generateContent?key=" + apiKey;
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                    .build();
+
+            long start = System.currentTimeMillis();
+            HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+            long elapsed = System.currentTimeMillis() - start;
+            log.info("[GeminiProbe] model={} kind={} status={} ({}ms)",
+                    model, kind, res.statusCode(), elapsed);
+            return new ProbeResult(model, kind, res.statusCode(),
+                    res.statusCode() == 200, elapsed, truncate(res.body(), 300));
+        } catch (Exception e) {
+            log.warn("[GeminiProbe] model={} kind={} transport error: {}", model, kind, e.toString());
+            return new ProbeResult(model, kind, -1, false, 0,
+                    e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     private String normaliseMime(String mimeType) {
