@@ -10,10 +10,11 @@ import java.util.Map;
 public interface ContentReviewPort {
 
     /**
-     * Returns all content items with status {@code DRAFT}.
+     * Returns all DRAFT content items that belong to the given class (scoped via
+     * each item's module.classId), so one centre can never see another's drafts.
      * Each map contains: id, moduleId, stage, type, contentJson, answerJson, sortOrder, status.
      */
-    List<Map<String, Object>> findAllDraftItems();
+    List<Map<String, Object>> findDraftItemsByClass(String classId);
 
     /**
      * Finds a single content item by id. Returns null if not found.
@@ -22,6 +23,8 @@ public interface ContentReviewPort {
 
     /**
      * Updates status (and optionally contentJson/answerJson) on a content item.
+     * The item MUST belong to {@code command.classId()} (verified via its module);
+     * a mismatch throws so a caller can't edit another centre's content by id.
      * If the new status is REJECTED, the item is deleted and null is returned.
      *
      * @param command the mutation to apply
@@ -30,11 +33,11 @@ public interface ContentReviewPort {
     ContentItemView updateItem(UpdateItemCommand command);
 
     /**
-     * Sets all DRAFT items to LIVE (bulk approve).
+     * Sets all DRAFT items belonging to the given class to LIVE (bulk approve).
      *
      * @return the number of items approved
      */
-    int approveAllDrafts();
+    int approveAllDraftsByClass(String classId);
 
     // ── Value objects ────────────────────────────────────────────────────────
 
@@ -49,6 +52,7 @@ public interface ContentReviewPort {
             String status) {}
 
     record UpdateItemCommand(
+            String classId,
             String itemId,
             String newStatus,
             String contentJson,

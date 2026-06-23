@@ -4,6 +4,7 @@ import com.pally.domain.module.ModuleService;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -45,7 +46,7 @@ class ContentReviewServiceTest {
         when(orgClassRepository.findOrganizationIdByClassId(CLASS_ID))
                 .thenReturn(Optional.of(ORG_ID));
         List<Map<String, Object>> drafts = List.of(Map.of("id", ITEM_ID, "status", "DRAFT"));
-        when(reviewPort.findAllDraftItems()).thenReturn(drafts);
+        when(reviewPort.findDraftItemsByClass(CLASS_ID)).thenReturn(drafts);
 
         List<Map<String, Object>> result = service.listDraftContent(USER, ORG_ID, CLASS_ID);
 
@@ -62,7 +63,7 @@ class ContentReviewServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 403);
 
-        verify(reviewPort, never()).findAllDraftItems();
+        verify(reviewPort, never()).findDraftItemsByClass(CLASS_ID);
     }
 
     @Test
@@ -74,7 +75,7 @@ class ContentReviewServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 404);
 
-        verify(reviewPort, never()).findAllDraftItems();
+        verify(reviewPort, never()).findDraftItemsByClass(CLASS_ID);
     }
 
     // ── updateContentItem ────────────────────────────────────────────────────
@@ -92,6 +93,25 @@ class ContentReviewServiceTest {
 
         assertThat(result.get("status")).isEqualTo("APPROVED");
         assertThat(result.get("itemId")).isEqualTo(ITEM_ID);
+    }
+
+    @Test
+    void updateContentItem_passesClassIdIntoCommand_soAdapterCanScope() {
+        // Cross-tenant defence: the service must hand the verified classId to the
+        // port so the adapter can reject items belonging to another class.
+        when(orgClassRepository.findOrganizationIdByClassId(CLASS_ID))
+                .thenReturn(Optional.of(ORG_ID));
+        ContentReviewPort.ContentItemView view = new ContentReviewPort.ContentItemView(
+                ITEM_ID, "mod-1", "LEARN", "FLASHCARD", "{}", null, 0, "APPROVED");
+        when(reviewPort.updateItem(any())).thenReturn(view);
+
+        service.updateContentItem(USER, ORG_ID, CLASS_ID, ITEM_ID, Map.of("status", "APPROVED"));
+
+        ArgumentCaptor<ContentReviewPort.UpdateItemCommand> captor =
+                ArgumentCaptor.forClass(ContentReviewPort.UpdateItemCommand.class);
+        verify(reviewPort).updateItem(captor.capture());
+        assertThat(captor.getValue().classId()).isEqualTo(CLASS_ID);
+        assertThat(captor.getValue().itemId()).isEqualTo(ITEM_ID);
     }
 
     @Test
@@ -125,7 +145,7 @@ class ContentReviewServiceTest {
     void approveAll_happyPath_returnsApprovedCount() {
         when(orgClassRepository.findOrganizationIdByClassId(CLASS_ID))
                 .thenReturn(Optional.of(ORG_ID));
-        when(reviewPort.approveAllDrafts()).thenReturn(5);
+        when(reviewPort.approveAllDraftsByClass(CLASS_ID)).thenReturn(5);
 
         Map<String, Object> result = service.approveAll(USER, ORG_ID, CLASS_ID);
 

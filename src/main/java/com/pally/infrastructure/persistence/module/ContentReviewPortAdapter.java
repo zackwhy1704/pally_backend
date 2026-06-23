@@ -23,8 +23,10 @@ public class ContentReviewPortAdapter implements ContentReviewPort {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> findAllDraftItems() {
-        return jpa.findAll().stream()
+    public List<Map<String, Object>> findDraftItemsByClass(String classId) {
+        // Scope to the class's own modules — never the whole table.
+        return moduleJpa.findByClassId(classId).stream()
+                .flatMap(m -> jpa.findByModuleIdOrderBySortOrder(m.getId()).stream())
                 .filter(e -> "DRAFT".equals(e.getStatus()))
                 .map(this::toView)
                 .toList();
@@ -43,6 +45,14 @@ public class ContentReviewPortAdapter implements ContentReviewPort {
     public ContentItemView updateItem(UpdateItemCommand command) {
         ModuleContentItemJpaEntity item = jpa.findById(command.itemId())
                 .orElseThrow(() -> new BusinessException("Content item not found", 404));
+
+        // Cross-tenant guard: the item's module must belong to the caller's class.
+        // 404 (not 403) so we don't reveal that another centre's item exists.
+        LearningModuleJpaEntity module = moduleJpa.findById(item.getModuleId())
+                .orElseThrow(() -> new BusinessException("Content item not found", 404));
+        if (!command.classId().equals(module.getClassId())) {
+            throw new BusinessException("Content item not found", 404);
+        }
 
         if (command.newStatus() != null) {
             if ("REJECTED".equals(command.newStatus())) {
@@ -65,8 +75,10 @@ public class ContentReviewPortAdapter implements ContentReviewPort {
 
     @Override
     @Transactional
-    public int approveAllDrafts() {
-        List<ModuleContentItemJpaEntity> drafts = jpa.findAll().stream()
+    public int approveAllDraftsByClass(String classId) {
+        // Scope to the class's own modules — never the whole table.
+        List<ModuleContentItemJpaEntity> drafts = moduleJpa.findByClassId(classId).stream()
+                .flatMap(m -> jpa.findByModuleIdOrderBySortOrder(m.getId()).stream())
                 .filter(e -> "DRAFT".equals(e.getStatus()))
                 .toList();
         for (ModuleContentItemJpaEntity item : drafts) {

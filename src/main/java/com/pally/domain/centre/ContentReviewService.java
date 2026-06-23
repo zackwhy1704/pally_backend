@@ -49,7 +49,7 @@ public class ContentReviewService {
     public List<Map<String, Object>> listDraftContent(
             String userId, String orgId, String classId) {
         assertAccess(userId, orgId, classId);
-        return reviewPort.findAllDraftItems();
+        return reviewPort.findDraftItemsByClass(classId);
     }
 
     // ── Update content item ──────────────────────────────────────────────────
@@ -74,7 +74,7 @@ public class ContentReviewService {
                 ? body.get("answerJson").toString() : null;
 
         var command = new ContentReviewPort.UpdateItemCommand(
-                itemId, newStatus, contentJson, answerJson);
+                classId, itemId, newStatus, contentJson, answerJson);
         ContentReviewPort.ContentItemView updated = reviewPort.updateItem(command);
 
         if (updated == null) {
@@ -89,7 +89,7 @@ public class ContentReviewService {
     @Transactional
     public Map<String, Object> approveAll(String userId, String orgId, String classId) {
         assertAccess(userId, orgId, classId);
-        int approved = reviewPort.approveAllDrafts();
+        int approved = reviewPort.approveAllDraftsByClass(classId);
         log.info("[Content] Bulk approved {} items for class={}", approved, classId);
         return Map.of("approvedCount", approved);
     }
