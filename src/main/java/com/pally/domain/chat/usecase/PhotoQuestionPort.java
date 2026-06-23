@@ -23,10 +23,13 @@ public interface PhotoQuestionPort {
      * @param questions   OCR-extracted question text (always provided as fallback)
      * @param imageBytes  raw image bytes (nullable — null means text-only)
      * @param mimeType    image MIME type (nullable — ignored when imageBytes is null)
+     * @param isCentreSourced when true, the model MUST stay on Haiku (centre cost guard),
+     *                        regardless of visual difficulty or CLAUDE_VISION_* overrides
      */
     default List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages,
                                                     List<String> questions,
-                                                    byte[] imageBytes, String mimeType) {
+                                                    byte[] imageBytes, String mimeType,
+                                                    boolean isCentreSourced) {
         // Default: ignore image, use text-only path for backward compatibility
         return solveQuestions(avatar, wikiPages, questions);
     }

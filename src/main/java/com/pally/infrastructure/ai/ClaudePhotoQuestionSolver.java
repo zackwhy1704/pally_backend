@@ -62,19 +62,20 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
     @Override
     public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages,
                                                    List<String> questions) {
-        return solveQuestions(avatar, wikiPages, questions, null, null);
+        return solveQuestions(avatar, wikiPages, questions, null, null, false);
     }
 
     @Override
     public List<QuestionAnswerDto> solveQuestions(Avatar avatar, List<WikiPage> wikiPages,
                                                    List<String> questions,
-                                                   byte[] imageBytes, String mimeType) {
+                                                   byte[] imageBytes, String mimeType,
+                                                   boolean isCentreSourced) {
         String wikiContext = buildWikiContext(wikiPages);
 
         // Step 1 — quick visual classification (Haiku, cheap)
         List<VisualClassification> classifications = classifyVisual(questions, avatar);
 
-        // Step 2 — route to the appropriate model tier
+        // Step 2 — route to the appropriate model tier (centre-sourced → always Haiku)
         boolean anyVisual = classifications.stream()
                 .anyMatch(c -> !VT_NONE.equals(c.visualType));
         boolean hardVisual = classifications.stream()
@@ -85,13 +86,13 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
         String model;
         String tier;
         if (hardVisual) {
-            model = modelRouter.forPhotoQuestionMax();
+            model = modelRouter.forPhotoQuestionMax(isCentreSourced);
             tier = "max";
         } else if (anyVisual) {
-            model = modelRouter.forPhotoQuestionHeavy();
+            model = modelRouter.forPhotoQuestionHeavy(isCentreSourced);
             tier = "heavy";
         } else {
-            model = modelRouter.forPhotoQuestion();
+            model = modelRouter.forPhotoQuestion(isCentreSourced);
             tier = "standard";
         }
         if (!tier.equals("standard")) {

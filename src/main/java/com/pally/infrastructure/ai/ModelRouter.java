@@ -101,6 +101,30 @@ public class ModelRouter {
     /** GRAPH, GEOMETRY, LOW-confidence visual. */
     public String forPhotoQuestionMax()   { return visionModel(visionMax); }
 
+    // Centre-sourced guard (mirrors forChat): a centre student must always get
+    // Haiku on the vision path too, regardless of tier or CLAUDE_VISION_* overrides.
+
+    /** Standard vision, centre-guarded. */
+    public String forPhotoQuestion(boolean isCentreSourced) {
+        return centreGuardedVision(isCentreSourced, forPhotoQuestion(), "standard");
+    }
+    /** Heavy vision, centre-guarded. */
+    public String forPhotoQuestionHeavy(boolean isCentreSourced) {
+        return centreGuardedVision(isCentreSourced, forPhotoQuestionHeavy(), "heavy");
+    }
+    /** Max vision, centre-guarded. */
+    public String forPhotoQuestionMax(boolean isCentreSourced) {
+        return centreGuardedVision(isCentreSourced, forPhotoQuestionMax(), "max");
+    }
+
+    private String centreGuardedVision(boolean isCentreSourced, String tierModel, String tierLabel) {
+        if (isCentreSourced && !haiku.equals(tierModel)) {
+            log.info("[ModelRouter] Centre guard: forcing Haiku for {} vision (would have been {})",
+                    tierLabel, tierModel);
+        }
+        return isCentreSourced ? haiku : tierModel;
+    }
+
     // ── Accessors ────────────────────────────────────────────────────────
 
     public String getHaikuModel()  { return haiku; }

@@ -203,7 +203,11 @@ claude:
     key: ${CLAUDE_API_KEY:}
     base-url: https://api.anthropic.com
     model: claude-haiku-4-5-20251001
-    # sonnet-model removed — all calls use Haiku (claude.api.model)
+    # Model routing (see ModelRouter): Haiku is the default for everything.
+    # Sonnet (claude.model.sonnet) is used ONLY for Max/Family complex chat.
+    # Centre-sourced students are always forced to Haiku (chat AND vision).
+    # Vision (photo questions) defaults to Haiku; CLAUDE_VISION_STANDARD/_HEAVY/_MAX
+    # can override per visual difficulty, but those overrides are centre-guarded too.
     relevance-max-tokens: 128
     chat-max-tokens: 1024
     version: "2023-06-01"

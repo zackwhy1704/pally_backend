@@ -10,6 +10,7 @@ import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.domain.progress.XpService;
+import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.user.UserRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ public class SolvePhotoQuestionsUseCase {
     private final BadgeService badgeService;
     private final XpService xpService;
     private final ConsentGuard consentGuard;
+    private final PremiumService premiumService;
 
     /**
      * Text-only path (backward-compatible).
@@ -59,11 +61,20 @@ public class SolvePhotoQuestionsUseCase {
 
         List<WikiPage> wikiPages = wikiRepository.findByAvatarId(avatarId);
 
-        log.debug("Solving {} photo questions for avatarId={} hasImage={}",
-                questions.size(), avatarId, imageBytes != null);
+        // Centre cost guard: a centre-sourced student must stay on Haiku for vision
+        // too (mirrors the chat path). Defaults to non-centre on any resolution error.
+        boolean isCentreSourced;
+        try {
+            isCentreSourced = premiumService.resolveTierContext(userId).isCentreSourced();
+        } catch (Exception ignored) {
+            isCentreSourced = false;
+        }
+
+        log.debug("Solving {} photo questions for avatarId={} hasImage={} centre={}",
+                questions.size(), avatarId, imageBytes != null, isCentreSourced);
 
         List<QuestionAnswerDto> answers = photoQuestionPort.solveQuestions(
-                avatar, wikiPages, questions, imageBytes, mimeType
+                avatar, wikiPages, questions, imageBytes, mimeType, isCentreSourced
         );
 
         int baseXp = questions.size() * XP_PER_QUESTION;

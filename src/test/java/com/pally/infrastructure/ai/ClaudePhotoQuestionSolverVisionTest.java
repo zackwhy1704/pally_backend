@@ -44,9 +44,9 @@ class ClaudePhotoQuestionSolverVisionTest {
         testAvatar = Avatar.create("user-1", "MathBot", Subject.MATHS, CharacterType.MOCHI);
 
         // Default model routing
-        lenient().when(modelRouter.forPhotoQuestion()).thenReturn("claude-haiku-4.5");
-        lenient().when(modelRouter.forPhotoQuestionHeavy()).thenReturn("claude-haiku-4.5");
-        lenient().when(modelRouter.forPhotoQuestionMax()).thenReturn("claude-haiku-4.5");
+        lenient().when(modelRouter.forPhotoQuestion(anyBoolean())).thenReturn("claude-haiku-4.5");
+        lenient().when(modelRouter.forPhotoQuestionHeavy(anyBoolean())).thenReturn("claude-haiku-4.5");
+        lenient().when(modelRouter.forPhotoQuestionMax(anyBoolean())).thenReturn("claude-haiku-4.5");
         lenient().when(modelRouter.getHaikuModel()).thenReturn("claude-haiku-4.5");
         lenient().when(calculatorTool.name()).thenReturn("calculator");
     }
@@ -75,7 +75,7 @@ class ClaudePhotoQuestionSolverVisionTest {
                 .thenReturn(VALID_RESPONSE);
 
         List<QuestionAnswerDto> answers = solver.solveQuestions(
-                testAvatar, List.of(), List.of("2+2=?"), imageBytes, mimeType);
+                testAvatar, List.of(), List.of("2+2=?"), imageBytes, mimeType, false);
 
         assertThat(answers).hasSize(1);
         assertThat(answers.getFirst().answer()).isEqualTo("4");
@@ -96,7 +96,7 @@ class ClaudePhotoQuestionSolverVisionTest {
                 .thenReturn(VALID_RESPONSE);
 
         List<QuestionAnswerDto> answers = solver.solveQuestions(
-                testAvatar, List.of(), List.of("2+2=?"), null, null);
+                testAvatar, List.of(), List.of("2+2=?"), null, null, false);
 
         assertThat(answers).hasSize(1);
 
@@ -123,7 +123,7 @@ class ClaudePhotoQuestionSolverVisionTest {
                 .thenReturn(VALID_RESPONSE);
 
         List<QuestionAnswerDto> answers = solver.solveQuestions(
-                testAvatar, List.of(), List.of("2+2=?"), imageBytes, "image/jpeg");
+                testAvatar, List.of(), List.of("2+2=?"), imageBytes, "image/jpeg", false);
 
         assertThat(answers).hasSize(1);
         assertThat(answers.getFirst().answer()).isEqualTo("4");
