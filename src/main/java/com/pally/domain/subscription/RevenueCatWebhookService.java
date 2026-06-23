@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,15 +41,18 @@ public class RevenueCatWebhookService {
 
     private final SubscriptionRepository subscriptionRepo;
     private final PremiumService premiumService;
+    private final ProcessedRevenueCatEventRepository processedEventRepo;
     private final ObjectMapper objectMapper;
     private final String authSecret;
 
     public RevenueCatWebhookService(SubscriptionRepository subscriptionRepo,
                                     PremiumService premiumService,
+                                    ProcessedRevenueCatEventRepository processedEventRepo,
                                     ObjectMapper objectMapper,
                                     @Value("${app.revenuecat.auth-secret:}") String authSecret) {
         this.subscriptionRepo = subscriptionRepo;
         this.premiumService = premiumService;
+        this.processedEventRepo = processedEventRepo;
         this.objectMapper = objectMapper;
         this.authSecret = authSecret;
     }
@@ -78,21 +82,38 @@ public class RevenueCatWebhookService {
                 return result(false, type, "missing app_user_id");
             }
 
-            if (GRANT_TYPES.contains(type)) {
-                String plan = planFromEvent(event);
-                Instant periodEnd = event.hasNonNull("expiration_at_ms")
-                        ? Instant.ofEpochMilli(event.get("expiration_at_ms").asLong())
-                        : null;
-                grant(userId, plan, periodEnd);
-                premiumService.refreshFlag(userId);
-                log.info("[RevenueCat] {} → grant user={} plan={} until={}", type, userId, plan, periodEnd);
-            } else if (EXPIRE_TYPES.contains(type)) {
-                downgrade(userId);
-                premiumService.evictEntitlement(userId);
-                premiumService.refreshFlag(userId);
-                log.info("[RevenueCat] {} → downgrade user={}", type, userId);
+            // Idempotency: claim the RC event id before applying. A re-delivery
+            // (RevenueCat retries) collides on the PK → short-circuit and ack so
+            // the entitlement is never applied twice. Mirrors the Stripe path.
+            String eventId = event.path("id").asText(null);
+            boolean guarded = eventId != null && !eventId.isBlank();
+            if (guarded) {
+                boolean firstDelivery;
+                try {
+                    firstDelivery = processedEventRepo.claimEvent(eventId, type, Instant.now());
+                } catch (DataIntegrityViolationException dup) {
+                    firstDelivery = false;
+                }
+                if (!firstDelivery) {
+                    log.info("[RevenueCat] duplicate event={} type={} — skipping", eventId, type);
+                    return result(true, type, "duplicate");
+                }
             } else {
-                log.info("[RevenueCat] {} → no-op user={}", type, userId);
+                log.warn("[RevenueCat] event has no id — processing without idempotency guard (type={})", type);
+            }
+
+            try {
+                applyEvent(type, userId, event);
+            } catch (Exception applyErr) {
+                // Release the claim so RevenueCat's next retry can reprocess.
+                if (guarded) {
+                    try { processedEventRepo.releaseEvent(eventId); }
+                    catch (Exception relErr) {
+                        log.warn("[RevenueCat] failed to release claim {}: {}", eventId, relErr.getMessage());
+                    }
+                }
+                log.error("[RevenueCat] handler failed type={}: {}", type, applyErr.getMessage());
+                return result(false, type, "handler-error");
             }
             return result(true, type, userId);
         } catch (Exception e) {
@@ -101,12 +122,37 @@ public class RevenueCatWebhookService {
         }
     }
 
-    /// Derives the plan from the product id (stores should encode the tier, e.g.
-    /// "apalchi_max_monthly"). Falls back to "pro".
+    /** Applies a (deduplicated) event to the user's subscription state. */
+    private void applyEvent(String type, String userId, JsonNode event) {
+        if (GRANT_TYPES.contains(type)) {
+            String plan = planFromEvent(event);
+            Instant periodEnd = event.hasNonNull("expiration_at_ms")
+                    ? Instant.ofEpochMilli(event.get("expiration_at_ms").asLong())
+                    : null;
+            grant(userId, plan, periodEnd);
+            premiumService.refreshFlag(userId);
+            log.info("[RevenueCat] {} → grant user={} plan={} until={}", type, userId, plan, periodEnd);
+        } else if (EXPIRE_TYPES.contains(type)) {
+            downgrade(userId);
+            premiumService.evictEntitlement(userId);
+            premiumService.refreshFlag(userId);
+            log.info("[RevenueCat] {} → downgrade user={}", type, userId);
+        } else {
+            log.info("[RevenueCat] {} → no-op user={}", type, userId);
+        }
+    }
+
+    /// Derives the plan from the product id (stores encode the tier, e.g.
+    /// "apalchi_max_monthly"). An UNRECOGNISED product must never silently grant a
+    /// mid/high tier — it logs a warning and falls back to the lowest paid tier
+    /// ("pro"), so a typo/new product can't accidentally hand out Max or Family.
     private String planFromEvent(JsonNode event) {
         String pid = event.path("product_id").asText("").toLowerCase();
         if (pid.contains("max")) return "max";
         if (pid.contains("family")) return "family";
+        if (pid.contains("pro")) return "pro";
+        log.warn("[RevenueCat] unrecognised product_id='{}' — defaulting to lowest paid tier 'pro'",
+                event.path("product_id").asText(""));
         return "pro";
     }
 

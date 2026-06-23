@@ -1,26 +1,27 @@
 package com.pally.domain.centre;
 
-import com.pally.domain.module.ModuleService;
-import com.pally.infrastructure.ai.ClaudeApiClient;
-import com.pally.infrastructure.ai.ModelRouter;
-import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
- * Generates a class-level AI narrative report from existing analytics data.
- * Results are cached in-process for {@value #CACHE_TTL_MINUTES} minutes so
- * every teacher page-load does not burn a Claude token budget.
+ * Fast, non-blocking façade for the AI class report. Owns auth + the
+ * cache/dispatch decision; the slow Claude call runs asynchronously in
+ * {@link ClassReportGenerator} and the result is persisted in {@link ClassReportStore}.
  *
- * <p>Scope (class-level, per the owner's decision): strengths, weakest topics,
- * students to watch, and recommended next steps. One Haiku call per cache miss.
+ * <p>The GET never blocks on Claude. It returns one of three states:
+ * <pre>
+ *   { "status": "ready",      "narrative": "...", "generatedAt": "...", "cached": true|false }
+ *   { "status": "generating" }
+ *   { "status": "failed",     "message": "..." }
+ * </pre>
+ * This eliminated the synchronous-LLM-in-a-GET 504 (web client aborts at 30s).
  */
 @Service
 @RequiredArgsConstructor
@@ -28,109 +29,104 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ClassReportService {
 
     private static final int CACHE_TTL_MINUTES = 60;
-    private static final int MAX_TOKENS = 700;
-    private static final String REPORT_TASK = "class-report";
+    /** A 'generating' row older than this is treated as stale (crashed / rejected
+     *  dispatch) and re-dispatched, so a report can never get stuck forever. */
+    private static final int GENERATING_STALE_MINUTES = 2;
 
     private final CentreAccessService centreAccessService;
-    private final ContentReviewService contentReviewService;
-    private final ModuleService moduleService;
-    private final ClaudeApiClient claudeClient;
-    private final ModelRouter modelRouter;
+    private final ClassReportStore store;
+    private final ClassReportGenerator generator;
 
-    private record CachedReport(String narrative, Instant generatedAt) {}
-
-    private final ConcurrentHashMap<String, CachedReport> cache = new ConcurrentHashMap<>();
+    public Map<String, Object> getReport(String userId, String orgId, String classId) {
+        return getReport(userId, orgId, classId, false);
+    }
 
     /**
-     * Returns (generating if needed) the AI class report for the given class.
-     * Auth: staff or owner of the org.
+     * Returns the report state for a class, dispatching async generation on a
+     * miss/stale/refresh. Auth: staff or owner of the org (checked first).
+     *
+     * @param forceRefresh when true, evicts any existing row and regenerates —
+     *                     used by the web "Try again" affordance after a failure.
      */
-    public Map<String, Object> getReport(String userId, String orgId, String classId) {
+    public Map<String, Object> getReport(String userId, String orgId, String classId,
+                                         boolean forceRefresh) {
         centreAccessService.ensureStaff(userId, orgId);
 
-        CachedReport hit = cache.get(classId);
-        if (hit != null && hit.generatedAt().isAfter(Instant.now().minus(Duration.ofMinutes(CACHE_TTL_MINUTES)))) {
-            return Map.of(
-                    "narrative", hit.narrative(),
-                    "cached", true,
-                    "generatedAt", hit.generatedAt().toString()
-            );
+        if (forceRefresh) {
+            store.delete(classId);
         }
 
-        String narrative = generateNarrative(userId, orgId, classId);
-        CachedReport fresh = new CachedReport(narrative, Instant.now());
-        cache.put(classId, fresh);
+        Instant now = Instant.now();
+        ClassReportStore.StoredReport row = forceRefresh ? null : store.find(classId).orElse(null);
 
-        return Map.of(
-                "narrative", narrative,
-                "cached", false,
-                "generatedAt", fresh.generatedAt().toString()
-        );
+        if (row != null) {
+            boolean readyAndFresh = ClassReportStore.STATUS_READY.equals(row.status())
+                    && row.generatedAt() != null
+                    && row.generatedAt().isAfter(now.minus(Duration.ofMinutes(CACHE_TTL_MINUTES)));
+            if (readyAndFresh) {
+                return ready(row.narrative(), row.generatedAt(), true);
+            }
+
+            boolean generatingAndFresh = ClassReportStore.STATUS_GENERATING.equals(row.status())
+                    && row.updatedAt() != null
+                    && row.updatedAt().isAfter(now.minus(Duration.ofMinutes(GENERATING_STALE_MINUTES)));
+            if (generatingAndFresh) {
+                // A fresh generation is already in flight — never re-dispatch.
+                return generating();
+            }
+
+            if (ClassReportStore.STATUS_FAILED.equals(row.status())) {
+                // Terminal: surface the failure so the UI can offer "Try again"
+                // (which calls back with forceRefresh=true). We do NOT silently
+                // auto-retry, which would loop and hammer the Claude budget.
+                return failed(row.error());
+            }
+            // else: stale ready / stale (stuck) generating → fall through and regenerate.
+        }
+
+        // No row / stale / failed-refresh → dispatch a fresh async generation.
+        store.markGenerating(classId);
+        try {
+            generator.generate(userId, orgId, classId);
+        } catch (RejectedExecutionException rejected) {
+            // AI pool saturated. The row stays 'generating'; once it ages past
+            // GENERATING_STALE_MINUTES the next poll re-dispatches. Never 500.
+            log.warn("[ClassReport] AI pool rejected generation classId={} — client will re-poll: {}",
+                    classId, rejected.getMessage());
+        }
+        return generating();
     }
 
     /**
-     * Evicts the cached report for a class, forcing a fresh generation on the next call.
+     * Evicts the persisted report for a class, forcing a fresh generation on the
+     * next call. Backed by the store (a redeploy no longer loses reports).
      */
     public void evictCache(String classId) {
-        cache.remove(classId);
+        store.delete(classId);
     }
 
-    // ── Internal ─────────────────────────────────────────────────────────────
+    // ── Response shapes ──────────────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
-    private String generateNarrative(String userId, String orgId, String classId) {
-        Map<String, Object> readiness = contentReviewService.examReadiness(userId, orgId, classId);
-        List<Map<String, Object>> concepts =
-                readiness.get("concepts") instanceof List<?> raw
-                ? (List<Map<String, Object>>) raw
-                : List.of();
-
-        if (concepts.isEmpty()) {
-            return "No quiz data yet — students need to complete at least one lesson before a report can be generated.";
-        }
-
-        String conceptSummary = buildConceptSummary(concepts);
-        String prompt = buildPrompt(conceptSummary);
-
-        try {
-            return claudeClient.complete(modelRouter.getHaikuModel(), MAX_TOKENS, prompt, REPORT_TASK);
-        } catch (Exception e) {
-            log.error("[ClassReport] Claude call failed classId={}: {}", classId, e.getMessage());
-            throw new BusinessException("Report generation failed — please try again shortly.", 503);
-        }
+    private Map<String, Object> ready(String narrative, Instant generatedAt, boolean cached) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("status", ClassReportStore.STATUS_READY);
+        m.put("narrative", narrative);
+        m.put("generatedAt", generatedAt != null ? generatedAt.toString() : null);
+        m.put("cached", cached);
+        return m;
     }
 
-    private String buildConceptSummary(List<Map<String, Object>> concepts) {
-        StringBuilder sb = new StringBuilder();
-        for (Map<String, Object> c : concepts) {
-            String name = String.valueOf(c.getOrDefault("concept", "Unknown"));
-            Object avg = c.getOrDefault("avgMastery", 0);
-            Object below = c.getOrDefault("studentsBelowCount", 0);
-            sb.append("- ").append(name)
-              .append(": ").append(avg).append("% avg mastery, ")
-              .append(below).append(" student(s) below 60%\n");
-        }
-        return sb.toString();
+    private Map<String, Object> generating() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("status", ClassReportStore.STATUS_GENERATING);
+        return m;
     }
 
-    private String buildPrompt(String conceptSummary) {
-        return """
-                You are an educational analytics assistant helping a teacher understand their class.
-                Write a concise class performance report (4-6 short paragraphs) covering:
-                1. Overall strengths — concepts the class has mastered well
-                2. Weakest topics — concepts with low average mastery or many struggling students
-                3. Students to watch — topics where a large fraction of students are below 60%
-                4. Recommended next steps — specific, actionable suggestions for the teacher
-
-                Class concept mastery data:
-                %s
-
-                Guidelines:
-                - Be specific and reference the concept names from the data
-                - Keep each paragraph concise (2-3 sentences)
-                - Use encouraging, professional tone
-                - Write in plain English without headers or bullet points — flowing paragraphs only
-                - Do NOT invent data not present above
-                """.formatted(conceptSummary);
+    private Map<String, Object> failed(String message) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("status", ClassReportStore.STATUS_FAILED);
+        m.put("message", message != null ? message
+                : "Report generation failed — please try again.");
+        return m;
     }
 }

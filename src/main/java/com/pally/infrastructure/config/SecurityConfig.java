@@ -2,7 +2,7 @@ package com.pally.infrastructure.config;
 
 import com.pally.infrastructure.auth.JwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -16,12 +16,29 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.List;
+
 @Configuration
 @EnableWebSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
+
+    /**
+     * Explicit CORS allow-list (env-overridable via {@code PALLY_CORS_ALLOWED_ORIGINS},
+     * comma-separated). Patterns support wildcards (e.g. {@code https://*.vercel.app}
+     * for preview deploys). Replaces the prior {@code "*"} wildcard.
+     */
+    private final List<String> allowedOrigins;
+
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthFilter,
+            @Value("${pally.cors.allowed-origins:"
+                    + "https://apalchi.com,https://www.apalchi.com,"
+                    + "http://localhost:3000,https://*.vercel.app}") List<String> allowedOrigins) {
+        this.jwtAuthFilter = jwtAuthFilter;
+        this.allowedOrigins = allowedOrigins;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -87,7 +104,9 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.addAllowedOriginPattern("*");
+        // Explicit allow-list (supports the *.vercel.app wildcard) instead of "*".
+        // Auth is JWT-in-header, not cookies, so credentials stay disabled.
+        config.setAllowedOriginPatterns(allowedOrigins);
         config.addAllowedMethod("*");
         config.addAllowedHeader("*");
         config.setAllowCredentials(false);

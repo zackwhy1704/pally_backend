@@ -24,13 +24,16 @@ class RevenueCatWebhookServiceTest {
 
     @Mock SubscriptionRepository subscriptionRepo;
     @Mock PremiumService premiumService;
+    @Mock ProcessedRevenueCatEventRepository processedEventRepo;
 
     private RevenueCatWebhookService service() {
-        return new RevenueCatWebhookService(subscriptionRepo, premiumService, new ObjectMapper(), SECRET);
+        return new RevenueCatWebhookService(
+                subscriptionRepo, premiumService, processedEventRepo, new ObjectMapper(), SECRET);
     }
 
     private RevenueCatWebhookService serviceWithBlankSecret() {
-        return new RevenueCatWebhookService(subscriptionRepo, premiumService, new ObjectMapper(), "");
+        return new RevenueCatWebhookService(
+                subscriptionRepo, premiumService, processedEventRepo, new ObjectMapper(), "");
     }
 
     // ── auth ─────────────────────────────────────────────────────────────────
@@ -120,5 +123,59 @@ class RevenueCatWebhookServiceTest {
     void handle_malformedBody_returnsNotHandled_doesNotThrow() {
         var result = service().handle("not json");
         assertThat(result.get("handled")).isEqualTo(false);
+    }
+
+    // ── idempotency ────────────────────────────────────────────────────────────
+
+    @Test
+    void handle_firstDeliveryWithEventId_claimsAndAppliesOnce() {
+        when(processedEventRepo.claimEvent(any(), any(), any())).thenReturn(true);
+        when(subscriptionRepo.findById(USER)).thenReturn(Optional.empty());
+        String body = """
+            {"event":{"id":"evt_abc","type":"INITIAL_PURCHASE","app_user_id":"user-1",
+              "product_id":"apalchi_pro_monthly"}}
+            """;
+
+        var result = service().handle(body);
+
+        assertThat(result.get("handled")).isEqualTo(true);
+        verify(subscriptionRepo).save(any());
+        verify(premiumService).refreshFlag(USER);
+    }
+
+    @Test
+    void handle_duplicateEvent_isSkipped_noReapply() {
+        // Second delivery of the same event id: claim returns false → short-circuit.
+        when(processedEventRepo.claimEvent(any(), any(), any())).thenReturn(false);
+        String body = """
+            {"event":{"id":"evt_abc","type":"INITIAL_PURCHASE","app_user_id":"user-1",
+              "product_id":"apalchi_max_monthly"}}
+            """;
+
+        var result = service().handle(body);
+
+        assertThat(result.get("handled")).isEqualTo(true);
+        assertThat(result.get("detail")).isEqualTo("duplicate");
+        verify(subscriptionRepo, never()).save(any());
+        verify(premiumService, never()).refreshFlag(any());
+    }
+
+    // ── safe tier default ──────────────────────────────────────────────────────
+
+    @Test
+    void handle_unknownProductId_grantsLowestPaidTier_notMaxOrFamily() {
+        when(subscriptionRepo.findById(USER)).thenReturn(Optional.empty());
+        // No tier word, no event id → unguarded path; must default to "pro".
+        String body = """
+            {"event":{"type":"INITIAL_PURCHASE","app_user_id":"user-1",
+              "product_id":"apalchi_mystery_bundle"}}
+            """;
+
+        service().handle(body);
+
+        ArgumentCaptor<SubscriptionRepository.Subscription> captor =
+                ArgumentCaptor.forClass(SubscriptionRepository.Subscription.class);
+        verify(subscriptionRepo).save(captor.capture());
+        assertThat(captor.getValue().plan()).isEqualTo("pro");
     }
 }
