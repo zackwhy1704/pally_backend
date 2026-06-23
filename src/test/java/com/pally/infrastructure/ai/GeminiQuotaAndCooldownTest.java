@@ -43,7 +43,7 @@ class GeminiQuotaAndCooldownTest {
         compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort);
         // Set an API key so it doesn't skip to haiku immediately
         ReflectionTestUtils.setField(compiler, "apiKey", "test-key");
-        ReflectionTestUtils.setField(compiler, "modelPrimary", "gemini-1.5-flash-latest");
+        ReflectionTestUtils.setField(compiler, "modelPrimary", "gemini-2.5-flash");
         ReflectionTestUtils.setField(compiler, "modelSecondary", "gemini-2.0-flash");
         ReflectionTestUtils.setField(compiler, "baseUrl", "https://generativelanguage.googleapis.com");
         ReflectionTestUtils.setField(compiler, "haikuFallbackEnabled", true);

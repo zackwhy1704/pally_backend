@@ -78,8 +78,9 @@ public class GeminiVisionOcrService implements OcrPort {
                     )
             );
 
+            // gemini-1.5-* was retired by Google (404s) — use the current multimodal flash.
             String url = baseUrl
-                    + "/v1beta/models/gemini-1.5-flash-latest:generateContent?key=" + apiKey;
+                    + "/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))

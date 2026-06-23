@@ -36,8 +36,8 @@ public class GeminiCompletionService {
     @Value("${gemini.api.base-url:https://generativelanguage.googleapis.com}")
     private String baseUrl;
 
-    // Default to 1.5 flash (confirmed working; 2.0 requires paid key)
-    private static final String COMPLETION_MODEL = "gemini-1.5-flash-latest";
+    // gemini-1.5-* was retired by Google (404s) — current multimodal flash.
+    private static final String COMPLETION_MODEL = "gemini-2.5-flash";
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;

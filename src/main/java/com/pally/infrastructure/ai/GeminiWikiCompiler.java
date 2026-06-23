@@ -55,9 +55,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
 
     // Fallback chain: 1.5-flash-latest → 2.0-flash → Claude Haiku
     // The primary model is faster and available on free tier.
-    // The secondary is paid-only but has better reasoning.
+    // gemini-1.5-* was retired by Google (404s); defaults are current 2.x models.
     // Override either via GEMINI_MODEL_PRIMARY / GEMINI_MODEL_SECONDARY.
-    @Value("${gemini.api.model.primary:gemini-1.5-flash-latest}")
+    @Value("${gemini.api.model.primary:gemini-2.5-flash}")
     private String modelPrimary;
 
     @Value("${gemini.api.model.secondary:gemini-2.0-flash}")
