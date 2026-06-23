@@ -128,13 +128,20 @@ public class AdminController {
     @GetMapping("/users")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> listUsers(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String q
     ) {
         int safeSize = Math.max(1, Math.min(size, 200));
         var pageable = org.springframework.data.domain.PageRequest.of(
                 Math.max(0, page), safeSize,
                 org.springframework.data.domain.Sort.by("createdAt").descending());
-        List<Map<String, Object>> users = userRepo.findAll(pageable).stream()
+        // Server-side lookup: when a query is present, the database filters by
+        // email or display name across ALL users, not just the current page.
+        var pageResult = (q == null || q.isBlank())
+                ? userRepo.findAll(pageable)
+                : userRepo.findByEmailContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(
+                        q.trim(), q.trim(), pageable);
+        List<Map<String, Object>> users = pageResult.stream()
                 .map(this::userDto)
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(users));

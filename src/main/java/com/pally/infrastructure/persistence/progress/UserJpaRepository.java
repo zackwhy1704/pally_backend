@@ -16,6 +16,11 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
     Optional<UserJpaEntity> findByEmail(String email);
     boolean existsByEmail(String email);
 
+    /// Admin user lookup — case-insensitive substring match on email OR
+    /// display name, across the whole table (not just the loaded page).
+    Page<UserJpaEntity> findByEmailContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(
+            String email, String displayName, Pageable pageable);
+
     Optional<UserJpaEntity> findByLinkCode(String linkCode);
 
     List<UserJpaEntity> findByParentId(String parentId);
