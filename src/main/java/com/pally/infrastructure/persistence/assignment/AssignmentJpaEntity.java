@@ -55,6 +55,21 @@ public class AssignmentJpaEntity {
     @Column(name = "mastery_threshold")
     private BigDecimal masteryThreshold;
 
+    /**
+     * When true, this assignment resolves to a per-student targeted module set at
+     * start time (rather than the class-uniform {@link #moduleIds}). See
+     * AssignmentService resolution.
+     */
+    @Column(nullable = false)
+    private boolean personalized = false;
+
+    /**
+     * Comma-separated wiki page slugs this assignment covers. Null = whole class.
+     * Bounds per-student weak-module selection.
+     */
+    @Column(name = "topic_scope", columnDefinition = "TEXT")
+    private String topicScope;
+
     @Column(name = "due_date", nullable = false)
     private Instant dueDate;
 

@@ -43,4 +43,15 @@ public class AssignmentCompletionJpaEntity {
 
     @Column(name = "score_summary_json", columnDefinition = "TEXT")
     private String scoreSummaryJson;
+
+    /**
+     * Per-student snapshot of the targeted module IDs (comma-separated), set when
+     * the student starts a personalized assignment. Null until resolved. Empty
+     * string means "no remediation needed" (post-class mastered).
+     */
+    @Column(name = "resolved_module_ids", columnDefinition = "TEXT")
+    private String resolvedModuleIds;
+
+    @Column(name = "resolved_at")
+    private Instant resolvedAt;
 }

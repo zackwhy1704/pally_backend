@@ -66,9 +66,14 @@ public class AssignmentController {
         String dueDateStr = str(body.get("dueDate"));
         Instant dueDate = dueDateStr != null ? Instant.parse(dueDateStr) : null;
 
+        // Per-student differentiation: when on, each student's targeted module set
+        // is resolved at start. topicScope (wiki slugs) accepts a List or CSV string.
+        boolean personalized = Boolean.TRUE.equals(body.get("personalized"));
+        String topicScope = topicScopeCsv(body.get("topicScope"));
+
         AssignmentJpaEntity assignment = assignmentService.create(
                 classId, title, type, moduleIds, itemIds, stages,
-                masteryThreshold, dueDate, userId);
+                masteryThreshold, dueDate, userId, personalized, topicScope);
 
         return ResponseEntity.status(201).body(ApiResponse.created(toDto(assignment)));
     }
@@ -195,6 +200,8 @@ public class AssignmentController {
         m.put("itemIds", a.getItemIds());
         m.put("stages", a.getStages());
         m.put("masteryThreshold", a.getMasteryThreshold());
+        m.put("personalized", a.isPersonalized());
+        m.put("topicScope", a.getTopicScope());
         m.put("dueDate", a.getDueDate().toString());
         m.put("createdBy", a.getCreatedBy());
         m.put("createdAt", a.getCreatedAt().toString());
@@ -208,5 +215,18 @@ public class AssignmentController {
 
     private static String str(Object o) {
         return o == null ? null : o.toString();
+    }
+
+    /** Accepts topicScope as a JSON array of slugs OR a CSV string; stores CSV. */
+    private static String topicScopeCsv(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof List<?> list) {
+            String csv = list.stream().map(Object::toString)
+                    .map(String::trim).filter(s -> !s.isEmpty())
+                    .collect(java.util.stream.Collectors.joining(","));
+            return csv.isEmpty() ? null : csv;
+        }
+        String s = raw.toString().trim();
+        return s.isEmpty() ? null : s;
     }
 }

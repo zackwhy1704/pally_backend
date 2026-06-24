@@ -6,6 +6,8 @@ import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,12 +34,13 @@ class AssignmentServiceTest {
     @Mock private AssignmentJpaRepository assignmentRepo;
     @Mock private AssignmentCompletionJpaRepository completionRepo;
     @Mock private LearningModuleJpaRepository moduleRepo;
+    @Mock private ClassMembershipJpaRepository membershipRepo;
 
     private AssignmentService service;
 
     @BeforeEach
     void setUp() {
-        service = new AssignmentService(assignmentRepo, completionRepo, moduleRepo);
+        service = new AssignmentService(assignmentRepo, completionRepo, moduleRepo, membershipRepo);
     }
 
     // ── create ──────────────────────────────────────────────────────
@@ -328,7 +331,138 @@ class AssignmentServiceTest {
                 .hasMessageContaining("not found");
     }
 
+    // ── per-student differentiation (Phase 1 + 3) ───────────────────
+
+    @Test
+    void selectWeakModules_keepsOnlyThisStudentsCompletedBelowThreshold_weakestFirst() {
+        var m1 = buildModuleFull("m1", "class-1", "avatar-A", "speed", "COMPLETE", 30.0);
+        var m2 = buildModuleFull("m2", "class-1", "avatar-A", "area", "COMPLETE", 50.0);
+        var mastered = buildModuleFull("m3", "class-1", "avatar-A", "ratio", "COMPLETE", 90.0);
+        var notAttempted = buildModuleFull("m4", "class-1", "avatar-A", "frac", "TEST", 10.0);
+        when(moduleRepo.findByClassIdAndAvatarId("class-1", "avatar-A"))
+                .thenReturn(List.of(m1, m2, mastered, notAttempted));
+
+        List<String> weak = service.selectWeakModulesForStudent(
+                "class-1", "avatar-A", 60.0, List.of());
+
+        // 90% mastered and the TEST-stage (not COMPLETE) module are excluded;
+        // weakest-first ordering.
+        assertThat(weak).containsExactly("m1", "m2");
+    }
+
+    @Test
+    void selectWeakModules_restrictsToTopicScopeSlugs() {
+        var m1 = buildModuleFull("m1", "class-1", "avatar-A", "speed", "COMPLETE", 30.0);
+        var m2 = buildModuleFull("m2", "class-1", "avatar-A", "area", "COMPLETE", 40.0);
+        when(moduleRepo.findByClassIdAndAvatarId("class-1", "avatar-A"))
+                .thenReturn(List.of(m1, m2));
+
+        List<String> weak = service.selectWeakModulesForStudent(
+                "class-1", "avatar-A", 60.0, List.of("area"));
+
+        assertThat(weak).containsExactly("m2");
+    }
+
+    @Test
+    void selectWeakModules_nullAvatar_returnsEmpty() {
+        assertThat(service.selectWeakModulesForStudent("class-1", null, 60.0, List.of()))
+                .isEmpty();
+    }
+
+    @Test
+    void startAssignment_personalizedPostClass_snapshotsStudentsOwnWeakModules() {
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("assign-1");
+        a.setClassId("class-1");
+        a.setType("POST_CLASS");
+        a.setPersonalized(true);
+        a.setMasteryThreshold(BigDecimal.valueOf(60));
+        when(assignmentRepo.findById("assign-1")).thenReturn(Optional.of(a));
+        when(completionRepo.findByAssignmentIdAndUserId("assign-1", "user-1"))
+                .thenReturn(Optional.empty());
+        var mem = new ClassMembershipJpaEntity();
+        mem.setStudentAvatarId("avatar-A");
+        when(membershipRepo.findByClassIdAndUserId("class-1", "user-1"))
+                .thenReturn(Optional.of(mem));
+        when(moduleRepo.findByClassIdAndAvatarId("class-1", "avatar-A"))
+                .thenReturn(List.of(buildModuleFull("m1", "class-1", "avatar-A", "speed", "COMPLETE", 30.0)));
+        when(completionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AssignmentCompletionJpaEntity result = service.startAssignment("assign-1", "user-1");
+
+        assertThat(result.getStatus()).isEqualTo("IN_PROGRESS");
+        assertThat(result.getResolvedModuleIds()).isEqualTo("m1");
+        assertThat(result.getResolvedAt()).isNotNull();
+    }
+
+    @Test
+    void startAssignment_personalizedPostClass_masteredStudent_autoCompletesWithNoBusywork() {
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("assign-1");
+        a.setClassId("class-1");
+        a.setType("POST_CLASS");
+        a.setPersonalized(true);
+        when(assignmentRepo.findById("assign-1")).thenReturn(Optional.of(a));
+        when(completionRepo.findByAssignmentIdAndUserId("assign-1", "user-1"))
+                .thenReturn(Optional.empty());
+        var mem = new ClassMembershipJpaEntity();
+        mem.setStudentAvatarId("avatar-A");
+        when(membershipRepo.findByClassIdAndUserId("class-1", "user-1"))
+                .thenReturn(Optional.of(mem));
+        // Everything already mastered → no weak modules in scope.
+        when(moduleRepo.findByClassIdAndAvatarId("class-1", "avatar-A"))
+                .thenReturn(List.of(buildModuleFull("m1", "class-1", "avatar-A", "speed", "COMPLETE", 95.0)));
+        when(completionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AssignmentCompletionJpaEntity result = service.startAssignment("assign-1", "user-1");
+
+        assertThat(result.getStatus()).isEqualTo("COMPLETED");
+        assertThat(result.getResolvedModuleIds()).isEmpty();
+        assertThat(result.getScoreSummaryJson()).contains("mastered");
+    }
+
+    @Test
+    void checkAndAdvance_personalized_gradesAgainstResolvedSet_notClassWide() {
+        AssignmentCompletionJpaEntity completion = new AssignmentCompletionJpaEntity();
+        completion.setAssignmentId("assign-1");
+        completion.setUserId("user-1");
+        completion.setStatus("IN_PROGRESS");
+        completion.setResolvedModuleIds("mod-1"); // the student's resolved target
+        when(completionRepo.findByUserId("user-1")).thenReturn(List.of(completion));
+
+        AssignmentJpaEntity assignment = new AssignmentJpaEntity();
+        assignment.setId("assign-1");
+        assignment.setPersonalized(true);
+        assignment.setModuleIds("mod-CLASS-WIDE-DECOY"); // must NOT be graded against
+        assignment.setStages("TEST,PROVE");
+        when(assignmentRepo.findById("assign-1")).thenReturn(Optional.of(assignment));
+        when(completionRepo.findByAssignmentIdAndUserId("assign-1", "user-1"))
+                .thenReturn(Optional.of(completion));
+        when(moduleRepo.findById("mod-1"))
+                .thenReturn(Optional.of(buildModule("mod-1", "COMPLETE", 85.0)));
+        when(completionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.checkAndAdvanceCompletions("user-1");
+
+        assertThat(completion.getStatus()).isEqualTo("COMPLETED");
+    }
+
     // ── helpers ──────────────────────────────────────────────────────
+
+    private LearningModuleJpaEntity buildModuleFull(String id, String classId, String avatarId,
+            String slug, String stage, double mastery) {
+        LearningModuleJpaEntity m = new LearningModuleJpaEntity();
+        m.setId(id);
+        m.setClassId(classId);
+        m.setAvatarId(avatarId);
+        m.setWikiPageSlug(slug);
+        m.setTitle("Title");
+        m.setStage(stage);
+        m.setTier("FREE");
+        m.setMasteryPct(BigDecimal.valueOf(mastery));
+        m.setCreatedAt(Instant.now());
+        return m;
+    }
 
     private LearningModuleJpaEntity buildModule(String id, String stage, double mastery) {
         LearningModuleJpaEntity m = new LearningModuleJpaEntity();

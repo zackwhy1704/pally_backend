@@ -26,6 +26,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -84,7 +85,8 @@ class AssignmentControllerTest {
 
         when(assignmentService.create(
                 eq(CLASS_ID), eq("Homework 1"), eq("PRE_CLASS"),
-                any(), any(), any(), any(), any(), eq(OWNER_ID)))
+                any(), any(), any(), any(), any(), eq(OWNER_ID),
+                anyBoolean(), any()))
                 .thenReturn(entity);
 
         Instant due = Instant.now().plus(7, ChronoUnit.DAYS);
@@ -157,7 +159,8 @@ class AssignmentControllerTest {
         entity.setDueDate(Instant.now().plus(7, ChronoUnit.DAYS));
         entity.setCreatedBy(STAFF_ID);
         entity.setCreatedAt(Instant.now());
-        when(assignmentService.create(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(assignmentService.create(any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                anyBoolean(), any()))
                 .thenReturn(entity);
 
         ResponseEntity<ApiResponse<Map<String, Object>>> response =

@@ -6,6 +6,8 @@ import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
+import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,12 +41,18 @@ public class AssignmentService {
             AssignmentJpaEntity.TYPE_REVISION,
             AssignmentJpaEntity.TYPE_CUSTOM);
 
+    /** Caps how many weak modules a single personalized homework targets. */
+    private static final int MAX_WEAK_MODULES = 6;
+    /** Fallback mastery threshold (%) when an assignment doesn't specify one. */
+    private static final double DEFAULT_THRESHOLD = 60.0;
+
     private final AssignmentJpaRepository assignmentRepo;
     private final AssignmentCompletionJpaRepository completionRepo;
     private final LearningModuleJpaRepository moduleRepo;
+    private final ClassMembershipJpaRepository membershipRepo;
 
     /**
-     * Creates an assignment for a class.
+     * Creates a class-uniform assignment (legacy, non-personalized).
      */
     @Transactional
     public AssignmentJpaEntity create(
@@ -51,6 +60,24 @@ public class AssignmentService {
             List<String> moduleIds, List<String> itemIds,
             List<String> stages, Double masteryThreshold,
             Instant dueDate, String createdBy) {
+        return create(classId, title, type, moduleIds, itemIds, stages,
+                masteryThreshold, dueDate, createdBy, false, null);
+    }
+
+    /**
+     * Creates an assignment for a class. When {@code personalized} is true the
+     * class-wide module list is NOT the source of truth — each student's targeted
+     * set is resolved at start time from their own mastery (see
+     * {@link #startAssignment}). {@code topicScope} (comma-separated wiki slugs)
+     * bounds that selection; null = whole class.
+     */
+    @Transactional
+    public AssignmentJpaEntity create(
+            String classId, String title, String type,
+            List<String> moduleIds, List<String> itemIds,
+            List<String> stages, Double masteryThreshold,
+            Instant dueDate, String createdBy,
+            boolean personalized, String topicScope) {
 
         if (title == null || title.isBlank()) {
             throw new BusinessException("title is required", 400);
@@ -63,10 +90,12 @@ public class AssignmentService {
             throw new BusinessException("dueDate is required", 400);
         }
 
-        // For REVISION type, auto-select modules below mastery threshold
+        // Non-personalized REVISION keeps the legacy class-wide auto-select.
+        // A personalized assignment defers module selection to start time, where
+        // it runs PER STUDENT against their own mastery (fixes the mixing bug).
         List<String> resolvedModuleIds = moduleIds;
-        if (AssignmentJpaEntity.TYPE_REVISION.equals(type)) {
-            double threshold = masteryThreshold != null ? masteryThreshold : 60.0;
+        if (AssignmentJpaEntity.TYPE_REVISION.equals(type) && !personalized) {
+            double threshold = masteryThreshold != null ? masteryThreshold : DEFAULT_THRESHOLD;
             resolvedModuleIds = autoSelectRevisionModules(classId, threshold);
             if (resolvedModuleIds.isEmpty()) {
                 throw new BusinessException(
@@ -93,9 +122,12 @@ public class AssignmentService {
         assignment.setDueDate(dueDate);
         assignment.setCreatedBy(createdBy);
         assignment.setCreatedAt(Instant.now());
+        assignment.setPersonalized(personalized);
+        assignment.setTopicScope(topicScope);
 
         assignmentRepo.save(assignment);
-        log.info("[Assignment] Created assignment={} type={} class={}", assignment.getId(), type, classId);
+        log.info("[Assignment] Created assignment={} type={} class={} personalized={}",
+                assignment.getId(), type, classId, personalized);
         return assignment;
     }
 
@@ -124,6 +156,8 @@ public class AssignmentService {
         result.put("itemIds", assignment.getItemIds());
         result.put("stages", assignment.getStages());
         result.put("masteryThreshold", assignment.getMasteryThreshold());
+        result.put("personalized", assignment.isPersonalized());
+        result.put("topicScope", assignment.getTopicScope());
         result.put("dueDate", assignment.getDueDate().toString());
         result.put("createdBy", assignment.getCreatedBy());
 
@@ -146,6 +180,9 @@ public class AssignmentService {
             sc.put("status", c.getStatus());
             sc.put("startedAt", c.getStartedAt() != null ? c.getStartedAt().toString() : null);
             sc.put("completedAt", c.getCompletedAt() != null ? c.getCompletedAt().toString() : null);
+            // Per-student resolved targets — lets the teacher see who's getting what
+            // ("Maya: Speed, Percentage · Daniel: Area"). Null until the student starts.
+            sc.put("resolvedModuleIds", c.getResolvedModuleIds());
             studentStatuses.add(sc);
         }
 
@@ -164,7 +201,7 @@ public class AssignmentService {
      */
     @Transactional
     public AssignmentCompletionJpaEntity startAssignment(String assignmentId, String userId) {
-        assignmentRepo.findById(assignmentId)
+        AssignmentJpaEntity assignment = assignmentRepo.findById(assignmentId)
                 .orElseThrow(() -> new BusinessException("Assignment not found", 404));
 
         AssignmentCompletionJpaEntity completion = completionRepo
@@ -182,12 +219,69 @@ public class AssignmentService {
             throw new BusinessException("Assignment already completed", 400);
         }
 
+        // Personalized assignments snapshot the student's targeted module set on
+        // first start (stable thereafter; reflects their mastery at that moment).
+        if (assignment.isPersonalized() && completion.getResolvedModuleIds() == null) {
+            resolvePersonalized(assignment, userId, completion);
+            // A post-class student who has already mastered everything in scope is
+            // auto-completed inside resolvePersonalized — no busywork to start.
+            if (AssignmentCompletionJpaEntity.STATUS_COMPLETED.equals(completion.getStatus())) {
+                log.info("[Assignment] Mastered (no remediation) assignment={} user={}", assignmentId, userId);
+                return completion;
+            }
+        }
+
         completion.setStatus(AssignmentCompletionJpaEntity.STATUS_IN_PROGRESS);
         completion.setStartedAt(Instant.now());
         completionRepo.save(completion);
 
         log.info("[Assignment] Started assignment={} user={}", assignmentId, userId);
         return completion;
+    }
+
+    /**
+     * Resolves and snapshots the per-student targeted module set on the completion.
+     * POST_CLASS/REVISION → the student's own weak modules in scope; PRE_CLASS/
+     * CUSTOM → primer-uniform (class-wide) for now (adaptive diagnostic is a later
+     * phase). If the student's class avatar can't be resolved, falls back to the
+     * class-wide set rather than mis-grading them.
+     */
+    private void resolvePersonalized(AssignmentJpaEntity a, String userId,
+                                     AssignmentCompletionJpaEntity completion) {
+        String avatarId = resolveStudentAvatarId(a.getClassId(), userId);
+        double threshold = a.getMasteryThreshold() != null
+                ? a.getMasteryThreshold().doubleValue() : DEFAULT_THRESHOLD;
+        List<String> scope = parseCsv(a.getTopicScope());
+
+        if (avatarId == null) {
+            // No class-avatar link — can't personalize. Fall back to class-wide so
+            // the student is graded against something real, never auto-mastered.
+            completion.setResolvedModuleIds(a.getModuleIds() != null ? a.getModuleIds() : "");
+            completion.setResolvedAt(Instant.now());
+            log.warn("[Assignment] Could not resolve avatar for personalized assignment={} user={} "
+                    + "— using class-wide set", a.getId(), userId);
+            return;
+        }
+
+        List<String> resolved = switch (a.getType()) {
+            case AssignmentJpaEntity.TYPE_POST_CLASS, AssignmentJpaEntity.TYPE_REVISION ->
+                    selectWeakModulesForStudent(a.getClassId(), avatarId, threshold, scope);
+            // PRE_CLASS / CUSTOM personalized: primer-uniform (class-wide) for now.
+            default -> parseCsv(a.getModuleIds());
+        };
+
+        completion.setResolvedModuleIds(String.join(",", resolved));
+        completion.setResolvedAt(Instant.now());
+
+        // Phase 3 honesty rule: a post-class student with NO weak modules in scope
+        // has mastered the topic. Don't invent filler — auto-complete with a marker.
+        if (AssignmentJpaEntity.TYPE_POST_CLASS.equals(a.getType()) && resolved.isEmpty()) {
+            completion.setStatus(AssignmentCompletionJpaEntity.STATUS_COMPLETED);
+            completion.setStartedAt(Instant.now());
+            completion.setCompletedAt(Instant.now());
+            completion.setScoreSummaryJson("{\"mastered\":true,\"reason\":\"no remediation needed\"}");
+            completionRepo.save(completion);
+        }
     }
 
     /**
@@ -263,6 +357,7 @@ public class AssignmentService {
             m.put("type", a.getType());
             m.put("dueDate", a.getDueDate().toString());
             m.put("stages", a.getStages());
+            m.put("personalized", a.isPersonalized());
 
             AssignmentCompletionJpaEntity completion = completionRepo
                     .findByAssignmentIdAndUserId(a.getId(), userId)
@@ -320,20 +415,30 @@ public class AssignmentService {
         AssignmentJpaEntity a = assignmentRepo.findById(assignmentId)
                 .orElseThrow(() -> new BusinessException("Assignment not found", 404));
 
+        AssignmentCompletionJpaEntity completion = completionRepo
+                .findByAssignmentIdAndUserId(assignmentId, userId).orElse(null);
+
+        // Personalized assignments expose the STUDENT's resolved module set (once
+        // started); otherwise the class-wide list. The student app reads this key
+        // transparently, so per-student targeting "just works".
+        String moduleIds = a.getModuleIds();
+        if (a.isPersonalized() && completion != null && completion.getResolvedModuleIds() != null) {
+            moduleIds = completion.getResolvedModuleIds();
+        }
+
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", a.getId());
         m.put("classId", a.getClassId());
         m.put("title", a.getTitle());
         m.put("type", a.getType());
-        m.put("moduleIds", a.getModuleIds());
+        m.put("moduleIds", moduleIds);
+        m.put("personalized", a.isPersonalized());
         m.put("stages", a.getStages());
         m.put("dueDate", a.getDueDate().toString());
         m.put("answersReleased", a.answersReleased());
         m.put("answersReleasedAt",
                 a.getAnswersReleasedAt() != null ? a.getAnswersReleasedAt().toString() : null);
 
-        AssignmentCompletionJpaEntity completion = completionRepo
-                .findByAssignmentIdAndUserId(assignmentId, userId).orElse(null);
         m.put("status", completion != null ? completion.getStatus()
                 : AssignmentCompletionJpaEntity.STATUS_PENDING);
 
@@ -368,6 +473,12 @@ public class AssignmentService {
         };
     }
 
+    /**
+     * @deprecated Mixes ALL students' modules for a class (per-row modules are
+     *     per-student). Retained only for legacy non-personalized REVISION create.
+     *     Personalized assignments use {@link #selectWeakModulesForStudent}.
+     */
+    @Deprecated
     private List<String> autoSelectRevisionModules(String classId, double threshold) {
         List<LearningModuleJpaEntity> classModules = moduleRepo.findByClassId(classId);
         return classModules.stream()
@@ -378,8 +489,58 @@ public class AssignmentService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Selects a single student's weak modules for a class — the heart of
+     * per-student differentiation. Keeps the student's OWN attempted ({@code
+     * COMPLETE}) modules below {@code threshold}, optionally restricted to
+     * {@code topicScopeSlugs}, weakest-first, capped at {@link #MAX_WEAK_MODULES}.
+     */
+    public List<String> selectWeakModulesForStudent(
+            String classId, String avatarId, double threshold, List<String> topicScopeSlugs) {
+        if (avatarId == null || avatarId.isBlank()) return List.of();
+        Set<String> scope = topicScopeSlugs == null ? Set.of()
+                : topicScopeSlugs.stream().map(String::trim)
+                        .filter(s -> !s.isEmpty()).collect(Collectors.toSet());
+
+        return moduleRepo.findByClassIdAndAvatarId(classId, avatarId).stream()
+                .filter(m -> "COMPLETE".equals(m.getStage()))
+                .filter(m -> m.getMasteryPct() != null
+                        && m.getMasteryPct().doubleValue() < threshold)
+                .filter(m -> scope.isEmpty() || scope.contains(m.getWikiPageSlug()))
+                .sorted(Comparator.comparing(LearningModuleJpaEntity::getMasteryPct))
+                .limit(MAX_WEAK_MODULES)
+                .map(LearningModuleJpaEntity::getId)
+                .collect(Collectors.toList());
+    }
+
+    /** Resolves a student's class avatar from (classId, userId) via membership. */
+    private String resolveStudentAvatarId(String classId, String userId) {
+        if (classId == null) return null;
+        return membershipRepo.findByClassIdAndUserId(classId, userId)
+                .map(ClassMembershipJpaEntity::getStudentAvatarId)
+                .filter(a -> a != null && !a.isBlank())
+                .orElse(null);
+    }
+
+    /** Splits a comma-separated string into a trimmed, non-empty list. */
+    private List<String> parseCsv(String csv) {
+        if (csv == null || csv.isBlank()) return List.of();
+        return Arrays.stream(csv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
+    }
+
     private boolean isAssignmentFulfilled(AssignmentJpaEntity assignment, String userId) {
-        String moduleIdsStr = assignment.getModuleIds();
+        // Personalized: grade against the STUDENT's resolved set, not the class-wide
+        // list — otherwise a differentiated student is checked against wrong modules.
+        String moduleIdsStr;
+        if (assignment.isPersonalized()) {
+            moduleIdsStr = completionRepo.findByAssignmentIdAndUserId(assignment.getId(), userId)
+                    .map(AssignmentCompletionJpaEntity::getResolvedModuleIds)
+                    .filter(s -> s != null)
+                    .orElse(assignment.getModuleIds());
+        } else {
+            moduleIdsStr = assignment.getModuleIds();
+        }
         if (moduleIdsStr == null || moduleIdsStr.isBlank()) return false;
 
         String stagesStr = assignment.getStages();

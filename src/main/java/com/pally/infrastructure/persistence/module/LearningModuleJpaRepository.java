@@ -12,4 +12,7 @@ public interface LearningModuleJpaRepository extends JpaRepository<LearningModul
     Optional<LearningModuleJpaEntity> findByAvatarIdAndWikiPageSlug(String avatarId, String slug);
 
     List<LearningModuleJpaEntity> findByClassId(String classId);
+
+    /** A single student's modules within a class (per-student differentiation). */
+    List<LearningModuleJpaEntity> findByClassIdAndAvatarId(String classId, String avatarId);
 }
