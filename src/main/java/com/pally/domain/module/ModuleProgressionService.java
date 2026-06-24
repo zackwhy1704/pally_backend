@@ -125,6 +125,13 @@ public class ModuleProgressionService {
             itemList.add(itemMap);
         }
         result.put("items", itemList);
+        // C3 — student-facing trust marker. A centre module is "teacher-reviewed"
+        // when a teacher has approved its content (items APPROVED/LIVE, none DRAFT).
+        // Personal content (no class) has no teacher, so it never gets the badge.
+        boolean teacherReviewed = module.getClassId() != null && !items.isEmpty()
+                && items.stream().allMatch(i ->
+                        "APPROVED".equals(i.getStatus()) || "LIVE".equals(i.getStatus()));
+        result.put("teacherReviewed", teacherReviewed);
         return result;
     }
 

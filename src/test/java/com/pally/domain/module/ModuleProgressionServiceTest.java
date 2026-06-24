@@ -90,6 +90,37 @@ class ModuleProgressionServiceTest {
         assertThat(result.get("stage")).isEqualTo("LEARN");
     }
 
+    // ── getModuleDetail: teacher-reviewed badge (C3) ─────────────────────
+
+    @Test
+    void getModuleDetail_centreModuleAllApproved_isTeacherReviewed() {
+        LearningModule module = buildModule("mod-r", "LEARN");
+        module.setClassId("class-c");
+        when(moduleRepository.findById("mod-r")).thenReturn(Optional.of(module));
+        when(avatarRepository.existsByIdAndUserId("avatar-1", "u1")).thenReturn(true);
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("i1");
+        item.setStatus("APPROVED");
+        when(itemRepository.findByModuleIdOrderBySortOrder("mod-r")).thenReturn(List.of(item));
+        when(progressRepository.findByModuleIdAndUserId("mod-r", "u1")).thenReturn(List.of());
+
+        assertThat(service.getModuleDetail("mod-r", "u1").get("teacherReviewed")).isEqualTo(true);
+    }
+
+    @Test
+    void getModuleDetail_personalModule_isNotTeacherReviewed() {
+        LearningModule module = buildModule("mod-p", "LEARN"); // classId null
+        when(moduleRepository.findById("mod-p")).thenReturn(Optional.of(module));
+        when(avatarRepository.existsByIdAndUserId("avatar-1", "u1")).thenReturn(true);
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("i1");
+        item.setStatus("LIVE");
+        when(itemRepository.findByModuleIdOrderBySortOrder("mod-p")).thenReturn(List.of(item));
+        when(progressRepository.findByModuleIdAndUserId("mod-p", "u1")).thenReturn(List.of());
+
+        assertThat(service.getModuleDetail("mod-p", "u1").get("teacherReviewed")).isEqualTo(false);
+    }
+
     // ── startModule ─────────────────────────────────────────────────────
 
     @Test
