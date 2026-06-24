@@ -100,6 +100,11 @@ public class ClassCrudService {
                 parseCharacter(cls.getCharacterType()),
                 cls.getLevel(), null);
         corpus.markCentreClassAvatar();
+        // Bind the corpus avatar to its class BEFORE saving (cls.id is already set
+        // above). Without this the avatar's classId stays null, so every module
+        // generated from this corpus is tagged class_id=NULL and classModules()
+        // returns nothing — the "No modules yet" orphaning bug.
+        corpus.setClassId(cls.getId());
         Avatar savedCorpus = avatarRepository.save(corpus);
         cls.setCorpusAvatarId(savedCorpus.getId());
         try {

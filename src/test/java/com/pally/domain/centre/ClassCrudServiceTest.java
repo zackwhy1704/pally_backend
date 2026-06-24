@@ -15,6 +15,7 @@ import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -97,6 +98,27 @@ class ClassCrudServiceTest {
         assertThat(body.get("mochiConfig")).isNotNull();
         verify(avatarRepository).save(any(Avatar.class));
         verify(classRepo).save(any(OrgClassJpaEntity.class));
+    }
+
+    @Test
+    void createClass_bindsCorpusAvatarToClassId_soModulesAreNotOrphaned() {
+        when(classRepo.findByJoinCode(anyString())).thenReturn(Optional.empty());
+
+        ArgumentCaptor<Avatar> avatarCaptor = ArgumentCaptor.forClass(Avatar.class);
+        ArgumentCaptor<OrgClassJpaEntity> classCaptor = ArgumentCaptor.forClass(OrgClassJpaEntity.class);
+
+        service.createClass(OWNER_ID, ORG_ID,
+                Map.of("name", "P4 Math", "subject", "MATHS", "level", "P4",
+                        "characterType", "MOCHI"));
+
+        verify(avatarRepository).save(avatarCaptor.capture());
+        verify(classRepo).save(classCaptor.capture());
+
+        String classId = classCaptor.getValue().getId();
+        assertThat(classId).isNotBlank();
+        assertThat(avatarCaptor.getValue().getClassId())
+                .as("corpus avatar must be tagged with its class id (else modules orphan)")
+                .isEqualTo(classId);
     }
 
     @Test
