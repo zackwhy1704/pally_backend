@@ -565,6 +565,13 @@ public class CentreAnalyticsService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("classId",  classId);
         result.put("concepts", concepts);
+        // Belt-and-braces: the web reads students/cells/weakest too. The per-student
+        // concept grid isn't computed at class level yet, but the keys must always
+        // be present as arrays (never absent/null) so the client never crashes on
+        // `.map`. It degrades to the quiz-heatmap fallback when students is empty.
+        result.put("students", List.of());
+        result.put("cells",    List.of());
+        result.put("weakest",  List.of());
         return result;
     }
 
