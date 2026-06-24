@@ -49,7 +49,8 @@ public interface ContentReviewPort {
             String contentJson,
             String answerJson,
             int sortOrder,
-            String status) {}
+            String status,
+            String verificationJson) {}
 
     record UpdateItemCommand(
             String classId,

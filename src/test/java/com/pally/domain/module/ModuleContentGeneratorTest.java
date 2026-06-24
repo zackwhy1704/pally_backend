@@ -29,6 +29,7 @@ class ModuleContentGeneratorTest {
     @Mock private LearningModuleRepository moduleRepository;
     @Mock private ModuleContentItemRepository itemRepository;
     @Mock private PremiumService premiumService;
+    @Mock private com.pally.domain.knowledge.groundedness.GroundednessVerifier groundednessVerifier;
 
     private ModuleContentGenerator generator;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -37,10 +38,15 @@ class ModuleContentGeneratorTest {
     void setUp() {
         generator = new ModuleContentGenerator(
                 geminiCompletion, objectMapper, moduleRepository, itemRepository,
-                premiumService);
+                premiumService, groundednessVerifier);
         // Default: FREE tier for personal avatars
         lenient().when(premiumService.resolveTier(anyString()))
                 .thenReturn(SubscriptionTier.FREE);
+        // Groundedness gate: clean by default (no flags) — keeps existing assertions.
+        lenient().when(groundednessVerifier.check(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.pally.domain.knowledge.groundedness.GroundednessVerifier.Report(
+                        java.util.List.of(), 0));
     }
 
     @Test

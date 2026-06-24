@@ -25,4 +25,6 @@ public class ModuleContentItem {
     private String tierRequired;
     private Instant createdAt;
     private String status = "LIVE";
+    /** Groundedness gate (B3) flag payload, or null when clean. */
+    private String verificationJson;
 }

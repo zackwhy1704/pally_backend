@@ -29,6 +29,7 @@ class ModuleContentGeneratorTierTest {
     @Mock private LearningModuleRepository moduleRepository;
     @Mock private ModuleContentItemRepository itemRepository;
     @Mock private PremiumService premiumService;
+    @Mock private com.pally.domain.knowledge.groundedness.GroundednessVerifier groundednessVerifier;
 
     private ModuleContentGenerator generator;
 
@@ -36,7 +37,7 @@ class ModuleContentGeneratorTierTest {
     void setUp() {
         generator = new ModuleContentGenerator(
                 geminiCompletion, new ObjectMapper(), moduleRepository, itemRepository,
-                premiumService);
+                premiumService, groundednessVerifier);
     }
 
     @Test

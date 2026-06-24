@@ -73,6 +73,7 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
         d.setTierRequired(e.getTierRequired());
         d.setCreatedAt(e.getCreatedAt());
         d.setStatus(e.getStatus());
+        d.setVerificationJson(e.getVerificationJson());
         return d;
     }
 
@@ -88,6 +89,7 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
         e.setTierRequired(d.getTierRequired());
         e.setCreatedAt(d.getCreatedAt());
         e.setStatus(d.getStatus());
+        e.setVerificationJson(d.getVerificationJson());
         return e;
     }
 }

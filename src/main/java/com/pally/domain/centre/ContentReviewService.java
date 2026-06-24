@@ -113,6 +113,9 @@ public class ContentReviewService {
         m.put("answerJson", item.answerJson());
         m.put("sortOrder", item.sortOrder());
         m.put("status", item.status());
+        // Groundedness gate (B3) flag payload — the Review tab shows the flagged
+        // claim and the cited source line so the teacher adjudicates. Null = clean.
+        m.put("verification", item.verificationJson());
         return m;
     }
 }

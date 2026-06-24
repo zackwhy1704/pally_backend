@@ -42,6 +42,10 @@ public class ModuleContentItemJpaEntity {
     @Column(name = "tier_required", nullable = false, length = 20)
     private String tierRequired;
 
+    /** Groundedness gate (B3) flag payload, or null when clean. */
+    @Column(name = "verification_json", columnDefinition = "TEXT")
+    private String verificationJson;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

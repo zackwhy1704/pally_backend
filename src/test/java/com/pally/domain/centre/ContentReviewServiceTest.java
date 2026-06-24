@@ -85,7 +85,7 @@ class ContentReviewServiceTest {
         when(orgClassRepository.findOrganizationIdByClassId(CLASS_ID))
                 .thenReturn(Optional.of(ORG_ID));
         ContentReviewPort.ContentItemView view = new ContentReviewPort.ContentItemView(
-                ITEM_ID, "mod-1", "LEARN", "FLASHCARD", "{}", null, 0, "APPROVED");
+                ITEM_ID, "mod-1", "LEARN", "FLASHCARD", "{}", null, 0, "APPROVED", null);
         when(reviewPort.updateItem(any())).thenReturn(view);
 
         Map<String, Object> result = service.updateContentItem(
@@ -102,7 +102,7 @@ class ContentReviewServiceTest {
         when(orgClassRepository.findOrganizationIdByClassId(CLASS_ID))
                 .thenReturn(Optional.of(ORG_ID));
         ContentReviewPort.ContentItemView view = new ContentReviewPort.ContentItemView(
-                ITEM_ID, "mod-1", "LEARN", "FLASHCARD", "{}", null, 0, "APPROVED");
+                ITEM_ID, "mod-1", "LEARN", "FLASHCARD", "{}", null, 0, "APPROVED", null);
         when(reviewPort.updateItem(any())).thenReturn(view);
 
         service.updateContentItem(USER, ORG_ID, CLASS_ID, ITEM_ID, Map.of("status", "APPROVED"));

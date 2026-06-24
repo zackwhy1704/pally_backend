@@ -2,8 +2,10 @@ package com.pally.domain.module;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.groundedness.GroundednessVerifier;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
@@ -37,6 +39,7 @@ public class ModuleContentGenerator {
     private final LearningModuleRepository moduleRepository;
     private final ModuleContentItemRepository itemRepository;
     private final PremiumService premiumService;
+    private final GroundednessVerifier groundednessVerifier;
 
     /**
      * Generates a learning module with LEARN and TEST items for a wiki page.
@@ -75,6 +78,7 @@ public class ModuleContentGenerator {
         allItems.addAll(generateSpotMistake(module.getId(), content, level, subject));
         allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier));
 
+        tagGroundedness(page, allItems);
         itemRepository.saveAll(allItems);
         log.info("[Module] Generated module id={} slug={} items={} tier={}",
                 module.getId(), page.getSlug(), allItems.size(), tier);
@@ -111,9 +115,94 @@ public class ModuleContentGenerator {
         allItems.addAll(generateSpotMistakeDraft(module.getId(), content, level, subject, guidanceSection));
         allItems.addAll(generateChallengesDraft(module.getId(), content, level, subject, tier, guidanceSection));
 
+        tagGroundedness(page, allItems);
         itemRepository.saveAll(allItems);
         log.info("[CentreRegen] Regenerated module={} slug={} items={} withGuidance={}",
                 module.getId(), page.getSlug(), allItems.size(), guidance != null && !guidance.isBlank());
+    }
+
+    // ── Groundedness gate (B3) ───────────────────────────────────────────────
+
+    /**
+     * Runs the groundedness gate over each generated item against the source page,
+     * attaching a flag payload to items that assert a hard fact not entailed by the
+     * notes (or that contradict them). Fail-open: any error skips tagging, never
+     * blocks generation. NOTE: auto-regenerate-on-CONTRADICTED is deferred — we FLAG
+     * contradictions terminally (with the source line) so the teacher adjudicates,
+     * rather than add a retry loop to the generation hot path.
+     */
+    private void tagGroundedness(WikiPage page, List<ModuleContentItem> items) {
+        String source = page.getContent();
+        if (source == null || source.isBlank()) return;
+        boolean sourceVerified = page.isHumanVerified();
+        for (ModuleContentItem item : items) {
+            try {
+                List<String> texts = extractItemTexts(item);
+                if (texts.isEmpty()) continue;
+                GroundednessVerifier.Report report = groundednessVerifier.check(source, texts);
+                if (report.needsAttention()) {
+                    item.setVerificationJson(buildVerificationPayload(report, sourceVerified));
+                }
+            } catch (Exception e) {
+                log.warn("[Groundedness] check failed for item={} — skipping (fail open): {}",
+                        item.getId(), e.getMessage());
+            }
+        }
+    }
+
+    /** Collects the human-readable text leaves from an item's content + answer JSON. */
+    private List<String> extractItemTexts(ModuleContentItem item) {
+        List<String> out = new ArrayList<>();
+        collectStrings(item.getContentJson(), out);
+        collectStrings(item.getAnswerJson(), out);
+        return out;
+    }
+
+    private void collectStrings(String json, List<String> out) {
+        if (json == null || json.isBlank()) return;
+        try {
+            walk(objectMapper.readTree(json), out);
+        } catch (Exception ignored) {
+            // Not JSON — treat the whole blob as text.
+            if (json.length() > 12) out.add(json);
+        }
+    }
+
+    private void walk(JsonNode node, List<String> out) {
+        if (node.isTextual()) {
+            String t = node.asText();
+            if (t.length() > 12) out.add(t); // skip keys / short labels
+        } else if (node.isArray() || node.isObject()) {
+            node.forEach(child -> walk(child, out));
+        }
+    }
+
+    private String buildVerificationPayload(GroundednessVerifier.Report report, boolean sourceVerified) {
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("status", "flagged");
+        payload.put("gate", "groundedness");
+        // Phase 5: tell the teacher whether the source line being quoted is itself
+        // teacher-verified, so they know how much to trust it.
+        payload.put("sourcePageVerified", sourceVerified);
+        List<Map<String, Object>> flags = new ArrayList<>();
+        for (GroundednessVerifier.ClaimVerdict v : report.verdicts()) {
+            if (v.action() == GroundednessVerifier.Action.FLAG
+                    || v.action() == GroundednessVerifier.Action.CONTRADICTED) {
+                Map<String, Object> f = new java.util.LinkedHashMap<>();
+                f.put("claim", v.claim());
+                f.put("reason", v.action() == GroundednessVerifier.Action.CONTRADICTED
+                        ? "contradicts your uploaded notes"
+                        : "not found in your uploaded notes");
+                f.put("sourceQuote", v.sourceQuote());
+                flags.add(f);
+            }
+        }
+        payload.put("flags", flags);
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private List<ModuleContentItem> generateMicroCardsDraft(

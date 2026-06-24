@@ -93,7 +93,8 @@ public class ContentReviewPortAdapter implements ContentReviewPort {
     private ContentItemView toDomainView(ModuleContentItemJpaEntity e) {
         return new ContentItemView(
                 e.getId(), e.getModuleId(), e.getStage(), e.getType(),
-                e.getContentJson(), e.getAnswerJson(), e.getSortOrder(), e.getStatus());
+                e.getContentJson(), e.getAnswerJson(), e.getSortOrder(), e.getStatus(),
+                e.getVerificationJson());
     }
 
     private Map<String, Object> toView(ModuleContentItemJpaEntity e) {
