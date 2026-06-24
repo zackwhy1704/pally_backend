@@ -82,8 +82,15 @@ public class ClaudeRelevanceChecker implements RelevancePort {
                 - 0.3 to 0.49: ambiguous, lean towards accepting
                 - Below 0.3: clearly a different subject (e.g., music notes for a Maths tutor)
 
+                ALSO classify whether this is study material at all (A2). Set
+                "studyMaterial" to false ONLY when it is clearly NOT educational
+                content — e.g. a receipt, a selfie/photo of a person, a blank page,
+                a screenshot of a chat, or an unrelated document. A textbook page on
+                a DIFFERENT subject is still studyMaterial=true (just off-topic).
+                When in doubt, studyMaterial=true.
+
                 Respond ONLY with a JSON object (no markdown, no extra text):
-                {"score": <0.0 to 1.0>, "reason": "<one sentence explanation>"}
+                {"score": <0.0 to 1.0>, "reason": "<one sentence explanation>", "studyMaterial": <true|false>}
                 """.formatted(
                     subject, subject,
                     wikiSummary.isBlank() ? "(no existing notes yet)" : wikiSummary,
@@ -105,7 +112,9 @@ public class ClaudeRelevanceChecker implements RelevancePort {
             JsonNode node = objectMapper.readTree(json);
             double score = node.path("score").asDouble(0.0);
             String reason = node.path("reason").asText("No reason provided");
-            return new RelevanceScore(score, reason);
+            // A2: default true (fail-open) — only an explicit false flags it.
+            boolean studyMaterial = node.path("studyMaterial").asBoolean(true);
+            return new RelevanceScore(score, reason, studyMaterial);
         } catch (Exception e) {
             log.error("Failed to parse relevance response: {}", raw, e);
             return new RelevanceScore(0.0, "Parse error: " + e.getMessage());

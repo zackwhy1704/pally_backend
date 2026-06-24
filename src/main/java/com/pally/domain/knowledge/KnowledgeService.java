@@ -120,7 +120,8 @@ public class KnowledgeService {
         requireOwnedAvatar(avatarId, userId);
         CheckRelevanceUseCase.RelevanceResult result =
                 checkRelevanceUseCase.execute(avatarId, request.contentSample());
-        return new RelevanceCheckResponse(result.score(), result.reason(), result.relevant());
+        return new RelevanceCheckResponse(result.score(), result.reason(), result.relevant(),
+                result.studyMaterial());
     }
 
     // ── Compile ────────────────────────────────────────────────────────────────

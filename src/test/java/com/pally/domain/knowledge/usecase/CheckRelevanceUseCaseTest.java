@@ -52,6 +52,21 @@ class CheckRelevanceUseCaseTest {
         assertThat(result.relevant()).isTrue();
         assertThat(result.score()).isEqualTo(0.87);
         assertThat(result.reason()).contains("algebra");
+        assertThat(result.studyMaterial()).isTrue(); // 2-arg score defaults studyMaterial=true
+    }
+
+    @Test
+    void execute_threadsThroughNotStudyMaterialFlag() {
+        Avatar avatar = makeAvatar();
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(avatar));
+        when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        // A2: a receipt — topic-irrelevant AND not study material at all.
+        when(relevancePort.check(anyString(), anyString(), anyString()))
+                .thenReturn(new RelevanceScore(0.05, "This looks like a shopping receipt", false));
+
+        CheckRelevanceUseCase.RelevanceResult result = useCase.execute(AVATAR_ID, "TOTAL $12.40 GST");
+
+        assertThat(result.studyMaterial()).isFalse();
     }
 
     @Test

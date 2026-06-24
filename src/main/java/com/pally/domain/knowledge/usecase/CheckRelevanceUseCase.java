@@ -37,7 +37,7 @@ public class CheckRelevanceUseCase {
     private final WikiRepository wikiRepository;
     private final RelevancePort relevancePort;
 
-    public record RelevanceResult(double score, String reason, boolean relevant) {}
+    public record RelevanceResult(double score, String reason, boolean relevant, boolean studyMaterial) {}
 
     public RelevanceResult execute(String avatarId, String extractedText) {
         Avatar avatar = avatarRepository.findById(avatarId)
@@ -53,10 +53,10 @@ public class CheckRelevanceUseCase {
                 relevancePort.check(avatar.getSubject().name(), wikiSummary, contentSample);
 
         boolean relevant = response.isRelevant();
-        log.info("Relevance check avatarId={} score={} relevant={} reason={}",
-                avatarId, response.value(), relevant, response.reason());
+        log.info("Relevance check avatarId={} score={} relevant={} studyMaterial={} reason={}",
+                avatarId, response.value(), relevant, response.studyMaterial(), response.reason());
 
-        return new RelevanceResult(response.value(), response.reason(), relevant);
+        return new RelevanceResult(response.value(), response.reason(), relevant, response.studyMaterial());
     }
 
     private String buildWikiSummary(Avatar avatar, List<WikiPage> pages) {
