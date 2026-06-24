@@ -105,24 +105,20 @@ class AssignmentControllerTest {
     }
 
     @Test
-    void listAssignments_200_returnsList() {
+    void listAssignments_200_returnsListWithStats() {
         stubClassAndStaff();
-        AssignmentJpaEntity a1 = new AssignmentJpaEntity();
-        a1.setId("a1");
-        a1.setClassId(CLASS_ID);
-        a1.setTitle("HW1");
-        a1.setType("PRE_CLASS");
-        a1.setDueDate(Instant.now());
-        a1.setCreatedBy(OWNER_ID);
-        a1.setCreatedAt(Instant.now());
-
-        when(assignmentService.listForClass(CLASS_ID)).thenReturn(List.of(a1));
+        Map<String, Object> a1 = Map.of(
+                "id", "a1", "title", "HW1", "type", "PRE_CLASS",
+                "completedCount", 2, "overdueCount", 0, "totalStudents", 5);
+        when(assignmentService.listForClassWithStats(CLASS_ID)).thenReturn(List.of(a1));
 
         ResponseEntity<ApiResponse<List<Map<String, Object>>>> response =
                 controller.listAssignments(OWNER_ID, ORG_ID, CLASS_ID);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody().data()).hasSize(1);
+        assertThat(response.getBody().data().get(0).get("completedCount")).isEqualTo(2);
+        assertThat(response.getBody().data().get(0).get("totalStudents")).isEqualTo(5);
     }
 
     @Test

@@ -148,6 +148,40 @@ public class AssignmentService {
     }
 
     /**
+     * Class assignment list with per-assignment completion stats for the teacher
+     * dashboard — completed / overdue out of the active student count.
+     */
+    public List<Map<String, Object>> listForClassWithStats(String classId) {
+        int totalStudents = (int) membershipRepo.countByClassIdAndStatusAndRole(
+                classId, ClassMembershipJpaEntity.STATUS_ACTIVE, ClassMembershipJpaEntity.ROLE_STUDENT);
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (AssignmentJpaEntity a : assignmentRepo.findByClassIdOrderByDueDateAsc(classId)) {
+            List<AssignmentCompletionJpaEntity> comps = completionRepo.findByAssignmentId(a.getId());
+            int completed = (int) comps.stream()
+                    .filter(c -> AssignmentCompletionJpaEntity.STATUS_COMPLETED.equals(c.getStatus())).count();
+            int overdue = (int) comps.stream()
+                    .filter(c -> AssignmentCompletionJpaEntity.STATUS_OVERDUE.equals(c.getStatus())).count();
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", a.getId());
+            m.put("classId", a.getClassId());
+            m.put("title", a.getTitle());
+            m.put("type", a.getType());
+            m.put("moduleIds", a.getModuleIds());
+            m.put("stages", a.getStages());
+            m.put("personalized", a.isPersonalized());
+            m.put("dueDate", a.getDueDate().toString());
+            m.put("completedCount", completed);
+            m.put("overdueCount", overdue);
+            m.put("totalStudents", totalStudents);
+            m.put("answersReleased", a.answersReleased());
+            out.add(m);
+        }
+        return out;
+    }
+
+    /**
      * Returns assignment detail with per-student completion stats.
      */
     public Map<String, Object> getDetail(String assignmentId) {

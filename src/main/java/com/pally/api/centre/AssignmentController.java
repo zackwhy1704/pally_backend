@@ -87,9 +87,9 @@ public class AssignmentController {
         accessService.ensureStaff(userId, orgId);
         requireClass(orgId, classId);
 
-        List<Map<String, Object>> result = assignmentService.listForClass(classId)
-                .stream().map(this::toDto).toList();
-        return ResponseEntity.ok(ApiResponse.success(result));
+        // Includes per-assignment completion stats (completed/overdue/totalStudents).
+        return ResponseEntity.ok(ApiResponse.success(
+                assignmentService.listForClassWithStats(classId)));
     }
 
     @GetMapping("/{assignmentId}")

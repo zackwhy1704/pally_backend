@@ -451,6 +451,36 @@ class AssignmentServiceTest {
         assertThat(completion.getStatus()).isEqualTo("COMPLETED");
     }
 
+    // ── list with stats ─────────────────────────────────────────────
+
+    @Test
+    void listForClassWithStats_countsCompletedOverdueOutOfActiveStudents() {
+        when(membershipRepo.countByClassIdAndStatusAndRole("class-1", "ACTIVE", "STUDENT"))
+                .thenReturn(5L);
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("a1");
+        a.setClassId("class-1");
+        a.setTitle("HW1");
+        a.setType("POST_CLASS");
+        a.setDueDate(Instant.now());
+        when(assignmentRepo.findByClassIdOrderByDueDateAsc("class-1")).thenReturn(List.of(a));
+
+        var done = new AssignmentCompletionJpaEntity();
+        done.setStatus("COMPLETED");
+        var late = new AssignmentCompletionJpaEntity();
+        late.setStatus("OVERDUE");
+        var inprog = new AssignmentCompletionJpaEntity();
+        inprog.setStatus("IN_PROGRESS");
+        when(completionRepo.findByAssignmentId("a1")).thenReturn(List.of(done, late, inprog));
+
+        List<Map<String, Object>> list = service.listForClassWithStats("class-1");
+
+        assertThat(list).hasSize(1);
+        assertThat(list.get(0).get("completedCount")).isEqualTo(1);
+        assertThat(list.get(0).get("overdueCount")).isEqualTo(1);
+        assertThat(list.get(0).get("totalStudents")).isEqualTo(5);
+    }
+
     // ── pre-class adaptive diagnostic (Phase 2) ─────────────────────
 
     @Test
