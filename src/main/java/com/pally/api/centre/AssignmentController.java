@@ -70,10 +70,11 @@ public class AssignmentController {
         // is resolved at start. topicScope (wiki slugs) accepts a List or CSV string.
         boolean personalized = Boolean.TRUE.equals(body.get("personalized"));
         String topicScope = topicScopeCsv(body.get("topicScope"));
+        String prereqScope = topicScopeCsv(body.get("prereqScope"));
 
         AssignmentJpaEntity assignment = assignmentService.create(
                 classId, title, type, moduleIds, itemIds, stages,
-                masteryThreshold, dueDate, userId, personalized, topicScope);
+                masteryThreshold, dueDate, userId, personalized, topicScope, prereqScope);
 
         return ResponseEntity.status(201).body(ApiResponse.created(toDto(assignment)));
     }
@@ -102,6 +103,24 @@ public class AssignmentController {
 
         Map<String, Object> detail = assignmentService.getDetail(assignmentId);
         return ResponseEntity.ok(ApiResponse.success(detail));
+    }
+
+    /**
+     * Pre-class readiness (Phase 2): per-student weak-concept map over the
+     * assignment's prerequisite topics, so the teacher can tailor the lesson to
+     * the gaps the class walked in with. Staff-gated.
+     */
+    @GetMapping("/{assignmentId}/readiness")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getReadiness(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String assignmentId) {
+        accessService.ensureStaff(userId, orgId);
+        requireClass(orgId, classId);
+
+        return ResponseEntity.ok(ApiResponse.success(
+                assignmentService.getReadiness(assignmentId)));
     }
 
     @DeleteMapping("/{assignmentId}")
@@ -202,6 +221,7 @@ public class AssignmentController {
         m.put("masteryThreshold", a.getMasteryThreshold());
         m.put("personalized", a.isPersonalized());
         m.put("topicScope", a.getTopicScope());
+        m.put("prereqScope", a.getPrereqScope());
         m.put("dueDate", a.getDueDate().toString());
         m.put("createdBy", a.getCreatedBy());
         m.put("createdAt", a.getCreatedAt().toString());

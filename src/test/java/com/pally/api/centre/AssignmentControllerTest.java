@@ -86,7 +86,7 @@ class AssignmentControllerTest {
         when(assignmentService.create(
                 eq(CLASS_ID), eq("Homework 1"), eq("PRE_CLASS"),
                 any(), any(), any(), any(), any(), eq(OWNER_ID),
-                anyBoolean(), any()))
+                anyBoolean(), any(), any()))
                 .thenReturn(entity);
 
         Instant due = Instant.now().plus(7, ChronoUnit.DAYS);
@@ -160,7 +160,7 @@ class AssignmentControllerTest {
         entity.setCreatedBy(STAFF_ID);
         entity.setCreatedAt(Instant.now());
         when(assignmentService.create(any(), any(), any(), any(), any(), any(), any(), any(), any(),
-                anyBoolean(), any()))
+                anyBoolean(), any(), any()))
                 .thenReturn(entity);
 
         ResponseEntity<ApiResponse<Map<String, Object>>> response =

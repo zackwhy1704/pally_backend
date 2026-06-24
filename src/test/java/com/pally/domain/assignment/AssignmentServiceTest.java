@@ -447,6 +447,64 @@ class AssignmentServiceTest {
         assertThat(completion.getStatus()).isEqualTo("COMPLETED");
     }
 
+    // ── pre-class adaptive diagnostic (Phase 2) ─────────────────────
+
+    @Test
+    void startAssignment_personalizedPreClass_givesUniformPrimerPlusWeakPrereqDiagnostic() {
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("assign-1");
+        a.setClassId("class-1");
+        a.setType("PRE_CLASS");
+        a.setPersonalized(true);
+        a.setModuleIds("primer-1,primer-2");      // uniform new-topic primer
+        a.setPrereqScope("fractions,decimals");   // teacher-picked prior topics
+        a.setMasteryThreshold(BigDecimal.valueOf(60));
+        when(assignmentRepo.findById("assign-1")).thenReturn(Optional.of(a));
+        when(completionRepo.findByAssignmentIdAndUserId("assign-1", "user-1"))
+                .thenReturn(Optional.empty());
+        var mem = new ClassMembershipJpaEntity();
+        mem.setStudentAvatarId("avatar-A");
+        when(membershipRepo.findByClassIdAndUserId("class-1", "user-1"))
+                .thenReturn(Optional.of(mem));
+        // Student is weak on "fractions" (a prereq); "decimals" is mastered.
+        when(moduleRepo.findByClassIdAndAvatarId("class-1", "avatar-A")).thenReturn(List.of(
+                buildModuleFull("diag-frac", "class-1", "avatar-A", "fractions", "COMPLETE", 35.0),
+                buildModuleFull("ok-dec", "class-1", "avatar-A", "decimals", "COMPLETE", 88.0)));
+        when(completionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AssignmentCompletionJpaEntity result = service.startAssignment("assign-1", "user-1");
+
+        // Everyone gets the primer; this student also gets the weak-prereq diagnostic.
+        assertThat(result.getResolvedModuleIds()).isEqualTo("primer-1,primer-2,diag-frac");
+        assertThat(result.getStatus()).isEqualTo("IN_PROGRESS"); // pre-class never auto-completes
+    }
+
+    @Test
+    void getReadiness_returnsPerStudentWeakPrereqMap() {
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("assign-1");
+        a.setClassId("class-1");
+        a.setType("PRE_CLASS");
+        a.setPrereqScope("fractions");
+        a.setMasteryThreshold(BigDecimal.valueOf(60));
+        when(assignmentRepo.findById("assign-1")).thenReturn(Optional.of(a));
+
+        var maya = new ClassMembershipJpaEntity();
+        maya.setUserId("maya"); maya.setStudentAvatarId("av-maya");
+        var noAvatar = new ClassMembershipJpaEntity();
+        noAvatar.setUserId("ghost"); // null studentAvatarId → skipped
+        when(membershipRepo.findByClassId("class-1")).thenReturn(List.of(maya, noAvatar));
+        when(moduleRepo.findByClassIdAndAvatarId("class-1", "av-maya")).thenReturn(List.of(
+                buildModuleFull("m", "class-1", "av-maya", "fractions", "COMPLETE", 40.0)));
+
+        @SuppressWarnings("unchecked")
+        var students = (List<Map<String, Object>>) service.getReadiness("assign-1").get("students");
+
+        assertThat(students).hasSize(1); // ghost without an avatar is excluded
+        assertThat(students.get(0).get("userId")).isEqualTo("maya");
+        assertThat(students.get(0).get("weakCount")).isEqualTo(1);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────
 
     private LearningModuleJpaEntity buildModuleFull(String id, String classId, String avatarId,

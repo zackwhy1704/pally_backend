@@ -70,6 +70,14 @@ public class AssignmentJpaEntity {
     @Column(name = "topic_scope", columnDefinition = "TEXT")
     private String topicScope;
 
+    /**
+     * Comma-separated PRIOR-topic wiki slugs the teacher selected to diagnose in a
+     * pre-class assignment. Each student's pre-class set adds a diagnostic over the
+     * subset of these they are weakest on. Null = no diagnostic.
+     */
+    @Column(name = "prereq_scope", columnDefinition = "TEXT")
+    private String prereqScope;
+
     @Column(name = "due_date", nullable = false)
     private Instant dueDate;
 

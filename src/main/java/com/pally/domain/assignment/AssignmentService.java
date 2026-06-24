@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +62,7 @@ public class AssignmentService {
             List<String> stages, Double masteryThreshold,
             Instant dueDate, String createdBy) {
         return create(classId, title, type, moduleIds, itemIds, stages,
-                masteryThreshold, dueDate, createdBy, false, null);
+                masteryThreshold, dueDate, createdBy, false, null, null);
     }
 
     /**
@@ -69,7 +70,8 @@ public class AssignmentService {
      * class-wide module list is NOT the source of truth — each student's targeted
      * set is resolved at start time from their own mastery (see
      * {@link #startAssignment}). {@code topicScope} (comma-separated wiki slugs)
-     * bounds that selection; null = whole class.
+     * bounds that selection; null = whole class. {@code prereqScope} (pre-class
+     * only) is the prior-topic slugs to diagnose per student.
      */
     @Transactional
     public AssignmentJpaEntity create(
@@ -77,7 +79,7 @@ public class AssignmentService {
             List<String> moduleIds, List<String> itemIds,
             List<String> stages, Double masteryThreshold,
             Instant dueDate, String createdBy,
-            boolean personalized, String topicScope) {
+            boolean personalized, String topicScope, String prereqScope) {
 
         if (title == null || title.isBlank()) {
             throw new BusinessException("title is required", 400);
@@ -124,6 +126,7 @@ public class AssignmentService {
         assignment.setCreatedAt(Instant.now());
         assignment.setPersonalized(personalized);
         assignment.setTopicScope(topicScope);
+        assignment.setPrereqScope(prereqScope);
 
         assignmentRepo.save(assignment);
         log.info("[Assignment] Created assignment={} type={} class={} personalized={}",
@@ -158,6 +161,7 @@ public class AssignmentService {
         result.put("masteryThreshold", assignment.getMasteryThreshold());
         result.put("personalized", assignment.isPersonalized());
         result.put("topicScope", assignment.getTopicScope());
+        result.put("prereqScope", assignment.getPrereqScope());
         result.put("dueDate", assignment.getDueDate().toString());
         result.put("createdBy", assignment.getCreatedBy());
 
@@ -266,7 +270,22 @@ public class AssignmentService {
         List<String> resolved = switch (a.getType()) {
             case AssignmentJpaEntity.TYPE_POST_CLASS, AssignmentJpaEntity.TYPE_REVISION ->
                     selectWeakModulesForStudent(a.getClassId(), avatarId, threshold, scope);
-            // PRE_CLASS / CUSTOM personalized: primer-uniform (class-wide) for now.
+            case AssignmentJpaEntity.TYPE_PRE_CLASS -> {
+                // Pre-class: uniform primer (the NEW topic — no mastery exists yet)
+                // PLUS a per-student diagnostic over the teacher's selected prior
+                // topics, weighted to the prerequisites THIS student is weakest on.
+                List<String> primer = parseCsv(a.getModuleIds());
+                List<String> prereqSlugs = parseCsv(a.getPrereqScope());
+                List<String> diagnostic = prereqSlugs.isEmpty()
+                        ? List.of()
+                        : selectWeakModulesForStudent(a.getClassId(), avatarId, threshold, prereqSlugs);
+                List<String> merged = new ArrayList<>(primer);
+                for (String d : diagnostic) {
+                    if (!merged.contains(d)) merged.add(d);
+                }
+                yield merged;
+            }
+            // CUSTOM personalized: class-wide.
             default -> parseCsv(a.getModuleIds());
         };
 
@@ -460,6 +479,58 @@ public class AssignmentService {
         }
         assignmentRepo.deleteById(assignmentId);
         log.info("[Assignment] Deleted assignment={}", assignmentId);
+    }
+
+    /**
+     * Pre-class readiness map (Phase 2 payoff). For each enrolled student, returns
+     * their mastery snapshot on the assignment's teacher-selected prerequisite
+     * slugs and which they are weak on — so the teacher can tailor the lesson to
+     * the gaps the class walked in with. Reuses the per-student module mastery data.
+     */
+    public Map<String, Object> getReadiness(String assignmentId) {
+        AssignmentJpaEntity a = assignmentRepo.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException("Assignment not found", 404));
+        double threshold = a.getMasteryThreshold() != null
+                ? a.getMasteryThreshold().doubleValue() : DEFAULT_THRESHOLD;
+        Set<String> scope = new HashSet<>(parseCsv(a.getPrereqScope()));
+
+        List<Map<String, Object>> students = new ArrayList<>();
+        for (ClassMembershipJpaEntity member : membershipRepo.findByClassId(a.getClassId())) {
+            String avatarId = member.getStudentAvatarId();
+            if (avatarId == null || avatarId.isBlank()) continue;
+
+            List<Map<String, Object>> concepts = new ArrayList<>();
+            int weakCount = 0;
+            for (LearningModuleJpaEntity m : moduleRepo.findByClassIdAndAvatarId(a.getClassId(), avatarId)) {
+                if (!scope.isEmpty() && !scope.contains(m.getWikiPageSlug())) continue;
+                boolean attempted = "COMPLETE".equals(m.getStage());
+                Double mastery = m.getMasteryPct() != null ? m.getMasteryPct().doubleValue() : null;
+                boolean weak = attempted && mastery != null && mastery < threshold;
+                if (weak) weakCount++;
+                Map<String, Object> c = new LinkedHashMap<>();
+                c.put("slug", m.getWikiPageSlug());
+                c.put("title", m.getTitle());
+                c.put("masteryPct", mastery);
+                c.put("attempted", attempted);
+                c.put("weak", weak);
+                concepts.add(c);
+            }
+            Map<String, Object> s = new LinkedHashMap<>();
+            s.put("userId", member.getUserId());
+            s.put("avatarId", avatarId);
+            s.put("weakCount", weakCount);
+            s.put("concepts", concepts);
+            students.add(s);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("assignmentId", a.getId());
+        result.put("classId", a.getClassId());
+        result.put("type", a.getType());
+        result.put("prereqScope", a.getPrereqScope());
+        result.put("masteryThreshold", threshold);
+        result.put("students", students);
+        return result;
     }
 
     // ── Private helpers ──────────────────────────────────────────────
