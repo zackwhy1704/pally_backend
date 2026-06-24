@@ -6,6 +6,8 @@ import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -35,12 +37,14 @@ class AssignmentServiceTest {
     @Mock private AssignmentCompletionJpaRepository completionRepo;
     @Mock private LearningModuleJpaRepository moduleRepo;
     @Mock private ClassMembershipJpaRepository membershipRepo;
+    @Mock private UserRepository userRepository;
 
     private AssignmentService service;
 
     @BeforeEach
     void setUp() {
-        service = new AssignmentService(assignmentRepo, completionRepo, moduleRepo, membershipRepo);
+        service = new AssignmentService(assignmentRepo, completionRepo, moduleRepo,
+                membershipRepo, userRepository);
     }
 
     // ── create ──────────────────────────────────────────────────────
@@ -494,6 +498,7 @@ class AssignmentServiceTest {
         var noAvatar = new ClassMembershipJpaEntity();
         noAvatar.setUserId("ghost"); // null studentAvatarId → skipped
         when(membershipRepo.findByClassId("class-1")).thenReturn(List.of(maya, noAvatar));
+        when(userRepository.findAllByIds(any())).thenReturn(List.of(userNamed("maya", "Maya")));
         when(moduleRepo.findByClassIdAndAvatarId("class-1", "av-maya")).thenReturn(List.of(
                 buildModuleFull("m", "class-1", "av-maya", "fractions", "COMPLETE", 40.0)));
 
@@ -502,10 +507,53 @@ class AssignmentServiceTest {
 
         assertThat(students).hasSize(1); // ghost without an avatar is excluded
         assertThat(students.get(0).get("userId")).isEqualTo("maya");
+        assertThat(students.get(0).get("displayName")).isEqualTo("Maya");
         assertThat(students.get(0).get("weakCount")).isEqualTo(1);
     }
 
+    @Test
+    void getDetail_enrichesStudentsWithDisplayNamesAndResolvedModuleTitles() {
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("assign-1");
+        a.setClassId("class-1");
+        a.setTitle("HW");
+        a.setType("POST_CLASS");
+        a.setPersonalized(true);
+        a.setDueDate(Instant.now());
+        a.setCreatedBy("t");
+        when(assignmentRepo.findById("assign-1")).thenReturn(Optional.of(a));
+
+        AssignmentCompletionJpaEntity c = new AssignmentCompletionJpaEntity();
+        c.setUserId("maya");
+        c.setStatus("IN_PROGRESS");
+        c.setResolvedModuleIds("m1,m2");
+        when(completionRepo.findByAssignmentId("assign-1")).thenReturn(List.of(c));
+        when(userRepository.findAllByIds(any())).thenReturn(List.of(userNamed("maya", "Maya")));
+
+        var m1 = buildModuleFull("m1", "class-1", "av", "speed", "COMPLETE", 30.0);
+        m1.setTitle("Speed");
+        var m2 = buildModuleFull("m2", "class-1", "av", "percentage", "COMPLETE", 40.0);
+        m2.setTitle("Percentage");
+        when(moduleRepo.findAllById(any())).thenReturn(List.of(m1, m2));
+
+        @SuppressWarnings("unchecked")
+        var students = (List<Map<String, Object>>) service.getDetail("assign-1").get("students");
+
+        assertThat(students).hasSize(1);
+        assertThat(students.get(0).get("displayName")).isEqualTo("Maya");
+        @SuppressWarnings("unchecked")
+        var resolved = (List<Map<String, String>>) students.get(0).get("resolvedModules");
+        assertThat(resolved).extracting(mm -> mm.get("title")).containsExactly("Speed", "Percentage");
+    }
+
     // ── helpers ──────────────────────────────────────────────────────
+
+    private User userNamed(String id, String name) {
+        User u = new User();
+        u.setId(id);
+        u.setDisplayName(name);
+        return u;
+    }
 
     private LearningModuleJpaEntity buildModuleFull(String id, String classId, String avatarId,
             String slug, String stage, double mastery) {

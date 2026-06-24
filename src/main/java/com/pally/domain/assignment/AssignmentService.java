@@ -6,6 +6,8 @@ import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
 import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
+import com.pally.domain.user.User;
+import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.shared.exception.BusinessException;
@@ -19,11 +21,14 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -51,6 +56,7 @@ public class AssignmentService {
     private final AssignmentCompletionJpaRepository completionRepo;
     private final LearningModuleJpaRepository moduleRepo;
     private final ClassMembershipJpaRepository membershipRepo;
+    private final UserRepository userRepository;
 
     /**
      * Creates a class-uniform assignment (legacy, non-personalized).
@@ -150,6 +156,12 @@ public class AssignmentService {
 
         List<AssignmentCompletionJpaEntity> completions = completionRepo.findByAssignmentId(assignmentId);
 
+        // Batch-resolve student names + the titles of every resolved module, so the
+        // teacher sees "Maya: Speed, Percentage · Daniel: Area" instead of raw ids.
+        Map<String, String> names = resolveNames(
+                completions.stream().map(AssignmentCompletionJpaEntity::getUserId).toList());
+        Map<String, String> moduleTitles = resolveModuleTitles(completions);
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", assignment.getId());
         result.put("classId", assignment.getClassId());
@@ -181,12 +193,14 @@ public class AssignmentService {
             }
             Map<String, Object> sc = new LinkedHashMap<>();
             sc.put("userId", c.getUserId());
+            sc.put("displayName", names.getOrDefault(c.getUserId(), ""));
             sc.put("status", c.getStatus());
             sc.put("startedAt", c.getStartedAt() != null ? c.getStartedAt().toString() : null);
             sc.put("completedAt", c.getCompletedAt() != null ? c.getCompletedAt().toString() : null);
-            // Per-student resolved targets — lets the teacher see who's getting what
-            // ("Maya: Speed, Percentage · Daniel: Area"). Null until the student starts.
+            // Per-student resolved targets — the teacher sees who's getting what
+            // ("Maya: Speed, Percentage · Daniel: Area"). Empty until the student starts.
             sc.put("resolvedModuleIds", c.getResolvedModuleIds());
+            sc.put("resolvedModules", namedModules(c.getResolvedModuleIds(), moduleTitles));
             studentStatuses.add(sc);
         }
 
@@ -494,8 +508,12 @@ public class AssignmentService {
                 ? a.getMasteryThreshold().doubleValue() : DEFAULT_THRESHOLD;
         Set<String> scope = new HashSet<>(parseCsv(a.getPrereqScope()));
 
+        List<ClassMembershipJpaEntity> members = membershipRepo.findByClassId(a.getClassId());
+        Map<String, String> names = resolveNames(
+                members.stream().map(ClassMembershipJpaEntity::getUserId).toList());
+
         List<Map<String, Object>> students = new ArrayList<>();
-        for (ClassMembershipJpaEntity member : membershipRepo.findByClassId(a.getClassId())) {
+        for (ClassMembershipJpaEntity member : members) {
             String avatarId = member.getStudentAvatarId();
             if (avatarId == null || avatarId.isBlank()) continue;
 
@@ -517,6 +535,7 @@ public class AssignmentService {
             }
             Map<String, Object> s = new LinkedHashMap<>();
             s.put("userId", member.getUserId());
+            s.put("displayName", names.getOrDefault(member.getUserId(), ""));
             s.put("avatarId", avatarId);
             s.put("weakCount", weakCount);
             s.put("concepts", concepts);
@@ -598,6 +617,44 @@ public class AssignmentService {
         if (csv == null || csv.isBlank()) return List.of();
         return Arrays.stream(csv.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty()).toList();
+    }
+
+    /** Batch userId → display name (blank when unknown). */
+    private Map<String, String> resolveNames(Collection<String> userIds) {
+        Set<String> ids = userIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (ids.isEmpty()) return Map.of();
+        Map<String, String> out = new HashMap<>();
+        for (User u : userRepository.findAllByIds(ids)) {
+            out.put(u.getId(), u.getDisplayName() != null ? u.getDisplayName() : "");
+        }
+        return out;
+    }
+
+    /** Batch resolved-module-id → title across all completions in one fetch. */
+    private Map<String, String> resolveModuleTitles(List<AssignmentCompletionJpaEntity> completions) {
+        Set<String> moduleIds = completions.stream()
+                .map(AssignmentCompletionJpaEntity::getResolvedModuleIds)
+                .filter(s -> s != null && !s.isBlank())
+                .flatMap(s -> parseCsv(s).stream())
+                .collect(Collectors.toSet());
+        if (moduleIds.isEmpty()) return Map.of();
+        Map<String, String> titles = new HashMap<>();
+        for (LearningModuleJpaEntity m : moduleRepo.findAllById(moduleIds)) {
+            titles.put(m.getId(), m.getTitle());
+        }
+        return titles;
+    }
+
+    /** A resolved-module CSV → list of {id, title} for the teacher view. */
+    private List<Map<String, String>> namedModules(String csv, Map<String, String> titles) {
+        List<Map<String, String>> out = new ArrayList<>();
+        for (String id : parseCsv(csv)) {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("id", id);
+            m.put("title", titles.getOrDefault(id, id));
+            out.add(m);
+        }
+        return out;
     }
 
     private boolean isAssignmentFulfilled(AssignmentJpaEntity assignment, String userId) {
