@@ -164,7 +164,7 @@ class AssignmentControllerTest {
         stubCreateCapturingDueDate(dueCaptor);
 
         // A missing dueDate must NOT blow up in parsing — the controller forwards
-        // null and the service enforces "dueDate is required" (400) on its own.
+        // null and the service creates a deadline-less assignment (dueDate optional).
         controller.createAssignment(OWNER_ID, ORG_ID, CLASS_ID, Map.of(
                 "title", "HW", "type", "REVISION", "moduleIds", List.of("m")));
 

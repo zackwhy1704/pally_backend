@@ -139,13 +139,18 @@ class AssignmentServiceTest {
     }
 
     @Test
-    void create_missingDueDate_throws400() {
-        assertThatThrownBy(() -> service.create(
+    void create_missingDueDate_createsWithoutDeadline() {
+        // dueDate is optional — a deadline-less assignment is valid (never overdue).
+        when(assignmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AssignmentJpaEntity result = service.create(
                 "class-1", "Title", "PRE_CLASS",
-                null, null, null, null,
-                null, "teacher-1"))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("dueDate is required");
+                List.of("mod-1"), null, null, null,
+                null, "teacher-1");
+
+        assertThat(result.getDueDate()).isNull();
+        assertThat(result.getClassId()).isEqualTo("class-1");
+        verify(assignmentRepo).save(any());
     }
 
     // ── startAssignment ─────────────────────────────────────────────

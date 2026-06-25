@@ -21,3 +21,4 @@ out/
 *.log
 /tmp/
 .claude/
+probe-out/

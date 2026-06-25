@@ -46,7 +46,7 @@ public class AvatarJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
-    @Column(name = "grade_level", length = 10)
+    @Column(name = "grade_level", length = 50)
     private String gradeLevel;
 
     @Column(name = "curriculum_type", length = 30)

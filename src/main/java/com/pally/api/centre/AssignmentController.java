@@ -225,7 +225,7 @@ public class AssignmentController {
         m.put("personalized", a.isPersonalized());
         m.put("topicScope", a.getTopicScope());
         m.put("prereqScope", a.getPrereqScope());
-        m.put("dueDate", a.getDueDate().toString());
+        m.put("dueDate", a.getDueDate() != null ? a.getDueDate().toString() : null);
         m.put("createdBy", a.getCreatedBy());
         m.put("createdAt", a.getCreatedAt().toString());
         // Teacher view: model answer is always visible to the owner.

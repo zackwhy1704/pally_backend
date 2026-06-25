@@ -94,9 +94,9 @@ public class AssignmentService {
             throw new BusinessException(
                     "type must be one of: " + VALID_TYPES, 400);
         }
-        if (dueDate == null) {
-            throw new BusinessException("dueDate is required", 400);
-        }
+        // dueDate is OPTIONAL: an assignment with no deadline is valid — it just
+        // never goes "overdue". (Previously this 400'd and blocked creation when
+        // a teacher left the date blank.)
 
         // Non-personalized REVISION keeps the legacy class-wide auto-select.
         // A personalized assignment defers module selection to start time, where
