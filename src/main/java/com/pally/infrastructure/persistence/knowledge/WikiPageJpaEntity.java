@@ -25,10 +25,12 @@ public class WikiPageJpaEntity {
     @Column(name = "avatar_id", nullable = false, length = 36)
     private String avatarId;
 
-    @Column(nullable = false, length = 100)
+    // slug/title come from the LLM compile draft (unbounded). Widened (V92) and
+    // clamped in the domain so a long generated value can't fail the whole compile.
+    @Column(nullable = false, length = 160)
     private String slug;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String title;
 
     @Column(nullable = false, columnDefinition = "TEXT")

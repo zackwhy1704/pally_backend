@@ -78,7 +78,10 @@ public class AssignmentJpaEntity {
     @Column(name = "prereq_scope", columnDefinition = "TEXT")
     private String prereqScope;
 
-    @Column(name = "due_date", nullable = false)
+    // Optional: an assignment with no deadline is valid (it just never goes
+    // overdue). The column was NOT NULL (V92 drops it) — keeping nullable here
+    // too so a no-deadline create doesn't violate persistence constraints.
+    @Column(name = "due_date")
     private Instant dueDate;
 
     @Column(name = "created_by", nullable = false, length = 36)

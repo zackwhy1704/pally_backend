@@ -44,6 +44,9 @@ public class WikiPagePersistenceService {
 
     /// Jaccard below this is a definite contradiction — too few words
     /// overlap for the two passages to be the same fact.
+    /// Max slug length — must match the wiki_pages.slug column bound (V92).
+    private static final int SLUG_MAX = 160;
+
     private static final double CONFLICT_BLOCK_BELOW = 0.40;
     /// Jaccard in [BLOCK, GRAY) is the gray band — could be a paraphrase
     /// of the same fact OR a real contradiction; we ask Claude on these.
@@ -90,8 +93,12 @@ public class WikiPagePersistenceService {
         String avatarId = avatar.getId();
 
         for (WikiCompilerPort.WikiPageDraft draft : drafts) {
-            producedSlugs.add(draft.slug());
-            var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, draft.slug());
+            // The LLM slug is unbounded; clamp ONCE to the column bound and use the
+            // clamped value for both lookup and create, so a recompile of an
+            // over-long slug matches the stored page instead of duplicating it.
+            String slug = clampSlug(draft.slug());
+            producedSlugs.add(slug);
+            var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, slug);
             WikiPage savedPage;
             if (existing.isPresent()) {
                 WikiPage existingPage = existing.get();
@@ -124,7 +131,7 @@ public class WikiPagePersistenceService {
                 pageTitles.add(draft.title());
             } else {
                 WikiPage newPage = WikiPage.create(
-                        avatarId, draft.slug(), draft.title(), draft.content());
+                        avatarId, slug, draft.title(), draft.content());
                 if (draft.prerequisites() != null
                         && !draft.prerequisites().isEmpty()) {
                     newPage.setPrerequisiteSlugs(
@@ -399,5 +406,14 @@ public class WikiPagePersistenceService {
                         slug, e.getMessage());
             }
         }
+    }
+
+    /// Bound an LLM-produced slug to the wiki_pages.slug column so a pathologically
+    /// long slug truncates instead of failing the whole compile with a value-too-long.
+    private static String clampSlug(String slug) {
+        if (slug == null) {
+            return null;
+        }
+        return slug.length() <= SLUG_MAX ? slug : slug.substring(0, SLUG_MAX);
     }
 }
