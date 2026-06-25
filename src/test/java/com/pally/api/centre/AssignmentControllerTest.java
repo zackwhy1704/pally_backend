@@ -11,12 +11,16 @@ import com.pally.shared.response.ApiResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -102,6 +106,80 @@ class AssignmentControllerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(201);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().data().get("title")).isEqualTo("Homework 1");
+    }
+
+    private AssignmentJpaEntity stubCreateCapturingDueDate(ArgumentCaptor<Instant> dueCaptor) {
+        AssignmentJpaEntity entity = new AssignmentJpaEntity();
+        entity.setId("assign-due");
+        entity.setClassId(CLASS_ID);
+        entity.setTitle("HW");
+        entity.setType("REVISION");
+        entity.setStages("PROVE");
+        entity.setCreatedBy(OWNER_ID);
+        entity.setCreatedAt(Instant.now());
+        // The service requires a dueDate, so a created entity always has one;
+        // toDto derefs it. (Independent of the captured *input* dueDate.)
+        entity.setDueDate(Instant.now());
+        when(assignmentService.create(
+                eq(CLASS_ID), any(), any(), any(), any(), any(), any(),
+                dueCaptor.capture(), eq(OWNER_ID), anyBoolean(), any(), any()))
+                .thenReturn(entity);
+        return entity;
+    }
+
+    @Test
+    void createAssignment_dateOnlyDueDate_resolvesToEndOfDaySingapore() {
+        stubClassAndStaff();
+        ArgumentCaptor<Instant> dueCaptor = ArgumentCaptor.forClass(Instant.class);
+        stubCreateCapturingDueDate(dueCaptor);
+
+        controller.createAssignment(OWNER_ID, ORG_ID, CLASS_ID, Map.of(
+                "title", "HW", "type", "REVISION", "moduleIds", List.of("m"),
+                "dueDate", "2026-06-26"));
+
+        // A bare date means "end of that day" in Asia/Singapore, NOT UTC midnight.
+        Instant expected = LocalDate.of(2026, 6, 26)
+                .atTime(LocalTime.MAX).atZone(ZoneId.of("Asia/Singapore")).toInstant();
+        assertThat(dueCaptor.getValue()).isEqualTo(expected);
+        assertThat(dueCaptor.getValue().atZone(ZoneId.of("Asia/Singapore")).getHour()).isEqualTo(23);
+    }
+
+    @Test
+    void createAssignment_fullInstantDueDate_passedThroughUnchanged() {
+        stubClassAndStaff();
+        ArgumentCaptor<Instant> dueCaptor = ArgumentCaptor.forClass(Instant.class);
+        stubCreateCapturingDueDate(dueCaptor);
+
+        controller.createAssignment(OWNER_ID, ORG_ID, CLASS_ID, Map.of(
+                "title", "HW", "type", "REVISION", "moduleIds", List.of("m"),
+                "dueDate", "2026-06-26T09:00:00Z"));
+
+        assertThat(dueCaptor.getValue()).isEqualTo(Instant.parse("2026-06-26T09:00:00Z"));
+    }
+
+    @Test
+    void createAssignment_noDueDate_forwardsNullToService() {
+        stubClassAndStaff();
+        ArgumentCaptor<Instant> dueCaptor = ArgumentCaptor.forClass(Instant.class);
+        stubCreateCapturingDueDate(dueCaptor);
+
+        // A missing dueDate must NOT blow up in parsing — the controller forwards
+        // null and the service enforces "dueDate is required" (400) on its own.
+        controller.createAssignment(OWNER_ID, ORG_ID, CLASS_ID, Map.of(
+                "title", "HW", "type", "REVISION", "moduleIds", List.of("m")));
+
+        assertThat(dueCaptor.getValue()).isNull();
+    }
+
+    @Test
+    void createAssignment_malformedDueDate_throws400NotServerError() {
+        stubClassAndStaff();
+
+        assertThatThrownBy(() -> controller.createAssignment(OWNER_ID, ORG_ID, CLASS_ID, Map.of(
+                "title", "HW", "type", "REVISION", "moduleIds", List.of("m"),
+                "dueDate", "not-a-date")))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getHttpStatus()).isEqualTo(400));
     }
 
     @Test

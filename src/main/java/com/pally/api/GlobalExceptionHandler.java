@@ -217,6 +217,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Date/number parse failures and other illegal arguments are CLIENT input
+     * errors, not server faults — map to 400 instead of falling through to the
+     * generic 500 below. (e.g. a date-only dueDate reaching {@code Instant.parse}.)
+     */
+    @ExceptionHandler({ java.time.format.DateTimeParseException.class, IllegalArgumentException.class })
+    public ResponseEntity<ApiResponse<Void>> handleBadInput(Exception ex) {
+        log.debug("Bad input: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("Invalid input: " + ex.getMessage(), 400));
+    }
+
+    /**
      * Catch-all handler for unexpected exceptions.
      * Logs the full stack trace but returns only a generic message to the client.
      */

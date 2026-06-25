@@ -23,6 +23,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,8 +67,7 @@ public class AssignmentController {
                 ? list.stream().map(Object::toString).toList() : null;
         Double masteryThreshold = body.get("masteryThreshold") instanceof Number n
                 ? n.doubleValue() : null;
-        String dueDateStr = str(body.get("dueDate"));
-        Instant dueDate = dueDateStr != null ? Instant.parse(dueDateStr) : null;
+        Instant dueDate = parseDueDate(str(body.get("dueDate")));
 
         // Per-student differentiation: when on, each student's targeted module set
         // is resolved at start. topicScope (wiki slugs) accepts a List or CSV string.
@@ -248,5 +251,27 @@ public class AssignmentController {
         }
         String s = raw.toString().trim();
         return s.isEmpty() ? null : s;
+    }
+
+    /** The centre timezone — all due/streak/daily boundaries resolve here, never UTC. */
+    private static final ZoneId DUE_ZONE = ZoneId.of("Asia/Singapore");
+
+    /**
+     * Resolve the request's dueDate to an instant. A bare date (YYYY-MM-DD, what
+     * an {@code <input type="date">} sends) means "due end of that day" in the
+     * centre timezone — UTC midnight would be 8am SGT and mark work overdue
+     * mid-morning on the due date. A full ISO-8601 instant is accepted as-is.
+     * Anything else is a client input error → 400, never a 500.
+     */
+    private static Instant parseDueDate(String s) {
+        if (s == null || s.isBlank()) return null;
+        if (s.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            return LocalDate.parse(s).atTime(LocalTime.MAX).atZone(DUE_ZONE).toInstant();
+        }
+        try {
+            return Instant.parse(s);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException("Invalid dueDate: " + s, 400);
+        }
     }
 }
