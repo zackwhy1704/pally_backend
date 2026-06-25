@@ -16,9 +16,15 @@ Config (env):
   EVAL_AVATAR_ID  reuse an avatar instead of creating a throwaway one.
   EVAL_SUBJECT    subject enum for a new avatar (default SCIENCE).
   MAX_DOCS        cap docs processed (default: all).
-  RUN_ASSIGNMENT  1 → also create a REVISION assignment to repro the create failure;
-                  needs EVAL_ORG_ID + EVAL_CLASS_ID.
-  EVAL_ORG_ID, EVAL_CLASS_ID   centre context for the assignment repro.
+  RUN_CENTRE      1 → exercise the REAL centre flow end-to-end: self-onboard an org,
+                  create a class (which mints a class-bound corpus avatar), run the
+                  whole upload→compile→modules pipeline through that corpus, then
+                  create a REVISION assignment over the generated modules. This is the
+                  path teachers actually hit. Implies RUN_ASSIGNMENT.
+  RUN_ASSIGNMENT  1 → also create a REVISION assignment to repro the create failure.
+                  With RUN_CENTRE it uses the bootstrapped org/class + generated
+                  modules; otherwise needs EVAL_ORG_ID + EVAL_CLASS_ID.
+  EVAL_ORG_ID, EVAL_CLASS_ID   centre context for the assignment repro (skip bootstrap).
   CLEANUP         1 → delete the throwaway avatar + files at the end (default: keep).
 
 Usage:
@@ -46,7 +52,8 @@ ALLOW_PROD = os.environ.get("ALLOW_PROD") == "1"
 DOCS_DIR = pathlib.Path(os.environ.get("EVAL_DOCS_DIR", HERE / "docs"))
 SUBJECT = os.environ.get("EVAL_SUBJECT", "SCIENCE")
 MAX_DOCS = int(os.environ.get("MAX_DOCS", "0")) or None
-RUN_ASSIGNMENT = os.environ.get("RUN_ASSIGNMENT") == "1"
+RUN_CENTRE = os.environ.get("RUN_CENTRE") == "1"
+RUN_ASSIGNMENT = os.environ.get("RUN_ASSIGNMENT") == "1" or RUN_CENTRE
 CLEANUP = os.environ.get("CLEANUP") == "1"
 
 OUT = HERE / "out" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -186,8 +193,29 @@ def main():
         log(f"registered throwaway: {email}")
     api = Api(BASE, token)
 
-    # avatar
-    avatar = os.environ.get("EVAL_AVATAR_ID")
+    # ── optional centre bootstrap: org → class → class-bound corpus avatar ────
+    # The corpus avatar is where centre content lives; modules generated from it
+    # carry class_id, so a class REVISION assignment can resolve them. This is the
+    # exact path the teacher web app drives — and where centre content was failing.
+    org = os.environ.get("EVAL_ORG_ID")
+    cls = os.environ.get("EVAL_CLASS_ID")
+    centre_avatar = None
+    if RUN_CENTRE and not (org and cls):
+        ob = unwrap(api.post("/api/v1/centre/onboard",
+                             {"centreName": f"Eval Centre {int(time.time())}"}))
+        org = ob.get("orgId")
+        if not org:
+            die(f"centre onboard failed: {ob}")
+        cr = unwrap(api.post(f"/api/v1/centre/organizations/{org}/classes",
+                             {"name": "Eval Class", "subject": SUBJECT, "level": "Secondary 3"}))
+        cls = cr.get("id")
+        centre_avatar = cr.get("corpusAvatarId")
+        log(f"centre bootstrap: org={org} class={cls} corpus={centre_avatar}")
+        if not (cls and centre_avatar):
+            die(f"class create failed (no id/corpusAvatarId): {cr}")
+
+    # avatar — in centre mode, drive the class corpus avatar; else a throwaway.
+    avatar = os.environ.get("EVAL_AVATAR_ID") or centre_avatar
     created_avatar = False
     if not avatar:
         r = api.post("/api/v1/avatars", {"name": "Eval Mochi", "subject": SUBJECT, "characterType": "MOCHI"})
@@ -195,7 +223,7 @@ def main():
         if not avatar:
             die(f"avatar create failed: {r.status_code} {r.text[:200]}")
         created_avatar = True
-    log(f"avatar={avatar}")
+    log(f"avatar={avatar}  centre={'yes' if centre_avatar else 'no'}")
 
     report = {"base": BASE, "avatar": avatar, "stages": {}, "docs": [d.name for d in docs]}
     source_corpus = "\n".join(p.read_text(errors="ignore") for d in docs for p in [d])
@@ -301,22 +329,39 @@ def main():
     }
 
     # ── stage 5: assignment repro (optional, centre) ─────────────────────────
+    # In centre mode org/cls come from the bootstrap above and the corpus modules
+    # are real, so we can pin the assignment to the generated module IDs (the happy
+    # path) AND probe the empty-moduleIds auto-select path that 400s on the web.
     if RUN_ASSIGNMENT:
-        org, cls = os.environ.get("EVAL_ORG_ID"), os.environ.get("EVAL_CLASS_ID")
         if not (org and cls):
-            report["stages"]["assignment"] = {"status": "SKIPPED", "reason": "EVAL_ORG_ID/EVAL_CLASS_ID not set"}
-        else:
-            ar = api.post(f"/api/v1/centre/organizations/{org}/classes/{cls}/assignments",
-                          {"title": "Eval Revision", "type": "REVISION", "moduleIds": []})
-            (OUT / "05_assignment" / "create.json").write_text(ar.text)
             report["stages"]["assignment"] = {
-                "status": "PASS" if ar.status_code in (200, 201) else "FAIL",
-                "http": ar.status_code, "body": ar.text[:300],
+                "status": "SKIPPED",
+                "reason": "no org/class — set RUN_CENTRE=1 or EVAL_ORG_ID/EVAL_CLASS_ID",
+            }
+        else:
+            mod_ids = [m.get("moduleId") or m.get("id") for m in mod_list
+                       if (m.get("moduleId") or m.get("id"))]
+            attempts = [("explicit_modules", mod_ids)] if mod_ids else []
+            attempts.append(("empty_autoselect", []))  # the exact web payload that 400s
+            results = []
+            for label, ids in attempts:
+                ar = api.post(f"/api/v1/centre/organizations/{org}/classes/{cls}/assignments",
+                              {"title": f"Eval Revision ({label})", "type": "REVISION", "moduleIds": ids})
+                (OUT / "05_assignment" / f"create_{label}.json").write_text(ar.text)
+                results.append({"variant": label, "module_count": len(ids),
+                                "http": ar.status_code, "body": ar.text[:300]})
+                log(f"  assignment[{label}] {len(ids)} modules → {ar.status_code}")
+            any_ok = any(r["http"] in (200, 201) for r in results)
+            primary = next((r for r in results if r["http"] in (200, 201)), results[0])
+            report["stages"]["assignment"] = {
+                "status": "PASS" if any_ok else "FAIL",
+                "http": primary["http"], "body": primary["body"],
+                "org": org, "class": cls, "attempts": results,
             }
 
     # ── failure attribution ──────────────────────────────────────────────────
     culprit = None
-    for stage in ("extraction", "wiki", "modules", "quiz"):
+    for stage in ("extraction", "wiki", "modules", "quiz", "assignment"):
         if report["stages"].get(stage, {}).get("status") in ("FAIL", "DEGRADED"):
             culprit = stage
             break
@@ -376,7 +421,12 @@ def write_report_md(r):
         L += ["", "## ✗ Math mismatches", ""] + [f"- {x['expr']} — {x.get('page','')}" for x in m["wrong"]]
     a = r["stages"].get("assignment")
     if a and a.get("status") != "SKIPPED":
-        L += ["", "## Assignment create (repro)", "", f"HTTP {a.get('http')} — `{a.get('body','')}`"]
+        L += ["", "## Assignment create (centre repro)", "",
+              f"org `{a.get('org','?')}` / class `{a.get('class','?')}`", ""]
+        for at in a.get("attempts", [{"variant": "?", "module_count": "?",
+                                      "http": a.get("http"), "body": a.get("body", "")}]):
+            L.append(f"- **{at['variant']}** ({at['module_count']} modules) → "
+                     f"HTTP {at['http']} — `{at['body']}`")
     (OUT / "REPORT.md").write_text("\n".join(L) + "\n")
 
 

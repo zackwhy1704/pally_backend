@@ -287,17 +287,24 @@ public class KnowledgeService {
 
     /**
      * Defence-in-depth read-only guard for centre class materials. A student's
-     * class-bound CENTRE_CLASS avatar (classId != null) is study-only — its
-     * materials are managed by the centre, not the student. The owner's class
-     * corpus (classId == null, owner-owned) stays editable via the per-endpoint
-     * ownership checks. Throws 403 CENTRE_MATERIAL_READ_ONLY otherwise. Reading
-     * /studying is unaffected — this only gates mutations.
+     * class-bound CENTRE_CLASS avatar is study-only — its materials are managed by
+     * the centre, not the student.
+     *
+     * <p>The discriminator is {@code corpusAvatarId}, NOT {@code classId}: a
+     * student's class avatar POINTS at the shared corpus ({@code corpusAvatarId != null}),
+     * whereas the teacher's class CORPUS avatar — the one notes are actually uploaded
+     * and compiled into — carries a {@code classId} (set deliberately so its modules
+     * aren't orphaned) but has {@code corpusAvatarId == null}. Gating on classId
+     * alone froze the corpus too, so teachers could never build any class content
+     * (the centre-side "no content ever created" bug). The endpoint's own ownership
+     * filter already restricts this to the avatar's owner. Reading/studying is
+     * unaffected — this only gates mutations.
      */
     private void assertMaterialMutable(String avatarId, String userId) {
         var avatar = avatarRepository.findById(avatarId)
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new BusinessException("Avatar not found", 404));
-        if (avatar.isCentreClass() && avatar.getClassId() != null) {
+        if (avatar.isCentreClass() && avatar.getCorpusAvatarId() != null) {
             throw new BusinessException(
                     "CENTRE_MATERIAL_READ_ONLY: class materials are managed by your centre.",
                     403);

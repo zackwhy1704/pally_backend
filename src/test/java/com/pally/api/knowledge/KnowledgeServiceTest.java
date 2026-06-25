@@ -232,11 +232,13 @@ class KnowledgeServiceTest {
 
     @Test
     void deleteFile_onStudentClassAvatar_isReadOnly403_andUseCaseNotCalled() {
-        // A student's class-bound CENTRE_CLASS avatar is study-only material.
+        // A student's class-bound CENTRE_CLASS avatar POINTS at the shared corpus
+        // (corpusAvatarId != null) — study-only material.
         Avatar classAvatar = Avatar.create("student-1", "P4 Math",
                 Subject.MATHS, CharacterType.MOCHI);
         classAvatar.markCentreClassAvatar();
         classAvatar.setClassId("class-1");
+        classAvatar.setCorpusAvatarId("corpus-1");
         when(avatarRepository.findById(classAvatar.getId()))
                 .thenReturn(Optional.of(classAvatar));
 
@@ -245,5 +247,23 @@ class KnowledgeServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("CENTRE_MATERIAL_READ_ONLY");
         verify(deleteFileUseCase, never()).execute(anyString(), anyString());
+    }
+
+    @Test
+    void deleteFile_onTeacherClassCorpus_isMutable_andUseCaseCalled() {
+        // The class CORPUS avatar (the one teachers upload/compile into) carries a
+        // classId but NO corpusAvatarId — it IS the corpus, not derived from one. It
+        // must stay mutable for its owner, else no class content can ever be built.
+        Avatar corpus = Avatar.create("teacher-1", "P4 Math Corpus",
+                Subject.MATHS, CharacterType.MOCHI);
+        corpus.markCentreClassAvatar();
+        corpus.setClassId("class-1");
+        // corpusAvatarId stays null — this avatar is the corpus.
+        when(avatarRepository.findById(corpus.getId()))
+                .thenReturn(Optional.of(corpus));
+
+        service.deleteFile("teacher-1", corpus.getId(), "file-1");
+
+        verify(deleteFileUseCase).execute("file-1", "teacher-1");
     }
 }
