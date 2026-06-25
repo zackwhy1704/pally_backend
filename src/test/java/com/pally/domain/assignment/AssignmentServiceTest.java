@@ -93,6 +93,21 @@ class AssignmentServiceTest {
     }
 
     @Test
+    void create_revision_withExplicitModules_honorsThemAndSkipsAutoSelect() {
+        // A teacher who hand-picks modules for a revision must get exactly those —
+        // auto-select must NOT run (and must NOT 400 on an empty mastery class).
+        when(assignmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AssignmentJpaEntity result = service.create(
+                "class-1", "Revision", "REVISION",
+                List.of("mod-7", "mod-9"), null, null, 60.0,
+                Instant.now().plus(5, ChronoUnit.DAYS), "teacher-1");
+
+        assertThat(result.getModuleIds()).isEqualTo("mod-7,mod-9");
+        verify(moduleRepo, never()).findByClassId(any());
+    }
+
+    @Test
     void create_revision_noModulesBelow_throws400() {
         LearningModuleJpaEntity mod1 = buildModule("mod-1", "COMPLETE", 80.0);
         when(moduleRepo.findByClassId("class-1")).thenReturn(List.of(mod1));

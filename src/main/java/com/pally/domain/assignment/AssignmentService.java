@@ -98,11 +98,16 @@ public class AssignmentService {
         // never goes "overdue". (Previously this 400'd and blocked creation when
         // a teacher left the date blank.)
 
-        // Non-personalized REVISION keeps the legacy class-wide auto-select.
-        // A personalized assignment defers module selection to start time, where
-        // it runs PER STUDENT against their own mastery (fixes the mixing bug).
+        // Non-personalized REVISION auto-selects class-weak modules ONLY when the
+        // teacher didn't hand-pick any. Explicit moduleIds always win — otherwise a
+        // teacher who selected specific modules for a revision couldn't create the
+        // assignment (their picks were silently discarded and replaced by an
+        // auto-select that returns empty for a class with no mastery data yet → 400).
+        // A personalized assignment defers module selection to start time, where it
+        // runs PER STUDENT against their own mastery (fixes the mixing bug).
         List<String> resolvedModuleIds = moduleIds;
-        if (AssignmentJpaEntity.TYPE_REVISION.equals(type) && !personalized) {
+        boolean noExplicitModules = moduleIds == null || moduleIds.isEmpty();
+        if (AssignmentJpaEntity.TYPE_REVISION.equals(type) && !personalized && noExplicitModules) {
             double threshold = masteryThreshold != null ? masteryThreshold : DEFAULT_THRESHOLD;
             resolvedModuleIds = autoSelectRevisionModules(classId, threshold);
             if (resolvedModuleIds.isEmpty()) {
