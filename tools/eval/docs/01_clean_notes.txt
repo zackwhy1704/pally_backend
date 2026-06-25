@@ -1,0 +1,14 @@
+Topic: Forces and Motion (Secondary Physics)
+
+Newton's First Law (law of inertia): an object stays at rest, or moves at constant
+velocity in a straight line, unless a resultant (net) force acts on it. Inertia is
+the tendency to resist a change in motion; more mass means more inertia.
+
+Newton's Second Law: the resultant force equals mass times acceleration, F = m a.
+Force is in newtons (N), mass in kilograms (kg), acceleration in m/s^2.
+
+Newton's Third Law: for every action there is an equal and opposite reaction. The
+two forces act on different objects, so they never cancel out.
+
+Worked example: a 2 kg trolley pushed with a resultant force of 6 N has
+acceleration a = F/m = 6/2 = 3 m/s^2.

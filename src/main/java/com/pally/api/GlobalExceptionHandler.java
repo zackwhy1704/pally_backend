@@ -230,6 +230,24 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Persistence integrity violations — value-too-long (e.g. a grade label longer
+     * than its column), bad enums, constraint breaches — are CLIENT input errors,
+     * not server faults. Map to 400 so over-long/invalid input never 500s. (This is
+     * exactly how a too-narrow grade_level column silently 500'd avatar creation.)
+     * The DB message can leak schema, so we return a generic one and log the cause.
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation (mapped to 400): {}",
+                ex.getMostSpecificCause().getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(
+                        "Invalid input — a value was too long or violated a constraint.", 400));
+    }
+
+    /**
      * Catch-all handler for unexpected exceptions.
      * Logs the full stack trace but returns only a generic message to the client.
      */

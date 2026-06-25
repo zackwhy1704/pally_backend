@@ -22,3 +22,4 @@ out/
 /tmp/
 .claude/
 probe-out/
+tools/eval/out/

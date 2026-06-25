@@ -1,0 +1,16 @@
+Biology Chapter 3 — Cells, Transport, and Respiration
+
+3.1 Cell Structure: Plant and animal cells share a nucleus, cytoplasm, and cell
+membrane. Plant cells also have a cell wall, chloroplasts, and a permanent vacuole.
+Mitochondria release energy; ribosomes make proteins.
+
+3.2 Diffusion and Osmosis: Diffusion is the net movement of particles from high to
+low concentration. Osmosis is the diffusion of water across a partially permeable
+membrane from a dilute to a more concentrated solution. Active transport moves
+substances against the gradient and needs energy.
+
+3.3 Aerobic Respiration: glucose + oxygen -> carbon dioxide + water + energy.
+It happens in the mitochondria and releases more energy than anaerobic respiration.
+
+3.4 Anaerobic Respiration: in muscle cells, glucose -> lactic acid + a little energy.
+In yeast, glucose -> ethanol + carbon dioxide (fermentation).

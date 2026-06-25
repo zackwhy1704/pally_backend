@@ -1,0 +1,10 @@
+Maths Worksheet — Speed, Distance, Time (with worked solutions)
+
+Formula: speed = distance / time.
+
+Q1. A car travels 150 m in 6 s. Speed = 150 / 6 = 25 m/s.
+Q2. A cyclist covers 100 m in 8 s. Speed = 100 / 8 = 12.5 m/s.
+Q3. A train travels at 30 m/s for 12 s. Distance = 30 * 12 = 360 m.
+Q4. Find time for 240 m at 8 m/s. Time = 240 / 8 = 30 s.
+
+Percentages: a test marked 18 out of 24 scores 18 / 24 = 0.75 = 75 percent.

@@ -1,0 +1,10 @@
+[SYNTHETIC FIXTURE — simulates a low-quality OCR scan of a worksheet: broken words,
+missing spaces, stray characters. Used to test extraction → downstream collapse.]
+
+PH0TOSYNTHES1S  w0rksheet   nam3:______  cl4ss:___
+ph0to synth esis is thepr0cess by whichgr een plants make f00d using
+l1ght en ergy.  the w0rd equati0n:  car bon di0xide + wat er --light--> gluc ose + 0xygen
+chl0r0phyll  ab s0rbs  l1ght  mai nly  in  the  ch l0r0plast s .
+fact0rs aff ecting rate :  l1ght inten s1ty , c0 2 c0ncentrati0n , temper ature .
+Q1 wh ere d0es ph0t0synthes is 0ccur ?  ___________
+Q2 nam e tw0 pr0ducts ___________  ___________
