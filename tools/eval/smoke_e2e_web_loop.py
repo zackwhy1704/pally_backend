@@ -84,7 +84,11 @@ COMPILE_TIMEOUT_S = int(os.environ.get("COMPILE_TIMEOUT_S", "300"))
 # Compile is ASYNC: upload auto-triggers a recompile debounced by WIKI_DEBOUNCE_MS
 # (8s default), then an off-request ai-task thread runs it. So we must POLL until
 # the avatar's brainState is terminal, not read the result right after the 202.
-COMPILE_POLL_TIMEOUT_S = int(os.environ.get("COMPILE_POLL_TIMEOUT_S", "90"))
+# 180s: a 2-doc upload compiles SEQUENTIALLY (doc1 immediate, then a dirty-requeue
+# for doc2), each a real Gemini compile — and that's the genuine UX wait a centre
+# teacher sees on a multi-doc upload, not slack. brainState==READY stays the only
+# success condition; this just gives the real compile chain time to settle.
+COMPILE_POLL_TIMEOUT_S = int(os.environ.get("COMPILE_POLL_TIMEOUT_S", "180"))
 COMPILE_POLL_INTERVAL_S = int(os.environ.get("COMPILE_POLL_INTERVAL_S", "3"))
 OUT = HERE / "out" / ("e2e_web_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
@@ -287,24 +291,19 @@ def best_effort_delete(api, who):
 
 # ─────────────────── compile poller ───────────────────
 def compile_and_poll(api, avatar, label):
-    """Fire compile, then POLL the avatar brainState until the async compile
-    reaches a terminal state — READY (success) or FAILED — bounded by
-    COMPILE_POLL_TIMEOUT_S. The compile runs off-request (ai-task threads) after
-    a debounce, so the result must NOT be read right after the 202: brainState
-    moves PENDING_RECOMPILE → COMPILING → READY, and compile/status returns NONE
-    during the debounce gap (not terminal). Pages are read only AFTER the loop.
+    """Do NOT trigger a compile here — the upload ALREADY auto-triggers one
+    (first-upload-immediate + a dirty-requeue recompile for later docs). An extra
+    explicit POST /wiki/compile just adds another compile to the chain and keeps
+    the brain COMPILING longer — that's exactly why a prior run timed out at 90s
+    while the content was already live. Instead, just POLL the avatar brainState
+    until terminal: READY (success, brainState flips to READY on every runCompile
+    completion) or FAILED. A multi-doc upload compiles SEQUENTIALLY (doc1, then a
+    dirty-requeue for doc2), so allow realistic time. Pages read only after.
 
     Returns outcome ∈ {READY, FAILED, TIMEOUT} plus the last brainState/status
     and the pages, so the caller can tell a finished compile from a still-running
     one and a still-running one from a genuinely stuck pipeline."""
-    try:
-        rc = api.post(f"/api/v1/avatars/{avatar}/wiki/compile", {}, timeout=COMPILE_TIMEOUT_S)
-        compile_http = rc.status_code
-        (OUT / f"compile_{label}.json").write_text(rc.text)
-    except requests.RequestException as e:
-        compile_http = f"EXC:{type(e).__name__}"
-        (OUT / f"compile_{label}.json").write_text(json.dumps({"exception": str(e)}))
-
+    compile_http = "auto (upload-triggered, no explicit POST)"
     brain_state, comp_state, status, outcome = "?", "?", {}, "TIMEOUT"
     deadline = time.time() + COMPILE_POLL_TIMEOUT_S
     while time.time() < deadline:
@@ -326,6 +325,9 @@ def compile_and_poll(api, avatar, label):
             break
         time.sleep(COMPILE_POLL_INTERVAL_S)
 
+    # Persist the final compile/status (for failed-page inspection downstream) +
+    # the pages — read only AFTER the compile settled.
+    (OUT / f"compile_{label}.json").write_text(json.dumps(status, indent=2, default=str))
     pages_data = unwrap(api.get(f"/api/v1/avatars/{avatar}/wiki/pages"))
     pages = as_list(pages_data, "pages")
     (OUT / f"pages_{label}.json").write_text(json.dumps(pages, indent=2, default=str))
@@ -713,9 +715,19 @@ def main():
         # SUBMISSION DURABILITY: fresh request must see the persisted XP gain.
         progress_after = unwrap(student_api.get("/api/v1/progress"))
         xp_after = progress_after.get("xp", 0) if isinstance(progress_after, dict) else 0
-        stage("progress_durability", "-", f"xp {xp_before} -> {xp_after}")
+        # Capture BOTH raw /progress bodies + the submit's reported xpEarned. The
+        # write (addXpAndStars→UPDATE users SET xp=xp+delta) and read
+        # (GetProgressUseCase→User.xp, serialised as ProgressResponse.xp) are the
+        # SAME field, so "submit said +N, /progress says 0" is either a real
+        # non-persisting write or a harness mis-read — this artifact settles which.
+        stage("progress_durability", "-",
+              f"submit_xpEarned={normal_xp} progress_xp {xp_before} -> {xp_after}",
+              {"submit_xpEarned": normal_xp,
+               "progress_before": progress_before,
+               "progress_after": progress_after})
         check("SUBMISSION DURABILITY: XP persisted on fresh fetch",
-              xp_after > xp_before, f"xp > {xp_before}", xp_after)
+              xp_after > xp_before,
+              f"xp > {xp_before} (submit reported xpEarned=+{normal_xp})", xp_after)
 
         # ── 7. Display: every web data endpoint parses to expected shape ──
         log("STAGE 7 — web display endpoints shape")
