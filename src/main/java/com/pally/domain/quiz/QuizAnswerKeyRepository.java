@@ -1,5 +1,6 @@
 package com.pally.domain.quiz;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -32,4 +33,14 @@ public interface QuizAnswerKeyRepository {
      * "no server key" so the caller can decide its fallback.
      */
     Map<String, Integer> findCorrectIndexes(Collection<String> questionIds);
+
+    /**
+     * Deletes answer keys created before {@code cutoff}. A daily reaper calls
+     * this so the table doesn't grow unbounded — keys are only useful for the
+     * day's quiz, so anything past the retention window is dead weight at scale
+     * (~5 rows × every quiz × every student × every day).
+     *
+     * @return the number of keys removed
+     */
+    int deleteOlderThan(Instant cutoff);
 }

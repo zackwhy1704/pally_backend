@@ -4,6 +4,7 @@ import com.pally.domain.quiz.QuizAnswerKeyRepository;
 import com.pally.domain.quiz.QuizQuestion;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -41,5 +42,11 @@ public class QuizAnswerKeyRepositoryAdapter implements QuizAnswerKeyRepository {
                         QuizAnswerKeyJpaEntity::getQuestionId,
                         QuizAnswerKeyJpaEntity::getCorrectIndex,
                         (a, b) -> a));
+    }
+
+    @Override
+    @Transactional
+    public int deleteOlderThan(Instant cutoff) {
+        return jpa.deleteByCreatedAtBefore(cutoff);
     }
 }
