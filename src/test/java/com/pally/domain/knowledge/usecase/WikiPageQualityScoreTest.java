@@ -68,7 +68,8 @@ class WikiPageQualityScoreTest {
                 wikiRepository, avatarRepository, hintTreeGenerator,
                 flashcardGenerator, claudeApiClient, modelRouter, wikiPageSourceRepo,
                 moduleContentGenerator, learningModuleRepository, wikiQualityVerifier,
-                selfProvider);
+                selfProvider,
+                org.mockito.Mockito.mock(com.pally.domain.knowledge.WikiConflictService.class));
         org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(service);
 
         avatar = Avatar.reconstitute(

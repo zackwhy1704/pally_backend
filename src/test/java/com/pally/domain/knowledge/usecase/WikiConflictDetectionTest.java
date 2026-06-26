@@ -48,7 +48,8 @@ class WikiConflictDetectionTest {
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
                 moduleContentGenerator, learningModuleRepository, new WikiQualityVerifier(),
-                selfProvider);
+                selfProvider,
+                org.mockito.Mockito.mock(com.pally.domain.knowledge.WikiConflictService.class));
     }
 
     // ── STEP 1 positives: the deterministic fact diff (no LLM) ──────────────────

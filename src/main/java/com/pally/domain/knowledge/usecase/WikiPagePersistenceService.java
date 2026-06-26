@@ -72,6 +72,7 @@ public class WikiPagePersistenceService {
     /// REQUIRES_NEW transaction. A self-invocation would bypass the proxy and
     /// lose the transaction boundary, so we go through the provider.
     private final ObjectProvider<WikiPagePersistenceService> selfProvider;
+    private final com.pally.domain.knowledge.WikiConflictService wikiConflictService;
 
     public record PersistOutcome(
             int created,
@@ -205,8 +206,23 @@ public class WikiPagePersistenceService {
         boolean created;
         if (existing.isPresent()) {
             WikiPage existingPage = existing.get();
-            ConflictResult conflict = detectConflict(
-                    existingPage.getContent(), draft.content());
+            String oldContent = existingPage.getContent();
+
+            // Part A: a teacher-RESOLVED page is locked. A recompile must NOT silently
+            // overwrite it — if the new draft would change it, queue a NEW conflict for
+            // the teacher and keep the canonical content live for students.
+            if (wikiConflictService.isResolvedLocked(avatarId, slug)) {
+                if (!normalizedEquals(oldContent, draft.content())) {
+                    ConflictResult c = detectConflict(oldContent, draft.content());
+                    wikiConflictService.open(avatarId, slug, oldContent, draft.content(),
+                            c.conflict() ? c.note() : "A recompile would change a teacher-resolved page.",
+                            c.conflict() ? c.confidence() : ConflictResult.PROSE);
+                }
+                writeProvenanceRows(existingPage.getId(), sourceFiles);
+                return new WriteResult(false, existingPage.getTitle());
+            }
+
+            ConflictResult conflict = detectConflict(oldContent, draft.content());
             existingPage.updateContent(
                     draft.title(), draft.content(), WikiPage.Certainty.INFERRED);
             if (conflict.conflict()) {
@@ -216,6 +232,9 @@ public class WikiPagePersistenceService {
                 }
                 log.warn("[Wiki] Conflict flagged on slug={} for avatar={} note={}",
                         slug, avatarId, conflict.note());
+                // Part A: route to the teacher queue (newest value stays live; no quarantine).
+                wikiConflictService.open(avatarId, slug, oldContent, draft.content(),
+                        conflict.note(), conflict.confidence());
             }
             if (draft.prerequisites() != null
                     && !draft.prerequisites().isEmpty()) {
@@ -259,6 +278,14 @@ public class WikiPagePersistenceService {
     /// Most-specific cause message for a per-page failure — for a DataIntegrity this
     /// includes the constraint/column that rejected the write, so the failure is
     /// attributable in the failedPages report (e.g. "...conflict_note...").
+    /// Whitespace-insensitive content comparison so a benign Gemini re-wording of a
+    /// resolved page isn't treated as a change.
+    private static boolean normalizedEquals(String a, String b) {
+        String na = a == null ? "" : a.replaceAll("\\s+", " ").trim();
+        String nb = b == null ? "" : b.replaceAll("\\s+", " ").trim();
+        return na.equals(nb);
+    }
+
     private static String rootCauseMessage(Throwable t) {
         Throwable cur = t;
         while (cur.getCause() != null && cur.getCause() != cur) {
@@ -320,9 +347,16 @@ public class WikiPagePersistenceService {
     /// short human-readable reason (only populated on the Haiku gray-band path,
     /// which is the only path that produces an explanation). The lexical-only
     /// block path leaves {@code note} null.
-    record ConflictResult(boolean conflict, String note) {
-        static final ConflictResult NONE = new ConflictResult(false, null);
-        static ConflictResult conflict(String note) { return new ConflictResult(true, note); }
+    record ConflictResult(boolean conflict, String note, String confidence) {
+        static final ConflictResult NONE = new ConflictResult(false, null, null);
+        /// Confidence tags for the teacher queue (Part A): exact fact diff vs LLM prose call.
+        static final String DETERMINISTIC = "DETERMINISTIC";
+        static final String PROSE = "PROSE";
+        static ConflictResult conflict(String note, String confidence) {
+            return new ConflictResult(true, note, confidence);
+        }
+        /// Back-compat: a conflict with no explicit confidence is treated as PROSE.
+        static ConflictResult conflict(String note) { return new ConflictResult(true, note, PROSE); }
     }
 
     /// Two-stage conflict detection (B-B3):
@@ -346,7 +380,7 @@ public class WikiPagePersistenceService {
         String factNote = detectFactConflict(existingContent, newContent);
         if (factNote != null) {
             log.info("[Wiki] Deterministic fact conflict: {}", factNote);
-            return ConflictResult.conflict(factNote);
+            return ConflictResult.conflict(factNote, ConflictResult.DETERMINISTIC);
         }
 
         Set<String> a = tokenize(existingContent);

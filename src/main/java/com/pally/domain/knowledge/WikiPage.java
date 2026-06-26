@@ -148,6 +148,16 @@ public final class WikiPage {
         this.updatedAt = Instant.now();
     }
 
+    /// A teacher's fact-conflict resolution: set the canonical content and clear the
+    /// conflict flag. The {@code wiki_conflict} RESOLVED row is the durable lock that
+    /// stops a later recompile from silently overwriting this (Part A).
+    public void applyResolution(String canonicalContent) {
+        this.content = canonicalContent;
+        this.hasConflict = false;
+        this.conflictNote = null;
+        this.updatedAt = Instant.now();
+    }
+
     public void applyHumanCorrection(String correction) {
         this.humanCorrection = correction;
         this.correctionAt = Instant.now();
