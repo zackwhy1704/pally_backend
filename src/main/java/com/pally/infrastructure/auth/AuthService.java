@@ -38,6 +38,8 @@ public class AuthService {
     private final com.pally.domain.progress.BadgeService badgeService;
     private final com.pally.domain.progress.StreakService streakService;
     private final PremiumService premiumService;
+    private final com.pally.domain.consent.UserAgeService userAgeService;
+    private final com.pally.domain.consent.ConsentService consentService;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -52,6 +54,13 @@ public class AuthService {
     @Transactional
     public AuthResponse register(
             String email, String password, String displayName, String role, Integer birthYear) {
+        return register(email, password, displayName, role, birthYear, null);
+    }
+
+    @Transactional
+    public AuthResponse register(
+            String email, String password, String displayName, String role,
+            Integer birthYear, String parentEmail) {
         if (userRepo.existsByEmail(email)) {
             throw new BusinessException("Email already registered", 409);
         }
@@ -64,6 +73,14 @@ public class AuthService {
             if (birthYear < 1950 || birthYear > currentYear) {
                 throw new BusinessException("Birth year must be between 1950 and " + currentYear, 400);
             }
+        }
+
+        boolean isParent = "parent".equalsIgnoreCase(role);
+        boolean under13 = !isParent && userAgeService.isUnder13(birthYear);
+        // DEFAULT-DENY at the entry: no under-13 account without a parent/guardian email.
+        if (under13 && (parentEmail == null || parentEmail.isBlank())) {
+            throw new BusinessException(
+                    "A parent or guardian email is required to create an account for a child under 13", 400);
         }
 
         UserJpaEntity user = new UserJpaEntity();
@@ -87,11 +104,18 @@ public class AuthService {
         }
         userRepo.save(user);
 
-        log.info("[Auth] Registered new user id={} role={}", user.getId(), user.getAccountType());
+        log.info("[Auth] Registered new user id={} role={} under13={}",
+                user.getId(), user.getAccountType(), under13);
         characterShopService.seedDefaultUnlocks(user.getId());
-        // Grant 7-day cardless trial immediately for new 13+ accounts.
-        // Under-13 (PENDING) trial starts at consent-approval, not here.
-        premiumService.grantTrial(user.getId());
+        if (under13) {
+            // Half-elevated state: emails the parent a one-tap approval token and sets
+            // accountStatus PENDING_CONSENT. The child can log in + use centre lessons,
+            // but cannot upload own notes until approved. Trial starts at approval.
+            consentService.requestParentConsent(user.getId(), parentEmail);
+        } else {
+            // 7-day cardless trial immediately for new 13+ accounts.
+            premiumService.grantTrial(user.getId());
+        }
         String token = jwtService.generateToken(user.getId(), user.getRole());
         return new AuthResponse(user.getId(), token, true, false, user.getAccountType());
     }

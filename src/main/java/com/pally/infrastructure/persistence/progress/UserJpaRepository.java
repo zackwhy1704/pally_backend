@@ -27,6 +27,11 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
 
     List<UserJpaEntity> findByAccountType(AccountType accountType);
 
+    /// Reaper query: accounts stuck in a status (e.g. PENDING_CONSENT) since before
+    /// a cutoff — used to delete never-approved under-13 accounts (Part B retention).
+    List<UserJpaEntity> findByAccountStatusAndCreatedAtBefore(
+            String accountStatus, java.time.Instant createdAt);
+
     int countByParentId(String parentId);
 
     Optional<UserJpaEntity> findByReferralCode(String referralCode);

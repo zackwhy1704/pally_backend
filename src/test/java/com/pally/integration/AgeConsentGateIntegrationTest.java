@@ -41,6 +41,9 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
     @Autowired
     private UserJpaRepository userRepo;
 
+    @Autowired
+    private com.pally.domain.consent.ConsentRepository consentRepository;
+
     private String avatarId;
 
     @BeforeEach
@@ -67,28 +70,52 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void under13_noParent_upload_blockedWithParentLinkRequired_thenAllowedAfterLink() {
-        AuthResult kid = registerUserWithBirthYear(
-                "kid-" + System.nanoTime() + "@test.com", "password123", sgYear() - 10);
+    void under13_registerWithoutParentEmail_isRejected() {
+        Map<String, Object> body = Map.of(
+                "email", "noparent-" + System.nanoTime() + "@test.com",
+                "password", "password123", "displayName", "Kid",
+                "birthYear", sgYear() - 10); // under-13, no parentEmail
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<Map> resp = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, headers), Map.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void under13_pending_cannotCreatePersonalTutor_untilParentApproves() {
+        AuthResult kid = registerUnder13("kid-" + System.nanoTime() + "@test.com",
+                "password123", sgYear() - 10, "parent@test.com");
+        // Created PENDING_PARENTAL_CONSENT.
+        assertThat(userRepo.findById(kid.userId()).orElseThrow().getAccountStatus())
+                .isEqualTo("PENDING_CONSENT");
+
+        // Pending → blocked from new-child-data (personal tutor creation).
+        ResponseEntity<Map> blocked = post("/api/v1/avatars", kid.token(),
+                Map.of("name", "MathBot", "subject", "MATHS", "characterType", "MOCHI"));
+        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void under13_afterParentApproval_isActive_andCanUpload() {
+        AuthResult kid = registerUnder13("approve-" + System.nanoTime() + "@test.com",
+                "password123", sgYear() - 10, "parent@test.com");
+
+        // Parent opens the one-tap email link → approve token → ACTIVE.
+        String token = consentRepository.findLatestRequestByChildUserIdAndStatus(
+                kid.userId(),
+                com.pally.domain.consent.ConsentRepository.ConsentRequest.STATUS_PENDING)
+                .orElseThrow().token();
+        ResponseEntity<Map> approve = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/consent/approve?token=" + token,
+                new HttpEntity<>(new HttpHeaders()), Map.class);
+        assertThat(approve.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(userRepo.findById(kid.userId()).orElseThrow().getAccountStatus())
+                .isEqualTo("ACTIVE");
+
+        // Now ACTIVE + parental consent recorded → upload allowed.
         grantAiConsent(kid.token());
         avatarId = createAvatar(kid.token());
-
-        // Under-13, no parent linked → blocked.
-        ResponseEntity<Map> blocked = uploadBytes(kid.token(),
-                "Fractions: numerator over denominator.".getBytes(StandardCharsets.UTF_8),
-                "frac.txt", "text/plain");
-        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-        Map<String, Object> data = (Map<String, Object>) blocked.getBody().get("data");
-        assertThat(data).containsEntry("code", "PARENT_LINK_REQUIRED");
-
-        // Link a real parent account (FK-constrained). The claim flow records
-        // consent + sets parentId; we set parentId directly to the parent's id.
-        AuthResult parent = registerUser("parent-" + System.nanoTime() + "@test.com", "password123");
-        UserJpaEntity child = userRepo.findById(kid.userId()).orElseThrow();
-        child.setParentId(parent.userId());
-        userRepo.save(child);
-
-        // Now allowed.
         ResponseEntity<Map> allowed = uploadBytes(kid.token(),
                 "Fractions: numerator over denominator.".getBytes(StandardCharsets.UTF_8),
                 "frac.txt", "text/plain");
@@ -109,31 +136,22 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void noBirthYear_consented_treatedAs13Plus_allowed() {
-        AuthResult user = registerConsentedUser(
-                "noyear-" + System.nanoTime() + "@test.com", "password123");
+    void noBirthYear_upload_isDefaultDenied_notTreatedAs13Plus() {
+        // DEFAULT-DENY (child safety): age not on file ⇒ we can't establish 13+, so
+        // uploading own notes is blocked (AGE_DECLARATION_REQUIRED) — NOT allowed. A
+        // child must not bypass the gate by omitting their birth year. (The account is
+        // ACTIVE so tutor creation still works; only new-child-data ingestion is gated.)
+        // A genuine NO-birth-year account (registerUser stores none), AI-consented.
+        AuthResult user = registerUser("noyear-" + System.nanoTime() + "@test.com", "password123");
+        grantAiConsent(user.token());
         avatarId = createAvatar(user.token());
 
         ResponseEntity<Map> resp = uploadBytes(user.token(),
                 "Fractions: numerator over denominator.".getBytes(StandardCharsets.UTF_8),
                 "frac.txt", "text/plain");
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-    }
-
-    @Test
-    void under13_unconsentedUser_hitsAiConsentRequired() {
-        // AI consent gate only applies to under-13 users. Register without
-        // calling grantAiConsent so the gate fires.
-        AuthResult kid = registerUserWithBirthYear(
-                "noconsent-" + System.nanoTime() + "@test.com", "password123", sgYear() - 10);
-        avatarId = createAvatar(kid.token());
-
-        ResponseEntity<Map> resp = uploadBytes(kid.token(),
-                "Fractions: numerator over denominator.".getBytes(StandardCharsets.UTF_8),
-                "frac.txt", "text/plain");
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         Map<String, Object> data = (Map<String, Object>) resp.getBody().get("data");
-        assertThat(data).containsEntry("code", "AI_CONSENT_REQUIRED");
+        assertThat(data).containsEntry("reason", "AGE_DECLARATION_REQUIRED");
     }
 
     @Test
@@ -155,10 +173,27 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
 
     @Test
     void register_storesBirthYear_onStudentPath() {
-        AuthResult kid = registerUserWithBirthYear(
-                "store-" + System.nanoTime() + "@test.com", "password123", sgYear() - 10);
-        UserJpaEntity saved = userRepo.findById(kid.userId()).orElseThrow();
-        assertThat(saved.getBirthYear()).isEqualTo(sgYear() - 10);
+        // 13+ student (no parent email needed) — proves the year is stored server-side.
+        AuthResult teen = registerUserWithBirthYear(
+                "store-" + System.nanoTime() + "@test.com", "password123", sgYear() - 16);
+        UserJpaEntity saved = userRepo.findById(teen.userId()).orElseThrow();
+        assertThat(saved.getBirthYear()).isEqualTo(sgYear() - 16);
+    }
+
+    @Test
+    void under13_pending_canStillReadCentreContent_loginNotBlocked() {
+        // Half-elevated state: a pending under-13 can authenticate and read content
+        // (centre lessons are monitored). Login + a GET must NOT be gated.
+        String email = "read-" + System.nanoTime() + "@test.com";
+        AuthResult kid = registerUnder13(email, "password123", sgYear() - 10, "parent@test.com");
+        // Login is not blocked for a pending child.
+        AuthResult relog = loginUser(email, "password123");
+        assertThat(relog.token()).isNotBlank();
+        // And an authenticated read endpoint is reachable while pending (not 403).
+        ResponseEntity<Map> avatars = restTemplate.exchange(
+                baseUrl() + "/api/v1/avatars", HttpMethod.GET,
+                new HttpEntity<>(authHeaders(kid.token())), Map.class);
+        assertThat(avatars.getStatusCode()).isEqualTo(HttpStatus.OK); // not 403
     }
 
     @Test

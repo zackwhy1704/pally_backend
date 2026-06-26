@@ -67,7 +67,7 @@ public class AuthController {
     ) {
         AuthResponse result = authService.register(
                 request.email(), request.password(), request.displayName(),
-                request.role(), request.birthYear());
+                request.role(), request.birthYear(), request.parentEmail());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(result));
     }
 

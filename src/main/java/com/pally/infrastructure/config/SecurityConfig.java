@@ -68,6 +68,10 @@ public class SecurityConfig {
                     // in responses). The owner-side create/revoke/list endpoints
                     // live under /api/v1/wiki-pages/** and stay authenticated.
                     "/api/v1/review/**",
+                    // Parental consent approval — followed from a one-tap EMAIL link by
+                    // the parent, who has no app session. Token-authenticated inside the
+                    // handler (single-use, expiring), not by JWT. Must be public.
+                    "/api/v1/consent/approve",
                     "/actuator/health",
                     "/actuator/info",
                     "/actuator/prometheus",

@@ -25,5 +25,11 @@ public record RegisterRequest(
         /// treated as 13+. The dynamic upper bound (≤ current year) is enforced
         /// server-side in AuthService since an annotation can't reference "now".
         @Min(value = 1950, message = "Birth year must be 1950 or later")
-        Integer birthYear
+        Integer birthYear,
+
+        /// Parent/guardian email — REQUIRED server-side when birthYear places the
+        /// signer under 13 (PDPC 2024). Ignored for 13+ signups.
+        @Email(message = "Parent email must be a valid address")
+        @Size(max = 255, message = "Parent email must be 255 characters or fewer")
+        String parentEmail
 ) {}

@@ -46,16 +46,24 @@ public class ConsentGuard {
     /// Use with {@link #requireGuardianIfUnder13(String)}.
     public static final String REASON_PARENT_LINK_REQUIRED = "PARENT_LINK_REQUIRED";
 
+    /// Reason code for the DEFAULT-DENY case: age is not on file, so we cannot
+    /// establish the user is 13+. The client must collect a declared age before any
+    /// new-child-data action proceeds — a child must not bypass by omitting it.
+    public static final String REASON_AGE_DECLARATION_REQUIRED = "AGE_DECLARATION_REQUIRED";
+
     private final UserRepository userRepo;
     private final ConsentRecordJpaRepository consentRecordRepo;
     private final UserAgeService userAgeService;
+    private final com.pally.domain.consent.ConsentRepository consentRepository;
 
     public ConsentGuard(UserRepository userRepo,
                         ConsentRecordJpaRepository consentRecordRepo,
-                        UserAgeService userAgeService) {
+                        UserAgeService userAgeService,
+                        com.pally.domain.consent.ConsentRepository consentRepository) {
         this.userRepo = userRepo;
         this.consentRecordRepo = consentRecordRepo;
         this.userAgeService = userAgeService;
+        this.consentRepository = consentRepository;
     }
 
     /**
@@ -147,6 +155,50 @@ public class ConsentGuard {
         boolean parentLinked = user.getParentId() != null && !user.getParentId().isBlank();
         if (!parentLinked) {
             log.info("[Consent] under-13 user={} blocked — no parent linked", userId);
+            throw new GuardianRequiredException(REASON_PARENT_LINK_REQUIRED);
+        }
+    }
+
+    /**
+     * DEFAULT-DENY gate for ingesting NEW child data (uploading own notes, personal
+     * avatar creation, free-form AI chat input). Unlike {@link #requireGuardianIfUnder13}
+     * — which fails OPEN on unknown age and so only catches honest self-declarers — this
+     * fails CLOSED:
+     * <ul>
+     *   <li>age not on file ({@code birthYear == null}) → throw
+     *       {@link #REASON_AGE_DECLARATION_REQUIRED}: we can't establish 13+, so the
+     *       client must collect a declared age first. A child can't slip through by
+     *       leaving age blank.</li>
+     *   <li>under 13 without recorded parental consent → throw
+     *       {@link #REASON_PARENT_LINK_REQUIRED}. Consent counts when an APPROVED
+     *       parental-consent request exists (the email-token flow) OR a parent is linked
+     *       ({@code parentId}).</li>
+     *   <li>established 13+ → allow.</li>
+     * </ul>
+     *
+     * <p>Does NOT gate login or centre-content consumption / lessons — those stay open
+     * for a pending child (the centre monitors that data). Only NEW personal-data
+     * ingestion is restricted.
+     */
+    public void requireParentalConsentForChildData(String userId) {
+        User user = userRepo.findById(userId).orElse(null);
+        if (user == null) {
+            return; // auth already passed; a missing row is handled downstream
+        }
+        if (user.getBirthYear() == null) {
+            log.info("[Consent] child-data blocked user={} — age not declared (default-deny)", userId);
+            throw new GuardianRequiredException(REASON_AGE_DECLARATION_REQUIRED);
+        }
+        if (!userAgeService.isUnder13(user)) {
+            return; // established 13+ → self-consent
+        }
+        boolean parentLinked = user.getParentId() != null && !user.getParentId().isBlank();
+        boolean parentApproved = consentRepository
+                .findLatestRequestByChildUserIdAndStatus(
+                        userId, com.pally.domain.consent.ConsentRepository.ConsentRequest.STATUS_APPROVED)
+                .isPresent();
+        if (!parentLinked && !parentApproved) {
+            log.info("[Consent] under-13 user={} blocked — no recorded parental consent", userId);
             throw new GuardianRequiredException(REASON_PARENT_LINK_REQUIRED);
         }
     }

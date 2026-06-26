@@ -46,7 +46,7 @@ class AiConsentGateTest {
     private static final int OVER_13_BIRTH_YEAR = 2010;
 
     private ConsentGuard guard() {
-        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService());
+        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(), org.mockito.Mockito.mock(com.pally.domain.consent.ConsentRepository.class));
     }
 
     private User under13User() {

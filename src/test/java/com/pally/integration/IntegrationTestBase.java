@@ -248,6 +248,26 @@ public abstract class IntegrationTestBase {
     }
 
     /**
+     * Registers an UNDER-13 student with a mandatory parent email — the account is
+     * created PENDING_PARENTAL_CONSENT (blocked from new-child-data until approved).
+     */
+    protected AuthResult registerUnder13(String email, String password, int birthYear, String parentEmail) {
+        Map<String, Object> body = Map.of(
+                "email", email, "password", password, "displayName", "Kid",
+                "birthYear", birthYear, "parentEmail", parentEmail);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<Map> response = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, headers), Map.class);
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+            return new AuthResult((String) data.get("userId"), (String) data.get("token"));
+        }
+        throw new RuntimeException("Under-13 registration failed: " + response.getStatusCode()
+                + " body=" + (response.getBody() != null ? response.getBody().toString() : "null"));
+    }
+
+    /**
      * Grants the always-on third-party AI data-transfer consent for a user so
      * that chat / upload paths are not blocked by the AI-disclosure gate. Mirrors
      * the real client flow: POST /api/v1/consent/ai-data-transfer.
@@ -267,7 +287,10 @@ public abstract class IntegrationTestBase {
      * for any test that exercises chat or upload happy paths.
      */
     protected AuthResult registerConsentedUser(String email, String password) {
-        AuthResult auth = registerUser(email, password);
+        // Establish a 13+ birth year so the default-deny child-data gate is a no-op for
+        // the common upload/chat happy-path users (an unknown age is now denied).
+        int teenYear = java.time.Year.now(java.time.ZoneId.of("Asia/Singapore")).getValue() - 18;
+        AuthResult auth = registerUserWithBirthYear(email, password, teenYear);
         grantAiConsent(auth.token());
         return auth;
     }
