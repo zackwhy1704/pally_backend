@@ -25,8 +25,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Atomic persistence step of the wiki compile pipeline. Split out from
@@ -296,7 +300,7 @@ public class WikiPagePersistenceService {
     ///     paraphrase-vs-contradiction cases like "boils at 100°C" vs
     ///     "boils at 90°C" that lexical alone would miss/false-fire on.
     /// Only runs on slug collisions, so the LLM cost stays negligible.
-    private ConflictResult detectConflict(String existingContent, String newContent) {
+    ConflictResult detectConflict(String existingContent, String newContent) {
         if (existingContent == null || newContent == null) return ConflictResult.NONE;
         Set<String> a = tokenize(existingContent);
         Set<String> b = tokenize(newContent);
@@ -306,11 +310,89 @@ public class WikiPagePersistenceService {
         Set<String> union = new HashSet<>(a);
         union.addAll(b);
         double jaccard = (double) intersection.size() / union.size();
-        if (jaccard >= CONFLICT_GRAY_BELOW) return ConflictResult.NONE;
+        if (jaccard >= CONFLICT_GRAY_BELOW) {
+            // The high-overlap band used to auto-pass — but a single factual flip
+            // (a number/unit/date/proper-noun swapped IN MATCHING CONTEXT) keeps
+            // Jaccard high while being a real contradiction, e.g. "38 ATP" vs
+            // "36 ATP" (≈0.83). That is exactly the contradiction class that matters
+            // most and the one a token-set similarity is blindest to. A deterministic
+            // fact diff catches it precisely, where an LLM equality judge is
+            // unreliable. Genuine prose-level disagreements still fall to the
+            // gray-band Haiku below; this only adds an exact pre-check on this band.
+            String factNote = detectFactConflict(existingContent, newContent);
+            if (factNote != null) {
+                log.info("[Wiki] Deterministic fact conflict (jaccard={}): {}",
+                        String.format("%.2f", jaccard), factNote);
+                return ConflictResult.conflict(factNote);
+            }
+            return ConflictResult.NONE;
+        }
         // Lexical block band: too little overlap for the two passages to be the
         // same fact. No Haiku reason available, so the note stays null.
         if (jaccard < CONFLICT_BLOCK_BELOW) return ConflictResult.conflict(null);
         return haikuContradicts(existingContent, newContent, jaccard);
+    }
+
+    private static final Pattern FACT_WORD = Pattern.compile("[A-Za-z]+|\\d+(?:[.,]\\d+)?");
+
+    /// Deterministic fact-level diff for the high-overlap band: returns a concrete
+    /// note (e.g. {@code "produces atp: 38 vs 36"}) when a number or proper noun
+    /// appears in BOTH passages under the same surrounding context but with a
+    /// DIFFERENT value — a real contradiction hidden inside otherwise-similar prose.
+    /// Returns null otherwise: a paraphrase (different context) or a superset (added
+    /// detail, no clashing value) stays null, so the fix doesn't manufacture false
+    /// positives. Exact and reliable where an LLM is not (numeric/unit/date equality).
+    static String detectFactConflict(String existing, String incoming) {
+        Map<String, String> fa = factMap(existing);
+        if (fa.isEmpty()) return null;
+        Map<String, String> fb = factMap(incoming);
+        for (Map.Entry<String, String> e : fa.entrySet()) {
+            String other = fb.get(e.getKey());
+            if (other != null && !other.equalsIgnoreCase(e.getValue())) {
+                String ctx = e.getKey().replace(" | ", " ").trim();
+                return (ctx.isEmpty() ? "value" : ctx) + ": " + e.getValue() + " vs " + other;
+            }
+        }
+        return null;
+    }
+
+    /// Maps each fact (a number, or a mixed-case proper noun) to its lowercased
+    /// context window — up to two preceding words plus the next word, numbers
+    /// excluded from the context. Sentence-split so a capitalised sentence-START
+    /// word isn't mistaken for a proper noun. A fact with no surrounding words is
+    /// skipped (too weak a key to match reliably). First value per context wins.
+    static Map<String, String> factMap(String text) {
+        Map<String, String> map = new LinkedHashMap<>();
+        if (text == null || text.isBlank()) return map;
+        for (String sentence : text.split("(?<=[.!?])\\s+")) {
+            List<String> words = new ArrayList<>();
+            Matcher m = FACT_WORD.matcher(sentence);
+            while (m.find()) words.add(m.group());
+            for (int i = 0; i < words.size(); i++) {
+                String w = words.get(i);
+                boolean isNumber = w.matches("\\d+(?:[.,]\\d+)?");
+                boolean isProperNoun = i > 0 && w.length() >= 2
+                        && Character.isUpperCase(w.charAt(0))
+                        && w.substring(1).chars().anyMatch(Character::isLowerCase);
+                if (!isNumber && !isProperNoun) continue;
+                String ctx = factContext(words, i);
+                if (!ctx.isEmpty()) map.putIfAbsent(ctx, w);
+            }
+        }
+        return map;
+    }
+
+    private static String factContext(List<String> words, int idx) {
+        List<String> pre = new ArrayList<>();
+        for (int j = idx - 1; j >= 0 && pre.size() < 2; j--) {
+            if (!words.get(j).matches("\\d.*")) pre.add(0, words.get(j).toLowerCase());
+        }
+        String post = "";
+        for (int j = idx + 1; j < words.size(); j++) {
+            if (!words.get(j).matches("\\d.*")) { post = words.get(j).toLowerCase(); break; }
+        }
+        if (pre.isEmpty() && post.isEmpty()) return ""; // no context ⇒ unreliable key
+        return String.join(" ", pre) + " | " + post;
     }
 
     private ConflictResult haikuContradicts(String existing, String incoming, double jaccard) {
