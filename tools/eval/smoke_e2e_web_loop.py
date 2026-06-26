@@ -306,23 +306,32 @@ def compile_and_poll(api, avatar, label):
     compile_http = "auto (upload-triggered, no explicit POST)"
     brain_state, comp_state, status, outcome = "?", "?", {}, "TIMEOUT"
     deadline = time.time() + COMPILE_POLL_TIMEOUT_S
+    # Terminal SUCCESS is a STABLE brainState==READY — READY that PERSISTS for
+    # READY_STABLE_S. The brain reaches READY transiently after the FIRST doc's
+    # compile while a later doc's debounced recompile is still queued; it then
+    # flips PENDING_RECOMPILE → COMPILING → READY. Accepting the first READY tests
+    # a PARTIAL compile (doc1 only, 1 page — why FACT_2 from doc2 went missing one
+    # run and was present the next). Requiring READY to hold past the debounce
+    # window catches the pending recompile. This is STRICTER than "first READY".
+    READY_STABLE_S = 12  # > WIKI_DEBOUNCE_MS (8s) so a queued recompile resets it
+    ready_since = None
     while time.time() < deadline:
         st = unwrap(api.get(f"/api/v1/avatars/{avatar}/wiki/compile/status"))
         status = st if isinstance(st, dict) else {}
         comp_state = (status.get("state") or "?").upper()
         av = unwrap(api.get(f"/api/v1/avatars/{avatar}"))
         brain_state = ((av.get("brainState") if isinstance(av, dict) else "?") or "?").upper()
-        # Terminal SUCCESS is brainState==READY ONLY — the avatar's content is
-        # fully compiled and settled. Do NOT accept compileState==DONE while the
-        # brain is still PENDING_RECOMPILE: that's a PARTIAL compile (e.g. doc1
-        # done, doc2's debounced recompile still queued), and proceeding on it
-        # tests incomplete content (it's why FACT_2 from the 2nd doc went missing).
-        if brain_state == "READY":
-            outcome = "READY"
-            break
         if brain_state == "FAILED" or comp_state == "FAILED":
             outcome = "FAILED"
             break
+        if brain_state == "READY":
+            if ready_since is None:
+                ready_since = time.time()
+            elif time.time() - ready_since >= READY_STABLE_S:
+                outcome = "READY"
+                break
+        else:
+            ready_since = None  # a (re)compile is in progress — reset the window
         time.sleep(COMPILE_POLL_INTERVAL_S)
 
     # Persist the final compile/status (for failed-page inspection downstream) +
@@ -838,10 +847,6 @@ def main():
             t_total = tres.get("total")
             stage("grade_integrity_tamper", tamper.status_code,
                   f"tampered_score={t_score}/{t_total}", tamper.text)
-            # client-authoritative == the tampered map produced a perfect score for
-            # objectively-wrong answers. Post-fix this must be NO (server ignores the
-            # map). If we knew the real answers (revealed_keys) the wrong answers are
-            # guaranteed wrong, so a NO here is a hard proof, not luck.
             perfect_on_wrong = (
                 tamper.status_code in (200, 201)
                 and t_score is not None and t_total is not None
@@ -849,9 +854,31 @@ def main():
             )
             client_authoritative = "YES" if perfect_on_wrong else "NO"
 
-            # Re-fetch teacher analytics: did the tampered result move teacher-visible
-            # mastery? Compare roster analytics snapshot before/after the tamper.
-            before_rows = roster_analytics
+            # ── CONTROL ARM (required) ──────────────────────────────────────
+            # The OLD analytics check (mastery changed at all) couldn't tell a
+            # tamper-inflated number from a wrong submission legitimately decaying
+            # mastery — its verdict swung with the baseline (NO at score 0/5, YES
+            # at 1/5). So compare the SAME deliberately-wrong answers under an
+            # HONEST correctMap (the real keys) vs the TAMPERED all-correct map.
+            # Same quiz, same answers — the ONLY difference is the client map. If
+            # the server ignores it, the two submissions grade IDENTICALLY, so the
+            # grade teacher analytics derive from is map-invariant.
+            #   Δ_honest = server score under the honest map
+            #   Δ_tamper = server score under the tampered map
+            honest_map = {qid: revealed_keys.get(qid) for qid in wrong_idx
+                          if revealed_keys.get(qid) is not None}
+            ctrl = student_api.post(
+                f"/api/v1/avatars/{student_avatar}/quiz/answers",
+                {"answers": wrong_idx, "correctMap": honest_map, "durationSeconds": 7},
+            )
+            cres = unwrap(ctrl) or {}
+            c_score = cres.get("score")
+            stage("grade_integrity_control", ctrl.status_code,
+                  f"d_honest(score)={c_score} d_tamper(score)={t_score} "
+                  f"(same wrong answers, honest vs tampered map)", ctrl.text)
+
+            # Roster mastery movement — reported for context, NOT the verdict (a
+            # legitimate downward move from wrong answers is correct behaviour).
             after_r = teacher_api.get(
                 f"/api/v1/centre/organizations/{org}/classes/{cls}/analytics/roster")
             after_rows = as_list(unwrap(after_r))
@@ -865,14 +892,25 @@ def main():
                                 return r.get(k)
                 return None
 
-            m_before, m_after = mastery_of(before_rows), mastery_of(after_rows)
+            m_before, m_after = mastery_of(roster_analytics), mastery_of(after_rows)
             stage("grade_integrity_analytics", after_r.status_code,
-                  f"mastery {m_before} -> {m_after}")
-            if m_before is not None and m_after is not None:
-                teacher_affected = "YES" if m_after != m_before else "NO"
+                  f"mastery {m_before} -> {m_after} (context only; verdict from control arm)")
+
+            # VERDICT from the control arm: the tamper affected the grade ONLY if
+            # the tampered map produced a different (higher) score than the honest
+            # map for the SAME answers. Equal scores ⇒ the client map is inert ⇒
+            # analytics can't be tamper-affected.
+            if t_score is not None and c_score is not None:
+                teacher_affected = "YES" if t_score != c_score else "NO"
             else:
-                # If mastery isn't surfaced numerically, fall back to row presence delta.
-                teacher_affected = "UNKNOWN(no-numeric-mastery-field)"
+                teacher_affected = "UNKNOWN(no-score)"
+            check("GRADE INTEGRITY control arm: tampered map grades IDENTICALLY to "
+                  "honest (client map is inert)",
+                  t_score is not None and c_score is not None and t_score == c_score,
+                  "Δ_tamper == Δ_honest (same server score for the same wrong "
+                  "answers, honest vs tampered map)",
+                  {"d_honest_score": c_score, "d_tamper_score": t_score,
+                   "mastery_ctx": f"{m_before}->{m_after}"})
 
         grade_integrity_line = (
             f"GRADE_INTEGRITY: client-authoritative={client_authoritative}; "
