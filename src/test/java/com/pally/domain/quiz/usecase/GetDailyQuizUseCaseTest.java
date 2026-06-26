@@ -13,6 +13,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -85,5 +90,47 @@ class GetDailyQuizUseCaseTest {
         // The correct index is persisted at generation time — the linchpin that
         // lets the submit path ignore a tampered client correctMap.
         verify(answerKeyRepository).saveKeys(AVATAR_ID, generated);
+    }
+
+    @Test
+    void execute_concurrentFirstTaps_coalesceIntoOneGeneration() throws Exception {
+        // The stampede: many students of a shared class avatar tap Quiz at the
+        // same moment, cache cold. Per-instance single-flight must collapse the
+        // concurrent first-taps into ONE generation, not one Claude call each.
+        WikiPage page = WikiPage.create(AVATAR_ID, "fractions", "Fractions",
+                "A fraction shows part of a whole.");
+        when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of(page));
+        List<QuizQuestion> generated = List.of(new QuizQuestion(
+                "q1", AVATAR_ID, "What is 1/2 of 4?",
+                List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2."));
+
+        CountDownLatch generatorEntered = new CountDownLatch(1);
+        CountDownLatch releaseGenerator = new CountDownLatch(1);
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenAnswer(inv -> {
+            // Leader is now inside generation and holds the in-flight slot.
+            generatorEntered.countDown();
+            releaseGenerator.await(5, TimeUnit.SECONDS);
+            return generated;
+        });
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<QuizQuestion>> leader = pool.submit(() -> useCase.execute(AVATAR_ID, USER_ID));
+            // Wait until the leader is provably inside generate() (slot held).
+            assertThat(generatorEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            // Second concurrent tap arrives while the leader is still generating;
+            // it must coalesce onto the leader, not start its own generation.
+            Future<List<QuizQuestion>> follower = pool.submit(() -> useCase.execute(AVATAR_ID, USER_ID));
+            Thread.sleep(200); // let the follower reach the coalesced wait
+            releaseGenerator.countDown();
+
+            assertThat(leader.get(5, TimeUnit.SECONDS)).isEqualTo(generated);
+            assertThat(follower.get(5, TimeUnit.SECONDS)).isEqualTo(generated);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // The invariant: exactly ONE generation despite two concurrent first-taps.
+        verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList());
     }
 }
