@@ -50,13 +50,15 @@ public record QuizResult(
 
     /**
      * Per-question outcome returned POST-submit — the only place a
-     * teacher-graded quiz's correct answer is revealed (the served question
-     * withholds it). {@code correctIndex} lets the client show "the answer was
-     * B" on the results screen; {@code wasCorrect} is the server's verdict.
+     * teacher-graded quiz's answer is revealed (the served question withholds
+     * it). {@code correctIndex} lets the client show "the answer was B" and
+     * {@code explanation} the "why" on the results screen; {@code wasCorrect}
+     * is the server's verdict.
      */
     public record QuestionFeedback(
             String questionId,
             boolean wasCorrect,
-            Integer correctIndex
+            Integer correctIndex,
+            String explanation
     ) {}
 }

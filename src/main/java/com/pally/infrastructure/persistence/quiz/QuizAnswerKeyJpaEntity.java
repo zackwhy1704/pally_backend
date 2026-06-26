@@ -32,6 +32,11 @@ public class QuizAnswerKeyJpaEntity {
     @Column(name = "correct_index", nullable = false)
     private int correctIndex;
 
+    /// The question's explanation — withheld from a teacher-graded served
+    /// question (it reveals the answer) and returned post-submit instead.
+    @Column(name = "explanation", columnDefinition = "text")
+    private String explanation;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 }

@@ -82,7 +82,7 @@ class SubmitQuizAnswersUseCaseTest {
         // Default: no persisted server key → grading falls back to the client
         // map, preserving the existing tests' expectations. Integrity test
         // below overrides this with real server keys.
-        when(answerKeyRepository.findCorrectIndexes(any())).thenReturn(Map.of());
+        when(answerKeyRepository.findByQuestionIds(any())).thenReturn(Map.of());
     }
 
     private Avatar mathsAvatar() {
@@ -274,8 +274,9 @@ class SubmitQuizAnswersUseCaseTest {
                 anyInt(), anyInt(), anyInt())).thenReturn(award(24, 12, false, 1.0));
 
         // SERVER says: q1 correct index = 0, q2 correct index = 0.
-        when(answerKeyRepository.findCorrectIndexes(any()))
-                .thenReturn(Map.of("q1", 0, "q2", 0));
+        when(answerKeyRepository.findByQuestionIds(any())).thenReturn(Map.of(
+                "q1", new QuizAnswerKeyRepository.AnswerKey(0, "e1"),
+                "q2", new QuizAnswerKeyRepository.AnswerKey(0, "e2")));
 
         // Student actually answered q1=0 (right) and q2=1 (WRONG) → real score 1/2.
         AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0, "q2", 1));
@@ -312,12 +313,13 @@ class SubmitQuizAnswersUseCaseTest {
         when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
         when(xpService.awardForQuiz(anyString(), anyString(), any(),
                 anyInt(), anyInt(), anyInt())).thenReturn(award(24, 12, false, 1.0));
-        // Server key: q1 correct=0, q2 correct=2.
-        when(answerKeyRepository.findCorrectIndexes(any()))
-                .thenReturn(Map.of("q1", 0, "q2", 2));
+        // Server key: q1 correct=0 (explain "half"), q2 correct=2 (explain "three").
+        when(answerKeyRepository.findByQuestionIds(any())).thenReturn(Map.of(
+                "q1", new QuizAnswerKeyRepository.AnswerKey(0, "half of 4 is 2"),
+                "q2", new QuizAnswerKeyRepository.AnswerKey(2, "3 out of 8")));
 
         // Student answered q1=0 (right), q2=1 (wrong). No client map at all —
-        // the teacher-graded quiz never shipped the key.
+        // the teacher-graded quiz never shipped the key OR the explanation.
         AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0, "q2", 1));
         QuizResult result = useCase.execute(sub, Map.of());
 
@@ -328,8 +330,10 @@ class SubmitQuizAnswersUseCaseTest {
         assertThat(byId.get("q1").wasCorrect()).isTrue();
         assertThat(byId.get("q1").correctIndex()).isEqualTo(0);
         assertThat(byId.get("q2").wasCorrect()).isFalse();
-        // The correct answer is revealed here, post-submit — feedback preserved.
+        // The correct answer AND its explanation are revealed here, post-submit
+        // — both withheld from the served question, returned in feedback.
         assertThat(byId.get("q2").correctIndex()).isEqualTo(2);
+        assertThat(byId.get("q2").explanation()).isEqualTo("3 out of 8");
     }
 
     // ── TRANSACTION-POISONING: a secondary write failure must not abort the

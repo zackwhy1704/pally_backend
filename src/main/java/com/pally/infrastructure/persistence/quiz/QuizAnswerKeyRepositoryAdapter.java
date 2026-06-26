@@ -27,6 +27,7 @@ public class QuizAnswerKeyRepositoryAdapter implements QuizAnswerKeyRepository {
             e.setQuestionId(q.id());
             e.setAvatarId(avatarId);
             e.setCorrectIndex(q.correctIndex());
+            e.setExplanation(q.explanation());
             e.setCreatedAt(now);
             return e;
         }).toList();
@@ -35,12 +36,12 @@ public class QuizAnswerKeyRepositoryAdapter implements QuizAnswerKeyRepository {
     }
 
     @Override
-    public Map<String, Integer> findCorrectIndexes(Collection<String> questionIds) {
+    public Map<String, AnswerKey> findByQuestionIds(Collection<String> questionIds) {
         if (questionIds == null || questionIds.isEmpty()) return Map.of();
         return jpa.findByQuestionIdIn(questionIds).stream()
                 .collect(Collectors.toMap(
                         QuizAnswerKeyJpaEntity::getQuestionId,
-                        QuizAnswerKeyJpaEntity::getCorrectIndex,
+                        e -> new AnswerKey(e.getCorrectIndex(), e.getExplanation()),
                         (a, b) -> a));
     }
 

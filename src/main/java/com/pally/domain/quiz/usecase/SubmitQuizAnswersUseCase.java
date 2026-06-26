@@ -120,8 +120,8 @@ public class SubmitQuizAnswersUseCase {
         // client-authoritative was_correct is a B2B integrity hole. The client
         // map is only a fallback for quizzes generated before this shipped
         // (no persisted key yet) — logged so the transition window is visible.
-        Map<String, Integer> serverKeys =
-                answerKeyRepository.findCorrectIndexes(submission.answers().keySet());
+        Map<String, QuizAnswerKeyRepository.AnswerKey> serverKeys =
+                answerKeyRepository.findByQuestionIds(submission.answers().keySet());
 
         // Best-effort per-question result rows, persisted AFTER the primary
         // commit in a REQUIRES_NEW tx so a failure here cannot roll back the
@@ -154,12 +154,18 @@ public class SubmitQuizAnswersUseCase {
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
             String questionId = entry.getKey();
             // Server key is authoritative; the client map is a fallback only for
-            // pre-existing quizzes that have no persisted key yet.
+            // pre-existing quizzes that have no persisted key yet. The
+            // explanation comes from the server key (the client never had it for
+            // a teacher-graded quiz) and is revealed here, post-submit.
+            final QuizAnswerKeyRepository.AnswerKey key = serverKeys.get(questionId);
             Integer correctIndex;
-            if (serverKeys.containsKey(questionId)) {
-                correctIndex = serverKeys.get(questionId);
+            String explanation;
+            if (key != null) {
+                correctIndex = key.correctIndex();
+                explanation = key.explanation();
             } else {
                 correctIndex = correctMap.get(questionId);
+                explanation = null;
                 log.warn("[Quiz] No server answer key for question={} (user={} "
                         + "avatar={}) — grading from client map this once; "
                         + "teacher analytics for this row are unverified",
@@ -168,7 +174,7 @@ public class SubmitQuizAnswersUseCase {
             boolean wasCorrect = correctIndex != null && correctIndex.equals(entry.getValue());
             if (wasCorrect) correct++;
             feedback.add(new QuizResult.QuestionFeedback(
-                    questionId, wasCorrect, correctIndex));
+                    questionId, wasCorrect, correctIndex, explanation));
 
             String topic = topicMap.get(questionId);
             String label = topic != null ? topic : questionId;

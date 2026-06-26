@@ -21,18 +21,25 @@ import java.util.Map;
 public interface QuizAnswerKeyRepository {
 
     /**
-     * Persists the correct index for each generated question. Idempotent on
-     * question id (re-generation overwrites), so a regenerated quiz keeps a
-     * single authoritative key per question.
+     * The server-held answer data a teacher-graded quiz withholds from the
+     * client and grades/reveals from instead: the correct option and the
+     * explanation (both reveal the answer, so both are withheld pre-submit).
+     */
+    record AnswerKey(int correctIndex, String explanation) {}
+
+    /**
+     * Persists the correct index AND explanation for each generated question.
+     * Idempotent on question id (re-generation overwrites), so a regenerated
+     * quiz keeps a single authoritative key per question.
      */
     void saveKeys(String avatarId, List<QuizQuestion> questions);
 
     /**
-     * Returns {@code questionId → correctIndex} for the given question ids,
-     * containing only the ids that have a persisted key. A missing id signals
-     * "no server key" so the caller can decide its fallback.
+     * Returns {@code questionId → AnswerKey} for the given ids, containing only
+     * the ids that have a persisted key. A missing id signals "no server key"
+     * so the caller can decide its fallback.
      */
-    Map<String, Integer> findCorrectIndexes(Collection<String> questionIds);
+    Map<String, AnswerKey> findByQuestionIds(Collection<String> questionIds);
 
     /**
      * Deletes answer keys created before {@code cutoff}. A daily reaper calls

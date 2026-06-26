@@ -110,31 +110,39 @@ class QuizServiceTest {
     }
 
     @Test
-    void getDailyQuiz_teacherGradedCentreAvatar_withholdsCorrectIndex_andPersistsKey() {
+    void getDailyQuiz_teacherGradedCentreAvatar_withholdsBothAnswerFields_andPersistsKey() {
         when(getDailyQuizUseCase.execute(AVATAR, USER)).thenReturn(List.of(q()));
         when(avatarRepository.existsByIdAndCentreAvatarTrue(AVATAR)).thenReturn(true);
 
         var served = service.getDailyQuiz(USER, AVATAR);
 
-        // The answer key must NOT be shipped for a teacher-graded quiz...
+        // BOTH answer-revealing fields must be withheld for a teacher-graded quiz...
         assertThat(served).hasSize(1);
         assertThat(served.get(0).correctIndex())
-                .as("teacher-graded quiz must not expose the answer key")
+                .as("teacher-graded quiz must not expose the answer index")
                 .isNull();
-        // ...and the server key must be persisted so submit can grade.
+        assertThat(served.get(0).explanation())
+                .as("teacher-graded quiz must not expose the explanation (it "
+                        + "reveals the answer just like the index)")
+                .isNull();
+        // ...the SAFE fields are still present...
+        assertThat(served.get(0).question()).isEqualTo("2+2?");
+        assertThat(served.get(0).options()).isNotEmpty();
+        // ...and the server key must be persisted so submit can grade + explain.
         org.mockito.Mockito.verify(answerKeyRepository)
                 .saveKeys(eq(AVATAR), anyList());
     }
 
     @Test
-    void getDailyQuiz_b2cSoloAvatar_keepsCorrectIndex_forInstantFeedback() {
+    void getDailyQuiz_b2cSoloAvatar_keepsBothAnswerFields_forInstantFeedback() {
         when(getDailyQuizUseCase.execute(AVATAR, USER)).thenReturn(List.of(q()));
         when(avatarRepository.existsByIdAndCentreAvatarTrue(AVATAR)).thenReturn(false);
 
         var served = service.getDailyQuiz(USER, AVATAR);
 
-        // Solo B2C quiz keeps the key (stated tradeoff: instant pre-submit feedback).
+        // Solo B2C quiz keeps both (stated tradeoff: instant pre-submit feedback).
         assertThat(served.get(0).correctIndex()).isEqualTo(1);
+        assertThat(served.get(0).explanation()).isEqualTo("four");
         org.mockito.Mockito.verify(answerKeyRepository).saveKeys(eq(AVATAR), anyList());
     }
 
