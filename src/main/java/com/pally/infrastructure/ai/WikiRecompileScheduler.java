@@ -73,18 +73,21 @@ public class WikiRecompileScheduler {
     private final WikiRepository      wikiRepository;
     private final BrainStateService   brainStateService;
     private final AvatarRepository    avatarRepository;
+    private final com.pally.domain.knowledge.usecase.CompileJobStore compileJobStore;
 
     public WikiRecompileScheduler(
             @Qualifier(AiTaskExecutorConfig.AI_TASK_EXECUTOR) ThreadPoolExecutor aiTaskExecutor,
             CompileWikiUseCase compileWikiUseCase,
             WikiRepository wikiRepository,
             BrainStateService brainStateService,
-            AvatarRepository avatarRepository) {
+            AvatarRepository avatarRepository,
+            com.pally.domain.knowledge.usecase.CompileJobStore compileJobStore) {
         this.aiTaskExecutor    = aiTaskExecutor;
         this.compileWikiUseCase = compileWikiUseCase;
         this.wikiRepository    = wikiRepository;
         this.brainStateService = brainStateService;
         this.avatarRepository  = avatarRepository;
+        this.compileJobStore   = compileJobStore;
     }
 
     /**
@@ -181,7 +184,12 @@ public class WikiRecompileScheduler {
 
         boolean failed = false;
         try {
-            compileWikiUseCase.execute(avatarId);
+            // Capture the result so per-page failures aren't lost: the centre web
+            // polls /avatars then reads GET /wiki/compile/status, which serves this
+            // store via findByAvatarId. Without this, a partial recompile (some pages
+            // failed to persist) looks like a full success to the teacher.
+            CompileWikiUseCase.CompileResult result = compileWikiUseCase.execute(avatarId);
+            recordRecompileStatus(avatarId, result);
         } catch (Exception e) {
             failed = true;
             boolean isTimeout = e.getMessage() == null
@@ -207,6 +215,25 @@ public class WikiRecompileScheduler {
                 timer.schedule(() -> requestRecompile(avatarId), 2, java.util.concurrent.TimeUnit.MINUTES);
                 log.info("[Debounce] Retry scheduled in 2min for avatar={}", avatarId);
             }
+        }
+    }
+
+    /// Publish the recompile's per-page outcome to the CompileJobStore (keyed by
+    /// avatar via a stable jobId) so GET /wiki/compile/status surfaces failedPages.
+    /// Always writes a fresh DONE entry — including 0 failures — so the latest
+    /// recompile's result wins findByAvatarId and a prior partial doesn't linger.
+    void recordRecompileStatus(String avatarId, CompileWikiUseCase.CompileResult result) {
+        int compiled = result.pagesCreated() + result.pagesUpdated();
+        int total = compiled + result.failedPages().size();
+        var status = new com.pally.domain.knowledge.usecase.CompileJobStore.JobStatus(
+                "recompile-" + avatarId, avatarId,
+                com.pally.domain.knowledge.usecase.CompileJobStore.JobState.DONE,
+                compiled, total, result.tierServed(), null,
+                result.failedPages(), java.time.Instant.now());
+        compileJobStore.put("recompile-" + avatarId, status);
+        if (!result.failedPages().isEmpty()) {
+            log.warn("[Debounce] recompile avatar={} persisted {}/{} pages — {} failed: {}",
+                    avatarId, compiled, total, result.failedPages().size(), result.failedPages());
         }
     }
 

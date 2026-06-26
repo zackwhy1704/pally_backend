@@ -55,7 +55,8 @@ class WikiRecompileSchedulerTest {
                 compileWikiUseCase,
                 wikiRepository,
                 brainStateService,
-                avatarRepository);
+                avatarRepository,
+                new com.pally.domain.knowledge.usecase.CompileJobStore());
 
         // Inject short debounce/maxWait for speed
         ReflectionTestUtils.setField(scheduler, "debounceMs", DEBOUNCE_MS);
