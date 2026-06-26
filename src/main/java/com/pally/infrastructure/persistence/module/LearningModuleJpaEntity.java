@@ -31,7 +31,8 @@ public class LearningModuleJpaEntity {
     @Column(name = "wiki_page_slug", nullable = false, length = 255)
     private String wikiPageSlug;
 
-    @Column(nullable = false, length = 500)
+    // Copied from the source wiki page title (LLM free text, now TEXT) — V94 TEXT.
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String title;
 
     @Column(nullable = false, length = 20)

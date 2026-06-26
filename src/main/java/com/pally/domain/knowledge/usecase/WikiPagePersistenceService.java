@@ -17,7 +17,9 @@ import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.WikiPageSourceJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -62,12 +64,26 @@ public class WikiPagePersistenceService {
     private final ModuleContentGenerator moduleContentGenerator;
     private final LearningModuleJpaRepository learningModuleRepository;
     private final WikiQualityVerifier wikiQualityVerifier;
+    /// Self-reference (Spring proxy) so the per-page write runs in its OWN
+    /// REQUIRES_NEW transaction. A self-invocation would bypass the proxy and
+    /// lose the transaction boundary, so we go through the provider.
+    private final ObjectProvider<WikiPagePersistenceService> selfProvider;
 
     public record PersistOutcome(
             int created,
             int updated,
             List<String> pageTitles,
-            List<String> producedSlugs) {}
+            List<String> producedSlugs,
+            List<FailedPage> failedPages) {
+        /// Back-compat for callers/tests that predate per-page failure reporting.
+        public PersistOutcome(int created, int updated,
+                              List<String> pageTitles, List<String> producedSlugs) {
+            this(created, updated, pageTitles, producedSlugs, List.of());
+        }
+    }
+
+    /// Result of persisting a single draft in its own transaction.
+    public record WriteResult(boolean created, String title) {}
 
     /**
      * Persists wiki page drafts from a compile run. Overwrites existing pages on
@@ -82,7 +98,6 @@ public class WikiPagePersistenceService {
      *                    run. Pass an empty list to skip provenance writing (e.g.
      *                    in tests that don't need it).
      */
-    @Transactional
     public PersistOutcome persistDrafts(Avatar avatar,
                                         List<WikiCompilerPort.WikiPageDraft> drafts,
                                         List<KnowledgeFile> sourceFiles) {
@@ -90,6 +105,7 @@ public class WikiPagePersistenceService {
         int updated = 0;
         List<String> pageTitles = new ArrayList<>();
         List<String> producedSlugs = new ArrayList<>();
+        List<FailedPage> failedPages = new ArrayList<>();
         String avatarId = avatar.getId();
 
         for (WikiCompilerPort.WikiPageDraft draft : drafts) {
@@ -98,61 +114,22 @@ public class WikiPagePersistenceService {
             // over-long slug matches the stored page instead of duplicating it.
             String slug = clampSlug(draft.slug());
             producedSlugs.add(slug);
-            var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, slug);
-            WikiPage savedPage;
-            if (existing.isPresent()) {
-                WikiPage existingPage = existing.get();
-                ConflictResult conflict = detectConflict(
-                        existingPage.getContent(), draft.content());
-                existingPage.updateContent(
-                        draft.title(), draft.content(), WikiPage.Certainty.INFERRED);
-                if (conflict.conflict()) {
-                    existingPage.markConflict();
-                    if (conflict.note() != null) {
-                        existingPage.setConflictNote(conflict.note());
-                    }
-                    log.warn("[Wiki] Conflict flagged on slug={} for avatar={} note={}",
-                            draft.slug(), avatarId, conflict.note());
-                }
-                if (draft.prerequisites() != null
-                        && !draft.prerequisites().isEmpty()) {
-                    existingPage.setPrerequisiteSlugs(
-                            String.join(",", draft.prerequisites()));
-                }
-                savedPage = wikiRepository.save(existingPage);
-                hintTreeGenerator.generateForPage(avatarId, savedPage);
-                try {
-                    flashcardGenerator.regenerateForPage(avatarId, savedPage);
-                } catch (Exception e) {
-                    log.warn("[Wiki] Flashcard regen failed slug={}: {}",
-                            savedPage.getSlug(), e.getMessage());
-                }
-                updated++;
-                pageTitles.add(draft.title());
-            } else {
-                WikiPage newPage = WikiPage.create(
-                        avatarId, slug, draft.title(), draft.content());
-                if (draft.prerequisites() != null
-                        && !draft.prerequisites().isEmpty()) {
-                    newPage.setPrerequisiteSlugs(
-                            String.join(",", draft.prerequisites()));
-                }
-                savedPage = wikiRepository.save(newPage);
-                hintTreeGenerator.generateForPage(avatarId, savedPage);
-                try {
-                    flashcardGenerator.generateAndSaveForPage(
-                            avatarId, savedPage);
-                } catch (Exception e) {
-                    log.warn("[Wiki] Flashcard gen failed slug={}: {}",
-                            savedPage.getSlug(), e.getMessage());
-                }
-                created++;
-                pageTitles.add(draft.title());
+            try {
+                // Each page persists in its OWN transaction (REQUIRES_NEW): one
+                // page's DataIntegrity (e.g. a value reaching a too-narrow column)
+                // can't poison a shared transaction and discard every other page in
+                // the batch. A failure is recorded with its slug + cause and we move
+                // on — partial content is far better than a blanket 400.
+                WriteResult r = selfProvider.getObject()
+                        .writeSingleDraft(avatarId, slug, draft, sourceFiles);
+                if (r.created()) created++; else updated++;
+                pageTitles.add(r.title());
+            } catch (Exception e) {
+                String reason = rootCauseMessage(e);
+                failedPages.add(new FailedPage(slug, reason));
+                log.error("[Wiki] Page persist FAILED slug={} avatar={} reason={} — "
+                        + "continuing with remaining pages", slug, avatarId, reason);
             }
-
-            // Fix 3: Write provenance rows — replace on every recompile so they
-            // stay in sync with the current READY file set.
-            writeProvenanceRows(savedPage.getId(), sourceFiles);
         }
 
         // Post-compile quality verification: log quality scores for newly persisted pages.
@@ -191,15 +168,99 @@ public class WikiPagePersistenceService {
         // Post-persist: generate learning modules for new/updated wiki pages (best-effort)
         queueModuleGeneration(avatar, producedSlugs);
 
-        return new PersistOutcome(created, updated, pageTitles, List.copyOf(producedSlugs));
+        if (!failedPages.isEmpty()) {
+            log.warn("[Wiki] persistDrafts avatar={} — {} page(s) failed to persist: {}",
+                    avatarId, failedPages.size(), failedPages);
+        }
+        return new PersistOutcome(created, updated, pageTitles,
+                List.copyOf(producedSlugs), List.copyOf(failedPages));
+    }
+
+    /**
+     * Persists ONE draft (create or update + its hint tree, flashcards, provenance)
+     * in its OWN transaction. REQUIRES_NEW so a DataIntegrity here is isolated to
+     * this page — {@link #persistDrafts} catches it and continues with the rest of
+     * the batch instead of losing every page. Public so the Spring proxy applies
+     * (called via {@code selfProvider}); a self-invocation would bypass it.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public WriteResult writeSingleDraft(String avatarId, String slug,
+                                        WikiCompilerPort.WikiPageDraft draft,
+                                        List<KnowledgeFile> sourceFiles) {
+        var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, slug);
+        WikiPage savedPage;
+        boolean created;
+        if (existing.isPresent()) {
+            WikiPage existingPage = existing.get();
+            ConflictResult conflict = detectConflict(
+                    existingPage.getContent(), draft.content());
+            existingPage.updateContent(
+                    draft.title(), draft.content(), WikiPage.Certainty.INFERRED);
+            if (conflict.conflict()) {
+                existingPage.markConflict();
+                if (conflict.note() != null) {
+                    existingPage.setConflictNote(conflict.note());
+                }
+                log.warn("[Wiki] Conflict flagged on slug={} for avatar={} note={}",
+                        slug, avatarId, conflict.note());
+            }
+            if (draft.prerequisites() != null
+                    && !draft.prerequisites().isEmpty()) {
+                existingPage.setPrerequisiteSlugs(
+                        String.join(",", draft.prerequisites()));
+            }
+            savedPage = wikiRepository.save(existingPage);
+            hintTreeGenerator.generateForPage(avatarId, savedPage);
+            try {
+                flashcardGenerator.regenerateForPage(avatarId, savedPage);
+            } catch (Exception e) {
+                log.warn("[Wiki] Flashcard regen failed slug={}: {}",
+                        savedPage.getSlug(), e.getMessage());
+            }
+            created = false;
+        } else {
+            WikiPage newPage = WikiPage.create(
+                    avatarId, slug, draft.title(), draft.content());
+            if (draft.prerequisites() != null
+                    && !draft.prerequisites().isEmpty()) {
+                newPage.setPrerequisiteSlugs(
+                        String.join(",", draft.prerequisites()));
+            }
+            savedPage = wikiRepository.save(newPage);
+            hintTreeGenerator.generateForPage(avatarId, savedPage);
+            try {
+                flashcardGenerator.generateAndSaveForPage(
+                        avatarId, savedPage);
+            } catch (Exception e) {
+                log.warn("[Wiki] Flashcard gen failed slug={}: {}",
+                        savedPage.getSlug(), e.getMessage());
+            }
+            created = true;
+        }
+        // Fix 3: Write provenance rows — replace on every recompile so they
+        // stay in sync with the current READY file set.
+        writeProvenanceRows(savedPage.getId(), sourceFiles);
+        return new WriteResult(created, draft.title());
+    }
+
+    /// Most-specific cause message for a per-page failure — for a DataIntegrity this
+    /// includes the constraint/column that rejected the write, so the failure is
+    /// attributable in the failedPages report (e.g. "...conflict_note...").
+    private static String rootCauseMessage(Throwable t) {
+        Throwable cur = t;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        String msg = cur.getMessage();
+        return cur.getClass().getSimpleName() + (msg != null ? ": " + msg : "");
     }
 
     /**
      * Backwards-compat overload — used by callers that don't need provenance
      * (tests, legacy code paths). Delegates to the canonical method with an
-     * empty source list.
+     * empty source list. Not transactional: per-page writes own their transactions
+     * (see {@link #writeSingleDraft}); the orchestrator stays resilient.
      */
-    @Transactional
     public PersistOutcome persistDrafts(Avatar avatar,
                                         List<WikiCompilerPort.WikiPageDraft> drafts) {
         return persistDrafts(avatar, drafts, List.of());
@@ -303,12 +364,29 @@ public class WikiPagePersistenceService {
         // Strip a leading separator run: any mix of ":", "-", "—", "–", whitespace.
         s = s.replaceFirst("^[\\s:\\-—–]+", "").trim();
         if (s.isEmpty()) return null;
-        return s.length() > 500 ? s.substring(0, 500) : s;
+        // No length cap: conflict_note is TEXT (V93). The previous raw
+        // substring(0, 500) could split a UTF-16 surrogate pair at the boundary,
+        // yielding an unpaired surrogate that is invalid UTF-8 and fails the DB
+        // write with an encoding error → DataIntegrity → intermittent 400.
+        return s;
     }
 
     private String truncate(String s, int max) {
         if (s == null) return "";
-        return s.length() > max ? s.substring(0, max) + "…" : s;
+        return codePointCount(s) > max ? clampToCodePoints(s, max) + "…" : s;
+    }
+
+    /// Truncate to at most {@code maxChars} Unicode characters WITHOUT splitting a
+    /// surrogate pair. Postgres VARCHAR(n) counts characters (code points), and an
+    /// unpaired surrogate is invalid UTF-8 that fails the write. A raw
+    /// String.substring counts UTF-16 units, so it can both overshoot the column
+    /// AND split a pair; this is the safe equivalent for any bounded write/clamp.
+    static String clampToCodePoints(String s, int maxChars) {
+        return com.pally.shared.util.TextClamp.toCodePoints(s, maxChars);
+    }
+
+    private static int codePointCount(String s) {
+        return s.codePointCount(0, s.length());
     }
 
     private Set<String> tokenize(String s) {
@@ -410,10 +488,8 @@ public class WikiPagePersistenceService {
 
     /// Bound an LLM-produced slug to the wiki_pages.slug column so a pathologically
     /// long slug truncates instead of failing the whole compile with a value-too-long.
+    /// Code-point-safe so it never overshoots the column or splits a surrogate pair.
     private static String clampSlug(String slug) {
-        if (slug == null) {
-            return null;
-        }
-        return slug.length() <= SLUG_MAX ? slug : slug.substring(0, SLUG_MAX);
+        return clampToCodePoints(slug, SLUG_MAX);
     }
 }

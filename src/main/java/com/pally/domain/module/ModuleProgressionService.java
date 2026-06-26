@@ -264,8 +264,10 @@ public class ModuleProgressionService {
                 // Extract targetConcept from answer_json
                 try {
                     var answerNode = objectMapper.readTree(item.getAnswerJson());
-                    progress.setTargetConcept(
-                            answerNode.path("targetConcept").asText(null));
+                    // target_concept is an LLM-written label into VARCHAR(255) —
+                    // clamp code-point-safe so a long concept never fails the save.
+                    progress.setTargetConcept(com.pally.shared.util.TextClamp.toCodePoints(
+                            answerNode.path("targetConcept").asText(null), 255));
                 } catch (Exception ignored) {
                     // non-critical
                 }
@@ -290,7 +292,8 @@ public class ModuleProgressionService {
                     var respNode = objectMapper.readTree(response);
                     double score = respNode.path("score").asDouble(0.0);
                     progress.setScore(BigDecimal.valueOf(score));
-                    String concept = respNode.path("concept").asText(null);
+                    String concept = com.pally.shared.util.TextClamp.toCodePoints(
+                            respNode.path("concept").asText(null), 255);
                     progress.setTargetConcept(concept);
                 } catch (Exception ignored) {
                     progress.setScore(BigDecimal.ZERO);

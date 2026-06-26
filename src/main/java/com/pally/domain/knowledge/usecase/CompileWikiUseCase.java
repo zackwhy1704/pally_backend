@@ -62,10 +62,17 @@ public class CompileWikiUseCase {
             List<String> pageTitles,
             String tierServed,
             int filesCompiled,
-            int totalCharsCompiled
+            int totalCharsCompiled,
+            List<FailedPage> failedPages
     ) {
         public CompileResult(int pagesCreated, int pagesUpdated, List<String> pageTitles) {
-            this(pagesCreated, pagesUpdated, pageTitles, "unknown", 0, 0);
+            this(pagesCreated, pagesUpdated, pageTitles, "unknown", 0, 0, List.of());
+        }
+
+        public CompileResult(int pagesCreated, int pagesUpdated, List<String> pageTitles,
+                             String tierServed, int filesCompiled, int totalCharsCompiled) {
+            this(pagesCreated, pagesUpdated, pageTitles, tierServed, filesCompiled,
+                    totalCharsCompiled, List.of());
         }
     }
 
@@ -244,9 +251,13 @@ public class CompileWikiUseCase {
             knowledgeRepository.save(f);
         }
 
+        if (!outcome.failedPages().isEmpty()) {
+            log.warn("[Pipeline:Compile] avatarId={} — {} page(s) failed to persist: {}",
+                    avatarId, outcome.failedPages().size(), outcome.failedPages());
+        }
         return new CompileResult(
                 outcome.created(), outcome.updated(), outcome.pageTitles(),
-                tierServed, newFiles.size(), totalChars);
+                tierServed, newFiles.size(), totalChars, outcome.failedPages());
     }
 
     /**
@@ -283,7 +294,7 @@ public class CompileWikiUseCase {
         String jobId = UUID.randomUUID().toString().substring(0, 12);
         CompileJobStore.JobStatus initial = new CompileJobStore.JobStatus(
                 jobId, avatarId, CompileJobStore.JobState.RUNNING,
-                0, 0, null, null, java.time.Instant.now());
+                0, 0, null, null, List.of(), java.time.Instant.now());
         compileJobStore.put(jobId, initial);
 
         try {
@@ -294,7 +305,8 @@ public class CompileWikiUseCase {
                             compileJobStore.get(jobId).withDone(
                                     result.pagesCreated() + result.pagesUpdated(),
                                     result.pagesCreated() + result.pagesUpdated(),
-                                    result.tierServed()));
+                                    result.tierServed(),
+                                    result.failedPages()));
                 } catch (Exception e) {
                     log.error("[Pipeline:AsyncCompile] Job {} failed for avatarId={}",
                             jobId, avatarId, e);
@@ -351,6 +363,7 @@ public class CompileWikiUseCase {
         int totalCreated = 0;
         int totalUpdated = 0;
         List<String> allTitles = new ArrayList<>();
+        List<FailedPage> allFailedPages = new ArrayList<>();
         String lastTier = "unknown";
         int totalFilesCompiled = 0;
         int totalCharsCompiled = 0;
@@ -375,6 +388,7 @@ public class CompileWikiUseCase {
                 totalCreated += outcome.created();
                 totalUpdated += outcome.updated();
                 allTitles.addAll(outcome.pageTitles());
+                allFailedPages.addAll(outcome.failedPages());
                 lastTier = output.tierServed();
                 totalFilesCompiled += batch.size();
                 totalCharsCompiled += batchChars;
@@ -412,7 +426,7 @@ public class CompileWikiUseCase {
         cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
 
         return new CompileResult(totalCreated, totalUpdated, allTitles,
-                lastTier, totalFilesCompiled, totalCharsCompiled);
+                lastTier, totalFilesCompiled, totalCharsCompiled, allFailedPages);
     }
 
     /**

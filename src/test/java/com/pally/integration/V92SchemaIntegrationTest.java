@@ -10,6 +10,8 @@ import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
+import com.pally.infrastructure.persistence.module.LearningModuleJpaEntity;
+import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
@@ -36,6 +38,7 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
 
     @Autowired private AssignmentJpaRepository assignmentRepo;
     @Autowired private WikiPageJpaRepository wikiRepo;
+    @Autowired private LearningModuleJpaRepository moduleRepo;
     @Autowired private AvatarJpaRepository avatarRepo;
     @Autowired private OrganizationJpaRepository orgRepo;
     @Autowired private OrgClassJpaRepository classRepo;
@@ -107,5 +110,58 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
         WikiPageJpaEntity loaded = wikiRepo.findById(p.getId()).orElseThrow();
         assertThat(loaded.getSlug()).hasSize(150);
         assertThat(loaded.getTitle()).hasSize(400);
+    }
+
+    @Test
+    void wikiPage_withLongConflictNote_includingEmoji_persists() {
+        // conflict_note is now TEXT (V93). A note longer than the old VARCHAR(500),
+        // containing a surrogate-pair emoji near the old boundary, must round-trip —
+        // the old raw substring(0,500) could have split the pair and failed the write.
+        AvatarJpaEntity avatar = AvatarJpaEntity.fromDomain(
+                Avatar.create("teacher-1", "Corpus", Subject.SCIENCE, CharacterType.MOCHI));
+        avatarRepo.save(avatar);
+
+        String longNote = "n".repeat(499) + "😀" + "n".repeat(200);  // emoji straddles old 500 cap
+
+        WikiPageJpaEntity p = new WikiPageJpaEntity();
+        p.setId(IdGenerator.newId());
+        p.setAvatarId(avatar.getId());
+        p.setSlug("photosynthesis");
+        p.setTitle("Photosynthesis");
+        p.setContent("body");
+        p.setCertainty(WikiPage.Certainty.INFERRED);
+        p.setUpdatedAt(Instant.now());
+        p.setStatus(WikiPage.Status.ACTIVE);
+        p.setConflictNote(longNote);
+
+        wikiRepo.saveAndFlush(p);
+
+        WikiPageJpaEntity loaded = wikiRepo.findById(p.getId()).orElseThrow();
+        assertThat(loaded.getConflictNote()).isEqualTo(longNote);
+    }
+
+    @Test
+    void learningModule_withLongTitle_persists() {
+        // learning_module.title is now TEXT (V94) — it's copied from the (now TEXT)
+        // wiki page title, so a long generated title must not fail module generation.
+        AvatarJpaEntity avatar = AvatarJpaEntity.fromDomain(
+                Avatar.create("teacher-1", "Corpus", Subject.MATHS, CharacterType.MOCHI));
+        avatarRepo.save(avatar);
+
+        String longTitle = "T".repeat(800);   // > old VARCHAR(500)
+
+        LearningModuleJpaEntity m = new LearningModuleJpaEntity();
+        m.setId(IdGenerator.newId());
+        m.setAvatarId(avatar.getId());
+        m.setWikiPageSlug("speed-distance-time");
+        m.setTitle(longTitle);
+        m.setStage("LEARN");
+        m.setTier("FREE");
+        m.setCreatedAt(Instant.now());
+
+        moduleRepo.saveAndFlush(m);
+
+        LearningModuleJpaEntity loaded = moduleRepo.findById(m.getId()).orElseThrow();
+        assertThat(loaded.getTitle()).hasSize(800);
     }
 }

@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -29,26 +30,42 @@ public class CompileJobStore {
             int pagesTotal,
             String compiledBy,
             String errorMessage,
+            List<FailedPage> failedPages,
             Instant createdAt
     ) {
+        /// Back-compat constructor (predates per-page failure reporting) —
+        /// defaults failedPages to empty.
+        public JobStatus(String jobId, String avatarId, JobState state, int pagesCompiled,
+                         int pagesTotal, String compiledBy, String errorMessage,
+                         Instant createdAt) {
+            this(jobId, avatarId, state, pagesCompiled, pagesTotal, compiledBy,
+                    errorMessage, List.of(), createdAt);
+        }
+
+        /// Back-compat withDone with no failure list.
+        public JobStatus withDone(int compiled, int total, String tier) {
+            return withDone(compiled, total, tier, List.of());
+        }
+
         public JobStatus withState(JobState newState) {
             return new JobStatus(jobId, avatarId, newState, pagesCompiled, pagesTotal,
-                    compiledBy, errorMessage, createdAt);
+                    compiledBy, errorMessage, failedPages, createdAt);
         }
 
         public JobStatus withProgress(int compiled, int total, String tier) {
             return new JobStatus(jobId, avatarId, state, compiled, total, tier,
-                    errorMessage, createdAt);
+                    errorMessage, failedPages, createdAt);
         }
 
-        public JobStatus withDone(int compiled, int total, String tier) {
+        public JobStatus withDone(int compiled, int total, String tier,
+                                  List<FailedPage> failed) {
             return new JobStatus(jobId, avatarId, JobState.DONE, compiled, total, tier,
-                    null, createdAt);
+                    null, failed, createdAt);
         }
 
         public JobStatus withFailed(String error) {
             return new JobStatus(jobId, avatarId, JobState.FAILED, pagesCompiled, pagesTotal,
-                    compiledBy, error, createdAt);
+                    compiledBy, error, failedPages, createdAt);
         }
     }
 

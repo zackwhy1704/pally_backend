@@ -95,7 +95,8 @@ public class WikiPageJpaEntity {
 
     /// Short human-readable explanation of WHY this page conflicts. Null until
     /// the later-wave conflict-explanation extraction populates it.
-    @Column(name = "conflict_note", length = 500)
+    // LLM-generated free-text reason for a content conflict — unbounded (V93 TEXT).
+    @Column(name = "conflict_note", columnDefinition = "TEXT")
     private String conflictNote;
 
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {

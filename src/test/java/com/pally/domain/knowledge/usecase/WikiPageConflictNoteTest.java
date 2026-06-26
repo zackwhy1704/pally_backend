@@ -63,10 +63,14 @@ class WikiPageConflictNoteTest {
     @BeforeEach
     void setUp() {
         WikiQualityVerifier wikiQualityVerifier = new WikiQualityVerifier();
+        org.springframework.beans.factory.ObjectProvider<WikiPagePersistenceService> selfProvider =
+                org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier);
+                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier,
+                selfProvider);
+        org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(service);
     }
 
     // ── extractConflictNote() — pure string parsing ──────────────────────────
@@ -91,10 +95,13 @@ class WikiPageConflictNoteTest {
     }
 
     @Test
-    void extractConflictNote_capsAt500Chars() {
+    void extractConflictNote_isNoLongerCapped_sinceColumnIsText() {
+        // conflict_note is now TEXT (V93) — the old raw substring(0,500) cap could
+        // split a UTF-16 surrogate pair at the boundary and fail the DB write with
+        // an encoding error. Free-text reasons are no longer truncated.
         String longReason = "x".repeat(600);
         String note = WikiPagePersistenceService.extractConflictNote("YES - " + longReason);
-        assertThat(note).hasSize(500);
+        assertThat(note).hasSize(600);
     }
 
     // ── full persist path drives the gray-band Haiku verdict ─────────────────

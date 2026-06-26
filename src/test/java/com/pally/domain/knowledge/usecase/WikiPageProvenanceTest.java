@@ -67,10 +67,14 @@ class WikiPageProvenanceTest {
     @BeforeEach
     void setUp() {
         WikiQualityVerifier wikiQualityVerifier = new WikiQualityVerifier();
+        org.springframework.beans.factory.ObjectProvider<WikiPagePersistenceService> selfProvider =
+                org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator,
                 flashcardGenerator, claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier);
+                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier,
+                selfProvider);
+        org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(service);
 
         avatar = Avatar.reconstitute(
                 AVATAR_ID, USER_ID, "Bolt", Subject.SCIENCE, CharacterType.ZAP,

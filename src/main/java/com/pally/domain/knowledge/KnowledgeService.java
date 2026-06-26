@@ -141,12 +141,17 @@ public class KnowledgeService {
         CompileWikiUseCase.CompileResult result =
                 compileWikiUseCase.executeBounded(avatarId);
         int total = result.pagesCreated() + result.pagesUpdated();
+        String message = "Wiki compiled: %d page(s) created, %d page(s) updated"
+                .formatted(result.pagesCreated(), result.pagesUpdated());
+        if (!result.failedPages().isEmpty()) {
+            message += ", %d page(s) failed".formatted(result.failedPages().size());
+        }
         WikiCompileResponse response = new WikiCompileResponse(
                 total,
                 result.pageTitles(),
-                "Wiki compiled: %d page(s) created, %d page(s) updated"
-                        .formatted(result.pagesCreated(), result.pagesUpdated()),
-                result.tierServed()
+                message,
+                result.tierServed(),
+                result.failedPages()
         );
         return new CompileOutcome(false, null, response);
     }
@@ -165,6 +170,10 @@ public class KnowledgeService {
         body.put("pagesCompiled", status.pagesCompiled());
         body.put("pagesTotal", status.pagesTotal());
         body.put("compiledBy", status.compiledBy());
+        if (status.failedPages() != null && !status.failedPages().isEmpty()) {
+            body.put("pagesFailed", status.failedPages().size());
+            body.put("failedPages", status.failedPages());
+        }
         if (status.errorMessage() != null) {
             body.put("error", status.errorMessage());
         }
