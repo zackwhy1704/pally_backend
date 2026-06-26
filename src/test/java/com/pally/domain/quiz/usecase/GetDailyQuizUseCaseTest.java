@@ -113,4 +113,35 @@ class GetDailyQuizUseCaseTest {
         // The invariant: exactly ONE generation despite two concurrent first-taps.
         verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList());
     }
+
+    @Test
+    void execute_classAvatar_readsTheCorpusWiki_notItsOwnEmptyOne() {
+        // A CENTRE_CLASS student avatar has NO wiki of its own — it reads the
+        // shared class corpus. Without this resolution its daily quiz is always
+        // empty (the grade-integrity blocker the smoke surfaced).
+        final String corpus = "corpus-1";
+        com.pally.domain.avatar.Avatar classAvatar =
+                com.pally.domain.avatar.Avatar.reconstitute(
+                        AVATAR_ID, USER_ID, "ClassMochi",
+                        com.pally.domain.avatar.Subject.MATHS,
+                        com.pally.domain.avatar.CharacterType.ZAP, 0,
+                        java.time.Instant.now());
+        classAvatar.setCorpusAvatarId(corpus);
+        when(avatarRepository.findById(AVATAR_ID))
+                .thenReturn(java.util.Optional.of(classAvatar));
+
+        WikiPage page = WikiPage.create(corpus, "fractions", "Fractions",
+                "A fraction shows part of a whole.");
+        when(wikiRepository.findByAvatarId(corpus)).thenReturn(List.of(page));
+        List<QuizQuestion> generated = List.of(new QuizQuestion(
+                "q1", AVATAR_ID, "1/2 of 4?", List.of("1", "2"), 1, "fractions", "two"));
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(generated);
+
+        List<QuizQuestion> result = useCase.execute(AVATAR_ID, USER_ID);
+
+        assertThat(result).isEqualTo(generated);
+        // Read the CORPUS's pages — never the (empty) student avatar's own.
+        verify(wikiRepository).findByAvatarId(corpus);
+        verify(wikiRepository, never()).findByAvatarId(AVATAR_ID);
+    }
 }

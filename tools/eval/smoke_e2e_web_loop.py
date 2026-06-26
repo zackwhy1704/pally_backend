@@ -66,6 +66,7 @@ import json
 import os
 import pathlib
 import random
+import re
 import string
 import sys
 import time
@@ -92,8 +93,15 @@ OUT = HERE / "out" / ("e2e_web_" + datetime.datetime.now().strftime("%Y%m%d-%H%M
 NON_TERMINAL_BRAIN = {"PENDING_RECOMPILE", "COMPILING", "NONE", "PENDING", "?"}
 
 # ── Known facts: grep these out of the compiled wiki body to assert ACCURACY. ──
-FACT_1 = "the boiling point of water is 100"          # doc 1 known fact
-FACT_2 = "the freezing point of water is 0"           # doc 2 known fact
+# Known facts as (label, required terms, critical number). The wiki compiler
+# PARAPHRASES (verified by reading the page: it wrote "the boiling point of water
+# is precisely 100 degrees Celsius"), so we assert the fact SURVIVED — the key
+# terms co-occur in ONE page body AND the number is present as a standalone token
+# — not a verbatim string. The NUMBER is required on purpose: for a
+# verified-results product, a paraphrase that dropped the "100" would be a real
+# accuracy bug and must still fail, so the matcher can't be loosened past it.
+FACT_1 = ("boiling point of water = 100", ["boiling", "water"], "100")  # doc 1
+FACT_2 = ("freezing point of water = 0", ["freezing", "water"], "0")    # doc 2
 
 DOC_1 = (
     "States of Matter and Phase Changes\n\n"
@@ -305,7 +313,12 @@ def compile_and_poll(api, avatar, label):
         comp_state = (status.get("state") or "?").upper()
         av = unwrap(api.get(f"/api/v1/avatars/{avatar}"))
         brain_state = ((av.get("brainState") if isinstance(av, dict) else "?") or "?").upper()
-        if brain_state == "READY" or comp_state in ("DONE", "COMPLETE", "COMPLETED"):
+        # Terminal SUCCESS is brainState==READY ONLY — the avatar's content is
+        # fully compiled and settled. Do NOT accept compileState==DONE while the
+        # brain is still PENDING_RECOMPILE: that's a PARTIAL compile (e.g. doc1
+        # done, doc2's debounced recompile still queued), and proceeding on it
+        # tests incomplete content (it's why FACT_2 from the 2nd doc went missing).
+        if brain_state == "READY":
             outcome = "READY"
             break
         if brain_state == "FAILED" or comp_state == "FAILED":
@@ -354,10 +367,16 @@ def body_text(page):
     return ""
 
 
-def grep_fact(pages, needle):
-    needle = needle.lower()
+def grep_fact(pages, fact):
+    """Tolerant fact match (the compiler paraphrases): every key term co-occurs
+    in ONE page body AND the critical number appears as a standalone token. The
+    digit-boundary guard means '0' does NOT match inside '100', and a paraphrase
+    that dropped the number still fails — the number is the part that matters."""
+    _label, terms, number = fact
+    num_re = re.compile(r"(?<!\d)" + re.escape(number) + r"(?!\d)")
     for p in pages:
-        if needle in body_text(p).lower():
+        body = body_text(p).lower()
+        if all(t.lower() in body for t in terms) and num_re.search(body):
             return p.get("slug") or p.get("id") or "?"
     return None
 
@@ -472,11 +491,13 @@ def main():
         check("wiki has >=1 page", len(c1["pages"]) >= 1, ">=1 page", len(c1["pages"]))
         slug1 = grep_fact(c1["pages"], FACT_1)
         slug2 = grep_fact(c1["pages"], FACT_2)
-        check("FACT_1 present in a compiled page body (accuracy)",
-              slug1 is not None, f"a page body containing '{FACT_1}'",
+        check("FACT_1 survived compilation (terms + number present, accuracy)",
+              slug1 is not None,
+              f"a page where {FACT_1[1]} co-occur with the number {FACT_1[2]!r}",
               f"found in slug={slug1}" if slug1 else "NOT FOUND in any page body")
-        check("FACT_2 present in a compiled page body (accuracy)",
-              slug2 is not None, f"a page body containing '{FACT_2}'",
+        check("FACT_2 survived compilation (terms + number present, accuracy)",
+              slug2 is not None,
+              f"a page where {FACT_2[1]} co-occur with the number {FACT_2[2]!r}",
               f"found in slug={slug2}" if slug2 else "NOT FOUND in any page body")
 
         clean_failed = failed_pages_from(compile_text, c1["status"])

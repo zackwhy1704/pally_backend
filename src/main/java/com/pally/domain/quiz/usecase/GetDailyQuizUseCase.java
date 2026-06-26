@@ -123,7 +123,17 @@ public class GetDailyQuizUseCase {
     private List<QuizQuestion> generateAndCache(
             String avatarId, LocalDate today,
             Map<LocalDate, List<QuizQuestion>> avatarCache) {
-        List<WikiPage> allPages = wikiRepository.findByAvatarId(avatarId);
+        // A CENTRE_CLASS student avatar has NO wiki of its own — it reads the
+        // shared class corpus (Avatar.corpusAvatarId), the same way
+        // SendMessageUseCase resolves chat context. Without this, a class
+        // student's daily quiz is always empty (the content lives on the corpus).
+        // The quiz instance still belongs to the STUDENT avatar (keys, cache,
+        // submission, results) — only the page SOURCE resolves to the corpus.
+        String wikiSourceId = avatarRepository.findById(avatarId)
+                .map(a -> a.getCorpusAvatarId() != null && !a.getCorpusAvatarId().isBlank()
+                        ? a.getCorpusAvatarId() : avatarId)
+                .orElse(avatarId);
+        List<WikiPage> allPages = wikiRepository.findByAvatarId(wikiSourceId);
         List<WikiPage> pages = allPages.stream()
                 .filter(p -> p.getStatus() == WikiPage.Status.ACTIVE)
                 .toList();
@@ -151,8 +161,9 @@ public class GetDailyQuizUseCase {
         log.info("[Pipeline:Quiz] Generating from {} pages: slugs={}",
                 prioritised.size(), prioritised.stream().map(WikiPage::getSlug).toList());
 
-        // Record that these pages seeded a quiz so coverage stays balanced.
-        wikiRepository.recordQuizUsage(avatarId,
+        // Record usage on the SOURCE avatar (the corpus, for a class student) so
+        // coverage tracking lands where the pages actually live.
+        wikiRepository.recordQuizUsage(wikiSourceId,
                 prioritised.stream().map(WikiPage::getSlug).toList());
 
         List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised);

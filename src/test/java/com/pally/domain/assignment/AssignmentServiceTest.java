@@ -632,4 +632,28 @@ class AssignmentServiceTest {
         m.setCreatedAt(Instant.now());
         return m;
     }
+
+    // ── listForUser: null due date must not 500 (the smoke-surfaced bug) ──────
+
+    @Test
+    void listForUser_assignmentWithNoDueDate_doesNotNPE_andReturnsNullDueDate() {
+        AssignmentJpaEntity a = new AssignmentJpaEntity();
+        a.setId("a-1");
+        a.setTitle("Revision");
+        a.setType("REVISION");
+        a.setStages("LEARN,TEST");
+        a.setDueDate(null); // OPTIONAL since V92 — the case that NPE'd → HTTP 500
+        when(assignmentRepo.findByClassIdOrderByDueDateAsc("class-1"))
+                .thenReturn(List.of(a));
+        when(completionRepo.findByAssignmentIdAndUserId("a-1", "stu-1"))
+                .thenReturn(Optional.empty());
+
+        // Previously getDueDate().toString() NPE'd here; a freshly-joined student
+        // listing a no-due-date assignment got a 500.
+        List<Map<String, Object>> result = service.listForUser("stu-1", "class-1");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).get("id")).isEqualTo("a-1");
+        assertThat(result.get(0).get("dueDate")).isNull();
+    }
 }

@@ -176,7 +176,7 @@ public class AssignmentService {
             m.put("moduleIds", a.getModuleIds());
             m.put("stages", a.getStages());
             m.put("personalized", a.isPersonalized());
-            m.put("dueDate", a.getDueDate().toString());
+            m.put("dueDate", dueDateStr(a));
             m.put("completedCount", completed);
             m.put("overdueCount", overdue);
             m.put("totalStudents", totalStudents);
@@ -213,7 +213,7 @@ public class AssignmentService {
         result.put("personalized", assignment.isPersonalized());
         result.put("topicScope", assignment.getTopicScope());
         result.put("prereqScope", assignment.getPrereqScope());
-        result.put("dueDate", assignment.getDueDate().toString());
+        result.put("dueDate", dueDateStr(assignment));
         result.put("createdBy", assignment.getCreatedBy());
 
         int pending = 0;
@@ -392,7 +392,10 @@ public class AssignmentService {
         int marked = 0;
 
         for (AssignmentJpaEntity assignment : allAssignments) {
-            if (assignment.getDueDate().isAfter(Instant.now())) continue;
+            // dueDate is nullable (V92) — an assignment with no due date is never
+            // overdue (and must not NPE here).
+            if (assignment.getDueDate() == null
+                    || assignment.getDueDate().isAfter(Instant.now())) continue;
 
             List<AssignmentCompletionJpaEntity> completions =
                     completionRepo.findByAssignmentId(assignment.getId());
@@ -417,6 +420,13 @@ public class AssignmentService {
      * Lists assignments for a specific user (via their completions),
      * filtered by class ID from their avatar.
      */
+    /// Null-safe due-date serialisation. dueDate is OPTIONAL (V92), so a
+    /// {@code getDueDate().toString()} NPEs and 500s — e.g. a student listing a
+    /// teacher's assignment that has no due date (the bug the smoke surfaced).
+    private static String dueDateStr(AssignmentJpaEntity a) {
+        return a.getDueDate() != null ? a.getDueDate().toString() : null;
+    }
+
     public List<Map<String, Object>> listForUser(String userId, String classId) {
         List<AssignmentJpaEntity> classAssignments =
                 assignmentRepo.findByClassIdOrderByDueDateAsc(classId);
@@ -427,7 +437,7 @@ public class AssignmentService {
             m.put("id", a.getId());
             m.put("title", a.getTitle());
             m.put("type", a.getType());
-            m.put("dueDate", a.getDueDate().toString());
+            m.put("dueDate", dueDateStr(a));
             m.put("stages", a.getStages());
             m.put("personalized", a.isPersonalized());
 
@@ -506,7 +516,7 @@ public class AssignmentService {
         m.put("moduleIds", moduleIds);
         m.put("personalized", a.isPersonalized());
         m.put("stages", a.getStages());
-        m.put("dueDate", a.getDueDate().toString());
+        m.put("dueDate", dueDateStr(a));
         m.put("answersReleased", a.answersReleased());
         m.put("answersReleasedAt",
                 a.getAnswersReleasedAt() != null ? a.getAnswersReleasedAt().toString() : null);
