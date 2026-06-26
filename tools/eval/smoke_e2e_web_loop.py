@@ -489,16 +489,24 @@ def main():
               well_formed, "every question has non-empty options",
               "ok" if well_formed else "missing options on some question")
         # ...and — EXPOSURE FIX — because `avatar` is a CENTRE (teacher-graded)
-        # brain, the served quiz must WITHHOLD the answer key: correctIndex must
-        # be null on every question, so a student can't read the answers from the
-        # response and replay them into teacher-visible mastery. The correct
-        # answer is revealed only POST-submit (QuizResult.feedback, see stage 6).
+        # brain, the served quiz must WITHHOLD BOTH answer-revealing fields:
+        # correctIndex (the option) AND explanation (which justifies it, e.g.
+        # "3 out of 8"). Both must be null on every question, so a student can't
+        # read the answer off the response and replay it into teacher-visible
+        # mastery. Both are revealed only POST-submit (QuizResult.feedback).
         key_withheld = all(q.get("correctIndex") is None for q in quiz_items) if quiz_items else False
         check("EXPOSURE FIX: centre quiz WITHHOLDS correctIndex (key not shipped)",
               key_withheld,
               "correctIndex is null on every teacher-graded question",
               "ok (withheld)" if key_withheld
               else "LEAKED correctIndex on some question — exposure seam OPEN")
+        explanation_withheld = all(
+            q.get("explanation") in (None, "") for q in quiz_items) if quiz_items else False
+        check("EXPOSURE FIX: centre quiz WITHHOLDS explanation (reveals the answer too)",
+              explanation_withheld,
+              "explanation is null/absent on every teacher-graded question",
+              "ok (withheld)" if explanation_withheld
+              else "LEAKED explanation on some question — second exposure seam OPEN")
 
         # ── 5. Distribution: assignment + enroll student ──
         log("STAGE 5 — distribution: assignment + student enroll")
