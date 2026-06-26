@@ -815,6 +815,11 @@ def main():
         log("PROBE — GRADE_INTEGRITY (tampered correctMap)")
         client_authoritative = "UNKNOWN"
         teacher_affected = "UNKNOWN"
+        # Hoisted so the FAIL-CLOSED check below ALWAYS runs — even if the probe
+        # body is skipped (no quiz) or a delta can't be measured. A control-arm
+        # comparison that silently passes when the control didn't run is a way to
+        # greenwash the most important check, so an unmeasurable delta must FAIL.
+        t_score = c_score = None
         if s_quiz:
             # Fetch a fresh quiz for the tamper attempt (same cached daily set).
             tq_r = student_api.get(f"/api/v1/avatars/{student_avatar}/quiz/daily")
@@ -911,6 +916,17 @@ def main():
                   "answers, honest vs tampered map)",
                   {"d_honest_score": c_score, "d_tamper_score": t_score,
                    "mastery_ctx": f"{m_before}->{m_after}"})
+
+        # FAIL CLOSED (always runs, even if the probe body was skipped): the
+        # integrity verdict is only trustworthy if BOTH control-arm deltas were
+        # actually measured. If either is missing — no quiz, the honest/tampered
+        # submit errored — the verdict is UNPROVEN and must FAIL, never pass by
+        # default. This guards the most important check from greenwashing.
+        check("GRADE INTEGRITY control arm actually ran (both deltas measured)",
+              t_score is not None and c_score is not None,
+              "both Δ_honest and Δ_tamper measured (control arm executed)",
+              {"d_honest_score": c_score, "d_tamper_score": t_score,
+               "verdict": teacher_affected})
 
         grade_integrity_line = (
             f"GRADE_INTEGRITY: client-authoritative={client_authoritative}; "
