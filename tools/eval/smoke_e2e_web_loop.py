@@ -80,11 +80,16 @@ BASE = os.environ.get("STAGING_URL", "").rstrip("/")
 ALLOW_PROD = os.environ.get("ALLOW_PROD") == "1"
 SUBJECT = os.environ.get("EVAL_SUBJECT", "SCIENCE")
 COMPILE_TIMEOUT_S = int(os.environ.get("COMPILE_TIMEOUT_S", "300"))
+# Compile is ASYNC: upload auto-triggers a recompile debounced by WIKI_DEBOUNCE_MS
+# (8s default), then an off-request ai-task thread runs it. So we must POLL until
+# the avatar's brainState is terminal, not read the result right after the 202.
+COMPILE_POLL_TIMEOUT_S = int(os.environ.get("COMPILE_POLL_TIMEOUT_S", "90"))
+COMPILE_POLL_INTERVAL_S = int(os.environ.get("COMPILE_POLL_INTERVAL_S", "3"))
 OUT = HERE / "out" / ("e2e_web_" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
-# Terminal compile-status states (KnowledgeController: state = RUNNING|DONE|FAILED|NONE).
-# Extra synonyms kept defensively in case staging differs.
-TERMINAL_STATES = {"DONE", "FAILED", "NONE", "COMPLETE", "COMPLETED", "READY", "IDLE"}
+# brainState values that mean the async compile is STILL in flight (NOT done).
+# NONE = no active compile job (the debounce gap) — emphatically not "finished".
+NON_TERMINAL_BRAIN = {"PENDING_RECOMPILE", "COMPILING", "NONE", "PENDING", "?"}
 
 # ── Known facts: grep these out of the compiled wiki body to assert ACCURACY. ──
 FACT_1 = "the boiling point of water is 100"          # doc 1 known fact
@@ -274,8 +279,16 @@ def best_effort_delete(api, who):
 
 # ─────────────────── compile poller ───────────────────
 def compile_and_poll(api, avatar, label):
-    """Fire compile, poll wiki/compile/status to terminal. Returns dict with
-    compile_http, terminal state, status payload, and the pages list."""
+    """Fire compile, then POLL the avatar brainState until the async compile
+    reaches a terminal state — READY (success) or FAILED — bounded by
+    COMPILE_POLL_TIMEOUT_S. The compile runs off-request (ai-task threads) after
+    a debounce, so the result must NOT be read right after the 202: brainState
+    moves PENDING_RECOMPILE → COMPILING → READY, and compile/status returns NONE
+    during the debounce gap (not terminal). Pages are read only AFTER the loop.
+
+    Returns outcome ∈ {READY, FAILED, TIMEOUT} plus the last brainState/status
+    and the pages, so the caller can tell a finished compile from a still-running
+    one and a still-running one from a genuinely stuck pipeline."""
     try:
         rc = api.post(f"/api/v1/avatars/{avatar}/wiki/compile", {}, timeout=COMPILE_TIMEOUT_S)
         compile_http = rc.status_code
@@ -284,22 +297,30 @@ def compile_and_poll(api, avatar, label):
         compile_http = f"EXC:{type(e).__name__}"
         (OUT / f"compile_{label}.json").write_text(json.dumps({"exception": str(e)}))
 
-    state, status = "?", {}
-    deadline = time.time() + COMPILE_TIMEOUT_S
+    brain_state, comp_state, status, outcome = "?", "?", {}, "TIMEOUT"
+    deadline = time.time() + COMPILE_POLL_TIMEOUT_S
     while time.time() < deadline:
         st = unwrap(api.get(f"/api/v1/avatars/{avatar}/wiki/compile/status"))
         status = st if isinstance(st, dict) else {}
-        state = (status.get("state") or "?").upper()
-        if state in TERMINAL_STATES:
+        comp_state = (status.get("state") or "?").upper()
+        av = unwrap(api.get(f"/api/v1/avatars/{avatar}"))
+        brain_state = ((av.get("brainState") if isinstance(av, dict) else "?") or "?").upper()
+        if brain_state == "READY" or comp_state in ("DONE", "COMPLETE", "COMPLETED"):
+            outcome = "READY"
             break
-        time.sleep(5)
+        if brain_state == "FAILED" or comp_state == "FAILED":
+            outcome = "FAILED"
+            break
+        time.sleep(COMPILE_POLL_INTERVAL_S)
 
     pages_data = unwrap(api.get(f"/api/v1/avatars/{avatar}/wiki/pages"))
     pages = as_list(pages_data, "pages")
     (OUT / f"pages_{label}.json").write_text(json.dumps(pages, indent=2, default=str))
     return {
         "compile_http": compile_http,
-        "state": state,
+        "outcome": outcome,          # READY | FAILED | TIMEOUT
+        "brain_state": brain_state,
+        "state": comp_state,
         "status": status,
         "pages": pages,
     }
@@ -429,18 +450,23 @@ def main():
         c1 = compile_and_poll(teacher_api, avatar, "clean")
         compile_text = (OUT / "compile_clean.json").read_text()
         stage("compile_clean", c1["compile_http"],
-              f"state={c1['state']} pages={len(c1['pages'])}")
-        check("compile reaches terminal state",
-              c1["state"] in TERMINAL_STATES, f"one of {sorted(TERMINAL_STATES)}", c1["state"])
-        check("compile state not FAILED on clean docs",
-              c1["state"] != "FAILED", "not FAILED", c1["state"])
+              f"outcome={c1['outcome']} brain={c1['brain_state']} "
+              f"compileState={c1['state']} pages={len(c1['pages'])}")
 
-        # brainState READY on the avatar
-        av = unwrap(teacher_api.get(f"/api/v1/avatars/{avatar}"))
-        brain_state = av.get("brainState") if isinstance(av, dict) else None
-        stage("brain_state", "-", f"brainState={brain_state}")
-        check("brainState READY after compile",
-              brain_state == "READY", "READY", brain_state)
+        # One unambiguous compile verdict — distinguishing a finished compile from
+        # a still-running one from a genuinely stuck pipeline (no more "not READY"
+        # on a compile that simply hadn't fired yet).
+        if c1["outcome"] == "READY":
+            check("compile reaches READY (terminal)", True, "READY",
+                  f"brainState={c1['brain_state']}")
+        elif c1["outcome"] == "FAILED":
+            check("compile reaches READY (terminal)", False, "READY",
+                  f"compile FAILED — status={json.dumps(c1['status'])[:200]}")
+        else:  # TIMEOUT
+            check("compile reaches READY (terminal)", False, "READY",
+                  f"compile did NOT reach a terminal state in {COMPILE_POLL_TIMEOUT_S}s "
+                  f"— last brainState={c1['brain_state']} compileState={c1['state']} "
+                  f"— POSSIBLE STUCK PIPELINE, not a timing artifact")
 
         # at least one page, and the known facts actually appear in a page BODY
         check("wiki has >=1 page", len(c1["pages"]) >= 1, ">=1 page", len(c1["pages"]))
@@ -709,16 +735,39 @@ def main():
               f"rows={len(roster_analytics)}", an_r.text)
         check("class analytics roster non-empty",
               len(roster_analytics) >= 1, ">=1 roster row", len(roster_analytics))
-        # the just-submitted student appears in the roster analytics
-        student_in_analytics = any(
-            (r.get("userId") == s_uid or r.get("studentUserId") == s_uid
-             or r.get("studentId") == s_uid)
-            for r in roster_analytics
-        )
-        check("student's attempt reflected in teacher analytics",
-              student_in_analytics or len(roster_analytics) >= 1,
-              f"a roster row for student {s_uid}",
-              {"matched_uid": student_in_analytics, "rows": len(roster_analytics)})
+
+        # The student's ATTEMPT must be reflected — NOT merely their enrolment.
+        # Membership alone is vacuous: the student appears in the roster just by
+        # joining, with attempts=0. A real reflection needs (a) a submission to
+        # have actually happened this run, AND (b) the student's matched roster
+        # row to carry a real attempt signal (attempts>0 or non-zero grasp).
+        def _student_row(rows):
+            for r in rows:
+                if (r.get("userId") == s_uid or r.get("studentUserId") == s_uid
+                        or r.get("studentId") == s_uid):
+                    return r
+            return None
+
+        def _attempt_signal(r):
+            if not r:
+                return False
+            for k in ("attempts", "questions", "questionsAnswered", "attemptCount"):
+                v = r.get(k)
+                if isinstance(v, (int, float)) and v > 0:
+                    return True
+            for k in ("grasp", "mastery", "masteryPct", "graspPct", "averageScore"):
+                v = r.get(k)
+                if isinstance(v, (int, float)) and v > 0:
+                    return True
+            return False
+
+        s_row = _student_row(roster_analytics)
+        submitted = normal_total is not None and normal_total >= 1
+        check("student's ATTEMPT (not just enrolment) reflected in teacher analytics",
+              submitted and _attempt_signal(s_row),
+              "a real submission happened AND the student's roster row shows an "
+              "attempt signal (attempts>0 or non-zero grasp) — not mere membership",
+              {"submitted": submitted, "matched": bool(s_row), "row": s_row})
 
         # ── PROBE: GRADE INTEGRITY ──
         log("PROBE — GRADE_INTEGRITY (tampered correctMap)")
