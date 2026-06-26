@@ -56,7 +56,8 @@ class WikiRecompileSchedulerTest {
                 wikiRepository,
                 brainStateService,
                 avatarRepository,
-                new com.pally.domain.knowledge.usecase.CompileJobStore());
+                new com.pally.domain.knowledge.usecase.CompileJobStore(),
+                org.mockito.Mockito.mock(com.pally.domain.knowledge.usecase.DurableCompileStatusStore.class));
 
         // Inject short debounce/maxWait for speed
         ReflectionTestUtils.setField(scheduler, "debounceMs", DEBOUNCE_MS);

@@ -74,6 +74,7 @@ public class WikiRecompileScheduler {
     private final BrainStateService   brainStateService;
     private final AvatarRepository    avatarRepository;
     private final com.pally.domain.knowledge.usecase.CompileJobStore compileJobStore;
+    private final com.pally.domain.knowledge.usecase.DurableCompileStatusStore durableCompileStatusStore;
 
     public WikiRecompileScheduler(
             @Qualifier(AiTaskExecutorConfig.AI_TASK_EXECUTOR) ThreadPoolExecutor aiTaskExecutor,
@@ -81,13 +82,15 @@ public class WikiRecompileScheduler {
             WikiRepository wikiRepository,
             BrainStateService brainStateService,
             AvatarRepository avatarRepository,
-            com.pally.domain.knowledge.usecase.CompileJobStore compileJobStore) {
+            com.pally.domain.knowledge.usecase.CompileJobStore compileJobStore,
+            com.pally.domain.knowledge.usecase.DurableCompileStatusStore durableCompileStatusStore) {
         this.aiTaskExecutor    = aiTaskExecutor;
         this.compileWikiUseCase = compileWikiUseCase;
         this.wikiRepository    = wikiRepository;
         this.brainStateService = brainStateService;
         this.avatarRepository  = avatarRepository;
         this.compileJobStore   = compileJobStore;
+        this.durableCompileStatusStore = durableCompileStatusStore;
     }
 
     /**
@@ -260,6 +263,12 @@ public class WikiRecompileScheduler {
                 compiled, total, result.tierServed(), null,
                 result.failedPages(), java.time.Instant.now());
         compileJobStore.put("recompile-" + avatarId, status);
+        // C2: also persist durably so GET /wiki/compile/status is correct on any replica.
+        try {
+            durableCompileStatusStore.record(avatarId, "DONE", compiled, total, result.failedPages());
+        } catch (Exception e) {
+            log.warn("[Debounce] durable compile-status write failed avatar={}: {}", avatarId, e.getMessage());
+        }
         if (!result.failedPages().isEmpty()) {
             log.warn("[Debounce] recompile avatar={} persisted {}/{} pages — {} failed: {}",
                     avatarId, compiled, total, result.failedPages().size(), result.failedPages());

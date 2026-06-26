@@ -14,6 +14,7 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.usecase.CheckRelevanceUseCase;
 import com.pally.domain.knowledge.usecase.CompileJobStore;
+import com.pally.domain.knowledge.usecase.DurableCompileStatusStore;
 import com.pally.domain.knowledge.usecase.CompileWikiUseCase;
 import com.pally.domain.knowledge.usecase.DeleteFileUseCase;
 import com.pally.domain.knowledge.usecase.UploadFileUseCase;
@@ -49,6 +50,7 @@ public class KnowledgeService {
     private final CheckRelevanceUseCase checkRelevanceUseCase;
     private final CompileWikiUseCase compileWikiUseCase;
     private final CompileJobStore compileJobStore;
+    private final com.pally.domain.knowledge.usecase.DurableCompileStatusStore durableCompileStatusStore;
     private final WikiRecompileScheduler recompileScheduler;
     private final KnowledgeRepository knowledgeRepository;
     private final KnowledgeMapper knowledgeMapper;
@@ -174,13 +176,28 @@ public class KnowledgeService {
     }
 
     public Map<String, Object> compileStatus(String userId, String avatarId) {
-        CompileJobStore.JobStatus status = compileJobStore.findByAvatarId(avatarId);
-        if (status == null) {
-            Map<String, Object> none = new HashMap<>();
-            none.put("state", "NONE");
-            none.put("message", "No compile job found for this avatar");
-            return none;
+        // Live RUNNING progress only exists in memory (and only on the instance doing
+        // the compile) — return it when present.
+        CompileJobStore.JobStatus live = compileJobStore.findByAvatarId(avatarId);
+        if (live != null && live.state() == CompileJobStore.JobState.RUNNING) {
+            return toBody(live);
         }
+        // C2: the TERMINAL outcome (incl. failedPages) is read from the durable row so
+        // it's correct on ANY replica — a second instance no longer reports nothing.
+        var durable = durableCompileStatusStore.find(avatarId);
+        if (durable.isPresent()) {
+            return toDurableBody(durable.get());
+        }
+        if (live != null) {
+            return toBody(live); // same-replica terminal fallback (pre-durable jobs)
+        }
+        Map<String, Object> none = new HashMap<>();
+        none.put("state", "NONE");
+        none.put("message", "No compile job found for this avatar");
+        return none;
+    }
+
+    private Map<String, Object> toBody(CompileJobStore.JobStatus status) {
         Map<String, Object> body = new HashMap<>();
         body.put("jobId", status.jobId());
         body.put("state", status.state().name());
@@ -193,6 +210,18 @@ public class KnowledgeService {
         }
         if (status.errorMessage() != null) {
             body.put("error", status.errorMessage());
+        }
+        return body;
+    }
+
+    private Map<String, Object> toDurableBody(DurableCompileStatusStore.DurableStatus s) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("state", s.state());
+        body.put("pagesCompiled", s.pagesCompiled());
+        body.put("pagesTotal", s.pagesTotal());
+        if (s.pagesFailed() > 0) {
+            body.put("pagesFailed", s.pagesFailed());
+            body.put("failedPages", s.failedPages());
         }
         return body;
     }

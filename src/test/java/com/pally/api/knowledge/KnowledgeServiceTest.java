@@ -60,6 +60,7 @@ class KnowledgeServiceTest {
     @Mock CheckRelevanceUseCase checkRelevanceUseCase;
     @Mock CompileWikiUseCase compileWikiUseCase;
     @Mock CompileJobStore compileJobStore;
+    @Mock com.pally.domain.knowledge.usecase.DurableCompileStatusStore durableCompileStatusStore;
     @Mock WikiRecompileScheduler recompileScheduler;
     @Mock KnowledgeRepository knowledgeRepository;
     @Mock KnowledgeMapper knowledgeMapper;
@@ -82,8 +83,8 @@ class KnowledgeServiceTest {
     void setUp() {
         service = new KnowledgeService(
                 uploadFileUseCase, deleteFileUseCase, checkRelevanceUseCase, compileWikiUseCase,
-                compileJobStore, recompileScheduler, knowledgeRepository, knowledgeMapper,
-                wikiRepository, avatarRepository, avatarSlotGuard, wikiPageSourceRepo);
+                compileJobStore, durableCompileStatusStore, recompileScheduler, knowledgeRepository,
+                knowledgeMapper, wikiRepository, avatarRepository, avatarSlotGuard, wikiPageSourceRepo);
         ownerAvatar = Avatar.create(OWNER_USER, "Zap", Subject.SCIENCE, CharacterType.ZAP);
         wikiPage = WikiPage.create(AVATAR_ID, SLUG, "Photosynthesis",
                 "Plants use sunlight to make food.");
@@ -147,6 +148,26 @@ class KnowledgeServiceTest {
         Map<String, Object> body = service.compileStatus("user-1", "avatar-1");
 
         assertThat(body.get("state")).isEqualTo("NONE");
+    }
+
+    @Test
+    void compileStatus_readsDurableStore_whenInMemoryEmpty_soCorrectAcrossReplicas() {
+        // C2: a different replica has nothing in memory — the durable row must serve
+        // the terminal status (incl. failedPages), or the web shows "✓ compiled" on a
+        // partial compile.
+        when(compileJobStore.findByAvatarId(AVATAR_ID)).thenReturn(null);
+        when(durableCompileStatusStore.find(AVATAR_ID)).thenReturn(Optional.of(
+                new com.pally.domain.knowledge.usecase.DurableCompileStatusStore.DurableStatus(
+                        "DONE", 6, 8, 2,
+                        java.util.List.of(
+                                new com.pally.domain.knowledge.usecase.FailedPage("osmosis", "x"),
+                                new com.pally.domain.knowledge.usecase.FailedPage("mitosis", "y")))));
+
+        Map<String, Object> body = service.compileStatus("user-1", AVATAR_ID);
+
+        assertThat(body.get("state")).isEqualTo("DONE");
+        assertThat(body.get("pagesFailed")).isEqualTo(2);
+        assertThat(body.get("failedPages")).isNotNull();
     }
 
     // ── A1: explicit compile shares the scheduler's per-avatar gate ─────────────

@@ -4,6 +4,8 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.usecase.DurableCompileStatusStore;
+import com.pally.domain.knowledge.usecase.FailedPage;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository;
 import com.pally.infrastructure.persistence.avatar.AvatarJpaEntity;
@@ -38,6 +40,7 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
 
     @Autowired private AssignmentJpaRepository assignmentRepo;
     @Autowired private WikiPageJpaRepository wikiRepo;
+    @Autowired private DurableCompileStatusStore durableCompileStatusStore;
     @Autowired private LearningModuleJpaRepository moduleRepo;
     @Autowired private AvatarJpaRepository avatarRepo;
     @Autowired private OrganizationJpaRepository orgRepo;
@@ -163,5 +166,20 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
 
         LearningModuleJpaEntity loaded = moduleRepo.findById(m.getId()).orElseThrow();
         assertThat(loaded.getTitle()).hasSize(800);
+    }
+    @Test
+    void compileStatus_durableRoundTrip_persistsFailedPagesAcrossInstances() {
+        // C2: the durable row survives instance restarts/replicas, so the partial
+        // compile's failedPages are still readable on a different instance.
+        durableCompileStatusStore.record("av-durable", "DONE", 6, 8,
+                java.util.List.of(new FailedPage("osmosis", "conflict_note")));
+
+        DurableCompileStatusStore.DurableStatus loaded =
+                durableCompileStatusStore.find("av-durable").orElseThrow();
+        assertThat(loaded.state()).isEqualTo("DONE");
+        assertThat(loaded.pagesCompiled()).isEqualTo(6);
+        assertThat(loaded.pagesTotal()).isEqualTo(8);
+        assertThat(loaded.pagesFailed()).isEqualTo(1);
+        assertThat(loaded.failedPages()).extracting(FailedPage::slug).containsExactly("osmosis");
     }
 }

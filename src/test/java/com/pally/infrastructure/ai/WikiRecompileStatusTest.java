@@ -31,7 +31,8 @@ class WikiRecompileStatusTest {
                 mock(WikiRepository.class),
                 mock(BrainStateService.class),
                 mock(AvatarRepository.class),
-                store);
+                store,
+                mock(com.pally.domain.knowledge.usecase.DurableCompileStatusStore.class));
     }
 
     @Test
