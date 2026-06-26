@@ -13,7 +13,6 @@ import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -33,13 +32,16 @@ import java.util.stream.Collectors;
 public class ModuleContentGenerator {
 
     private static final int MAX_TOKENS = 1500;
+    // Micro-cards are the largest payload (up to 6 cards × title+body+keyTerms+
+    // narration_hint) and were truncating at MAX_TOKENS — dropping the whole LEARN
+    // batch (B2). Give them real headroom; lenient parse + one retry handle the rest.
+    private static final int MICRO_CARD_TOKENS = 3000;
 
     private final GeminiCompletionService geminiCompletion;
     private final ObjectMapper objectMapper;
-    private final LearningModuleRepository moduleRepository;
-    private final ModuleContentItemRepository itemRepository;
     private final PremiumService premiumService;
     private final GroundednessVerifier groundednessVerifier;
+    private final ModuleWriter moduleWriter;
 
     /**
      * Generates a learning module with LEARN and TEST items for a wiki page.
@@ -48,13 +50,15 @@ public class ModuleContentGenerator {
      *
      * @return the saved module domain object
      */
-    @Transactional
+    // A2: NOT @Transactional — the four Gemini calls below must not pin a DB
+    // connection. The module's UUID is assigned in-memory so items can reference it
+    // without a DB round-trip; only the final persist runs in a (brief) transaction.
     public LearningModule generate(Avatar avatar, WikiPage page) {
         String tier = resolveContentTier(avatar);
         String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
         String subject = avatar.getSubject().label();
 
-        // Create module
+        // Build the module in memory (UUID assigned now — no DB write yet).
         LearningModule module = new LearningModule();
         module.setId(IdGenerator.newId());
         module.setAvatarId(avatar.getId());
@@ -65,25 +69,22 @@ public class ModuleContentGenerator {
         module.setTier(tier);
         module.setMasteryPct(BigDecimal.ZERO);
         module.setCreatedAt(Instant.now());
-        module = moduleRepository.save(module);
 
         String content = truncate(page.getContent(), 3000);
         List<ModuleContentItem> allItems = new ArrayList<>();
 
-        // Generate LEARN items (micro-cards)
-        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier));
-
-        // Generate TEST items
-        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier));
+        // ── AI work — NO transaction held across these ──────────────────────
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier)); // LEARN
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier));   // TEST
         allItems.addAll(generateSpotMistake(module.getId(), content, level, subject));
         allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier));
-
         tagGroundedness(page, allItems);
-        itemRepository.saveAll(allItems);
-        log.info("[Module] Generated module id={} slug={} items={} tier={}",
-                module.getId(), page.getSlug(), allItems.size(), tier);
 
-        return module;
+        // ── Short transactional persist ─────────────────────────────────────
+        LearningModule saved = moduleWriter.saveModuleWithItems(module, allItems);
+        log.info("[Module] Generated module id={} slug={} items={} tier={}",
+                saved.getId(), page.getSlug(), allItems.size(), tier);
+        return saved;
     }
 
     /**
@@ -95,11 +96,9 @@ public class ModuleContentGenerator {
      * @param guidance optional free-text feedback from the teacher; prepended to each
      *                 generation prompt so the model respects it
      */
-    @Transactional
+    // A2: NOT @Transactional — the four draft Gemini calls run with no open
+    // transaction. The delete + re-insert happen together in the short write at the end.
     public void regenerateAsDraft(Avatar avatar, WikiPage page, LearningModule module, String guidance) {
-        // Wipe existing items — teacher asked for a full redo
-        itemRepository.deleteByModuleId(module.getId());
-
         String tier = resolveContentTier(avatar);
         String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
         String subject = avatar.getSubject().label();
@@ -109,14 +108,16 @@ public class ModuleContentGenerator {
                 ? "\n\nTeacher guidance to incorporate:\n" + guidance.strip() + "\n"
                 : "";
 
+        // ── AI work — NO transaction held across these ──────────────────────
         List<ModuleContentItem> allItems = new ArrayList<>();
         allItems.addAll(generateMicroCardsDraft(module.getId(), content, level, subject, tier, guidanceSection));
         allItems.addAll(generateHotTakesDraft(module.getId(), content, level, subject, tier, guidanceSection));
         allItems.addAll(generateSpotMistakeDraft(module.getId(), content, level, subject, guidanceSection));
         allItems.addAll(generateChallengesDraft(module.getId(), content, level, subject, tier, guidanceSection));
-
         tagGroundedness(page, allItems);
-        itemRepository.saveAll(allItems);
+
+        // ── Short transactional replace (delete old + insert new, atomic) ───
+        moduleWriter.replaceItems(module.getId(), allItems);
         log.info("[CentreRegen] Regenerated module={} slug={} items={} withGuidance={}",
                 module.getId(), page.getSlug(), allItems.size(), guidance != null && !guidance.isBlank());
     }
@@ -359,7 +360,8 @@ public class ModuleContentGenerator {
      * Generates adaptive PROVE questions based on TEST results.
      * Targets concepts the student scored poorly on.
      */
-    @Transactional
+    // A2: NOT @Transactional — the Gemini call runs with no open transaction; the
+    // count + persist happen in ModuleWriter.appendProveItems.
     public List<ModuleContentItem> generateProveQuestions(
             LearningModule module,
             WikiPage page,
@@ -396,11 +398,7 @@ public class ModuleContentGenerator {
                     new TypeReference<>() {});
 
             List<ModuleContentItem> items = new ArrayList<>();
-            int existingCount = itemRepository.countByModuleIdAndStage(
-                    module.getId(), ModuleStage.PROVE.name());
-
-            for (int i = 0; i < parsed.size(); i++) {
-                Map<String, Object> q = parsed.get(i);
+            for (Map<String, Object> q : parsed) {
                 ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(module.getId());
@@ -416,16 +414,16 @@ public class ModuleContentGenerator {
                         "expectedKeyPoints", keyPoints,
                         "targetConcept", target)));
 
-                item.setSortOrder(existingCount + i);
                 item.setTierRequired(tier);
                 item.setCreatedAt(Instant.now());
                 items.add(item);
             }
 
-            itemRepository.saveAll(items);
+            // sortOrder + persist in a short transaction (count is read there too).
+            List<ModuleContentItem> saved = moduleWriter.appendProveItems(module.getId(), items);
             log.info("[Module] Generated {} PROVE questions for module={}",
-                    items.size(), module.getId());
-            return items;
+                    saved.size(), module.getId());
+            return saved;
 
         } catch (Exception e) {
             log.error("[Module] Failed to generate PROVE questions for module={}",
@@ -453,10 +451,11 @@ public class ModuleContentGenerator {
                 """.formatted(n, level, subject, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "module-learn-gen");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json,
-                    new TypeReference<>() {});
+            // B2: higher token budget + lenient salvage of complete elements before a
+            // truncation point + one retry — so a truncated response no longer drops
+            // the entire LEARN batch (module shipping without its micro-cards).
+            List<Map<String, Object>> parsed =
+                    robustJsonArray(MICRO_CARD_TOKENS, prompt, "module-learn-gen");
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
@@ -665,5 +664,91 @@ public class ModuleContentGenerator {
     private String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    // ── Robust JSON-array parsing (B2) ───────────────────────────────────────────
+
+    /// Calls the model and parses a JSON array of objects, tolerating truncation:
+    /// the whole-array parse is tried first, then complete top-level objects are
+    /// salvaged from a cut-off response. Retries the call ONCE if nothing parsed.
+    private List<Map<String, Object>> robustJsonArray(int tokens, String prompt, String label) {
+        List<Map<String, Object>> last = List.of();
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            String raw = geminiCompletion.complete(tokens, prompt, label);
+            last = parseJsonObjectsLenient(raw);
+            if (!last.isEmpty()) {
+                return last;
+            }
+            log.warn("[Module] {} produced no parseable JSON objects (attempt {}/2)", label, attempt);
+        }
+        return last;
+    }
+
+    /// Parse a JSON array of objects; if the array is truncated (the common Gemini
+    /// failure), salvage every COMPLETE top-level object before the cut-off instead of
+    /// discarding the whole response.
+    List<Map<String, Object>> parseJsonObjectsLenient(String raw) {
+        String json = extractJson(raw, '[', ']');
+        try {
+            List<Map<String, Object>> all = objectMapper.readValue(json, new TypeReference<>() {});
+            if (all != null && !all.isEmpty()) {
+                return all;
+            }
+        } catch (Exception truncated) {
+            // fall through to element-level salvage
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String obj : extractBalancedObjects(raw)) {
+            try {
+                out.add(objectMapper.readValue(obj, new TypeReference<>() {}));
+            } catch (Exception skip) {
+                // a malformed / incomplete object — skip just this one
+            }
+        }
+        if (!out.isEmpty()) {
+            log.info("[Module] Salvaged {} complete item(s) from a truncated JSON response", out.size());
+        }
+        return out;
+    }
+
+    /// Returns every balanced, top-level {...} object in {@code s}, honouring quoted
+    /// strings + escapes. An unbalanced trailing object (the truncation) is skipped.
+    static List<String> extractBalancedObjects(String s) {
+        List<String> out = new ArrayList<>();
+        if (s == null) {
+            return out;
+        }
+        int depth = 0;
+        int start = -1;
+        boolean inStr = false;
+        boolean esc = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (inStr) {
+                if (esc) {
+                    esc = false;
+                } else if (c == '\\') {
+                    esc = true;
+                } else if (c == '"') {
+                    inStr = false;
+                }
+                continue;
+            }
+            if (c == '"') {
+                inStr = true;
+            } else if (c == '{') {
+                if (depth == 0) {
+                    start = i;
+                }
+                depth++;
+            } else if (c == '}' && depth > 0) {
+                depth--;
+                if (depth == 0 && start >= 0) {
+                    out.add(s.substring(start, i + 1));
+                    start = -1;
+                }
+            }
+        }
+        return out;
     }
 }

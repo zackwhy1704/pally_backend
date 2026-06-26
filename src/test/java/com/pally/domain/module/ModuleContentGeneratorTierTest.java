@@ -36,8 +36,8 @@ class ModuleContentGeneratorTierTest {
     @BeforeEach
     void setUp() {
         generator = new ModuleContentGenerator(
-                geminiCompletion, new ObjectMapper(), moduleRepository, itemRepository,
-                premiumService, groundednessVerifier);
+                geminiCompletion, new ObjectMapper(), premiumService, groundednessVerifier,
+                new ModuleWriter(moduleRepository, itemRepository));
     }
 
     @Test

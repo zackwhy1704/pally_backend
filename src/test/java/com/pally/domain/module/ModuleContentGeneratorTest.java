@@ -37,8 +37,8 @@ class ModuleContentGeneratorTest {
     @BeforeEach
     void setUp() {
         generator = new ModuleContentGenerator(
-                geminiCompletion, objectMapper, moduleRepository, itemRepository,
-                premiumService, groundednessVerifier);
+                geminiCompletion, objectMapper, premiumService, groundednessVerifier,
+                new ModuleWriter(moduleRepository, itemRepository));
         // Default: FREE tier for personal avatars
         lenient().when(premiumService.resolveTier(anyString()))
                 .thenReturn(SubscriptionTier.FREE);
@@ -220,5 +220,30 @@ class ModuleContentGeneratorTest {
     @Test
     void extractJson_returnsEmptyObjectForNullObject() {
         assertThat(generator.extractJson(null, '{', '}')).isEqualTo("{}");
+    }
+
+    // ── B2: truncated micro-card JSON recovers complete elements ────────────────
+
+    @Test
+    void parseJsonObjectsLenient_recoversCompleteElementsFromTruncatedArray() {
+        // The whole-array parse fails (no closing ]); complete objects are salvaged.
+        String truncated = "[{\"title\":\"A\",\"body\":\"x\"},{\"title\":\"B\",\"body\":\"y\"},{\"title\":\"C\",\"bod";
+        List<java.util.Map<String, Object>> items = generator.parseJsonObjectsLenient(truncated);
+        assertThat(items).hasSize(2);
+        assertThat(items.get(0)).containsEntry("title", "A");
+        assertThat(items.get(1)).containsEntry("title", "B");
+    }
+
+    @Test
+    void parseJsonObjectsLenient_parsesACleanArrayFully() {
+        String clean = "[{\"title\":\"A\"},{\"title\":\"B\"},{\"title\":\"C\"}]";
+        assertThat(generator.parseJsonObjectsLenient(clean)).hasSize(3);
+    }
+
+    @Test
+    void extractBalancedObjects_handlesNestingAndStringBraces_skipsTruncatedTail() {
+        // A brace inside a string must not close the object; the truncated 3rd is skipped.
+        String s = "[{\"a\":{\"n\":1},\"s\":\"has } brace\"},{\"b\":2},{\"c\":";
+        assertThat(ModuleContentGenerator.extractBalancedObjects(s)).hasSize(2);
     }
 }

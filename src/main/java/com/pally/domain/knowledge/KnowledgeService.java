@@ -137,9 +137,26 @@ public class KnowledgeService {
             return new CompileOutcome(true, asyncBody, null);
         }
 
-        // Bounded synchronous path — capped concurrent compiles
-        CompileWikiUseCase.CompileResult result =
-                compileWikiUseCase.executeBounded(avatarId);
+        // Bounded synchronous path — capped concurrent compiles. A1: claim the
+        // per-avatar gate so an explicit compile never runs in parallel with a
+        // debounced recompile for the same avatar (that race caused duplicate-key
+        // failures on wiki_pages / learning_module). If a compile is already in
+        // flight, don't start a parallel one — mark the avatar dirty (so the latest
+        // content recompiles afterwards) and return 202 "in progress".
+        if (!recompileScheduler.tryBeginExternalCompile(avatarId)) {
+            recompileScheduler.markDirty(avatarId);
+            Map<String, Object> body = new HashMap<>();
+            body.put("inProgress", true);
+            body.put("message",
+                    "A compile is already in progress for this brain — poll /wiki/compile/status.");
+            return new CompileOutcome(true, body, null);
+        }
+        CompileWikiUseCase.CompileResult result;
+        try {
+            result = compileWikiUseCase.executeBounded(avatarId);
+        } finally {
+            recompileScheduler.endExternalCompile(avatarId);
+        }
         int total = result.pagesCreated() + result.pagesUpdated();
         String message = "Wiki compiled: %d page(s) created, %d page(s) updated"
                 .formatted(result.pagesCreated(), result.pagesUpdated());

@@ -52,6 +52,18 @@ class WikiRecompileStatusTest {
     }
 
     @Test
+    void externalCompileGate_isMutuallyExclusivePerAvatar_andReleases() {
+        // A1: the explicit-compile path and the debounce path share this gate, so a
+        // second compile for the same avatar can never start while one is in flight.
+        WikiRecompileScheduler s = scheduler();
+        assertThat(s.tryBeginExternalCompile("av")).isTrue();    // first claims the gate
+        assertThat(s.tryBeginExternalCompile("av")).isFalse();   // second is blocked
+        assertThat(s.tryBeginExternalCompile("other")).isTrue(); // a different avatar is free
+        s.endExternalCompile("av");                              // release (no dirty queued)
+        assertThat(s.tryBeginExternalCompile("av")).isTrue();    // free again
+    }
+
+    @Test
     void cleanRecompile_publishesEmptyFailures_soAPriorPartialDoesNotLinger() {
         // First a partial, then a clean recompile — the latest (clean) must win.
         scheduler().recordRecompileStatus("av-2", new CompileWikiUseCase.CompileResult(

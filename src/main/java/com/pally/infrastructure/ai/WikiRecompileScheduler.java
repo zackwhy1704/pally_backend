@@ -124,6 +124,35 @@ public class WikiRecompileScheduler {
                 avatarId, delay, elapsed);
     }
 
+    // ── External-compile coordination (A1) ──────────────────────────────────────
+    // The explicit POST /wiki/compile path runs OUTSIDE this scheduler but must share
+    // its per-avatar in-flight gate, or an explicit compile and a debounced recompile
+    // run for the same avatar at once → duplicate-key races on wiki_pages /
+    // learning_module. The explicit path calls tryBeginExternalCompile before
+    // compiling and endExternalCompile in a finally; the scheduler's own
+    // requestRecompile/recompileNow already gate on the same {@code inFlight} set, so
+    // the two can never overlap for one avatar.
+
+    /** Try to claim the per-avatar gate for an external (explicit) compile. */
+    public boolean tryBeginExternalCompile(String avatarId) {
+        return inFlight.add(avatarId);
+    }
+
+    /** Release the gate after an external compile; fire a queued follow-up if content
+     *  changed while it ran (mirrors the scheduler's own dirtyAgain coalescing). */
+    public void endExternalCompile(String avatarId) {
+        inFlight.remove(avatarId);
+        if (dirtyAgain.remove(avatarId)) {
+            log.info("[Debounce] Follow-up recompile after external compile avatar={}", avatarId);
+            requestRecompile(avatarId);
+        }
+    }
+
+    /** Mark the avatar dirty so a recompile runs once the in-flight compile finishes. */
+    public void markDirty(String avatarId) {
+        dirtyAgain.add(avatarId);
+    }
+
     /**
      * Bypass debounce and fire immediately. Used by the manual
      * {@code POST /wiki/recompile} endpoint.

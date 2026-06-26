@@ -134,6 +134,40 @@ class WikiConflictDetectionTest {
     }
 
     @Test
+    void detectConflict_grayBandNumericContradiction_flagsDeterministically_withoutHaiku() {
+        // Two rephrased pages on the same topic, Jaccard ~0.50 (the GRAY band), that
+        // contradict only on the number. Pre-fix this fell to haikuContradicts, which
+        // rationalized "36 vs 38 ATP" away as "different sources" and returned NO.
+        // B1: the deterministic check runs first on every collision and decides.
+        String a = "The mitochondria produces 38 ATP per glucose molecule during aerobic "
+                 + "respiration. It is the powerhouse of the cell and has a double membrane "
+                 + "with folded cristae.";
+        String b = "The mitochondria produces 36 ATP per glucose molecule during aerobic "
+                 + "respiration. It is the powerhouse of the cell and contains its own "
+                 + "circular DNA inside the matrix.";
+
+        WikiPagePersistenceService.ConflictResult result = service.detectConflict(a, b);
+
+        assertThat(result.conflict()).isTrue();
+        assertThat(result.note()).contains("38").contains("36");
+        org.mockito.Mockito.verifyNoInteractions(claudeApiClient); // deterministic, never asked the LLM
+    }
+
+    @Test
+    void detectConflict_grayBandParaphrase_sameNumber_staysNONE() {
+        // Same number, only a verb paraphrase + different second sentence (gray band).
+        // The deterministic check must NOT false-positive (different context, same value);
+        // it falls through to Haiku for the prose, which finds no contradiction.
+        String a = "The mitochondria produces 38 ATP per glucose molecule during aerobic "
+                 + "respiration. It is the powerhouse of the cell and has a double membrane.";
+        String b = "The mitochondria generates 38 ATP per glucose molecule during aerobic "
+                 + "respiration. It is the powerhouse of the cell and contains its own DNA.";
+
+        assertThat(WikiPagePersistenceService.detectFactConflict(a, b)).isNull(); // no false fact-clash
+        assertThat(service.detectConflict(a, b).conflict()).isFalse();
+    }
+
+    @Test
     void detectConflict_highOverlapParaphrase_staysNONE() {
         String a = "In aerobic respiration the mitochondria produces 38 ATP for the cell to use as energy.";
         String b = "In aerobic respiration the mitochondria yields 38 molecules of ATP for the cell to use as energy.";

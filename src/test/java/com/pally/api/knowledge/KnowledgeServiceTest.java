@@ -149,6 +149,38 @@ class KnowledgeServiceTest {
         assertThat(body.get("state")).isEqualTo("NONE");
     }
 
+    // ── A1: explicit compile shares the scheduler's per-avatar gate ─────────────
+
+    @Test
+    void compileWiki_whenCompileAlreadyInFlight_returns202_marksDirty_noParallelCompile() {
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(ownerAvatar));
+        when(compileWikiUseCase.shouldCompileAsync(AVATAR_ID)).thenReturn(false);
+        when(recompileScheduler.tryBeginExternalCompile(AVATAR_ID)).thenReturn(false); // gate held
+
+        KnowledgeService.CompileOutcome outcome = service.compileWiki(OWNER_USER, AVATAR_ID);
+
+        assertThat(outcome.async()).isTrue();
+        assertThat(outcome.asyncBody()).containsEntry("inProgress", true);
+        verify(recompileScheduler).markDirty(AVATAR_ID);
+        verify(compileWikiUseCase, never()).executeBounded(anyString());
+        verify(recompileScheduler, never()).endExternalCompile(anyString());
+    }
+
+    @Test
+    void compileWiki_whenGateFree_compilesAndAlwaysReleasesGate() {
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(ownerAvatar));
+        when(compileWikiUseCase.shouldCompileAsync(AVATAR_ID)).thenReturn(false);
+        when(recompileScheduler.tryBeginExternalCompile(AVATAR_ID)).thenReturn(true);
+        when(compileWikiUseCase.executeBounded(AVATAR_ID))
+                .thenReturn(new CompileWikiUseCase.CompileResult(2, 0, java.util.List.of("A", "B")));
+
+        KnowledgeService.CompileOutcome outcome = service.compileWiki(OWNER_USER, AVATAR_ID);
+
+        assertThat(outcome.async()).isFalse();
+        verify(compileWikiUseCase).executeBounded(AVATAR_ID);
+        verify(recompileScheduler).endExternalCompile(AVATAR_ID);
+    }
+
     // ── checkRelevance — ownership guard ────────────────────────────────────────
 
     @Test

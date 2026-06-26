@@ -64,7 +64,8 @@ class WikiPagePersistResilienceTest {
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
                 moduleContentGenerator, learningModuleRepository, new WikiQualityVerifier(),
                 selfProvider);
-        when(selfProvider.getObject()).thenReturn(selfMock);
+        // lenient: the pure-static isUniqueViolation test doesn't drive the orchestrator.
+        org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(selfMock);
     }
 
     @Test
@@ -88,5 +89,39 @@ class WikiPagePersistResilienceTest {
         assertThat(outcome.failedPages()).hasSize(1);
         assertThat(outcome.failedPages().get(0).slug()).isEqualTo("bad");
         assertThat(outcome.failedPages().get(0).reason()).contains("conflict_note");
+    }
+
+    @Test
+    void uniqueViolationOnAPage_isTreatedAsSuccess_notAFailedPage() {
+        // A3: a duplicate-key on (avatar_id, slug) means the page already exists
+        // (a residual race), NOT a failure — the teacher must not see "1 page failed".
+        var good = new WikiCompilerPort.WikiPageDraft("good", "Good Page", "content A");
+        var dup = new WikiCompilerPort.WikiPageDraft("dup", "Dup Page", "content B");
+
+        when(selfMock.writeSingleDraft(eq("av-1"), eq("good"), any(), anyList()))
+                .thenReturn(new WikiPagePersistenceService.WriteResult(true, "Good Page"));
+        when(selfMock.writeSingleDraft(eq("av-1"), eq("dup"), any(), anyList()))
+                .thenThrow(new DataIntegrityViolationException(
+                        "duplicate key value violates unique constraint "
+                        + "\"wiki_pages_avatar_id_slug_key\""));
+
+        WikiPagePersistenceService.PersistOutcome outcome =
+                service.persistDrafts(avatar, List.of(good, dup), List.of());
+
+        assertThat(outcome.failedPages()).isEmpty();        // dup is NOT surfaced as a failure
+        assertThat(outcome.created()).isEqualTo(1);          // only the genuinely-new page counted
+    }
+
+    @Test
+    void isUniqueViolation_detectsDuplicateKey_butNotOtherDataIntegrity() {
+        assertThat(WikiPagePersistenceService.isUniqueViolation(
+                new DataIntegrityViolationException(
+                        "duplicate key value violates unique constraint \"x\""))).isTrue();
+        assertThat(WikiPagePersistenceService.isUniqueViolation(
+                new RuntimeException(new java.sql.SQLException("dup", "23505")))).isTrue();
+        // A genuine over-long value (not a uniqueness collision) is still a real failure.
+        assertThat(WikiPagePersistenceService.isUniqueViolation(
+                new DataIntegrityViolationException(
+                        "value too long for type character varying(160)"))).isFalse();
     }
 }

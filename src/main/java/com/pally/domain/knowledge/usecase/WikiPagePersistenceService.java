@@ -129,6 +129,15 @@ public class WikiPagePersistenceService {
                 if (r.created()) created++; else updated++;
                 pageTitles.add(r.title());
             } catch (Exception e) {
+                if (isUniqueViolation(e)) {
+                    // A3: a unique violation on (avatar_id, slug) means the page is
+                    // ALREADY persisted — a residual race (A1) or a re-run, not a
+                    // failure. Treat as success so the teacher never sees a false
+                    // "1 page failed". The owning task accounts for the counts.
+                    log.info("[Wiki] Page slug={} avatar={} already persisted "
+                            + "(unique violation treated as success)", slug, avatarId);
+                    continue;
+                }
                 String reason = rootCauseMessage(e);
                 failedPages.add(new FailedPage(slug, reason));
                 log.error("[Wiki] Page persist FAILED slug={} avatar={} reason={} — "
@@ -259,6 +268,28 @@ public class WikiPagePersistenceService {
         return cur.getClass().getSimpleName() + (msg != null ? ": " + msg : "");
     }
 
+    /// True when the throwable chain is a UNIQUE-constraint violation (Postgres
+    /// SQLState 23505, or a "duplicate key"/"unique constraint" message). That means
+    /// the row already exists — idempotent success, not a real persist failure (A3).
+    static boolean isUniqueViolation(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof java.sql.SQLException se && "23505".equals(se.getSQLState())) {
+                return true;
+            }
+            String m = c.getMessage();
+            if (m != null) {
+                String lower = m.toLowerCase();
+                if (lower.contains("duplicate key") || lower.contains("unique constraint")) {
+                    return true;
+                }
+            }
+            if (c.getCause() == c) {
+                break;
+            }
+        }
+        return false;
+    }
+
     /**
      * Backwards-compat overload — used by callers that don't need provenance
      * (tests, legacy code paths). Delegates to the canonical method with an
@@ -302,6 +333,22 @@ public class WikiPagePersistenceService {
     /// Only runs on slug collisions, so the LLM cost stays negligible.
     ConflictResult detectConflict(String existingContent, String newContent) {
         if (existingContent == null || newContent == null) return ConflictResult.NONE;
+
+        // B1: the deterministic fact diff runs on EVERY collision, BEFORE the Jaccard
+        // bands. A number/unit/date/proper-noun flip in matching context ("38 ATP" vs
+        // "36 ATP") is an exact contradiction at ANY overlap level — token-set
+        // similarity is blindest to it. Crucially it must not be routed by band: a
+        // gray-band pair (jaccard~0.59) was handed to Haiku, which rationalized
+        // "36 vs 38 ATP" away as "different sources … educationally appropriate" and
+        // returned NO. The deterministic check is exact where the LLM is unreliable,
+        // so it decides first; only prose-level disagreements it can't adjudicate fall
+        // through to the bands (and the gray-band Haiku) below.
+        String factNote = detectFactConflict(existingContent, newContent);
+        if (factNote != null) {
+            log.info("[Wiki] Deterministic fact conflict: {}", factNote);
+            return ConflictResult.conflict(factNote);
+        }
+
         Set<String> a = tokenize(existingContent);
         Set<String> b = tokenize(newContent);
         if (a.isEmpty() || b.isEmpty()) return ConflictResult.NONE;
@@ -310,25 +357,11 @@ public class WikiPagePersistenceService {
         Set<String> union = new HashSet<>(a);
         union.addAll(b);
         double jaccard = (double) intersection.size() / union.size();
-        if (jaccard >= CONFLICT_GRAY_BELOW) {
-            // The high-overlap band used to auto-pass — but a single factual flip
-            // (a number/unit/date/proper-noun swapped IN MATCHING CONTEXT) keeps
-            // Jaccard high while being a real contradiction, e.g. "38 ATP" vs
-            // "36 ATP" (≈0.83). That is exactly the contradiction class that matters
-            // most and the one a token-set similarity is blindest to. A deterministic
-            // fact diff catches it precisely, where an LLM equality judge is
-            // unreliable. Genuine prose-level disagreements still fall to the
-            // gray-band Haiku below; this only adds an exact pre-check on this band.
-            String factNote = detectFactConflict(existingContent, newContent);
-            if (factNote != null) {
-                log.info("[Wiki] Deterministic fact conflict (jaccard={}): {}",
-                        String.format("%.2f", jaccard), factNote);
-                return ConflictResult.conflict(factNote);
-            }
-            return ConflictResult.NONE;
-        }
-        // Lexical block band: too little overlap for the two passages to be the
-        // same fact. No Haiku reason available, so the note stays null.
+        // High overlap with no concrete fact clash → treat as the same fact.
+        if (jaccard >= CONFLICT_GRAY_BELOW) return ConflictResult.NONE;
+        // Lexical block band: too little overlap for the two passages to be the same
+        // fact. The deterministic check already attached a concrete note above when one
+        // existed; a bare conflict(null) is the genuine low-overlap prose fallback.
         if (jaccard < CONFLICT_BLOCK_BELOW) return ConflictResult.conflict(null);
         return haikuContradicts(existingContent, newContent, jaccard);
     }
@@ -562,8 +595,17 @@ public class WikiPagePersistenceService {
                     moduleContentGenerator.generate(avatar, page.get());
                 }
             } catch (Exception e) {
-                log.warn("[Wiki] Module generation failed for slug={}: {}",
-                        slug, e.getMessage());
+                if (isUniqueViolation(e)) {
+                    // A3: the findByAvatarIdAndWikiPageSlug check above is a read-then-
+                    // write TOCTOU — a concurrent compile can insert the same module
+                    // between the check and the insert. A unique violation just means
+                    // "module already exists" — benign, not a failure.
+                    log.info("[Wiki] Module for slug={} already exists "
+                            + "(unique violation treated as success)", slug);
+                } else {
+                    log.warn("[Wiki] Module generation failed for slug={}: {}",
+                            slug, e.getMessage());
+                }
             }
         }
     }
