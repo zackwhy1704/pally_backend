@@ -15,9 +15,12 @@ import com.pally.domain.quiz.CardRating;
 import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.domain.quiz.QuizResult;
+import com.pally.domain.quiz.QuizAnswerKeyRepository;
 import com.pally.domain.referral.ReferralService;
+import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaEntity;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -26,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
 import java.util.List;
@@ -61,11 +65,25 @@ class SubmitQuizAnswersUseCaseTest {
     @Mock WikiRepository wikiRepository;
     @Mock ReferralService referralService;
     @Mock XpService xpService;
+    @Mock QuizAnswerKeyRepository answerKeyRepository;
+    @Mock ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
 
     @InjectMocks SubmitQuizAnswersUseCase useCase;
 
     private static final String USER = "u1";
     private static final String AVATAR = "a1";
+
+    @BeforeEach
+    void wireSelfProxyAndDefaultKeys() {
+        // The REQUIRES_NEW per-question persistence is invoked via the self-
+        // proxy; in a unit test there is no Spring proxy, so route it back to
+        // the real instance so the secondary write actually runs.
+        when(selfProvider.getObject()).thenReturn(useCase);
+        // Default: no persisted server key → grading falls back to the client
+        // map, preserving the existing tests' expectations. Integrity test
+        // below overrides this with real server keys.
+        when(answerKeyRepository.findCorrectIndexes(any())).thenReturn(Map.of());
+    }
 
     private Avatar mathsAvatar() {
         return Avatar.reconstitute(
@@ -243,5 +261,71 @@ class SubmitQuizAnswersUseCaseTest {
     private FlashCard card(String id, String sourceSlug) {
         return new FlashCard(id, AVATAR, "front", "back", sourceSlug,
                 CardRating.OKAY, Instant.now(), 1, 2.5, 1);
+    }
+
+    // ── GRADE INTEGRITY: server key wins over a tampered client map ────────
+
+    @Test
+    void serverAnswerKeyIsAuthoritative_tamperedClientMapCannotInflateScore() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(24, 12, false, 1.0));
+
+        // SERVER says: q1 correct index = 0, q2 correct index = 0.
+        when(answerKeyRepository.findCorrectIndexes(any()))
+                .thenReturn(Map.of("q1", 0, "q2", 0));
+
+        // Student actually answered q1=0 (right) and q2=1 (WRONG) → real score 1/2.
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0, "q2", 1));
+        // TAMPERED client map claims BOTH are correct (q2's "correct" = 1).
+        Map<String, Integer> tampered = Map.of("q1", 0, "q2", 1);
+
+        QuizResult result = useCase.execute(sub, tampered);
+
+        // Server key wins: the wrong answer stays wrong, score is NOT inflated.
+        assertThat(result.score()).isEqualTo(1);
+        assertThat(result.total()).isEqualTo(2);
+
+        // The persisted analytics row (what the teacher dashboard reads) must
+        // also reflect server-graded correctness, not the tampered claim.
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<QuizQuestionResultJpaEntity>> cap =
+                ArgumentCaptor.forClass(List.class);
+        verify(quizResultRepo).saveAll(cap.capture());
+        Map<String, Boolean> byQuestion = cap.getValue().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        QuizQuestionResultJpaEntity::getQuestionId,
+                        QuizQuestionResultJpaEntity::isWasCorrect));
+        assertThat(byQuestion.get("q1")).isTrue();
+        assertThat(byQuestion.get("q2")).isFalse(); // tampered map could not flip this
+    }
+
+    // ── TRANSACTION-POISONING: a secondary write failure must not abort the
+    //    primary score/XP path ───────────────────────────────────────────────
+
+    @Test
+    void perQuestionResultWriteFailure_doesNotRollBackTheScoreOrXp() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(28, 14, false, 1.0));
+
+        // The best-effort per-question persistence blows up (the kind of JPA
+        // failure that, inside the primary @Transactional, would mark it
+        // rollback-only and throw UnexpectedRollbackException on commit).
+        doThrow(new RuntimeException("db down"))
+                .when(quizResultRepo).saveAll(any());
+
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0, "q2", 0));
+        QuizResult result = useCase.execute(sub, Map.of("q1", 0, "q2", 0));
+
+        // Primary result still computed + returned; XP still awarded.
+        assertThat(result.score()).isEqualTo(2);
+        assertThat(result.xpEarned()).isEqualTo(28);
+        verify(xpService).awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt());
     }
 }

@@ -13,11 +13,14 @@ import com.pally.domain.quiz.QuizResult;
 import com.pally.domain.quiz.Sm2Scheduler;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaEntity;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
+import com.pally.domain.quiz.QuizAnswerKeyRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -56,6 +59,11 @@ public class SubmitQuizAnswersUseCase {
     private final com.pally.domain.referral.ReferralService referralService;
     private final com.pally.domain.progress.XpService xpService;
     private final AvatarSlotGuard avatarSlotGuard;
+    private final QuizAnswerKeyRepository answerKeyRepository;
+    /// Self-proxy so the best-effort per-question result write runs in its OWN
+    /// REQUIRES_NEW transaction; a self-invocation would bypass the proxy and
+    /// keep it inside the primary tx (the bug we are fixing).
+    private final ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -105,6 +113,22 @@ public class SubmitQuizAnswersUseCase {
         // Fix 2: Slot guard — locked avatars cannot have quiz answers submitted.
         avatarSlotGuard.requireActive(submission.avatarId(), submission.userId());
 
+        // GRADE INTEGRITY: re-derive correctness from the SERVER-held answer key
+        // (persisted at quiz generation), NOT the client-supplied correctMap.
+        // A tampered client can post an all-correct map; the centre's teacher
+        // analytics ("grasp") is AVG(was_correct) over these results, so a
+        // client-authoritative was_correct is a B2B integrity hole. The client
+        // map is only a fallback for quizzes generated before this shipped
+        // (no persisted key yet) — logged so the transition window is visible.
+        Map<String, Integer> serverKeys =
+                answerKeyRepository.findCorrectIndexes(submission.answers().keySet());
+
+        // Best-effort per-question result rows, persisted AFTER the primary
+        // commit in a REQUIRES_NEW tx so a failure here cannot roll back the
+        // student's score/XP (Spring marks a tx rollback-only on a caught
+        // persistence exception — the transaction-poisoning bug).
+        List<QuizQuestionResultJpaEntity> pendingResults = new ArrayList<>();
+
         int correct = 0;
         List<String> mastered = new ArrayList<>();
         List<String> misconception = new ArrayList<>();
@@ -124,7 +148,18 @@ public class SubmitQuizAnswersUseCase {
 
         for (Map.Entry<String, Integer> entry : submission.answers().entrySet()) {
             String questionId = entry.getKey();
-            Integer correctIndex = correctMap.get(questionId);
+            // Server key is authoritative; the client map is a fallback only for
+            // pre-existing quizzes that have no persisted key yet.
+            Integer correctIndex;
+            if (serverKeys.containsKey(questionId)) {
+                correctIndex = serverKeys.get(questionId);
+            } else {
+                correctIndex = correctMap.get(questionId);
+                log.warn("[Quiz] No server answer key for question={} (user={} "
+                        + "avatar={}) — grading from client map this once; "
+                        + "teacher analytics for this row are unverified",
+                        questionId, submission.userId(), submission.avatarId());
+            }
             boolean wasCorrect = correctIndex != null && correctIndex.equals(entry.getValue());
             if (wasCorrect) correct++;
 
@@ -159,21 +194,32 @@ public class SubmitQuizAnswersUseCase {
                 }
             }
 
-            // Persist per-question result for error pattern analysis. Best-effort.
-            try {
-                QuizQuestionResultJpaEntity r = new QuizQuestionResultJpaEntity();
-                r.setId(IdGenerator.newId());
-                r.setUserId(submission.userId());
-                r.setAvatarId(submission.avatarId());
-                r.setQuestionId(questionId);
-                r.setTopicSlug(topic); // may be null
-                r.setWasCorrect(wasCorrect);
-                r.setConfidence(confidence);
-                r.setCreatedAt(Instant.now());
-                quizResultRepo.save(r);
-            } catch (Exception ignored) {
-                // never block scoring on result persistence
-            }
+            // Collect the per-question result row; persisted below in a
+            // separate REQUIRES_NEW tx so a write failure can't poison the score.
+            QuizQuestionResultJpaEntity r = new QuizQuestionResultJpaEntity();
+            r.setId(IdGenerator.newId());
+            r.setUserId(submission.userId());
+            r.setAvatarId(submission.avatarId());
+            r.setQuestionId(questionId);
+            r.setTopicSlug(topic); // may be null
+            r.setWasCorrect(wasCorrect);
+            r.setConfidence(confidence);
+            r.setCreatedAt(Instant.now());
+            pendingResults.add(r);
+        }
+
+        // Isolate the best-effort analytics write from the primary score/XP
+        // commit. REQUIRES_NEW (via the self-proxy) means a failure here rolls
+        // back ONLY this inner tx; catching it out here keeps the primary tx
+        // clean instead of UnexpectedRollbackException. Logged (not swallowed)
+        // with context so a lost analytics row is visible in Railway logs.
+        try {
+            selfProvider.getObject().persistQuestionResultsInNewTx(pendingResults);
+        } catch (Exception e) {
+            log.warn("[Quiz] per-question result persistence failed — analytics "
+                    + "gap (user={} avatar={} rows={}): {}",
+                    submission.userId(), submission.avatarId(),
+                    pendingResults.size(), e.getMessage());
         }
 
         int total = submission.answers().size();
@@ -309,6 +355,18 @@ public class SubmitQuizAnswersUseCase {
         return new QuizResult(
                 IdGenerator.newId(), correct, total, xpEarned, starsEarned,
                 levelledUp, newLevel, matrix);
+    }
+
+    /// Persists the best-effort per-question result rows in their OWN
+    /// transaction. REQUIRES_NEW so a DataIntegrity/constraint failure here is
+    /// isolated to this inner tx and can never mark the caller's primary
+    /// score/XP transaction rollback-only. Called via the self-proxy
+    /// ({@code selfProvider}); a self-invocation would bypass the proxy and
+    /// defeat the propagation.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void persistQuestionResultsInNewTx(List<QuizQuestionResultJpaEntity> results) {
+        if (results.isEmpty()) return;
+        quizResultRepo.saveAll(results);
     }
 
     /// Reschedule due flashcards via SM-2, rating EACH card by the result of

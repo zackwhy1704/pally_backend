@@ -34,6 +34,7 @@ class GetDailyQuizUseCaseTest {
     @Mock WikiRepository wikiRepository;
     @Mock QuizGeneratorPort quizGeneratorPort;
     @Mock AvatarSlotGuard avatarSlotGuard;
+    @Mock com.pally.domain.quiz.QuizAnswerKeyRepository answerKeyRepository;
 
     private GetDailyQuizUseCase useCase;
 
@@ -43,7 +44,8 @@ class GetDailyQuizUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new GetDailyQuizUseCase(
-                avatarRepository, wikiRepository, quizGeneratorPort, avatarSlotGuard);
+                avatarRepository, wikiRepository, quizGeneratorPort, avatarSlotGuard,
+                answerKeyRepository);
     }
 
     @Test
@@ -65,5 +67,23 @@ class GetDailyQuizUseCaseTest {
                 .as("second tap within the same SGT day must be a cache HIT")
                 .isEqualTo(generated);
         verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList());
+    }
+
+    @Test
+    void execute_persistsServerAnswerKey_soSubmitCanGradeAuthoritatively() {
+        WikiPage page = WikiPage.create(AVATAR_ID, "fractions", "Fractions",
+                "A fraction shows part of a whole.");
+        when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of(page));
+
+        List<QuizQuestion> generated = List.of(new QuizQuestion(
+                "q1", AVATAR_ID, "What is 1/2 of 4?",
+                List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2."));
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(generated);
+
+        useCase.execute(AVATAR_ID, USER_ID);
+
+        // The correct index is persisted at generation time — the linchpin that
+        // lets the submit path ignore a tampered client correctMap.
+        verify(answerKeyRepository).saveKeys(AVATAR_ID, generated);
     }
 }
