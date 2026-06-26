@@ -31,12 +31,15 @@ THE LOOP (each step asserts accuracy + shape):
      just-submitted result is reflected.
 
 TARGETED PROBES (emit verdict lines):
-  - GRADE INTEGRITY: the daily-quiz scoring path is CLIENT-AUTHORITATIVE — the client
-    sends `correctMap` in POST /quiz/answers and the server scores against THAT, not
-    against the stored question. This probe submits a TAMPERED correctMap (all marked
-    correct) while actual answers are wrong, records whether the server returns a
-    perfect score, then re-fetches TEACHER analytics to see if the tampered result
-    moved teacher-visible mastery. Emits exactly:
+  - EXPOSURE FIX (stage 4): a CENTRE (teacher-graded) quiz must WITHHOLD correctIndex
+    from the served question — the key is null and revealed only post-submit. Stage 4
+    fails loudly if a centre quiz leaks the key.
+  - GRADE INTEGRITY: after the server-authoritative fix, POST /quiz/answers grades
+    against a PERSISTED server key and IGNORES the client `correctMap`. The student
+    submits blind, learns the real answers from the POST-submit feedback, then this
+    probe re-submits DELIBERATELY WRONG answers with a TAMPERED correctMap (all marked
+    correct) and records whether the server returns a perfect score, then whether the
+    tampered result moved teacher-visible mastery. Expected POST-FIX: both NO. Emits:
        GRADE_INTEGRITY: client-authoritative=YES/NO; teacher-analytics-affected=YES/NO
   - SUBMISSION DURABILITY: submit a normal quiz, then immediately re-fetch
     progress/analytics in a FRESH request; assert the score persisted. (True
@@ -477,15 +480,25 @@ def main():
         stage("quiz_daily", quiz_r.status_code, f"questions={len(quiz_items)}", quiz_r.text)
         check("daily quiz has non-empty items",
               len(quiz_items) >= 1, ">=1 quiz question", len(quiz_items))
-        # each question must carry options + a correctIndex (needed for scoring)
+        # Every question must carry non-empty options...
         well_formed = all(
             isinstance(q.get("options"), list) and q.get("options")
-            and q.get("correctIndex") is not None
             for q in quiz_items
         ) if quiz_items else False
-        check("quiz questions well-formed (options + correctIndex)",
-              well_formed, "every question has non-empty options and a correctIndex",
-              "ok" if well_formed else "missing options/correctIndex on some question")
+        check("quiz questions well-formed (non-empty options)",
+              well_formed, "every question has non-empty options",
+              "ok" if well_formed else "missing options on some question")
+        # ...and — EXPOSURE FIX — because `avatar` is a CENTRE (teacher-graded)
+        # brain, the served quiz must WITHHOLD the answer key: correctIndex must
+        # be null on every question, so a student can't read the answers from the
+        # response and replay them into teacher-visible mastery. The correct
+        # answer is revealed only POST-submit (QuizResult.feedback, see stage 6).
+        key_withheld = all(q.get("correctIndex") is None for q in quiz_items) if quiz_items else False
+        check("EXPOSURE FIX: centre quiz WITHHOLDS correctIndex (key not shipped)",
+              key_withheld,
+              "correctIndex is null on every teacher-graded question",
+              "ok (withheld)" if key_withheld
+              else "LEAKED correctIndex on some question — exposure seam OPEN")
 
         # ── 5. Distribution: assignment + enroll student ──
         log("STAGE 5 — distribution: assignment + student enroll")
@@ -558,25 +571,45 @@ def main():
         xp_before = progress_before.get("xp", 0) if isinstance(progress_before, dict) else 0
 
         normal_score = normal_total = normal_xp = None
+        revealed_keys = {}  # questionId -> real correctIndex, learned POST-submit
         if s_quiz:
-            # Answer EVERY question correctly using the question's own correctIndex.
-            answers = {q["id"]: q["correctIndex"] for q in s_quiz}
-            correct_map = {q["id"]: q["correctIndex"] for q in s_quiz}
+            # The key is WITHHELD (teacher-graded), so the student cannot pre-answer
+            # correctly. Submit BLIND (index 0) and NO correctMap — the server grades
+            # authoritatively from its persisted key — then read correctness from the
+            # POST-submit feedback. This is exactly the post-fix UX: feedback after
+            # submit, not a pre-submit answer key.
+            answers = {q["id"]: 0 for q in s_quiz}
             sub = student_api.post(
                 f"/api/v1/avatars/{student_avatar}/quiz/answers",
-                {"answers": answers, "correctMap": correct_map, "durationSeconds": 42},
+                {"answers": answers, "durationSeconds": 42},
             )
             res = unwrap(sub) or {}
             normal_score = res.get("score")
             normal_total = res.get("total")
             normal_xp = res.get("xpEarned")
+            feedback = res.get("feedback") or []
+            revealed_keys = {f.get("questionId"): f.get("correctIndex")
+                             for f in feedback if isinstance(f, dict)}
             stage("student_quiz_submit", sub.status_code,
-                  f"score={normal_score}/{normal_total} xp={normal_xp}", sub.text)
-            # feedback accuracy: all-correct answers => score == total
-            check("submitted-all-correct yields perfect score (feedback accuracy)",
-                  normal_score == normal_total and normal_total == len(answers),
-                  f"score == total == {len(answers)}",
-                  {"score": normal_score, "total": normal_total})
+                  f"score={normal_score}/{normal_total} xp={normal_xp} "
+                  f"feedback={len(feedback)}", sub.text)
+            # Feedback is preserved post-submit: one entry per question...
+            check("post-submit feedback returned (one entry per question)",
+                  isinstance(feedback, list) and len(feedback) == len(answers),
+                  f"feedback length == {len(answers)}", len(feedback))
+            # ...and it REVEALS the correct answer (the only place it appears now).
+            revealed = bool(feedback) and all(
+                f.get("correctIndex") is not None for f in feedback)
+            check("EXPOSURE FIX: correct answer revealed POST-submit (feedback)",
+                  revealed, "every feedback entry carries correctIndex",
+                  "ok" if revealed else "feedback missing correctIndex")
+            # Feedback accuracy: the server's score equals its own per-question
+            # verdicts (internally consistent server-authoritative grading).
+            fb_correct = sum(1 for f in feedback if f.get("wasCorrect"))
+            check("server score matches its own per-question feedback",
+                  normal_score == fb_correct,
+                  f"score == sum(wasCorrect) == {fb_correct}",
+                  {"score": normal_score, "fb_correct": fb_correct})
             check("XP awarded for quiz", isinstance(normal_xp, int) and normal_xp > 0,
                   "xpEarned > 0", normal_xp)
 
@@ -642,21 +675,28 @@ def main():
         client_authoritative = "UNKNOWN"
         teacher_affected = "UNKNOWN"
         if s_quiz:
-            # Fetch a fresh quiz for the tamper attempt.
+            # Fetch a fresh quiz for the tamper attempt (same cached daily set).
             tq_r = student_api.get(f"/api/v1/avatars/{student_avatar}/quiz/daily")
             tq = as_list(unwrap(tq_r), "questions", "items")
             if not tq:
                 tq = s_quiz  # fall back to earlier set if daily exhausted
-            # Submit WRONG answers but a TAMPERED correctMap that marks every answer
-            # "correct" by pointing correctIndex at the (wrong) submitted index.
+            # Submit DELIBERATELY WRONG answers (we learned the real answers from
+            # the post-submit feedback in stage 6) WITH a TAMPERED correctMap that
+            # marks every wrong answer "correct". Pre-fix this farmed a perfect
+            # score; post-fix the server ignores the client map and grades from its
+            # own persisted key, so the wrong answers must stay wrong.
             wrong_idx = {}
             tampered_map = {}
             for q in tq:
+                qid = q["id"]
                 opts = q.get("options") or []
-                ci = q.get("correctIndex", 0)
-                wrong = 0 if ci != 0 else (1 if len(opts) > 1 else 0)
-                wrong_idx[q["id"]] = wrong
-                tampered_map[q["id"]] = wrong  # claim the wrong answer is "correct"
+                real = revealed_keys.get(qid)
+                if real is not None and len(opts) > 1:
+                    wrong = (real + 1) % len(opts)   # guaranteed != real
+                else:
+                    wrong = 0  # degraded: real answer unknown, blind guess
+                wrong_idx[qid] = wrong
+                tampered_map[qid] = wrong  # claim the wrong answer is "correct"
             tamper = student_api.post(
                 f"/api/v1/avatars/{student_avatar}/quiz/answers",
                 {"answers": wrong_idx, "correctMap": tampered_map, "durationSeconds": 7},
@@ -666,8 +706,10 @@ def main():
             t_total = tres.get("total")
             stage("grade_integrity_tamper", tamper.status_code,
                   f"tampered_score={t_score}/{t_total}", tamper.text)
-            # client-authoritative == server accepted the tampered map AND returned a
-            # perfect score for objectively-wrong answers.
+            # client-authoritative == the tampered map produced a perfect score for
+            # objectively-wrong answers. Post-fix this must be NO (server ignores the
+            # map). If we knew the real answers (revealed_keys) the wrong answers are
+            # guaranteed wrong, so a NO here is a hard proof, not luck.
             perfect_on_wrong = (
                 tamper.status_code in (200, 201)
                 and t_score is not None and t_total is not None
@@ -775,13 +817,15 @@ def write_report_md(r):
     lines.append("")
     lines.append(f"```\n{r['grade_integrity']['verdict_line']}\n```")
     lines.append("")
-    lines.append("- **GRADE INTEGRITY** — the daily-quiz scoring path is "
-                 "client-authoritative by construction: `POST /quiz/answers` accepts a "
-                 "`correctMap` from the request body and `SubmitQuizAnswersUseCase` scores "
-                 "against THAT, never re-deriving correctness from the stored question. "
-                 "This probe submits objectively-wrong answers with a tampered `correctMap` "
-                 "and records whether the server returns a perfect score, then whether the "
-                 "tampered result moved teacher-visible mastery.")
+    lines.append("- **GRADE INTEGRITY** — after the server-authoritative fix, "
+                 "`POST /quiz/answers` grades against a PERSISTED server-side key and "
+                 "IGNORES the client `correctMap`; teacher-graded (centre) quizzes also "
+                 "withhold `correctIndex` from the served question (revealed only "
+                 "post-submit). This probe submits objectively-wrong answers (the real "
+                 "answers were learned from the post-submit feedback) WITH a tampered "
+                 "`correctMap` marking them all correct, and records whether the server "
+                 "returns a perfect score, then whether the tampered result moved "
+                 "teacher-visible mastery. Expected post-fix: both NO.")
     lines.append(f"  - client-authoritative=`{r['grade_integrity']['client_authoritative']}`")
     lines.append(f"  - teacher-analytics-affected=`{r['grade_integrity']['teacher_analytics_affected']}`")
     lines.append("")
