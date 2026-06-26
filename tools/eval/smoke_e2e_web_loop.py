@@ -230,12 +230,31 @@ def check(name, passed, expected, actual):
 
 
 # ─────────────────── auth helpers ───────────────────
-def register(api_base, tag, role=None):
-    """Register a throwaway account. Returns (token, userId, email)."""
+def is_consent_gate(resp):
+    """True if a response is the child-data consent gate (a 403 carrying an
+    age/parent consent code), as opposed to any other failure."""
+    if resp.status_code != 403:
+        return False
+    body = resp.text or ""
+    return any(code in body for code in (
+        "AGE_DECLARATION_REQUIRED", "PARENT_LINK_REQUIRED",
+        "PARENTAL_CONSENT_PENDING", "AI_CONSENT_REQUIRED"))
+
+
+def register(api_base, tag, role=None, birth_year=None):
+    """Register a throwaway account. Returns (token, userId, email).
+
+    Pass birth_year to declare an age at registration — the REAL public
+    age-declaration path (birthYear is set only at /auth/register; there is no
+    separate post-registration age endpoint). An adult year clears the
+    default-deny child-data ingress gate so uploads aren't 403'd.
+    """
     email = rand_email(tag)
     body = {"email": email, "password": "EvalProbe123!", "displayName": f"E2E {tag}"}
     if role:
         body["role"] = role
+    if birth_year is not None:
+        body["birthYear"] = birth_year
     r = Api(api_base).post("/api/v1/auth/register", body)
     d = unwrap(r) or {}
     token, uid = d.get("token"), d.get("userId")
@@ -343,7 +362,12 @@ def main():
     try:
         # ── 1. Centre signup → org → class (corpus avatar) ──
         log("STAGE 1 — centre signup + class + class brain")
-        t_token, t_uid, t_email = register(BASE, "teacher")
+        # Declare an ADULT age at registration — the real public age-declaration
+        # path. Without it, the default-deny child-data ingress gate correctly
+        # 403s the upload (AGE_DECLARATION_REQUIRED), which sank every prior run.
+        ADULT_BIRTH_YEAR = 1990
+        t_token, t_uid, t_email = register(
+            BASE, "teacher", birth_year=ADULT_BIRTH_YEAR)
         teacher_api = Api(BASE, t_token, t_uid)
 
         ob_r = teacher_api.post(
@@ -385,6 +409,15 @@ def main():
             ud = unwrap(ur) or {}
             fid = ud.get("fileId") if isinstance(ud, dict) else None
             stage(f"upload_doc{idx}", ur.status_code, f"fileId={fid}", ur.text)
+            # Gate-cleared regression guard: an age-declared adult teacher must
+            # NOT hit the child-data consent gate. If this 403s with a consent
+            # code, the age declaration didn't clear the gate (declaration-flow
+            # regression) OR the backend over-blocks centre teachers — either way
+            # fail loudly here, distinct from a generic upload failure.
+            check(f"doc{idx} NOT blocked by the child-data consent gate",
+                  not is_consent_gate(ur),
+                  "no AGE_DECLARATION/PARENT_LINK consent 403 (adult age declared)",
+                  ur.text[:160] if is_consent_gate(ur) else "ok (gate cleared)")
             check(f"doc{idx} upload status 200/201",
                   ur.status_code in (200, 201), "200 or 201", ur.status_code)
             check(f"doc{idx} returns fileId", bool(fid), "non-empty fileId", fid)
@@ -480,33 +513,42 @@ def main():
         stage("quiz_daily", quiz_r.status_code, f"questions={len(quiz_items)}", quiz_r.text)
         check("daily quiz has non-empty items",
               len(quiz_items) >= 1, ">=1 quiz question", len(quiz_items))
-        # Every question must carry non-empty options...
-        well_formed = all(
-            isinstance(q.get("options"), list) and q.get("options")
-            for q in quiz_items
-        ) if quiz_items else False
-        check("quiz questions well-formed (non-empty options)",
-              well_formed, "every question has non-empty options",
-              "ok" if well_formed else "missing options on some question")
-        # ...and — EXPOSURE FIX — because `avatar` is a CENTRE (teacher-graded)
-        # brain, the served quiz must WITHHOLD BOTH answer-revealing fields:
-        # correctIndex (the option) AND explanation (which justifies it, e.g.
-        # "3 out of 8"). Both must be null on every question, so a student can't
-        # read the answer off the response and replay it into teacher-visible
-        # mastery. Both are revealed only POST-submit (QuizResult.feedback).
-        key_withheld = all(q.get("correctIndex") is None for q in quiz_items) if quiz_items else False
-        check("EXPOSURE FIX: centre quiz WITHHOLDS correctIndex (key not shipped)",
-              key_withheld,
-              "correctIndex is null on every teacher-graded question",
-              "ok (withheld)" if key_withheld
-              else "LEAKED correctIndex on some question — exposure seam OPEN")
-        explanation_withheld = all(
-            q.get("explanation") in (None, "") for q in quiz_items) if quiz_items else False
-        check("EXPOSURE FIX: centre quiz WITHHOLDS explanation (reveals the answer too)",
-              explanation_withheld,
-              "explanation is null/absent on every teacher-graded question",
-              "ok (withheld)" if explanation_withheld
-              else "LEAKED explanation on some question — second exposure seam OPEN")
+        # EXPOSURE FIX — because `avatar` is a CENTRE (teacher-graded) brain, the
+        # served quiz must WITHHOLD BOTH answer-revealing fields: correctIndex
+        # (the option) AND explanation (which justifies it, e.g. "3 out of 8").
+        # Both must be null on every question, revealed only POST-submit.
+        #
+        # PRECONDITION: you cannot leak a key on a question that doesn't exist.
+        # An EMPTY quiz means an upstream stage failed — that must FAIL loudly as
+        # a precondition, NOT pass silently and NOT report a false "leak".
+        # "withheld" and "absent because nothing was generated" are OPPOSITE
+        # outcomes and must not score the same.
+        if not quiz_items:
+            check("EXPOSURE FIX: a centre quiz exists to inspect",
+                  False,
+                  ">=1 quiz question to check for answer-key withholding",
+                  "no quiz to inspect — an upstream stage (upload/compile/"
+                  "generate) failed; exposure CANNOT be assessed (not a leak)")
+        else:
+            well_formed = all(
+                isinstance(q.get("options"), list) and q.get("options")
+                for q in quiz_items)
+            check("quiz questions well-formed (non-empty options)",
+                  well_formed, "every question has non-empty options",
+                  "ok" if well_formed else "missing options on some question")
+            key_withheld = all(q.get("correctIndex") is None for q in quiz_items)
+            check("EXPOSURE FIX: centre quiz WITHHOLDS correctIndex (key not shipped)",
+                  key_withheld,
+                  "correctIndex is null on every teacher-graded question",
+                  "ok (withheld)" if key_withheld
+                  else "LEAKED correctIndex on some question — exposure seam OPEN")
+            explanation_withheld = all(
+                q.get("explanation") in (None, "") for q in quiz_items)
+            check("EXPOSURE FIX: centre quiz WITHHOLDS explanation (reveals the answer too)",
+                  explanation_withheld,
+                  "explanation is null/absent on every teacher-graded question",
+                  "ok (withheld)" if explanation_withheld
+                  else "LEAKED explanation on some question — second exposure seam OPEN")
 
         # ── 5. Distribution: assignment + enroll student ──
         log("STAGE 5 — distribution: assignment + student enroll")
