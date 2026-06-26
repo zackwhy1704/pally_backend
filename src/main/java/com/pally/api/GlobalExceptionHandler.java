@@ -5,6 +5,7 @@ import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
 import com.pally.shared.exception.GuardianRequiredException;
+import com.pally.shared.exception.ParentalConsentPendingException;
 import com.pally.shared.exception.OcrUnavailableException;
 import com.pally.shared.exception.PallyException;
 import com.pally.shared.exception.UpgradeRequiredException;
@@ -55,6 +56,27 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(402)
                 .body(new ApiResponse<>(payload, ex.getMessage(), 402));
+    }
+
+    /// Half-elevated (PENDING_CONSENT) block: distinct code PARENTAL_CONSENT_PENDING
+    /// with the MASKED parent email + resend metadata so the client renders the
+    /// "waiting for your parent — resend" panel. Declared as a more-specific subtype of
+    /// GuardianRequiredException; Spring routes to this handler for the rich case.
+    @ExceptionHandler(ParentalConsentPendingException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleParentalConsentPending(
+            ParentalConsentPendingException ex) {
+        log.debug("Parental consent pending (masked={})", ex.getMaskedParentEmail());
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("code", ParentalConsentPendingException.CODE);
+        payload.put("reason", ex.getReason());
+        payload.put("parentEmailMasked", ex.getMaskedParentEmail());
+        payload.put("resendAvailable", ex.isResendAvailable());
+        payload.put("resendAvailableInSeconds", ex.getResendAvailableInSeconds());
+        payload.put("message",
+                "Your account is waiting for your parent to approve it. Ask them to check "
+                + "their email and tap the approval link.");
+        return ResponseEntity.status(403)
+                .body(new ApiResponse<>(payload, ex.getMessage(), 403));
     }
 
     /// Under-13 guardian gate. Distinct code {@code PARENT_LINK_REQUIRED} so the

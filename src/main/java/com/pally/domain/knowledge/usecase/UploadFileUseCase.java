@@ -120,19 +120,11 @@ public class UploadFileUseCase {
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file, boolean skipRelevance) {
-        // PDPA gate: uploading personal notes requires an ACTIVE account.
-        consentGuard.requireActive(userId, "UPLOAD");
-
-        // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
-        // Always enforced — see ConsentGuard.requireAiConsent Javadoc.
+        // Child-data ingress (the ONE guard, default-deny) — before any model call or
+        // DB write. Blocks a pending under-13 with PARENTAL_CONSENT_PENDING / unknown
+        // age with AGE_DECLARATION_REQUIRED. Then the separate AI-transfer gate.
+        consentGuard.requireChildDataIngressConsent(userId);
         consentGuard.requireAiConsent(userId);
-
-        // PDPC 2024 age gate — DEFAULT-DENY. Uploading own notes is new-child-data
-        // ingestion, so it requires an ESTABLISHED 13+ age OR recorded parental
-        // consent. Unknown age is denied (AGE_DECLARATION_REQUIRED), not allowed —
-        // a child can't bypass by leaving birth year blank. (Login + centre lessons
-        // stay open for a pending child; this only gates personal-data ingestion.)
-        consentGuard.requireParentalConsentForChildData(userId);
 
         // Fix 2: Slot guard — locked avatars cannot receive new knowledge.
         // NOTE: DELETE paths are exempt (AvatarSlotGuard Javadoc).

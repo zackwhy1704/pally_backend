@@ -6,6 +6,7 @@ import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
+import com.pally.shared.exception.ParentalConsentPendingException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -55,15 +56,26 @@ public class ConsentGuard {
     private final ConsentRecordJpaRepository consentRecordRepo;
     private final UserAgeService userAgeService;
     private final com.pally.domain.consent.ConsentRepository consentRepository;
+    private final ConsentService consentService;
 
     public ConsentGuard(UserRepository userRepo,
                         ConsentRecordJpaRepository consentRecordRepo,
                         UserAgeService userAgeService,
-                        com.pally.domain.consent.ConsentRepository consentRepository) {
+                        com.pally.domain.consent.ConsentRepository consentRepository,
+                        ConsentService consentService) {
         this.userRepo = userRepo;
         this.consentRecordRepo = consentRecordRepo;
         this.userAgeService = userAgeService;
         this.consentRepository = consentRepository;
+        this.consentService = consentService;
+    }
+
+    /// Build the rich PARENTAL_CONSENT_PENDING exception (masked email + resend) for a
+    /// blocked under-13. The single place a "waiting for parent" block is constructed.
+    private ParentalConsentPendingException parentalConsentPending(String userId) {
+        ConsentService.ResendInfo info = consentService.resendInfo(userId);
+        return new ParentalConsentPendingException(
+                info.maskedParentEmail(), info.resendAvailable(), info.resendAvailableInSeconds());
     }
 
     /**
@@ -81,7 +93,9 @@ public class ConsentGuard {
 
         if (STATUS_PENDING.equals(status)) {
             log.info("[Consent] PENDING user={} tried gated action={}", userId, reason);
-            throw new ConsentRequiredException(reason);
+            // Rich PARENTAL_CONSENT_PENDING (masked email + resend) so the client shows
+            // the "waiting for your parent" panel consistently on every gated path.
+            throw parentalConsentPending(userId);
         }
     }
 
@@ -126,94 +140,62 @@ public class ConsentGuard {
     }
 
     /**
-     * PDPC 2024 age gate: if the user is under 13 (derived server-side from their
-     * birth year) AND no parent/guardian has claimed and consented for them, throws
-     * {@link GuardianRequiredException} (HTTP 403 / code PARENT_LINK_REQUIRED).
-     *
-     * <p>For 13+ users (the vast majority — target audience is 13–25) this is a no-op:
-     * they self-consent, so nothing changes for them.
-     *
-     * <p>"Parent linked + consented" is defined as: the child account has a non-null
-     * {@code parentId}. The parent-claim flow is the single moment a parent attaches a
-     * child to their family, and that flow records the parental consent — so a linked
-     * parent IS the signal that guardian consent exists. We therefore treat
-     * {@code parentId != null} as satisfying the gate.
-     *
-     * <p>Fails open if the user cannot be loaded — never silently blocks.
-     *
-     * @param userId the authenticated user
+     * SINGLE eligibility for ingesting NEW child-authored data (note upload, free AI
+     * chat, photo-question — anything that ships the child's text/image to a model or
+     * stores it). DEFAULT-DENY, computed in ONE place so a new ingress can't quietly
+     * reintroduce the fail-open default:
+     * <pre>canIngestChildData = ageEstablished &amp;&amp; (is13Plus || parentApproved)</pre>
+     * Gated on consent STATE, never on a null age (unknown ⇒ "we never asked" ⇒ not
+     * cleared ⇒ blocked), and never on {@code parentId} alone. Reading pre-generated
+     * centre content is NOT ingress and is never gated by this.
      */
-    public void requireGuardianIfUnder13(String userId) {
-        User user = userRepo.findById(userId).orElse(null);
+    public boolean canIngestChildData(User user) {
         if (user == null) {
-            return; // user not found → let the downstream handle it
+            return true; // auth passed; a missing row is handled downstream
+        }
+        if (user.getBirthYear() == null) {
+            return false; // unknown age → cannot establish 13+ → not cleared
         }
         if (!userAgeService.isUnder13(user)) {
-            return; // 13+ (or unknown age) → self-consent, no-op
+            return true; // established 13+ → self-consent
         }
-
         boolean parentLinked = user.getParentId() != null && !user.getParentId().isBlank();
-        if (!parentLinked) {
-            log.info("[Consent] under-13 user={} blocked — no parent linked", userId);
-            throw new GuardianRequiredException(REASON_PARENT_LINK_REQUIRED);
-        }
+        boolean parentApproved = consentRepository
+                .findLatestRequestByChildUserIdAndStatus(
+                        user.getId(), ConsentRepository.ConsentRequest.STATUS_APPROVED)
+                .isPresent();
+        return parentLinked || parentApproved;
     }
 
     /**
-     * DEFAULT-DENY gate for ingesting NEW child data (uploading own notes, personal
-     * avatar creation, free-form AI chat input). Unlike {@link #requireGuardianIfUnder13}
-     * — which fails OPEN on unknown age and so only catches honest self-declarers — this
-     * fails CLOSED:
-     * <ul>
-     *   <li>age not on file ({@code birthYear == null}) → throw
-     *       {@link #REASON_AGE_DECLARATION_REQUIRED}: we can't establish 13+, so the
-     *       client must collect a declared age first. A child can't slip through by
-     *       leaving age blank.</li>
-     *   <li>under 13 without recorded parental consent → throw
-     *       {@link #REASON_PARENT_LINK_REQUIRED}. Consent counts when an APPROVED
-     *       parental-consent request exists (the email-token flow) OR a parent is linked
-     *       ({@code parentId}).</li>
-     *   <li>established 13+ → allow.</li>
-     * </ul>
-     *
-     * <p>Does NOT gate login or centre-content consumption / lessons — those stay open
-     * for a pending child (the centre monitors that data). Only NEW personal-data
-     * ingestion is restricted.
+     * THE single guard every child-data ingress calls at the ENTRY of its handler —
+     * before any Gemini/Claude call and before any DB write. Throws when
+     * {@link #canIngestChildData} is false: a blocked under-13 awaiting approval →
+     * {@link ParentalConsentPendingException} (code PARENTAL_CONSENT_PENDING, masked
+     * email + resend); unknown age → {@link GuardianRequiredException}
+     * (AGE_DECLARATION_REQUIRED). This REPLACES the removed fail-open
+     * requireGuardianIfUnder13 — there is no weak variant left to call.
      */
-    public void requireParentalConsentForChildData(String userId) {
+    public void requireChildDataIngressConsent(String userId) {
         User user = userRepo.findById(userId).orElse(null);
-        if (user == null) {
-            return; // auth already passed; a missing row is handled downstream
+        if (user == null || canIngestChildData(user)) {
+            return;
         }
         if (user.getBirthYear() == null) {
             log.info("[Consent] child-data blocked user={} — age not declared (default-deny)", userId);
             throw new GuardianRequiredException(REASON_AGE_DECLARATION_REQUIRED);
         }
-        if (!userAgeService.isUnder13(user)) {
-            return; // established 13+ → self-consent
-        }
-        boolean parentLinked = user.getParentId() != null && !user.getParentId().isBlank();
-        boolean parentApproved = consentRepository
-                .findLatestRequestByChildUserIdAndStatus(
-                        userId, com.pally.domain.consent.ConsentRepository.ConsentRequest.STATUS_APPROVED)
-                .isPresent();
-        if (!parentLinked && !parentApproved) {
-            log.info("[Consent] under-13 user={} blocked — no recorded parental consent", userId);
-            throw new GuardianRequiredException(REASON_PARENT_LINK_REQUIRED);
-        }
+        log.info("[Consent] child-data blocked user={} — awaiting parental consent", userId);
+        throw parentalConsentPending(userId);
     }
 
     /**
-     * Single entry point that every AI-producing path (chat, upload, photo-question,
-     * wiki compile, modules, quiz/flashcard generation, teach-Mochi) MUST call before
-     * sending a user's personal data to a third-party AI processor. Combines the
-     * AI-data-transfer disclosure gate with the under-13 guardian gate so a caller
-     * can never enforce one but forget the other — new AI endpoints should call this.
-     *
-     * @param userId the authenticated user
+     * AI third-party transfer gate for AI-producing paths that are NOT child-data ingress
+     * (wiki compile, module/quiz generation, narration, teach-Mochi). The under-13 ingress
+     * gate now lives in {@link #requireChildDataIngressConsent}; this is purely the
+     * AI-disclosure consent (Apple 5.1.2 / PDPA overseas transfer).
      */
     public void requireAiAllowed(String userId) {
         requireAiConsent(userId);
-        requireGuardianIfUnder13(userId);
     }
 }

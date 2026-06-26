@@ -46,7 +46,9 @@ class AiConsentGateTest {
     private static final int OVER_13_BIRTH_YEAR = 2010;
 
     private ConsentGuard guard() {
-        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(), org.mockito.Mockito.mock(com.pally.domain.consent.ConsentRepository.class));
+        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(),
+                org.mockito.Mockito.mock(com.pally.domain.consent.ConsentRepository.class),
+                org.mockito.Mockito.mock(com.pally.domain.consent.ConsentService.class));
     }
 
     private User under13User() {
@@ -156,19 +158,9 @@ class AiConsentGateTest {
                 .isInstanceOf(AiConsentRequiredException.class);
     }
 
-    @Test
-    void requireAiAllowed_under13_consentButNoParent_throwsGuardianRequired() {
-        // AI consent granted (first gate passes) but no parent linked → guardian gate fires.
-        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(under13User()));
-        when(consentRecordRepo.findAll()).thenReturn(List.of(
-                consentRecord("[\"AI_DATA_TRANSFER\"]")
-        ));
-
-        assertThatThrownBy(() -> guard().requireAiAllowed(USER_ID))
-                .isInstanceOf(GuardianRequiredException.class)
-                .satisfies(ex -> assertThat(((ConsentRequiredException) ex).getReason())
-                        .isEqualTo(ConsentGuard.REASON_PARENT_LINK_REQUIRED));
-    }
+    // NOTE: requireAiAllowed is now purely the AI-transfer gate; the under-13 guardian
+    // check moved to the single ingress guard (requireChildDataIngressConsent), so
+    // requireAiAllowed no longer throws GuardianRequired — covered in GuardianGateTest.
 
     @Test
     void requireAiAllowed_under13_consentAndParentLinked_allowed() {

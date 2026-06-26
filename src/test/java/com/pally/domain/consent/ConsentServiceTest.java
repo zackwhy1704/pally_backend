@@ -58,12 +58,34 @@ class ConsentServiceTest {
     }
 
     private ConsentRepository.ConsentRequest pendingRequest() {
-        Instant now = Instant.now();
+        // createdAt 2 minutes ago → past the resend cooldown, so a resend succeeds.
+        Instant created = Instant.now().minusSeconds(120);
         return new ConsentRepository.ConsentRequest(
                 "req-1", USER_ID, "parent@example.com", "token123",
                 ConsentRepository.ConsentRequest.STATUS_PENDING,
-                now, now.plusSeconds(7 * 24 * 3600), null
+                created, created.plusSeconds(7 * 24 * 3600), null
         );
+    }
+
+    @Test
+    void resendParentConsent_withinCooldown_throws429() {
+        Instant now = Instant.now(); // fresh request → cooldown active
+        when(consentRepository.findLatestRequestByChildUserIdAndStatus(
+                USER_ID, ConsentRepository.ConsentRequest.STATUS_PENDING))
+                .thenReturn(Optional.of(new ConsentRepository.ConsentRequest(
+                        "r", USER_ID, "parent@example.com", "tok",
+                        ConsentRepository.ConsentRequest.STATUS_PENDING,
+                        now, now.plusSeconds(600), null)));
+
+        assertThatThrownBy(() -> service.resendParentConsent(USER_ID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getHttpStatus()).isEqualTo(429));
+    }
+
+    @Test
+    void maskEmail_masksLocalPart() {
+        assertThat(ConsentService.maskEmail("john@gmail.com")).isEqualTo("j***@gmail.com");
+        assertThat(ConsentService.maskEmail(null)).isNull();
     }
 
     private ConsentRepository.ConsentRequest approvedRequest() {

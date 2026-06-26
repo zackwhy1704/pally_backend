@@ -47,6 +47,42 @@ public class ConsentService {
     @Value("${pally.web-base-url:https://apalchi.com}")
     private String webBaseUrl;
 
+    /// Resend cooldown — prevents email spam and drives the client's disabled-button
+    /// countdown. Surfaced both in the block envelope and the resend response.
+    public static final int RESEND_COOLDOWN_SECONDS = 60;
+
+    /// Display metadata for the "waiting for parent" state: a MASKED parent email
+    /// (which inbox to check) + whether/when a resend is allowed. Never the full email.
+    public record ResendInfo(String maskedParentEmail, boolean resendAvailable,
+                             long resendAvailableInSeconds) {}
+
+    /// Resend availability for the child's latest PENDING request. No request → resend
+    /// is available (request-parent will create one). Masks the parent email.
+    @Transactional(readOnly = true)
+    public ResendInfo resendInfo(String userId) {
+        return consentRepository.findLatestRequestByChildUserIdAndStatus(
+                        userId, ConsentRepository.ConsentRequest.STATUS_PENDING)
+                .map(r -> {
+                    long elapsed = java.time.Duration.between(r.createdAt(), Instant.now()).getSeconds();
+                    long remaining = Math.max(0, RESEND_COOLDOWN_SECONDS - elapsed);
+                    return new ResendInfo(maskEmail(r.parentEmail()), remaining == 0, remaining);
+                })
+                .orElse(new ResendInfo(null, true, 0));
+    }
+
+    /// Masks an email for display: first character + "***" + domain, e.g.
+    /// {@code john@gmail.com → j***@gmail.com}. Never leaks the full address.
+    static String maskEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        int at = email.indexOf('@');
+        if (at <= 0) {
+            return "***";
+        }
+        return email.charAt(0) + "***" + email.substring(at);
+    }
+
     // ── Status ────────────────────────────────────────────────────────────────
 
     /**
@@ -123,13 +159,24 @@ public class ConsentService {
      */
     @Transactional
     public Map<String, Object> resendParentConsent(String userId) {
+        ResendInfo info = resendInfo(userId);
+        if (!info.resendAvailable()) {
+            // 429: cooldown active — the client shows the countdown from this value.
+            throw new BusinessException(
+                    "Please wait " + info.resendAvailableInSeconds()
+                    + "s before resending the approval email.", 429);
+        }
         String parentEmail = consentRepository
                 .findLatestRequestByChildUserIdAndStatus(
                         userId, ConsentRepository.ConsentRequest.STATUS_PENDING)
                 .map(ConsentRepository.ConsentRequest::parentEmail)
                 .orElseThrow(() -> new BusinessException(
                         "No pending consent request found", 404));
-        return requestParentConsent(userId, parentEmail);
+        // Re-issues a FRESH token (the old one may have expired) + re-emails.
+        Map<String, Object> result = new HashMap<>(requestParentConsent(userId, parentEmail));
+        result.put("parentEmailMasked", maskEmail(parentEmail));
+        result.put("resendAvailableInSeconds", (long) RESEND_COOLDOWN_SECONDS);
+        return result;
     }
 
     /**

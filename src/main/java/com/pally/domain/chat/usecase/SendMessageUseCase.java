@@ -142,13 +142,14 @@ public class SendMessageUseCase {
         // Fix 2: Slot guard — locked avatars cannot be chatted with.
         avatarSlotGuard.requireActive(avatarId, userId);
 
-        // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
-        // Always enforced — see ConsentGuard.requireAiConsent Javadoc.
-        consentGuard.requireAiConsent(userId);
+        // Child-data ingress (the ONE guard, default-deny) — fires BEFORE the stream
+        // starts, so a pending under-13's chat text never reaches the model. Free chat
+        // ships child-authored text to an external model = gated ingress (a transient
+        // transfer is still a transfer; persistence is irrelevant to the gate).
+        consentGuard.requireChildDataIngressConsent(userId);
 
-        // PDPC 2024 age gate: under-13 users need a linked+consented parent.
-        // No-op for 13+ users (target audience), so nothing changes for them.
-        consentGuard.requireGuardianIfUnder13(userId);
+        // Third-party AI consent gate (Apple 5.1.2 / PDPA overseas transfer).
+        consentGuard.requireAiConsent(userId);
 
         // Resolve tier once at the start of the turn so the model selection
         // and logging are consistent within the same request.

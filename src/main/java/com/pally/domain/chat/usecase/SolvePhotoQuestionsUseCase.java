@@ -55,9 +55,11 @@ public class SolvePhotoQuestionsUseCase {
                 .filter(a -> a.getUserId().equals(userId))
                 .orElseThrow(() -> new AvatarNotFoundException(avatarId));
 
-        // PDPA/PDPC: a child's homework image/text must not reach a third-party AI
-        // processor without AI-data-transfer consent + (under-13) a linked guardian.
-        consentGuard.requireAiAllowed(userId);
+        // Child-data ingress (the ONE guard, default-deny) — a child's homework
+        // image/text must not reach a third-party model before parental consent.
+        // Fires before the model call below. Then the AI-transfer gate.
+        consentGuard.requireChildDataIngressConsent(userId);
+        consentGuard.requireAiConsent(userId);
 
         List<WikiPage> wikiPages = wikiRepository.findByAvatarId(avatarId);
 

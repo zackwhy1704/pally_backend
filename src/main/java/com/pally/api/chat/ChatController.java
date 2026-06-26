@@ -14,6 +14,7 @@ import com.pally.domain.chat.usecase.SolvePhotoQuestionsUseCase;
 import com.pally.infrastructure.ratelimit.ChatRateLimiter;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
+import com.pally.shared.exception.ParentalConsentPendingException;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -82,12 +83,19 @@ public class ChatController {
         // the intended 403. Writing JSON directly to HttpServletResponse bypasses
         // Spring entirely and delivers a parseable error body to the client.
         try {
+            // Child-data ingress guard FIRST (a pending under-13's text must not stream
+            // to the model), then the AI-transfer gate. Both written as JSON before the
+            // SSE content-type is set.
+            consentGuard.requireChildDataIngressConsent(userId);
             consentGuard.requireAiConsent(userId);
-            consentGuard.requireGuardianIfUnder13(userId);
+        } catch (ParentalConsentPendingException e) {
+            writeParentalConsentPendingError(response, e);
+            return;
         } catch (AiConsentRequiredException e) {
             writeJsonError(response, 403, "AI_CONSENT_REQUIRED", e.getReason(), e.getMessage());
             return;
         } catch (GuardianRequiredException e) {
+            // Unknown age (AGE_DECLARATION_REQUIRED) etc.
             writeJsonError(response, 403, "PARENT_LINK_REQUIRED", e.getReason(), e.getMessage());
             return;
         }
@@ -247,6 +255,25 @@ public class ChatController {
      * {@code Accept: text/event-stream}, so Spring refuses to serialize JSON
      * through the normal handler return path.
      */
+    /// Rich PARENTAL_CONSENT_PENDING error for the SSE path — same envelope shape as the
+    /// global handler so the central client handler renders the consent-pending + resend
+    /// panel identically whether the block came from chat or a JSON endpoint.
+    private void writeParentalConsentPendingError(HttpServletResponse response,
+            ParentalConsentPendingException e) throws java.io.IOException {
+        response.setStatus(403);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        String masked = e.getMaskedParentEmail() == null ? "" : e.getMaskedParentEmail();
+        String body = String.format(
+            "{\"status\":403,\"message\":\"%s\",\"data\":{\"code\":\"%s\",\"reason\":\"%s\","
+            + "\"parentEmailMasked\":\"%s\",\"resendAvailable\":%b,\"resendAvailableInSeconds\":%d}}",
+            "Your account is waiting for your parent to approve it.",
+            ParentalConsentPendingException.CODE, ParentalConsentPendingException.CODE,
+            masked.replace("\"", "\\\""), e.isResendAvailable(), e.getResendAvailableInSeconds());
+        response.getWriter().write(body);
+        response.getWriter().flush();
+    }
+
     private void writeJsonError(HttpServletResponse response, int status,
             String code, String reason, String message) throws java.io.IOException {
         response.setStatus(status);
