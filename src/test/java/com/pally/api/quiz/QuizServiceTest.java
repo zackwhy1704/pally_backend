@@ -26,7 +26,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
@@ -48,6 +50,7 @@ class QuizServiceTest {
     @Mock WikiRepository wikiRepository;
     @Mock FlashcardRepository flashcardRepository;
     @Mock ClaudeFlashcardGenerator flashcardGenerator;
+    @Mock com.pally.domain.quiz.QuizAnswerKeyRepository answerKeyRepository;
 
     QuizService service;
 
@@ -59,7 +62,8 @@ class QuizServiceTest {
         service = new QuizService(
                 getDailyQuizUseCase, submitQuizAnswersUseCase, getFlashcardsUseCase,
                 rateFlashcardUseCase, quizAnswerRecordRepository, quizQuestionResultRepository,
-                avatarRepository, wikiRepository, flashcardRepository, flashcardGenerator);
+                avatarRepository, wikiRepository, flashcardRepository, flashcardGenerator,
+                answerKeyRepository);
     }
 
     @Test
@@ -96,5 +100,54 @@ class QuizServiceTest {
 
         assertThat(result.get("hasWikiPages")).isEqualTo(false);
         assertThat(result.get("generated")).isEqualTo(0);
+    }
+
+    // ── Serving chokepoint: key persistence + exposure split ──────────────────
+
+    private com.pally.domain.quiz.QuizQuestion q() {
+        return new com.pally.domain.quiz.QuizQuestion(
+                "q1", AVATAR, "2+2?", List.of("3", "4", "5"), 1, "slug", "four");
+    }
+
+    @Test
+    void getDailyQuiz_teacherGradedCentreAvatar_withholdsCorrectIndex_andPersistsKey() {
+        when(getDailyQuizUseCase.execute(AVATAR, USER)).thenReturn(List.of(q()));
+        when(avatarRepository.existsByIdAndCentreAvatarTrue(AVATAR)).thenReturn(true);
+
+        var served = service.getDailyQuiz(USER, AVATAR);
+
+        // The answer key must NOT be shipped for a teacher-graded quiz...
+        assertThat(served).hasSize(1);
+        assertThat(served.get(0).correctIndex())
+                .as("teacher-graded quiz must not expose the answer key")
+                .isNull();
+        // ...and the server key must be persisted so submit can grade.
+        org.mockito.Mockito.verify(answerKeyRepository)
+                .saveKeys(eq(AVATAR), anyList());
+    }
+
+    @Test
+    void getDailyQuiz_b2cSoloAvatar_keepsCorrectIndex_forInstantFeedback() {
+        when(getDailyQuizUseCase.execute(AVATAR, USER)).thenReturn(List.of(q()));
+        when(avatarRepository.existsByIdAndCentreAvatarTrue(AVATAR)).thenReturn(false);
+
+        var served = service.getDailyQuiz(USER, AVATAR);
+
+        // Solo B2C quiz keeps the key (stated tradeoff: instant pre-submit feedback).
+        assertThat(served.get(0).correctIndex()).isEqualTo(1);
+        org.mockito.Mockito.verify(answerKeyRepository).saveKeys(eq(AVATAR), anyList());
+    }
+
+    @Test
+    void getDailyQuiz_centreAvatar_keyPersistenceFails_degradesToExposingKey() {
+        when(getDailyQuizUseCase.execute(AVATAR, USER)).thenReturn(List.of(q()));
+        when(avatarRepository.existsByIdAndCentreAvatarTrue(AVATAR)).thenReturn(true);
+        org.mockito.Mockito.doThrow(new RuntimeException("db down"))
+                .when(answerKeyRepository).saveKeys(eq(AVATAR), anyList());
+
+        var served = service.getDailyQuiz(USER, AVATAR);
+
+        // Availability over secrecy on a rare write failure: still gradable.
+        assertThat(served.get(0).correctIndex()).isEqualTo(1);
     }
 }

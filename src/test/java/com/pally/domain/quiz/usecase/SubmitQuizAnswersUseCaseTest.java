@@ -302,6 +302,36 @@ class SubmitQuizAnswersUseCaseTest {
         assertThat(byQuestion.get("q2")).isFalse(); // tampered map could not flip this
     }
 
+    // ── POST-SUBMIT FEEDBACK: the correct answer is revealed only after submit
+    //    (the served teacher-graded question withheld it) ────────────────────
+
+    @Test
+    void submit_returnsPerQuestionFeedback_revealingCorrectAnswerAfterSubmit() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(24, 12, false, 1.0));
+        // Server key: q1 correct=0, q2 correct=2.
+        when(answerKeyRepository.findCorrectIndexes(any()))
+                .thenReturn(Map.of("q1", 0, "q2", 2));
+
+        // Student answered q1=0 (right), q2=1 (wrong). No client map at all —
+        // the teacher-graded quiz never shipped the key.
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0, "q2", 1));
+        QuizResult result = useCase.execute(sub, Map.of());
+
+        assertThat(result.feedback()).hasSize(2);
+        Map<String, QuizResult.QuestionFeedback> byId = result.feedback().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        QuizResult.QuestionFeedback::questionId, f -> f));
+        assertThat(byId.get("q1").wasCorrect()).isTrue();
+        assertThat(byId.get("q1").correctIndex()).isEqualTo(0);
+        assertThat(byId.get("q2").wasCorrect()).isFalse();
+        // The correct answer is revealed here, post-submit — feedback preserved.
+        assertThat(byId.get("q2").correctIndex()).isEqualTo(2);
+    }
+
     // ── TRANSACTION-POISONING: a secondary write failure must not abort the
     //    primary score/XP path ───────────────────────────────────────────────
 

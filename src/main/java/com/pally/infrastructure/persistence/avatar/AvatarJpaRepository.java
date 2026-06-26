@@ -12,6 +12,11 @@ public interface AvatarJpaRepository extends JpaRepository<AvatarJpaEntity, Stri
 
     boolean existsByIdAndUserId(String id, String userId);
 
+    /// True when this avatar is a centre/class brain, whose quiz results feed
+    /// teacher-visible analytics — i.e. a "teacher-graded" quiz whose answer key
+    /// must NOT be shipped to the client.
+    boolean existsByIdAndCentreAvatarTrue(String id);
+
     @Query("SELECT a.id FROM AvatarJpaEntity a WHERE a.brainState = :brainState")
     List<String> findIdsByBrainState(@Param("brainState") String brainState);
 }

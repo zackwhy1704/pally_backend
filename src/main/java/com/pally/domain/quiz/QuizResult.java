@@ -22,13 +22,21 @@ public record QuizResult(
         int starsEarned,
         boolean levelledUp,
         int newLevel,
-        MasteryMatrix masteryMatrix
+        MasteryMatrix masteryMatrix,
+        List<QuestionFeedback> feedback
 ) {
 
     public QuizResult(String sessionId, int score, int total, int xpEarned,
                       int starsEarned, boolean levelledUp, int newLevel) {
         this(sessionId, score, total, xpEarned, starsEarned, levelledUp,
-                newLevel, null);
+                newLevel, null, List.of());
+    }
+
+    public QuizResult(String sessionId, int score, int total, int xpEarned,
+                      int starsEarned, boolean levelledUp, int newLevel,
+                      MasteryMatrix masteryMatrix) {
+        this(sessionId, score, total, xpEarned, starsEarned, levelledUp,
+                newLevel, masteryMatrix, List.of());
     }
 
     /** Lists hold the slug (or questionId fallback) per quadrant. */
@@ -38,5 +46,17 @@ public record QuizResult(
             List<String> luckyGuess,
             List<String> knownGap,
             String priorityReview
+    ) {}
+
+    /**
+     * Per-question outcome returned POST-submit — the only place a
+     * teacher-graded quiz's correct answer is revealed (the served question
+     * withholds it). {@code correctIndex} lets the client show "the answer was
+     * B" on the results screen; {@code wasCorrect} is the server's verdict.
+     */
+    public record QuestionFeedback(
+            String questionId,
+            boolean wasCorrect,
+            Integer correctIndex
     ) {}
 }

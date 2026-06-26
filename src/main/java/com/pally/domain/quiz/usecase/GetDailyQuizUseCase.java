@@ -4,7 +4,6 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
-import com.pally.domain.quiz.QuizAnswerKeyRepository;
 import com.pally.domain.quiz.QuizQuestion;
 import com.pally.domain.quiz.port.QuizGeneratorPort;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +40,6 @@ public class GetDailyQuizUseCase {
     private final WikiRepository wikiRepository;
     private final QuizGeneratorPort quizGeneratorPort;
     private final AvatarSlotGuard avatarSlotGuard;
-    private final QuizAnswerKeyRepository answerKeyRepository;
 
     /// In-memory daily quiz cache: avatarId → (date → questions).
     /// Single Railway instance → no distributed state needed. Cache evicts
@@ -160,19 +158,9 @@ public class GetDailyQuizUseCase {
         List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised);
         log.info("[Pipeline:Quiz] Generated {} questions for avatarId={}", questions.size(), avatarId);
 
-        // Persist the SERVER answer key so the submit path can grade
-        // authoritatively (grade integrity) instead of trusting the client's
-        // correctMap. Best-effort: a key-write failure must not block the kid's
-        // quiz — grading degrades to the client map (logged) for those rows.
-        if (!questions.isEmpty()) {
-            try {
-                answerKeyRepository.saveKeys(avatarId, questions);
-            } catch (Exception e) {
-                log.warn("[Pipeline:Quiz] Answer-key persistence failed avatarId={}"
-                        + " — submit will fall back to client grading: {}",
-                        avatarId, e.getMessage());
-            }
-        }
+        // NOTE: the SERVER answer key is persisted at the SERVING chokepoint
+        // (QuizService.serveGradable), not here, so every served quiz — cache
+        // hit or miss — is guaranteed to have a key. See that method's doc.
 
         // Store in daily cache so repeat taps are instant
         if (!questions.isEmpty()) {

@@ -129,6 +129,11 @@ public class SubmitQuizAnswersUseCase {
         // persistence exception — the transaction-poisoning bug).
         List<QuizQuestionResultJpaEntity> pendingResults = new ArrayList<>();
 
+        // Per-question feedback returned POST-submit — for teacher-graded quizzes
+        // this is the ONLY place the correct answer is revealed (it's withheld
+        // from the served question), so the student still gets feedback.
+        List<QuizResult.QuestionFeedback> feedback = new ArrayList<>();
+
         int correct = 0;
         List<String> mastered = new ArrayList<>();
         List<String> misconception = new ArrayList<>();
@@ -162,6 +167,8 @@ public class SubmitQuizAnswersUseCase {
             }
             boolean wasCorrect = correctIndex != null && correctIndex.equals(entry.getValue());
             if (wasCorrect) correct++;
+            feedback.add(new QuizResult.QuestionFeedback(
+                    questionId, wasCorrect, correctIndex));
 
             String topic = topicMap.get(questionId);
             String label = topic != null ? topic : questionId;
@@ -354,7 +361,7 @@ public class SubmitQuizAnswersUseCase {
 
         return new QuizResult(
                 IdGenerator.newId(), correct, total, xpEarned, starsEarned,
-                levelledUp, newLevel, matrix);
+                levelledUp, newLevel, matrix, List.copyOf(feedback));
     }
 
     /// Persists the best-effort per-question result rows in their OWN

@@ -9,6 +9,7 @@ import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.quiz.AnswerSubmission;
 import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.domain.quiz.QuizAnswerKeyRepository;
 import com.pally.domain.quiz.QuizQuestion;
 import com.pally.domain.quiz.QuizResult;
 import com.pally.domain.quiz.usecase.GetDailyQuizUseCase;
@@ -49,10 +50,50 @@ public class QuizService {
     private final WikiRepository wikiRepository;
     private final FlashcardRepository flashcardRepository;
     private final ClaudeFlashcardGenerator flashcardGenerator;
+    private final QuizAnswerKeyRepository answerKeyRepository;
 
     public List<QuizQuestionResponse> getDailyQuiz(String userId, String avatarId) {
         List<QuizQuestion> questions = getDailyQuizUseCase.execute(avatarId, userId);
-        return questions.stream().map(QuizQuestionResponse::from).toList();
+        return serveGradable(avatarId, questions);
+    }
+
+    /// THE serving chokepoint for gradable quiz questions. Every served quiz
+    /// flows through here, which guarantees two things in ONE place so a future
+    /// quiz type cannot ship without them (enforced by an enumeration test that
+    /// {@code QuizQuestionResponse.from} is called nowhere else):
+    ///   1. The SERVER answer key is persisted — so submit grades from it and
+    ///      ignores the client map (closes answer *tampering*).
+    ///   2. {@code correctIndex} is WITHHELD for teacher-graded (centre) quizzes
+    ///      — so a student can't read the key out of the response and replay it
+    ///      into teacher-visible mastery (closes answer *exposure*). Feedback is
+    ///      returned post-submit in {@link QuizResult#feedback()} instead.
+    ///
+    /// If key persistence fails for a centre quiz we keep exposing the key this
+    /// once (logged) so the kid can still submit — availability over secrecy on
+    /// a rare transient write failure, never a silently un-gradable quiz.
+    private List<QuizQuestionResponse> serveGradable(
+            String avatarId, List<QuizQuestion> questions) {
+        if (questions.isEmpty()) return List.of();
+
+        boolean keyPersisted = false;
+        try {
+            answerKeyRepository.saveKeys(avatarId, questions);
+            keyPersisted = true;
+        } catch (Exception e) {
+            log.warn("[Quiz] Answer-key persistence failed avatar={}: {}",
+                    avatarId, e.getMessage());
+        }
+
+        boolean teacherGraded = avatarRepository.existsByIdAndCentreAvatarTrue(avatarId);
+        boolean exposeKey = !teacherGraded || !keyPersisted;
+        if (teacherGraded && !keyPersisted) {
+            log.warn("[Quiz] Exposing answer key for centre avatar {} this serve — "
+                    + "key not persisted, falling back to client grading (degraded)",
+                    avatarId);
+        }
+        return questions.stream()
+                .map(q -> QuizQuestionResponse.from(q, exposeKey))
+                .toList();
     }
 
     public QuizResult submitAnswers(String userId, String avatarId, SubmitAnswersRequest request) {
