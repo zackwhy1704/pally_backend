@@ -290,8 +290,15 @@ public class SubmitQuizAnswersUseCase {
         int newLevel = credit.newLevel();
         boolean levelledUp = credit.levelledUp();
 
-        // Update SM-2 for due flashcards based on per-topic performance
-        updateFlashcardSchedules(submission.avatarId(), questionsForSlug);
+        // Update SM-2 for due flashcards — isolated in its own tx so a write
+        // failure here can never mark the primary score/XP tx rollback-only.
+        try {
+            selfProvider.getObject().bestEffortFlashcardsInNewTx(
+                    submission.avatarId(), questionsForSlug);
+        } catch (Exception e) {
+            log.warn("[SRS] flashcard schedule update failed — SRS state gap "
+                    + "(avatar={}): {}", submission.avatarId(), e.getMessage());
+        }
 
         // Activity + badges. durationSeconds is the (already-clamped) wall-clock
         // time the kid spent on this quiz — feeds the weekly minutes chart.
@@ -310,47 +317,16 @@ public class SubmitQuizAnswersUseCase {
             log.warn("[Referral] activation hook skipped: {}", e.getMessage());
         }
 
-        // R1 — self-correcting knowledge base. Correct answers reinforce the
-        // source page (small +); wrong answers shake confidence harder and
-        // flag the page for review because misconceptions compound fast.
-        // Closing the loop: a topic answered correctly AND never wrong in
-        // this quiz clears its review flag — without this, the flag would
-        // stick forever even after the student masters the topic.
+        // R1 — self-correcting knowledge base — isolated in its own tx. The
+        // old try/catch wrapped REQUIRED code, which is the rollback-only trap:
+        // a caught JPA exception still marks the shared tx rollback-only before
+        // the catch runs. REQUIRES_NEW gives genuine isolation.
         try {
-            // Confidence-weighted: apply the per-slug summed delta. One
-            // adjust call per slug (typically 3-5 per quiz) trades a tiny
-            // number of extra round-trips for harness fidelity.
-            for (var entry : slugDeltas.entrySet()) {
-                double d = entry.getValue();
-                if (d == 0.0) continue;
-                wikiRepository.adjustCertainty(submission.avatarId(),
-                        List.of(entry.getKey()), d);
-            }
-            if (!wrongSlugs.isEmpty()) {
-                List<String> distinctWrong = wrongSlugs.stream().distinct().toList();
-                wikiRepository.setReviewRequired(submission.avatarId(),
-                        distinctWrong, true);
-                log.info("[Harness] Flagged {} pages for review after wrong "
-                        + "answers: {}", distinctWrong.size(), distinctWrong);
-            }
-            // Clear the flag for topics that were correct AND never wrong in
-            // this quiz. Wrong wins on ties so a single mistake keeps the
-            // page flagged even if the student also got it right elsewhere.
-            if (!correctSlugs.isEmpty()) {
-                List<String> cleanlyCorrect = correctSlugs.stream()
-                        .distinct()
-                        .filter(s -> !wrongSlugs.contains(s))
-                        .toList();
-                if (!cleanlyCorrect.isEmpty()) {
-                    wikiRepository.setReviewRequired(submission.avatarId(),
-                            cleanlyCorrect, false);
-                    log.info("[Harness] Cleared review flag on {} mastered "
-                            + "pages: {}", cleanlyCorrect.size(), cleanlyCorrect);
-                }
-            }
+            selfProvider.getObject().bestEffortWikiCertaintyInNewTx(
+                    submission.avatarId(), slugDeltas, wrongSlugs, correctSlugs);
         } catch (Exception e) {
-            // Never block scoring on harness feedback — log + carry on.
-            log.warn("[Harness] Certainty feedback failed: {}", e.getMessage());
+            log.warn("[Harness] wiki certainty update failed — certainty gap "
+                    + "(avatar={}): {}", submission.avatarId(), e.getMessage());
         }
 
         QuizResult.MasteryMatrix matrix = null;
@@ -380,6 +356,49 @@ public class SubmitQuizAnswersUseCase {
     public void persistQuestionResultsInNewTx(List<QuizQuestionResultJpaEntity> results) {
         if (results.isEmpty()) return;
         quizResultRepo.saveAll(results);
+    }
+
+    /// SM-2 flashcard reschedule in its own tx. REQUIRES_NEW so a save failure
+    /// here (e.g. constraint on a card that was deleted mid-quiz) can never
+    /// mark the primary score/XP tx rollback-only. Called via selfProvider.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void bestEffortFlashcardsInNewTx(
+            String avatarId, Map<String, List<Boolean>> questionsForSlug) {
+        updateFlashcardSchedules(avatarId, questionsForSlug);
+    }
+
+    /// R1 wiki-certainty feedback in its own tx. REQUIRES_NEW so a JPA failure
+    /// here (e.g. UPDATE on a corpus avatar whose pages don't exist under the
+    /// class-avatar ID) can never mark the primary score/XP tx rollback-only.
+    /// Called via selfProvider.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void bestEffortWikiCertaintyInNewTx(
+            String avatarId,
+            Map<String, Double> slugDeltas,
+            List<String> wrongSlugs,
+            List<String> correctSlugs) {
+        for (var entry : slugDeltas.entrySet()) {
+            double d = entry.getValue();
+            if (d == 0.0) continue;
+            wikiRepository.adjustCertainty(avatarId, List.of(entry.getKey()), d);
+        }
+        if (!wrongSlugs.isEmpty()) {
+            List<String> distinctWrong = wrongSlugs.stream().distinct().toList();
+            wikiRepository.setReviewRequired(avatarId, distinctWrong, true);
+            log.info("[Harness] Flagged {} pages for review after wrong answers: {}",
+                    distinctWrong.size(), distinctWrong);
+        }
+        if (!correctSlugs.isEmpty()) {
+            List<String> cleanlyCorrect = correctSlugs.stream()
+                    .distinct()
+                    .filter(s -> !wrongSlugs.contains(s))
+                    .toList();
+            if (!cleanlyCorrect.isEmpty()) {
+                wikiRepository.setReviewRequired(avatarId, cleanlyCorrect, false);
+                log.info("[Harness] Cleared review flag on {} mastered pages: {}",
+                        cleanlyCorrect.size(), cleanlyCorrect);
+            }
+        }
     }
 
     /// Reschedule due flashcards via SM-2, rating EACH card by the result of

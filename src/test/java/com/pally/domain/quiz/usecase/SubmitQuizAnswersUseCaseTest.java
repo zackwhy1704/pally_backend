@@ -362,4 +362,58 @@ class SubmitQuizAnswersUseCaseTest {
         verify(xpService).awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
                 anyInt(), anyInt(), anyInt());
     }
+
+    @Test
+    void bestEffortFlashcardThrow_doesNotPreventXpAward() {
+        // A failure inside the REQUIRES_NEW flashcard-schedule proxy call must
+        // NOT abort the primary score/XP path. The isolation (REQUIRES_NEW via
+        // selfProvider) makes the failure survivable; the try/catch in execute()
+        // surfaces it as a WARN log, not a re-throw.
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(30, 15, false, 1.0));
+
+        // Proxy returns a stub that throws on the flashcard best-effort method
+        // but is a no-op for the other two REQUIRES_NEW methods so the test
+        // only exercises the flashcard isolation path.
+        SubmitQuizAnswersUseCase throwingProxy =
+                org.mockito.Mockito.mock(SubmitQuizAnswersUseCase.class);
+        doThrow(new RuntimeException("forced SRS failure"))
+                .when(throwingProxy).bestEffortFlashcardsInNewTx(anyString(), any());
+        when(selfProvider.getObject()).thenReturn(throwingProxy);
+
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0));
+        QuizResult result = useCase.execute(sub, Map.of("q1", 0));
+
+        // XP still awarded despite the secondary failure.
+        assertThat(result.xpEarned()).isEqualTo(30);
+        verify(xpService).awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void bestEffortWikiCertaintyThrow_doesNotPreventXpAward() {
+        // A failure inside the REQUIRES_NEW wiki-certainty proxy call must NOT
+        // abort the primary score/XP path. The old try/catch around REQUIRED
+        // code was the rollback-only trap; REQUIRES_NEW gives genuine isolation.
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(30, 15, false, 1.0));
+
+        SubmitQuizAnswersUseCase throwingProxy =
+                org.mockito.Mockito.mock(SubmitQuizAnswersUseCase.class);
+        doThrow(new RuntimeException("forced harness failure"))
+                .when(throwingProxy).bestEffortWikiCertaintyInNewTx(
+                        anyString(), any(), any(), any());
+        when(selfProvider.getObject()).thenReturn(throwingProxy);
+
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0));
+        QuizResult result = useCase.execute(sub, Map.of("q1", 0));
+
+        assertThat(result.xpEarned()).isEqualTo(30);
+        verify(xpService).awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt());
+    }
 }

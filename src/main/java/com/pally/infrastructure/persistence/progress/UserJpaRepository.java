@@ -54,7 +54,16 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
     /// lost-update race where two concurrent credits both read-then-wrote
     /// the same starting balance. Returns the number of rows affected
     /// (1 on success, 0 if the user vanished).
-    @Modifying
+    ///
+    /// clearAutomatically=true: evicts the user entity from the JPA first-level
+    /// cache AFTER this bulk UPDATE runs, so any subsequent findById in the same
+    /// tx (e.g. StreakService.recordActiveDay) loads fresh data from the DB
+    /// instead of the stale pre-update snapshot. Without this, the streak save
+    /// writes back xp=0 and silently erases the XP credit.
+    ///
+    /// flushAutomatically=true: flushes any pending dirty entities BEFORE the
+    /// UPDATE so in-flight changes aren't lost when the cache is cleared.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             UPDATE users
                SET xp = xp + :xpDelta,
