@@ -3,6 +3,8 @@ package com.pally.domain.consent;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
@@ -57,17 +59,20 @@ public class ConsentGuard {
     private final UserAgeService userAgeService;
     private final com.pally.domain.consent.ConsentRepository consentRepository;
     private final ConsentService consentService;
+    private final OrgStaffJpaRepository staffRepo;
 
     public ConsentGuard(UserRepository userRepo,
                         ConsentRecordJpaRepository consentRecordRepo,
                         UserAgeService userAgeService,
                         com.pally.domain.consent.ConsentRepository consentRepository,
-                        ConsentService consentService) {
+                        ConsentService consentService,
+                        OrgStaffJpaRepository staffRepo) {
         this.userRepo = userRepo;
         this.consentRecordRepo = consentRecordRepo;
         this.userAgeService = userAgeService;
         this.consentRepository = consentRepository;
         this.consentService = consentService;
+        this.staffRepo = staffRepo;
     }
 
     /// Build the rich PARENTAL_CONSENT_PENDING exception (masked email + resend) for a
@@ -140,6 +145,16 @@ public class ConsentGuard {
     }
 
     /**
+     * Returns true when the user is an active org staff member (centre teacher /
+     * admin). Active staff are adult operators — the PDPA child-data gate does not
+     * apply to them as operators of a centre account. They bypass
+     * {@link #requireChildDataIngressConsent} and {@link #canIngestChildData}.
+     */
+    private boolean isActiveStaff(String userId) {
+        return staffRepo.existsByUserIdAndStatus(userId, OrgStaffJpaEntity.STATUS_ACTIVE);
+    }
+
+    /**
      * SINGLE eligibility for ingesting NEW child-authored data (note upload, free AI
      * chat, photo-question — anything that ships the child's text/image to a model or
      * stores it). DEFAULT-DENY, computed in ONE place so a new ingress can't quietly
@@ -152,6 +167,10 @@ public class ConsentGuard {
     public boolean canIngestChildData(User user) {
         if (user == null) {
             return true; // auth passed; a missing row is handled downstream
+        }
+        // Active centre staff are adult operators — bypass the child-data gate.
+        if (isActiveStaff(user.getId())) {
+            return true;
         }
         if (user.getBirthYear() == null) {
             return false; // unknown age → cannot establish 13+ → not cleared
@@ -178,6 +197,10 @@ public class ConsentGuard {
      */
     public void requireChildDataIngressConsent(String userId) {
         User user = userRepo.findById(userId).orElse(null);
+        // Active centre staff are adult operators — bypass the child-data gate.
+        if (user != null && isActiveStaff(userId)) {
+            return;
+        }
         if (user == null || canIngestChildData(user)) {
             return;
         }

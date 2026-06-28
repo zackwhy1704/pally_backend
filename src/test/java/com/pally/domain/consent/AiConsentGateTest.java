@@ -4,6 +4,7 @@ import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaEntity;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
@@ -38,6 +39,7 @@ class AiConsentGateTest {
 
     @Mock UserRepository userRepo;
     @Mock ConsentRecordJpaRepository consentRecordRepo;
+    @Mock OrgStaffJpaRepository staffRepo;
 
     private static final String USER_ID = "user-test";
     // 2026 - 2015 = 11 → under 13
@@ -48,7 +50,8 @@ class AiConsentGateTest {
     private ConsentGuard guard() {
         return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(),
                 org.mockito.Mockito.mock(com.pally.domain.consent.ConsentRepository.class),
-                org.mockito.Mockito.mock(com.pally.domain.consent.ConsentService.class));
+                org.mockito.Mockito.mock(com.pally.domain.consent.ConsentService.class),
+                staffRepo);
     }
 
     private User under13User() {
