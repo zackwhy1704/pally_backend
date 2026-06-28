@@ -5,6 +5,7 @@ import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.shared.exception.GuardianRequiredException;
 import com.pally.shared.exception.ParentalConsentPendingException;
 import org.junit.jupiter.api.Test;
@@ -45,12 +46,14 @@ class GuardianGateTest {
     @Mock ConsentRepository consentRepo;
     @Mock ConsentService consentService;
     @Mock OrgStaffJpaRepository staffRepo;
+    @Mock OrganizationJpaRepository orgRepo;
 
     private static final String USER_ID = "kid-1";
     private static final String STAFF_ID = "staff-1";
 
     private ConsentGuard guard() {
-        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(), consentRepo, consentService, staffRepo);
+        return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(),
+                consentRepo, consentService, staffRepo, orgRepo);
     }
 
     private ConsentRepository.ConsentRequest approvedRequest() {
@@ -170,5 +173,35 @@ class GuardianGateTest {
                 .thenReturn(true);
 
         assertThat(guard().canIngestChildData(staffUser)).isTrue();
+    }
+
+    // ── Org-owner bypass — owner has no OrgStaff row, protected via ownerUserId ──
+
+    @Test
+    void requireChildDataIngressConsent_orgOwner_noBirthYear_passes() {
+        // Org owner has no OrgStaff row — protected via ownerUserId path.
+        // This is the exact case that was blocking owners from uploading to their class.
+        User ownerUser = user(null, null);
+        ownerUser.setId(STAFF_ID);
+        when(userRepo.findById(STAFF_ID)).thenReturn(Optional.of(ownerUser));
+        when(staffRepo.existsByUserIdAndStatus(STAFF_ID, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(false); // no OrgStaff row — owner path only
+        when(orgRepo.existsByOwnerUserId(STAFF_ID))
+                .thenReturn(true);
+
+        assertThatCode(() -> guard().requireChildDataIngressConsent(STAFF_ID))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void canIngestChildData_orgOwner_noBirthYear_returnsTrue() {
+        User ownerUser = user(null, null);
+        ownerUser.setId(STAFF_ID);
+        when(staffRepo.existsByUserIdAndStatus(STAFF_ID, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(false);
+        when(orgRepo.existsByOwnerUserId(STAFF_ID))
+                .thenReturn(true);
+
+        assertThat(guard().canIngestChildData(ownerUser)).isTrue();
     }
 }

@@ -5,6 +5,7 @@ import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
@@ -60,19 +61,22 @@ public class ConsentGuard {
     private final com.pally.domain.consent.ConsentRepository consentRepository;
     private final ConsentService consentService;
     private final OrgStaffJpaRepository staffRepo;
+    private final OrganizationJpaRepository orgRepo;
 
     public ConsentGuard(UserRepository userRepo,
                         ConsentRecordJpaRepository consentRecordRepo,
                         UserAgeService userAgeService,
                         com.pally.domain.consent.ConsentRepository consentRepository,
                         ConsentService consentService,
-                        OrgStaffJpaRepository staffRepo) {
+                        OrgStaffJpaRepository staffRepo,
+                        OrganizationJpaRepository orgRepo) {
         this.userRepo = userRepo;
         this.consentRecordRepo = consentRecordRepo;
         this.userAgeService = userAgeService;
         this.consentRepository = consentRepository;
         this.consentService = consentService;
         this.staffRepo = staffRepo;
+        this.orgRepo = orgRepo;
     }
 
     /// Build the rich PARENTAL_CONSENT_PENDING exception (masked email + resend) for a
@@ -145,13 +149,23 @@ public class ConsentGuard {
     }
 
     /**
-     * Returns true when the user is an active org staff member (centre teacher /
-     * admin). Active staff are adult operators — the PDPA child-data gate does not
-     * apply to them as operators of a centre account. They bypass
-     * {@link #requireChildDataIngressConsent} and {@link #canIngestChildData}.
+     * Returns true when the user is a centre operator: an active org staff member
+     * (has an OrgStaffJpaEntity row) OR the owner of any organisation (identified
+     * via org.ownerUserId — CentreService.onboard sets this but never writes an
+     * OrgStaff row for the owner).
+     *
+     * <p>Both roles are adult principals. No child-data or age gate applies.
+     *
+     * <p><strong>Call order contract for every new gate method:</strong>
+     * <pre>
+     *   if (isCentreOperator(userId)) return; // adult operator, no child gates apply
+     * </pre>
      */
-    private boolean isActiveStaff(String userId) {
-        return staffRepo.existsByUserIdAndStatus(userId, OrgStaffJpaEntity.STATUS_ACTIVE);
+    boolean isCentreOperator(String userId) {  // package-private: callable from unit tests
+        if (staffRepo.existsByUserIdAndStatus(userId, OrgStaffJpaEntity.STATUS_ACTIVE)) {
+            return true;
+        }
+        return orgRepo.existsByOwnerUserId(userId);
     }
 
     /**
@@ -168,8 +182,8 @@ public class ConsentGuard {
         if (user == null) {
             return true; // auth passed; a missing row is handled downstream
         }
-        // Active centre staff are adult operators — bypass the child-data gate.
-        if (isActiveStaff(user.getId())) {
+        // Centre operators (owner or active staff) are adult principals — bypass.
+        if (isCentreOperator(user.getId())) {
             return true;
         }
         if (user.getBirthYear() == null) {
@@ -197,8 +211,8 @@ public class ConsentGuard {
      */
     public void requireChildDataIngressConsent(String userId) {
         User user = userRepo.findById(userId).orElse(null);
-        // Active centre staff are adult operators — bypass the child-data gate.
-        if (user != null && isActiveStaff(userId)) {
+        // Centre operators (owner or active staff) are adult principals — bypass.
+        if (user != null && isCentreOperator(userId)) {
             return;
         }
         if (user == null || canIngestChildData(user)) {

@@ -15,6 +15,8 @@ public interface OrganizationJpaRepository
 
     List<OrganizationJpaEntity> findByOwnerUserId(String ownerUserId);
 
+    boolean existsByOwnerUserId(String ownerUserId);
+
     /** Returns the first org owned by this user, or empty if none. */
     @Query("SELECT o FROM OrganizationJpaEntity o WHERE o.ownerUserId = :ownerUserId ORDER BY o.createdAt ASC")
     Optional<OrganizationJpaEntity> findFirstByOwnerUserId(@Param("ownerUserId") String ownerUserId);

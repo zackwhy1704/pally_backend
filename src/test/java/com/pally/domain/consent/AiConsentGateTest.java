@@ -40,6 +40,7 @@ class AiConsentGateTest {
     @Mock UserRepository userRepo;
     @Mock ConsentRecordJpaRepository consentRecordRepo;
     @Mock OrgStaffJpaRepository staffRepo;
+    @Mock com.pally.infrastructure.persistence.organization.OrganizationJpaRepository orgRepo;
 
     private static final String USER_ID = "user-test";
     // 2026 - 2015 = 11 → under 13
@@ -51,7 +52,7 @@ class AiConsentGateTest {
         return new ConsentGuard(userRepo, consentRecordRepo, new UserAgeService(),
                 org.mockito.Mockito.mock(com.pally.domain.consent.ConsentRepository.class),
                 org.mockito.Mockito.mock(com.pally.domain.consent.ConsentService.class),
-                staffRepo);
+                staffRepo, orgRepo);
     }
 
     private User under13User() {
