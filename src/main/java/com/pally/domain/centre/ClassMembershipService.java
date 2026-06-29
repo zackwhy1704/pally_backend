@@ -133,6 +133,50 @@ public class ClassMembershipService {
         return Map.of("removed", true);
     }
 
+    // ── Remove from org (all classes) ────────────────────────────────────────
+
+    /**
+     * Removes a student from every class in this organisation — "student left the centre".
+     * Delegates to {@link ClassEnrollmentService#leave} for each active membership so avatar
+     * cleanup, group-leave events, and audit logging all run correctly per class.
+     * Also clears {@code centreId} on the user record since they have no remaining classes here.
+     *
+     * @return count of classes the student was removed from
+     */
+    @Transactional
+    public int removeFromOrg(String orgId, String studentId) {
+        List<OrgClassJpaEntity> orgClasses = classRepo.findByOrganizationId(orgId);
+        Set<String> orgClassIds = orgClasses.stream()
+                .map(OrgClassJpaEntity::getId)
+                .collect(Collectors.toSet());
+
+        List<ClassMembershipJpaEntity> memberships = membershipRepo.findByUserId(studentId)
+                .stream()
+                .filter(m -> orgClassIds.contains(m.getClassId()))
+                .filter(m -> ClassMembershipJpaEntity.STATUS_ACTIVE.equals(m.getStatus()))
+                .toList();
+
+        for (ClassMembershipJpaEntity m : memberships) {
+            OrgClassJpaEntity cls = orgClasses.stream()
+                    .filter(c -> c.getId().equals(m.getClassId()))
+                    .findFirst()
+                    .orElseThrow();
+            classEnrollmentService.leave(cls, studentId);
+        }
+
+        // Student removed from all org classes — clear centreId so they are no longer linked to this org.
+        userRepo.findById(studentId).ifPresent(u -> {
+            if (orgId.equals(u.getCentreId())) {
+                u.setCentreId(null);
+                u.setCohortLabel(null);
+                userRepo.save(u);
+            }
+        });
+
+        log.info("[Centre] removed student={} from {} class(es) in org={}", studentId, memberships.size(), orgId);
+        return memberships.size();
+    }
+
     // ── Roster ────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)

@@ -115,6 +115,24 @@ public class ClassController {
         return ResponseEntity.ok(ApiResponse.success(classMembershipService.members(userId, orgId)));
     }
 
+    // ── Remove student from org (all classes) ─────────────────────────────────
+
+    /**
+     * Removes a student from every class in this organisation.
+     * Returns count of classes they were removed from.
+     */
+    @DeleteMapping("/students/{studentId}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> removeStudentFromOrg(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String studentId) {
+        accessService.ensureStaff(userId, orgId);
+        int removed = classMembershipService.removeFromOrg(orgId, studentId);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "studentId", studentId,
+                "classesRemoved", removed)));
+    }
+
     // ── Assign a member ────────────────────────────────────────────────────────
 
     @PostMapping("/classes/{classId}/members")

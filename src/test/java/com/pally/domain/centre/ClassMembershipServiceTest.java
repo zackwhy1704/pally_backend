@@ -213,6 +213,85 @@ class ClassMembershipServiceTest {
         verify(classEnrollmentService, never()).leave(any(), anyString());
     }
 
+    // ── removeFromOrg ─────────────────────────────────────────────────────
+
+    @Test
+    void removeFromOrg_removesStudentFromAllOrgClasses_andClearsCentreId() {
+        // Student has 2 active classes in org-1 and 1 in org-2.
+        OrgClassJpaEntity cls1 = classEntity(); // class-1 / org-1
+        OrgClassJpaEntity cls2 = new OrgClassJpaEntity();
+        cls2.setId("class-2");
+        cls2.setOrganizationId(ORG_ID);
+        cls2.setName("P5 Science");
+
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls1, cls2));
+
+        ClassMembershipJpaEntity m1 = new ClassMembershipJpaEntity();
+        m1.setClassId(CLASS_ID);
+        m1.setUserId(STUDENT_ID);
+        m1.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+
+        ClassMembershipJpaEntity m2 = new ClassMembershipJpaEntity();
+        m2.setClassId("class-2");
+        m2.setUserId(STUDENT_ID);
+        m2.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+
+        // m3 is in org-2 — should NOT be touched.
+        ClassMembershipJpaEntity m3 = new ClassMembershipJpaEntity();
+        m3.setClassId("class-99");
+        m3.setUserId(STUDENT_ID);
+        m3.setStatus(ClassMembershipJpaEntity.STATUS_ACTIVE);
+
+        when(membershipRepo.findByUserId(STUDENT_ID)).thenReturn(List.of(m1, m2, m3));
+
+        UserJpaEntity u = student(); // centreId = org-1
+        when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(u));
+
+        int count = service.removeFromOrg(ORG_ID, STUDENT_ID);
+
+        assertThat(count).isEqualTo(2);
+        verify(classEnrollmentService).leave(cls1, STUDENT_ID);
+        verify(classEnrollmentService).leave(cls2, STUDENT_ID);
+        // org-2 class is untouched.
+        assertThat(u.getCentreId()).isNull();
+        assertThat(u.getCohortLabel()).isNull();
+        verify(userRepo).save(u);
+    }
+
+    @Test
+    void removeFromOrg_studentNotInAnyOrgClass_returnsZeroAndStillClearsCentreId() {
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(classEntity()));
+        when(membershipRepo.findByUserId(STUDENT_ID)).thenReturn(List.of());
+
+        UserJpaEntity u = student();
+        when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(u));
+
+        int count = service.removeFromOrg(ORG_ID, STUDENT_ID);
+
+        assertThat(count).isEqualTo(0);
+        verify(classEnrollmentService, never()).leave(any(), anyString());
+        assertThat(u.getCentreId()).isNull();
+    }
+
+    @Test
+    void removeFromOrg_skipsInactiveMemberships() {
+        OrgClassJpaEntity cls = classEntity();
+        when(classRepo.findByOrganizationId(ORG_ID)).thenReturn(List.of(cls));
+
+        ClassMembershipJpaEntity inactive = new ClassMembershipJpaEntity();
+        inactive.setClassId(CLASS_ID);
+        inactive.setUserId(STUDENT_ID);
+        inactive.setStatus(ClassMembershipJpaEntity.STATUS_REMOVED);
+
+        when(membershipRepo.findByUserId(STUDENT_ID)).thenReturn(List.of(inactive));
+        when(userRepo.findById(STUDENT_ID)).thenReturn(Optional.of(student()));
+
+        int count = service.removeFromOrg(ORG_ID, STUDENT_ID);
+
+        assertThat(count).isEqualTo(0);
+        verify(classEnrollmentService, never()).leave(any(), anyString());
+    }
+
     // ── tenant isolation ─────────────────────────────────────────────────
 
     @Test
