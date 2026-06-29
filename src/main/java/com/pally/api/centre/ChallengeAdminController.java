@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +70,18 @@ public class ChallengeAdminController {
         resp.put("classId", c.getClassId());
         resp.put("revealAt", c.getRevealAt().toString());
         return ResponseEntity.status(201).body(ApiResponse.created(resp));
+    }
+
+    @DeleteMapping("/{challengeId}")
+    public ResponseEntity<Void> delete(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String challengeId) {
+        accessService.ensureStaff(userId, orgId);
+        requireClass(orgId, classId);
+        challengeService.delete(challengeId, classId);
+        return ResponseEntity.noContent().build();
     }
 
     private OrgClassJpaEntity requireClass(String orgId, String classId) {

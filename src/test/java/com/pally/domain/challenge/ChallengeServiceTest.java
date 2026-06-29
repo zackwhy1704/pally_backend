@@ -137,6 +137,39 @@ class ChallengeServiceTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    @Test
+    void delete_whenValidIdAndMatchingClass_deletesChallenge() {
+        when(challengeRepo.findById(CID))
+                .thenReturn(Optional.of(challenge(Instant.now().plus(1, ChronoUnit.HOURS))));
+
+        service.delete(CID, "class-1");
+
+        verify(challengeRepo).deleteById(CID);
+    }
+
+    @Test
+    void delete_whenChallengeNotFound_throws404() {
+        when(challengeRepo.findById(CID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.delete(CID, "class-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 404);
+
+        verify(challengeRepo, never()).deleteById(anyString());
+    }
+
+    @Test
+    void delete_whenWrongClass_throws403() {
+        when(challengeRepo.findById(CID))
+                .thenReturn(Optional.of(challenge(Instant.now().plus(1, ChronoUnit.HOURS))));
+
+        assertThatThrownBy(() -> service.delete(CID, "different-class"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 403);
+
+        verify(challengeRepo, never()).deleteById(anyString());
+    }
+
     private ChallengeAnswer answerFor(String userId, String ans) {
         return new ChallengeAnswer("a-" + userId, CID, userId, ans, Instant.now());
     }

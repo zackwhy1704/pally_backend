@@ -18,4 +18,6 @@ public interface ChallengeRepository {
 
     /** Challenges whose reveal time has passed but the push hasn't been sent. */
     List<Challenge> findDueForReveal(Instant now);
+
+    void deleteById(String id);
 }

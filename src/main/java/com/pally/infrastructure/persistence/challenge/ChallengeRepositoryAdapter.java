@@ -38,6 +38,11 @@ public class ChallengeRepositoryAdapter implements ChallengeRepository {
                 .map(ChallengeRepositoryAdapter::toDomain).toList();
     }
 
+    @Override
+    public void deleteById(String id) {
+        jpa.deleteById(id);
+    }
+
     static Challenge toDomain(ClassChallengeJpaEntity e) {
         return new Challenge(e.getId(), e.getClassId(), e.getQuestion(), e.getOptions(),
                 e.getAnswer(), e.getRevealAt(), e.getCreatedBy(), e.getCreatedAt(),

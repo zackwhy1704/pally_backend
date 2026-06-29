@@ -58,6 +58,19 @@ public class ChallengeService {
         return c;
     }
 
+    // ── Teacher: delete ───────────────────────────────────────────────────
+
+    @Transactional
+    public void delete(String challengeId, String classId) {
+        Challenge c = challengeRepo.findById(challengeId)
+                .orElseThrow(() -> new BusinessException("Challenge not found", 404));
+        if (!classId.equals(c.getClassId())) {
+            throw new BusinessException("Challenge does not belong to this class", 403);
+        }
+        challengeRepo.deleteById(challengeId);
+        log.info("[Challenge] deleted id={} classId={}", challengeId, classId);
+    }
+
     // ── Student: answer (locked) ──────────────────────────────────────────
 
     @Transactional
