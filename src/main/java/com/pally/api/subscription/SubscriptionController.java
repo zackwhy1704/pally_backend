@@ -1,7 +1,9 @@
 package com.pally.api.subscription;
 
+import com.pally.api.subscription.dto.UpgradeLinkRequest;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionManagementService;
+import com.pally.domain.subscription.UpgradeLinkService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,7 @@ public class SubscriptionController {
 
     private final SubscriptionManagementService subscriptionService;
     private final PremiumService                premiumService;
+    private final UpgradeLinkService            upgradeLinkService;
 
     /// HTTPS landing page for Stripe's success/cancel redirect.
     @GetMapping("/return")
@@ -81,6 +84,19 @@ public class SubscriptionController {
             @AuthenticationPrincipal String userId) {
         return ResponseEntity.ok(ApiResponse.success(
                 subscriptionService.createPortal(userId)));
+    }
+
+    /// Emails and/or push-notifies the authenticated user the web billing link
+    /// so they can finish their upgrade in a browser. Body is optional; a null
+    /// or omitted {@code channels} defaults to BOTH email and push.
+    /// Response: {@code { "sent": { "email": <bool>, "push": <bool> } }}.
+    @PostMapping("/upgrade-link")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> upgradeLink(
+            @AuthenticationPrincipal String userId,
+            @RequestBody(required = false) UpgradeLinkRequest body) {
+        return ResponseEntity.ok(ApiResponse.success(
+                upgradeLinkService.sendUpgradeLink(
+                        userId, body == null ? null : body.channels())));
     }
 
     /// Webhook endpoint. Takes the RAW request body as String so the live
