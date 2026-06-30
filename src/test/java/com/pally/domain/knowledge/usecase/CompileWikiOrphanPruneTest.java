@@ -154,6 +154,103 @@ class CompileWikiOrphanPruneTest {
         assertThat(result.tierServed()).isEqualTo("skipped-empty-source");
     }
 
+    // ── Bug 1 regression: incremental compile must NOT archive prior files' pages ──
+
+    @Test
+    void execute_incrementalCompile_priorFilesPagesAreNotArchived() {
+        // File A was compiled first (has source entries). File B is new.
+        // Bug: previously archiveOrphanPages only got [b1], archiving [a1, a2].
+        // Fix: surviving slugs = union(produced by this run, owned by prior READY files).
+        String avatarId = "avatar-incremental-test";
+        Avatar avatar = Avatar.reconstitute(avatarId, "user-1", "Spark",
+                Subject.SCIENCE, CharacterType.MOCHI, 1, Instant.now());
+        when(avatarRepository.findById(avatarId)).thenReturn(Optional.of(avatar));
+
+        KnowledgeFile fileA = makeReadyFile(avatarId, "fileA.pdf");
+        KnowledgeFile fileB = makeReadyFile(avatarId, "fileB.pdf");
+        when(knowledgeRepository.findByAvatarId(avatarId)).thenReturn(List.of(fileA, fileB));
+        when(wikiRepository.countActiveByAvatarId(avatarId)).thenReturn(2);
+
+        // File A is already compiled (has source entries); file B is new
+        when(wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId))
+                .thenReturn(List.of(fileA.getId()));
+
+        // Source table: file A owns slugs a1 and a2
+        when(wikiPageSourceRepo.findActiveSlugsByFileIds(List.of(fileA.getId())))
+                .thenReturn(List.of("a1", "a2"));
+
+        WikiPage pageA1 = WikiPage.reconstitute("id-a1", avatarId, "a1", "A1", "content a1",
+                WikiPage.Certainty.INFERRED, Instant.now());
+        WikiPage pageA2 = WikiPage.reconstitute("id-a2", avatarId, "a2", "A2", "content a2",
+                WikiPage.Certainty.INFERRED, Instant.now());
+        when(wikiRepository.findByAvatarId(avatarId)).thenReturn(List.of(pageA1, pageA2));
+
+        // This run compiles only file B → produces slug b1
+        WikiCompilerPort.WikiPageDraft draftB = new WikiCompilerPort.WikiPageDraft(
+                "b1", "B1", "content b1", List.of());
+        when(wikiCompiler.compileWithTier(any(), any(), any())).thenReturn(
+                new WikiCompilerPort.CompileOutput(List.of(draftB), "test-tier"));
+        when(persistenceService.persistDrafts(any(), any(), any()))
+                .thenReturn(new WikiPagePersistenceService.PersistOutcome(
+                        1, 0, List.of("B1"), List.of("b1")));
+
+        when(wikiRepository.archiveStalePages(eq(avatarId), any())).thenReturn(0);
+        when(wikiRepository.archiveOrphanPages(eq(avatarId), anyList())).thenReturn(0);
+
+        useCase.execute(avatarId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<String>> slugsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(wikiRepository).archiveOrphanPages(eq(avatarId), slugsCaptor.capture());
+
+        assertThat(slugsCaptor.getValue())
+                .as("Surviving slugs must include file A's prior pages AND file B's new page")
+                .containsExactlyInAnyOrder("a1", "a2", "b1");
+    }
+
+    @Test
+    void execute_deletedFile_itsPagesShouldBeArchived() {
+        // File A was deleted (no longer READY). File B is READY and compiled.
+        // File A's pages must NOT be in the surviving set → they get archived.
+        String avatarId = "avatar-deleted-file-test";
+        Avatar avatar = Avatar.reconstitute(avatarId, "user-1", "Bolt",
+                Subject.MATHS, CharacterType.MOCHI, 1, Instant.now());
+        when(avatarRepository.findById(avatarId)).thenReturn(Optional.of(avatar));
+
+        KnowledgeFile fileB = makeReadyFile(avatarId, "fileB.pdf");
+        // Only file B is READY (file A was deleted)
+        when(knowledgeRepository.findByAvatarId(avatarId)).thenReturn(List.of(fileB));
+        when(wikiRepository.countActiveByAvatarId(avatarId)).thenReturn(3);
+
+        // File B is new (not yet compiled)
+        when(wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId)).thenReturn(List.of());
+
+        WikiPage pageA1 = WikiPage.reconstitute("id-a1", avatarId, "a1", "A1", "content",
+                WikiPage.Certainty.INFERRED, Instant.now());
+        when(wikiRepository.findByAvatarId(avatarId)).thenReturn(List.of(pageA1));
+
+        WikiCompilerPort.WikiPageDraft draftB = new WikiCompilerPort.WikiPageDraft(
+                "b1", "B1", "content b1", List.of());
+        when(wikiCompiler.compileWithTier(any(), any(), any())).thenReturn(
+                new WikiCompilerPort.CompileOutput(List.of(draftB), "test-tier"));
+        when(persistenceService.persistDrafts(any(), any(), any()))
+                .thenReturn(new WikiPagePersistenceService.PersistOutcome(
+                        1, 0, List.of("B1"), List.of("b1")));
+        when(wikiRepository.archiveStalePages(eq(avatarId), any())).thenReturn(0);
+        when(wikiRepository.archiveOrphanPages(eq(avatarId), anyList())).thenReturn(1);
+
+        useCase.execute(avatarId);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<String>> slugsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(wikiRepository).archiveOrphanPages(eq(avatarId), slugsCaptor.capture());
+
+        assertThat(slugsCaptor.getValue())
+                .as("Only file B's page survives; deleted file A's page must not be in surviving set")
+                .containsExactly("b1")
+                .doesNotContain("a1");
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────────
 
     private KnowledgeFile makeReadyFile(String avatarId, String fileName) {

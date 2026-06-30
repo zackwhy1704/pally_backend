@@ -22,7 +22,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -228,14 +230,31 @@ public class CompileWikiUseCase {
         log.info("[Pipeline:Compile] DONE avatarId={} created={} updated={} titles={}",
                 avatarId, outcome.created(), outcome.updated(), outcome.pageTitles());
 
-        // Archive wiki pages whose slugs were NOT produced by this compile run.
-        // This makes the brain a pure function of the current READY files —
-        // pages from deleted files disappear automatically.
+        // Archive wiki pages whose slugs are NOT owned by any currently-READY file.
+        //
+        // BUG FIX: incremental compile only processes newFiles, so outcome.producedSlugs()
+        // only contains slugs from this run. Previously, already-compiled files' pages
+        // were NOT in the surviving set and got archived on every incremental upload.
+        // Fix: union this run's produced slugs with slugs owned by previously-compiled
+        // READY files — pages are only archived when their source file is no longer READY.
         try {
-            int archived = wikiRepository.archiveOrphanPages(avatarId, outcome.producedSlugs());
+            List<String> alreadyCompiledReadyFileIds = readyFiles.stream()
+                    .map(KnowledgeFile::getId)
+                    .filter(alreadyCompiledIds::contains)
+                    .toList();
+
+            List<String> existingReadySlugs = alreadyCompiledReadyFileIds.isEmpty()
+                    ? List.of()
+                    : wikiPageSourceRepo.findActiveSlugsByFileIds(alreadyCompiledReadyFileIds);
+
+            Set<String> allSurvivingSlugs = new HashSet<>(outcome.producedSlugs());
+            allSurvivingSlugs.addAll(existingReadySlugs);
+
+            int archived = wikiRepository.archiveOrphanPages(avatarId, new ArrayList<>(allSurvivingSlugs));
             if (archived > 0) {
-                log.info("[Pipeline:Compile] Archived {} orphan pages for avatar={} (slugs no longer produced by compile)",
-                        archived, avatarId);
+                log.info("[Pipeline:Compile] Archived {} orphan pages for avatar={} "
+                        + "(surviving slugs: {} new + {} from prior files)",
+                        archived, avatarId, outcome.producedSlugs().size(), existingReadySlugs.size());
             }
         } catch (Exception e) {
             log.warn("[Pipeline:Compile] Orphan archive failed (non-fatal): {}", e.getMessage());

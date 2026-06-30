@@ -567,12 +567,29 @@ public class WikiPagePersistenceService {
                 WikiPage a = pages.get(i);
                 WikiPage b = pages.get(j);
                 if (areDuplicates(a, b)) {
-                    // Keep the richer page (longer content wins)
-                    WikiPage keep = a.getContent().length() >= b.getContent().length() ? a : b;
-                    WikiPage drop = keep == a ? b : a;
+                    // Both verified → never auto-delete; route to conflict queue instead.
+                    if (a.isHumanVerified() && b.isHumanVerified()) {
+                        log.warn("[Dedup] Both pages '{}' and '{}' are human-verified near-duplicates "
+                                + "— skipping auto-delete, teacher must resolve manually (avatarId={})",
+                                a.getSlug(), b.getSlug(), avatarId);
+                        continue;
+                    }
+                    // Verified page always wins over unverified, regardless of length.
+                    WikiPage keep;
+                    WikiPage drop;
+                    if (a.isHumanVerified()) {
+                        keep = a; drop = b;
+                    } else if (b.isHumanVerified()) {
+                        keep = b; drop = a;
+                    } else {
+                        // Neither verified — keep longer content.
+                        keep = a.getContent().length() >= b.getContent().length() ? a : b;
+                        drop = keep == a ? b : a;
+                    }
                     toDelete.add(drop.getId());
-                    log.info("[Dedup] Merged page '{}' into '{}' (avatarId={})",
-                            drop.getSlug(), keep.getSlug(), avatarId);
+                    log.info("[Dedup] Merged page '{}' into '{}' (avatarId={}, dropVerified={}, keepVerified={})",
+                            drop.getSlug(), keep.getSlug(), avatarId,
+                            drop.isHumanVerified(), keep.isHumanVerified());
                 }
             }
         }

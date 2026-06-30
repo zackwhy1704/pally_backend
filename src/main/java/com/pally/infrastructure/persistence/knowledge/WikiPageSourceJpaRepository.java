@@ -41,4 +41,18 @@ public interface WikiPageSourceJpaRepository
            "WHERE wps.wiki_page_id = :wikiPageId",
            nativeQuery = true)
     List<String> findSourceFileNamesByWikiPageId(@Param("wikiPageId") String wikiPageId);
+
+    /**
+     * Returns the slugs of all ACTIVE wiki pages that were produced by any of
+     * the given knowledge file IDs. Used in incremental compile to compute the
+     * full surviving-slug set: previously-compiled READY files still own their
+     * wiki pages even though the current run only processes new files.
+     */
+    @Query(value =
+           "SELECT wp.slug " +
+           "FROM wiki_page_sources wps " +
+           "JOIN wiki_pages wp ON wp.id = wps.wiki_page_id " +
+           "WHERE wps.knowledge_file_id IN :fileIds AND wp.status = 'ACTIVE'",
+           nativeQuery = true)
+    List<String> findActiveSlugsByFileIds(@Param("fileIds") List<String> fileIds);
 }

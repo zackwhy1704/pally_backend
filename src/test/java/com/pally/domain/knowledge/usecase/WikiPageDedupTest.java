@@ -168,6 +168,35 @@ class WikiPageDedupTest {
         verify(wikiRepository, never()).deleteById(anyString());
     }
 
+    // ── Bug 4 regression: humanVerified guard ─────────────────────────────────
+
+    @Test
+    void deduplicatePages_shorterPageIsHumanVerified_keepsVerifiedDeletesLongerUnverified() {
+        // The unverified page is longer but the shorter one was corrected by a teacher.
+        // The teacher-verified page must survive regardless of content length.
+        WikiPage verified = makeVerifiedPage("id-verified", "photosynthesis-plants",
+                "Plants make food using light."); // shorter but verified
+        WikiPage unverified = makeUnverifiedPage("id-unverified", "photosynthesis-plants",
+                "Plants use sunlight water and carbon dioxide to produce glucose and oxygen via photosynthesis."); // longer
+
+        service.deduplicatePages(AVATAR_ID, List.of(verified, unverified));
+
+        verify(wikiRepository, times(1)).deleteById("id-unverified");
+        verify(wikiRepository, never()).deleteById("id-verified");
+    }
+
+    @Test
+    void deduplicatePages_bothPagesHumanVerified_neitherDeleted() {
+        WikiPage verifiedA = makeVerifiedPage("id-va", "photosynthesis-plants",
+                "Plants convert sunlight into chemical energy.");
+        WikiPage verifiedB = makeVerifiedPage("id-vb", "photosynthesis-plants",
+                "Photosynthesis converts light into glucose using chlorophyll in plants.");
+
+        service.deduplicatePages(AVATAR_ID, List.of(verifiedA, verifiedB));
+
+        verify(wikiRepository, never()).deleteById(anyString());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private WikiPage makePage(String id, String slug, String content) {
@@ -178,5 +207,17 @@ class WikiPageDedupTest {
                 WikiPage.Certainty.INFERRED, Instant.now(),
                 0, null, null, false,
                 null, 0, 0.5, WikiPage.Status.ACTIVE, false, null);
+    }
+
+    private WikiPage makeVerifiedPage(String id, String slug, String content) {
+        return WikiPage.reconstitute(
+                id, AVATAR_ID, slug, slug, content,
+                WikiPage.Certainty.VERIFIED, Instant.now(),
+                0, "teacher", Instant.now(), true,
+                null, 0, 1.0, WikiPage.Status.ACTIVE, false, null);
+    }
+
+    private WikiPage makeUnverifiedPage(String id, String slug, String content) {
+        return makePage(id, slug, content);
     }
 }
