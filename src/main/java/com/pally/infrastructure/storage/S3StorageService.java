@@ -23,9 +23,8 @@ import java.io.InputStream;
  * which reads the {@code R2_*} environment variables.
  *
  * <p>Returns the storage <em>key</em> from {@link #store} / {@link #upload} (never a
- * full URL) to match {@link LocalStorageService}'s contract — {@code NarrationService}
- * stores that value as {@code audioUrl} and downstream code re-derives access via the
- * key, so both backends behave identically.
+ * full URL) to match {@link LocalStorageService}'s contract — downstream code
+ * re-derives access via the key, so both backends behave identically.
  */
 @Service
 @Conditional(R2ConfiguredCondition.class)

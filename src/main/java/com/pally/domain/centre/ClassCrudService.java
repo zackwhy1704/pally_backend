@@ -8,7 +8,6 @@ import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.domain.group.ClassGroupService;
-import com.pally.domain.module.NarrationService;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
@@ -30,10 +29,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
- * Class CRUD: create/list/update/delete + Mochi config + teaching style + narration + groups.
+ * Class CRUD: create/list/update/delete + Mochi config + teaching style + groups.
  * Split from the original ClassService (692-line god-service) to stay ≤8 deps.
  */
 @Service
@@ -51,7 +49,6 @@ public class ClassCrudService {
     private final AvatarRepository avatarRepository;
     private final ClassGroupService classGroupService;
     private final ObjectMapper objectMapper;
-    private final NarrationService narrationService;
     private final OrganizationJpaRepository orgRepo;
 
     // ── Public lookup (used by controller brief delegation) ───────────────────
@@ -229,35 +226,6 @@ public class ClassCrudService {
         out.put("teacherPreferences", corpus.getTeacherPreferences() == null
                 ? "" : corpus.getTeacherPreferences());
         return out;
-    }
-
-    // ── Narration ─────────────────────────────────────────────────────────────
-
-    public String generateClassNarration(
-            String userId, String orgId, String classId, String moduleId, Map<String, String> body) {
-        accessService.ensureStaff(userId, orgId);
-        String voiceId = (body != null) ? body.getOrDefault("voiceId", "default") : "default";
-        log.info("[Narration] Centre generate request user={} class={} module={} voice={}",
-                userId, classId, moduleId, voiceId);
-        return narrationService.generateAsync(moduleId, voiceId);
-    }
-
-    public Optional<Map<String, Object>> getClassNarration(
-            String userId, String orgId, String classId, String moduleId) {
-        accessService.ensureStaff(userId, orgId);
-        return narrationService.get(moduleId).map(n -> {
-            Map<String, Object> resp = new LinkedHashMap<>();
-            resp.put("id", n.getId());
-            resp.put("status", n.getStatus());
-            resp.put("voiceId", n.getVoiceId());
-            resp.put("totalDurationMs", n.getTotalDurationMs());
-            try {
-                resp.put("segments", new ObjectMapper().readValue(n.getSegmentsJson(), List.class));
-            } catch (Exception e) {
-                resp.put("segments", List.of());
-            }
-            return resp;
-        });
     }
 
     // ── Backfill groups (idempotent) ──────────────────────────────────────────

@@ -8,7 +8,6 @@ import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,7 +20,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -198,36 +196,6 @@ public class ClassController {
             @PathVariable String orgId) {
         return ResponseEntity.ok(
                 ApiResponse.success(classCrudService.backfillClassGroups(userId, orgId)));
-    }
-
-    // ── Narration ─────────────────────────────────────────────────────────────
-
-    @PostMapping("/classes/{classId}/modules/{moduleId}/narration/generate")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> generateClassNarration(
-            @AuthenticationPrincipal String userId,
-            @PathVariable String orgId,
-            @PathVariable String classId,
-            @PathVariable String moduleId,
-            @RequestBody(required = false) Map<String, String> body) {
-        String narrationId = classCrudService.generateClassNarration(
-                userId, orgId, classId, moduleId, body);
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("narrationId", narrationId);
-        response.put("status", "GENERATING");
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(new ApiResponse<>(response, null, 202));
-    }
-
-    @GetMapping("/classes/{classId}/modules/{moduleId}/narration")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getClassNarration(
-            @AuthenticationPrincipal String userId,
-            @PathVariable String orgId,
-            @PathVariable String classId,
-            @PathVariable String moduleId) {
-        return classCrudService.getClassNarration(userId, orgId, classId, moduleId)
-                .map(resp -> ResponseEntity.ok(ApiResponse.success(resp)))
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error("Narration not found for this module", 404)));
     }
 
     // ── Staff preview (Phase 4) ────────────────────────────────────────────────

@@ -62,10 +62,10 @@ class ModuleContentGeneratorTest {
         when(geminiCompletion.complete(anyInt(), contains("bite-size concept cards"), eq("module-learn-gen")))
                 .thenReturn("""
                         [
-                          {"title":"What is a fraction?","body":"A fraction is...","keyTerms":["fraction"],"narration_hint":"Think of a pizza"},
-                          {"title":"Numerator","body":"The top number","keyTerms":["numerator"],"narration_hint":"Count the slices"},
-                          {"title":"Denominator","body":"The bottom number","keyTerms":["denominator"],"narration_hint":"Total slices"},
-                          {"title":"Simplifying","body":"Make it simpler","keyTerms":["simplify"],"narration_hint":"Divide both"}
+                          {"title":"What is a fraction?","body":"A fraction is...","keyTerms":["fraction"]},
+                          {"title":"Numerator","body":"The top number","keyTerms":["numerator"]},
+                          {"title":"Denominator","body":"The bottom number","keyTerms":["denominator"]},
+                          {"title":"Simplifying","body":"Make it simpler","keyTerms":["simplify"]}
                         ]
                         """);
 
@@ -123,12 +123,12 @@ class ModuleContentGeneratorTest {
         when(geminiCompletion.complete(anyInt(), contains("bite-size concept cards"), eq("module-learn-gen")))
                 .thenReturn("""
                         [
-                          {"title":"A","body":"...","keyTerms":[],"narration_hint":"..."},
-                          {"title":"B","body":"...","keyTerms":[],"narration_hint":"..."},
-                          {"title":"C","body":"...","keyTerms":[],"narration_hint":"..."},
-                          {"title":"D","body":"...","keyTerms":[],"narration_hint":"..."},
-                          {"title":"E","body":"...","keyTerms":[],"narration_hint":"..."},
-                          {"title":"F","body":"...","keyTerms":[],"narration_hint":"..."}
+                          {"title":"A","body":"...","keyTerms":[]},
+                          {"title":"B","body":"...","keyTerms":[]},
+                          {"title":"C","body":"...","keyTerms":[]},
+                          {"title":"D","body":"...","keyTerms":[]},
+                          {"title":"E","body":"...","keyTerms":[]},
+                          {"title":"F","body":"...","keyTerms":[]}
                         ]
                         """);
 

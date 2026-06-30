@@ -32,9 +32,9 @@ import java.util.stream.Collectors;
 public class ModuleContentGenerator {
 
     private static final int MAX_TOKENS = 1500;
-    // Micro-cards are the largest payload (up to 6 cards × title+body+keyTerms+
-    // narration_hint) and were truncating at MAX_TOKENS — dropping the whole LEARN
-    // batch (B2). Give them real headroom; lenient parse + one retry handle the rest.
+    // Micro-cards are the largest payload (up to 6 cards × title+body+keyTerms)
+    // and were truncating at MAX_TOKENS — dropping the whole LEARN batch (B2).
+    // Give them real headroom; lenient parse + one retry handle the rest.
     private static final int MICRO_CARD_TOKENS = 3000;
 
     private final GeminiCompletionService geminiCompletion;
@@ -211,14 +211,13 @@ public class ModuleContentGenerator {
         int n = "CENTRE".equals(tier) ? 6 : 4;
         String prompt = """
                 Split this educational content into %d bite-size concept cards for a %s student studying %s.
-                Each card covers ONE concept, under 60 words, with key terms in bold.
-                Include a narration_hint field (how you'd explain this conversationally — for TTS narration).%s
+                Each card covers ONE concept, under 60 words, with key terms in bold.%s
 
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
-                [{"title":"...","body":"...","keyTerms":["..."],"narration_hint":"..."}]
+                [{"title":"...","body":"...","keyTerms":["..."]}]
                 """.formatted(n, level, subject, guidanceSection, content);
 
         try {
@@ -441,13 +440,12 @@ public class ModuleContentGenerator {
         String prompt = """
                 Split this educational content into %d bite-size concept cards for a %s student studying %s.
                 Each card covers ONE concept, under 60 words, with key terms in bold.
-                Include a narration_hint field (how you'd explain this conversationally — for TTS narration).
 
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
-                [{"title":"...","body":"...","keyTerms":["..."],"narration_hint":"..."}]
+                [{"title":"...","body":"...","keyTerms":["..."]}]
                 """.formatted(n, level, subject, content);
 
         try {

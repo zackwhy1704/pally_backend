@@ -228,7 +228,7 @@ public class ConsentGuard {
 
     /**
      * AI third-party transfer gate for AI-producing paths that are NOT child-data ingress
-     * (wiki compile, module/quiz generation, narration, teach-Mochi). The under-13 ingress
+     * (wiki compile, module/quiz generation, teach-Mochi). The under-13 ingress
      * gate now lives in {@link #requireChildDataIngressConsent}; this is purely the
      * AI-disclosure consent (Apple 5.1.2 / PDPA overseas transfer).
      */

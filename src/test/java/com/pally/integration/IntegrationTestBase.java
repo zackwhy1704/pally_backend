@@ -12,7 +12,6 @@ import com.pally.infrastructure.ai.WikiRecompileScheduler;
 import com.pally.infrastructure.auth.JwtService;
 import com.pally.infrastructure.auth.SocialTokenVerifier;
 import com.pally.domain.knowledge.port.StoragePort;
-import com.pally.domain.module.port.TtsPort;
 import com.pally.infrastructure.storage.StorageService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -112,9 +111,6 @@ public abstract class IntegrationTestBase {
 
     @MockBean
     protected StoragePort storagePort;
-
-    @MockBean
-    protected TtsPort ttsPort;
 
     @MockBean
     protected SocialTokenVerifier socialTokenVerifier;

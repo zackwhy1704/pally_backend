@@ -4,7 +4,6 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.centre.dto.MochiConfig;
 import com.pally.domain.group.ClassGroupService;
-import com.pally.domain.module.NarrationService;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
@@ -42,7 +41,6 @@ class ClassCrudServiceTest {
     @Mock ClassMembershipJpaRepository membershipRepo;
     @Mock AvatarRepository avatarRepository;
     @Mock ClassGroupService classGroupService;
-    @Mock NarrationService narrationService;
     @Mock OrganizationJpaRepository orgRepo;
     @Spy com.fasterxml.jackson.databind.ObjectMapper objectMapper =
             new com.fasterxml.jackson.databind.ObjectMapper();

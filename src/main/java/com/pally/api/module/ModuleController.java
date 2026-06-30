@@ -4,15 +4,12 @@ import com.pally.api.module.dto.SubmitModuleAnswersRequest;
 import com.pally.domain.assignment.AssignmentService;
 import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.module.ModuleService;
-import com.pally.domain.module.NarrationService;
 import com.pally.domain.module.LearningModule;
-import com.pally.domain.module.ModuleNarration;
 import com.pally.shared.response.ApiResponse;
 import com.pally.shared.util.DurationClamp;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,7 +33,6 @@ import java.util.Map;
 public class ModuleController {
 
     private final ModuleService moduleService;
-    private final NarrationService narrationService;
     private final AssignmentService assignmentService;
     private final ConsentGuard consentGuard;
 
@@ -145,58 +140,4 @@ public class ModuleController {
         return ResponseEntity.ok(ApiResponse.success(results));
     }
 
-    // ── Narration endpoints ──────────────────────────────────────────────
-
-    /**
-     * Triggers async narration generation for a module.
-     * Returns 202 Accepted with the narration ID.
-     */
-    @PostMapping("/{moduleId}/narration/generate")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> generateNarration(
-            @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId,
-            @PathVariable String moduleId,
-            @RequestBody(required = false) Map<String, String> body
-    ) {
-        consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI narration generation
-        String voiceId = (body != null) ? body.getOrDefault("voiceId", "default") : "default";
-        log.info("[Narration] Generate request user={} module={} voice={}", userId, moduleId, voiceId);
-
-        String narrationId = narrationService.generateAsync(moduleId, voiceId);
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("narrationId", narrationId);
-        response.put("status", "GENERATING");
-
-        return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(new ApiResponse<>(response, null, 202));
-    }
-
-    /**
-     * Returns narration status and segments if READY.
-     */
-    @GetMapping("/{moduleId}/narration")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getNarration(
-            @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId,
-            @PathVariable String moduleId
-    ) {
-        return narrationService.get(moduleId)
-                .map(n -> {
-                    Map<String, Object> response = new LinkedHashMap<>();
-                    response.put("id", n.getId());
-                    response.put("status", n.getStatus());
-                    response.put("voiceId", n.getVoiceId());
-                    response.put("totalDurationMs", n.getTotalDurationMs());
-                    try {
-                        response.put("segments", new com.fasterxml.jackson.databind.ObjectMapper()
-                                .readValue(n.getSegmentsJson(), List.class));
-                    } catch (Exception e) {
-                        response.put("segments", List.of());
-                    }
-                    return ResponseEntity.ok(ApiResponse.success(response));
-                })
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error("Narration not found for this module", 404)));
-    }
 }
