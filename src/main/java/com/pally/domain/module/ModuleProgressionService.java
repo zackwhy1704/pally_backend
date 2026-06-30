@@ -172,6 +172,11 @@ public class ModuleProgressionService {
         result.put("items", stageItems.stream().map(item -> {
             Map<String, Object> m = new HashMap<>();
             m.put("id", item.getId());
+            // stage is required by the mobile ModuleContentItem parser — the
+            // detail (getModuleDetail) path already includes it; the start path
+            // must too, or every item fails to parse and the lesson shows the
+            // generic "Something went wrong loading this lesson" error.
+            m.put("stage", item.getStage());
             m.put("type", item.getType());
             m.put("contentJson", item.getContentJson());
             m.put("sortOrder", item.getSortOrder());
@@ -453,6 +458,8 @@ public class ModuleProgressionService {
         result.put("items", proveItems.stream().map(item -> {
             Map<String, Object> m = new HashMap<>();
             m.put("id", item.getId());
+            // stage is required by the mobile parser (see startModule above).
+            m.put("stage", item.getStage());
             m.put("type", item.getType());
             m.put("contentJson", item.getContentJson());
             m.put("sortOrder", item.getSortOrder());

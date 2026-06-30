@@ -90,6 +90,35 @@ class ModuleProgressionServiceTest {
         assertThat(result.get("stage")).isEqualTo("LEARN");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void startModule_returnedItemsCarryStageForMobileParser() {
+        LearningModule module = buildModule("mod-s", "LEARN");
+        when(moduleRepository.findById("mod-s")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("i-learn");
+        item.setStage("LEARN");
+        item.setType("MICRO_CARD");
+        item.setContentJson("{\"title\":\"T\",\"body\":\"B\"}");
+        item.setAnswerJson("{\"k\":\"v\"}");
+        item.setSortOrder(0);
+        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-s", "LEARN"))
+                .thenReturn(List.of(item));
+
+        Map<String, Object> result = service.startModule("mod-s", "user-1");
+
+        List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");
+        assertThat(items).hasSize(1);
+        Map<String, Object> m = items.get(0);
+        // Regression: the mobile ModuleContentItem parser requires `stage`; the
+        // start path historically omitted it, which emptied the lesson on the
+        // client and surfaced "Something went wrong loading this lesson".
+        assertThat(m).containsKeys("id", "stage", "type", "contentJson", "sortOrder");
+        assertThat(m.get("stage")).isEqualTo("LEARN");
+        assertThat(m.get("answerJson")).isNotNull(); // LEARN items expose answerJson
+    }
+
     // ── getModuleDetail: teacher-reviewed badge (C3) ─────────────────────
 
     @Test

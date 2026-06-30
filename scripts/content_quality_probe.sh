@@ -60,8 +60,15 @@ echo "Mock document: $(wc -w < "$DOC") words → $DOC"
 
 # ── 1. Register, then create a Mochi (onboard/quick currently 500s) ──────────
 say "1a. register"
+# birthYear is REQUIRED for the content pipeline: the consent guard is
+# default-deny, so an account with a null birthYear (age never declared) is
+# blocked from ingesting child data (note upload) with 403
+# AGE_DECLARATION_REQUIRED — which silently starves the whole wiki→module
+# pipeline (0 notes → 0 wiki pages → /modules/generate 409 NO_NOTES). Real
+# users declare their age in onboarding; the probe must too. 1990 ⇒ adult ⇒
+# 13+ self-consent ⇒ no parental gate.
 REG="$(api POST /api/v1/auth/register "$(jq -nc --arg e "$EMAIL" --arg p "$PASS" \
-  '{email:$e,password:$p,displayName:"Probe Student"}')")"
+  '{email:$e,password:$p,displayName:"Probe Student",birthYear:1990}')")"
 echo "$REG" > "$OUT/01-register.json"
 TOKEN="$(echo "$REG" | unwrap | jq -r '.token // empty')"
 [ -z "$TOKEN" ] && { echo "✗ register failed:"; echo "$REG" | jq .; exit 1; }
@@ -107,6 +114,27 @@ jq -c '.' "$OUT/06-modules-generate.json" 2>/dev/null | head -c 300; echo
 sleep 8
 api GET "/api/v1/avatars/$AVATAR/modules" | unwrap > "$OUT/07-modules.json"
 jq -r '(if type=="array" then . else (.modules // []) end) | .[] | "  • \(.title // .stage) — stage=\(.stage // "?")"' "$OUT/07-modules.json" 2>/dev/null | head -20
+
+# ── 5b-ii. Open the first lesson (the "CONTINUE LEARNING" path) ──────────────
+# This is the exact endpoint the mobile lesson player hits. The mobile parser
+# requires every item to carry `stage` and decodes contentJson (a JSON string)
+# into a Map; a missing `stage` or a hard-cast contentJson empties the lesson
+# and shows "Something went wrong loading this lesson". Assert the contract here.
+MODULE_ID="$(jq -r '(if type=="array" then . else (.modules // []) end) | .[0].id // empty' "$OUT/07-modules.json")"
+if [ -n "$MODULE_ID" ]; then
+  say "5b-ii. start first lesson (module=$MODULE_ID)"
+  api POST "/api/v1/avatars/$AVATAR/modules/$MODULE_ID/start" '{}' | unwrap > "$OUT/07b-start.json"
+  ITEM_COUNT="$(jq -r '(.items // []) | length' "$OUT/07b-start.json")"
+  MISSING_STAGE="$(jq -r '[(.items // [])[] | select(.stage == null)] | length' "$OUT/07b-start.json")"
+  echo "  items=$ITEM_COUNT  items_missing_stage=$MISSING_STAGE"
+  if [ "$ITEM_COUNT" = "0" ]; then
+    echo "  ✗ LESSON EMPTY — generation produced no items for the current stage"
+  elif [ "$MISSING_STAGE" != "0" ]; then
+    echo "  ✗ $MISSING_STAGE item(s) missing 'stage' — mobile would show 'Something went wrong' (deploy the /start stage fix)"
+  else
+    echo "  ✓ lesson loads: all $ITEM_COUNT items carry 'stage' + contentJson"
+  fi
+fi
 
 say "5c. daily quiz"
 api GET "/api/v1/avatars/$AVATAR/quiz/daily" | unwrap > "$OUT/08-quiz.json"

@@ -23,3 +23,6 @@ out/
 .claude/
 probe-out/
 tools/eval/out/
+
+# Claude Code agent worktrees (never commit)
+.claude/worktrees/
