@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.stripe.StripeService;
 import com.pally.shared.exception.BusinessException;
 import com.stripe.model.Event;
+import com.stripe.model.EventDataObjectDeserializer;
+import com.stripe.model.StripeObject;
 import com.stripe.model.Subscription;
+import com.stripe.exception.EventDataObjectDeserializationException;
 import com.stripe.model.checkout.Session;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -257,6 +260,39 @@ public class SubscriptionManagementService {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    /**
+     * Deserializes a webhook event's data object to {@code type}, resilient to
+     * Stripe API-version skew.
+     *
+     * <p>{@link EventDataObjectDeserializer#getObject()} returns EMPTY when the
+     * event's {@code api_version} (set on the webhook endpoint in the Stripe
+     * dashboard) differs from the version this SDK is pinned to. That used to
+     * make the handler throw "payload missing", which the caller caught and
+     * swallowed with a 200 — so Stripe saw success, never retried, and a real
+     * {@code checkout.session.completed} silently failed to upgrade the user
+     * ("paid but stays Free"). {@link EventDataObjectDeserializer#deserializeUnsafe()}
+     * forces deserialization regardless of version, which is the correct
+     * behaviour for the few fields we read (ids, customer, metadata, status).
+     */
+    private <T extends StripeObject> T deserialize(Event event, Class<T> type) {
+        EventDataObjectDeserializer deserializer = event.getDataObjectDeserializer();
+        return deserializer.getObject()
+                .map(type::cast)
+                .orElseGet(() -> {
+                    try {
+                        T obj = type.cast(deserializer.deserializeUnsafe());
+                        log.warn("[Stripe] event={} type={} deserialized via unsafe fallback "
+                                        + "(api_version skew between the webhook endpoint and this SDK)",
+                                event.getId(), event.getType());
+                        return obj;
+                    } catch (EventDataObjectDeserializationException e) {
+                        throw new BusinessException(
+                                "Stripe payload could not be deserialized for event "
+                                        + event.getType(), 400);
+                    }
+                });
+    }
+
     private void runHandler(Event event) {
         try {
             handleStripeEvent(event);
@@ -269,9 +305,7 @@ public class SubscriptionManagementService {
     private void handleStripeEvent(Event event) {
         switch (event.getType()) {
             case "checkout.session.completed" -> {
-                Session session = (Session) event.getDataObjectDeserializer()
-                        .getObject().orElseThrow(() ->
-                                new BusinessException("Stripe session payload missing", 400));
+                Session session = deserialize(event, Session.class);
                 String userId = session.getClientReferenceId();
                 if (userId == null) {
                     log.warn("[Stripe] checkout.session.completed missing userId");
@@ -301,16 +335,12 @@ public class SubscriptionManagementService {
                 log.info("[Stripe] checkout.complete user={} sub={}",
                         userId, session.getSubscription());
             }
-            case "customer.subscription.updated" -> {
-                Subscription s = (Subscription) event.getDataObjectDeserializer()
-                        .getObject().orElseThrow(() ->
-                                new BusinessException("Stripe sub payload missing", 400));
+            case "customer.subscription.updated", "customer.subscription.created" -> {
+                Subscription s = deserialize(event, Subscription.class);
                 applySubscriptionUpdate(s);
             }
             case "customer.subscription.deleted" -> {
-                Subscription s = (Subscription) event.getDataObjectDeserializer()
-                        .getObject().orElseThrow(() ->
-                                new BusinessException("Stripe sub payload missing", 400));
+                Subscription s = deserialize(event, Subscription.class);
                 String userId = subscriptionRepo
                         .findUserIdByStripeSubscriptionId(s.getId()).orElse(null);
                 if (userId == null) return;
