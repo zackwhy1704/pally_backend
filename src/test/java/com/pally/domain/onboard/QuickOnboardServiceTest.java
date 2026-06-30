@@ -19,6 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +39,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_newUser_registersAndCreatesAvatar() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
         when(authService.register("kid@test.com", "pass1234", "Kid", null, null))
                 .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
         when(avatarRepository.save(any(Avatar.class)))
@@ -60,8 +63,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_existingUser_loginAndCreatesAvatar() {
-        when(authService.register("kid@test.com", "pass1234", null, null, null))
-                .thenThrow(new BusinessException("Email already registered", 409));
+        when(authService.emailExists("kid@test.com")).thenReturn(true);
         when(authService.login("kid@test.com", "pass1234"))
                 .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, AccountType.SOLO));
         when(avatarRepository.save(any(Avatar.class)))
@@ -76,10 +78,27 @@ class QuickOnboardServiceTest {
         verify(authService).login("kid@test.com", "pass1234");
     }
 
+    /// Regression: existing-user onboard must NOT call register(). register() is
+    /// @Transactional; a 409 thrown across its boundary marks the shared
+    /// transaction rollback-only, which made the commit fail with
+    /// UnexpectedRollbackException (a 500) on every existing-user re-onboard.
+    @Test
+    void execute_existingUser_doesNotCallRegister() {
+        when(authService.emailExists("kid@test.com")).thenReturn(true);
+        when(authService.login("kid@test.com", "pass1234"))
+                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        service.execute("kid@test.com", "pass1234", null, Subject.SCIENCE, null);
+
+        verify(authService, never())
+                .register(anyString(), anyString(), any(), any(), any());
+    }
+
     @Test
     void execute_wrongPassword_throwsBusinessException() {
-        when(authService.register("kid@test.com", "wrong", "Kid", null, null))
-                .thenThrow(new BusinessException("Email already registered", 409));
+        when(authService.emailExists("kid@test.com")).thenReturn(true);
         when(authService.login("kid@test.com", "wrong"))
                 .thenThrow(new BusinessException("Invalid email or password", 401));
 
@@ -91,6 +110,7 @@ class QuickOnboardServiceTest {
 
     @Test
     void execute_nonConflictRegisterError_propagates() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
         when(authService.register("kid@test.com", "pass1234", "Kid", null, null))
                 .thenThrow(new BusinessException("Rate limited", 429));
 

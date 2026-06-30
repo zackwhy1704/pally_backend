@@ -120,6 +120,17 @@ public class AuthService {
         return new AuthResponse(user.getId(), token, true, false, user.getAccountType());
     }
 
+    /**
+     * Existence check used by quick-onboard to choose register vs login WITHOUT
+     * throwing a 409 across {@link #register}'s transactional boundary. Throwing
+     * there would mark the caller's shared transaction rollback-only and make the
+     * later commit fail with UnexpectedRollbackException.
+     */
+    @Transactional(readOnly = true)
+    public boolean emailExists(String email) {
+        return userRepo.existsByEmail(email);
+    }
+
     @Transactional
     public AuthResponse login(String email, String password) {
         UserJpaEntity user = userRepo.findByEmail(email)
@@ -132,9 +143,11 @@ public class AuthService {
         // Daily login streak update (idempotent for same-day logins).
         updateLoginStreak(user);
 
-        // Award streak badges if applicable
+        // Award streak badges if applicable. Runs in its OWN transaction so a
+        // badge failure cannot mark this login's transaction rollback-only
+        // (the swallowed exception below would otherwise poison the commit).
         try {
-            badgeService.checkAndGrantMilestones(user.getId());
+            badgeService.checkAndGrantMilestonesIsolated(user.getId());
         } catch (Exception ignored) {}
 
         log.info("[Auth] Login success id={} streak={}",
@@ -192,7 +205,8 @@ public class AuthService {
         // daily activity.
         updateLoginStreak(user);
         try {
-            badgeService.checkAndGrantMilestones(user.getId());
+            // Isolated tx: a badge failure must never poison this sign-in's commit.
+            badgeService.checkAndGrantMilestonesIsolated(user.getId());
         } catch (Exception ignored) {
             // never block sign-in on badge math
         }

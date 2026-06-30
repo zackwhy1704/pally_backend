@@ -8,6 +8,7 @@ import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -47,6 +48,16 @@ public class BadgeService {
                 .map(b -> safeBadge(b.getBadgeType()))
                 .filter(s -> !s.isEmpty())
                 .toList();
+    }
+
+    /// Best-effort milestone check that runs in its OWN transaction. Callers that
+    /// deliberately ignore badge failures (login, social sign-in) MUST use this:
+    /// otherwise a failure inside the REQUIRED child marks the caller's
+    /// transaction rollback-only and the caller's commit fails with
+    /// UnexpectedRollbackException.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public List<String> checkAndGrantMilestonesIsolated(String userId) {
+        return checkAndGrantMilestones(userId);
     }
 
     /// Awards any milestone badges the user newly qualifies for. Idempotent —

@@ -6,7 +6,6 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.infrastructure.auth.AuthService;
-import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,19 +51,21 @@ public class QuickOnboardService {
             String email, String password, String displayName,
             Subject subject, String level, String role, Integer birthYear
     ) {
-        // Step 1: Register or login
+        // Step 1: Register or login.
+        // Decide via a pre-check rather than catching register()'s 409. register()
+        // is @Transactional and joins THIS transaction; a BusinessException thrown
+        // across its boundary marks the shared transaction rollback-only, so even
+        // though we "handle" the 409 the later commit fails with
+        // UnexpectedRollbackException (a 500). Pre-checking keeps the happy path
+        // exception-free so the commit succeeds.
         AuthResponse authResponse;
-        try {
+        if (authService.emailExists(email)) {
+            // Already registered — log in with the same credentials.
+            authResponse = authService.login(email, password);
+            log.info("[Onboard] Existing user logged in via quick onboard userId={}", authResponse.userId());
+        } else {
             authResponse = authService.register(email, password, displayName, role, birthYear);
             log.info("[Onboard] New user registered via quick onboard userId={}", authResponse.userId());
-        } catch (BusinessException e) {
-            if (e.getHttpStatus() == 409) {
-                // Already registered — try login with same credentials
-                authResponse = authService.login(email, password);
-                log.info("[Onboard] Existing user logged in via quick onboard userId={}", authResponse.userId());
-            } else {
-                throw e;
-            }
         }
 
         // Step 2: Create a MOCHI avatar with the given subject
