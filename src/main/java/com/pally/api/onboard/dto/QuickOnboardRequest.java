@@ -31,5 +31,11 @@ public record QuickOnboardRequest(
         /// Optional birth YEAR (student path). Year only — no DOB / NRIC. Server
         /// derives isUnder13; null → treated 13+. Upper bound enforced server-side.
         @Min(value = 1950, message = "Birth year must be 1950 or later")
-        Integer birthYear
+        Integer birthYear,
+
+        /// Parent/guardian email — REQUIRED by the server when birthYear implies
+        /// under-13; ignored otherwise. No @NotBlank: 13+ users won't send it.
+        /// Format validation is left to register()/ConsentService.
+        @Size(max = 255, message = "Parent email must be 255 characters or fewer")
+        String parentEmail
 ) {}

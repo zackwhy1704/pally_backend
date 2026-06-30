@@ -35,7 +35,7 @@ public class QuickOnboardService {
             String email, String password, String displayName,
             Subject subject, String level
     ) {
-        return execute(email, password, displayName, subject, level, null, null);
+        return execute(email, password, displayName, subject, level, null, null, null);
     }
 
     @Transactional
@@ -43,13 +43,22 @@ public class QuickOnboardService {
             String email, String password, String displayName,
             Subject subject, String level, String role
     ) {
-        return execute(email, password, displayName, subject, level, role, null);
+        return execute(email, password, displayName, subject, level, role, null, null);
     }
 
     @Transactional
     public QuickOnboardResult execute(
             String email, String password, String displayName,
             Subject subject, String level, String role, Integer birthYear
+    ) {
+        return execute(email, password, displayName, subject, level, role, birthYear, null);
+    }
+
+    @Transactional
+    public QuickOnboardResult execute(
+            String email, String password, String displayName,
+            Subject subject, String level, String role, Integer birthYear,
+            String parentEmail
     ) {
         // Step 1: Register or login.
         // Decide via a pre-check rather than catching register()'s 409. register()
@@ -64,7 +73,7 @@ public class QuickOnboardService {
             authResponse = authService.login(email, password);
             log.info("[Onboard] Existing user logged in via quick onboard userId={}", authResponse.userId());
         } else {
-            authResponse = authService.register(email, password, displayName, role, birthYear);
+            authResponse = authService.register(email, password, displayName, role, birthYear, parentEmail);
             log.info("[Onboard] New user registered via quick onboard userId={}", authResponse.userId());
         }
 

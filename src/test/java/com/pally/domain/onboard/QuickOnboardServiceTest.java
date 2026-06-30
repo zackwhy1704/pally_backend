@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,7 +41,7 @@ class QuickOnboardServiceTest {
     @Test
     void execute_newUser_registersAndCreatesAvatar() {
         when(authService.emailExists("kid@test.com")).thenReturn(false);
-        when(authService.register("kid@test.com", "pass1234", "Kid", null, null))
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
                 .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
         when(avatarRepository.save(any(Avatar.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
@@ -59,6 +60,32 @@ class QuickOnboardServiceTest {
         assertThat(avatar.getCharacterType()).isEqualTo(CharacterType.MOCHI);
         assertThat(avatar.getName()).isEqualTo("Maths Mochi");
         assertThat(avatar.getUserId()).isEqualTo("user-1");
+    }
+
+    /// Under-13 plumbing: the parentEmail handed to execute(...) must be forwarded
+    /// verbatim as the 6th arg of register(...), so register()'s consent path runs
+    /// (PENDING_CONSENT + parent email) instead of the default-deny 400. No throw.
+    @Test
+    void execute_under13WithParentEmail_forwardsParentEmailToRegister() {
+        when(authService.emailExists("child@test.com")).thenReturn(false);
+        when(authService.register(
+                eq("child@test.com"), eq("pass1234"), eq("Child"),
+                eq((String) null), eq(2018), eq("parent@test.com")))
+                .thenReturn(new AuthResponse("user-child", "tok-child", true, false, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        QuickOnboardService.QuickOnboardResult result = service.execute(
+                "child@test.com", "pass1234", "Child", Subject.MATHS, "primary 2",
+                null, 2018, "parent@test.com");
+
+        assertThat(result.userId()).isEqualTo("user-child");
+
+        ArgumentCaptor<String> parentEmailCaptor = ArgumentCaptor.forClass(String.class);
+        verify(authService).register(
+                eq("child@test.com"), eq("pass1234"), eq("Child"),
+                eq((String) null), eq(2018), parentEmailCaptor.capture());
+        assertThat(parentEmailCaptor.getValue()).isEqualTo("parent@test.com");
     }
 
     @Test
@@ -93,7 +120,7 @@ class QuickOnboardServiceTest {
         service.execute("kid@test.com", "pass1234", null, Subject.SCIENCE, null);
 
         verify(authService, never())
-                .register(anyString(), anyString(), any(), any(), any());
+                .register(anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -111,7 +138,7 @@ class QuickOnboardServiceTest {
     @Test
     void execute_nonConflictRegisterError_propagates() {
         when(authService.emailExists("kid@test.com")).thenReturn(false);
-        when(authService.register("kid@test.com", "pass1234", "Kid", null, null))
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
                 .thenThrow(new BusinessException("Rate limited", 429));
 
         assertThatThrownBy(() ->
