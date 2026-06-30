@@ -10,7 +10,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for plan-validation in {@link SubscriptionManagementService#createCheckout}.
@@ -49,5 +53,34 @@ class SubscriptionManagementServiceTest {
         assertThatThrownBy(() -> service.createCheckout("user-1", ""))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 400);
+    }
+
+    @Test
+    void createCheckout_mockMode_returnsLiveFalseSoWebCanShowPaymentsUnavailable() {
+        // No Stripe key → mock path. The web must be able to tell this is a
+        // placeholder URL, not a real checkout, via an explicit boolean.
+        ReflectionTestUtils.setField(service, "stripeSecretKey", "");
+
+        Map<String, Object> result = service.createCheckout("user-1", "pro_monthly");
+
+        assertThat(result).containsEntry("live", false);
+        assertThat(result).containsEntry("mode", "mock");
+        assertThat((String) result.get("checkoutUrl")).contains("mock-checkout");
+    }
+
+    @Test
+    void createCheckout_liveMode_returnsLiveTrueWithRealStripeUrl() {
+        // A non-blank secret key makes isLive() true → real Stripe path. We mock
+        // the Stripe adapter so no real network/keys are needed.
+        ReflectionTestUtils.setField(service, "stripeSecretKey", "sk_test_dummy");
+        when(stripeService.createCheckoutSession("user-1", "pro_monthly"))
+                .thenReturn("https://checkout.stripe.com/c/pay/cs_test_123");
+
+        Map<String, Object> result = service.createCheckout("user-1", "pro_monthly");
+
+        assertThat(result).containsEntry("live", true);
+        assertThat(result).containsEntry("mode", "live");
+        assertThat(result).containsEntry(
+                "checkoutUrl", "https://checkout.stripe.com/c/pay/cs_test_123");
     }
 }

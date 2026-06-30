@@ -96,7 +96,14 @@ public class SubscriptionManagementService {
 
     /**
      * Creates a checkout session URL for the given user and plan.
-     * Returns a summary map: {@code mode, checkoutUrl, plan}.
+     * Returns a summary map: {@code mode, live, checkoutUrl, plan}.
+     *
+     * <p>{@code live} is the self-describing flag the web client uses to tell a
+     * REAL Stripe checkout URL ({@code live=true}) from the MOCK placeholder
+     * ({@code live=false}). It is redundant with {@code mode} on purpose: a
+     * clear boolean is harder to misread than a string compare. When
+     * {@code live=false} the web should surface "payments unavailable" instead
+     * of redirecting to the dead mock URL.
      */
     @Transactional
     public Map<String, Object> createCheckout(String userId, String plan) {
@@ -112,6 +119,7 @@ public class SubscriptionManagementService {
             log.info("[Subscription] MOCK checkout user={} plan={}", userId, plan);
             return Map.of(
                     "mode", "mock",
+                    "live", false,
                     "checkoutUrl",
                     "https://pallybackend-production.up.railway.app/mock-checkout"
                             + "?plan=" + plan + "&user=" + userId,
@@ -120,7 +128,7 @@ public class SubscriptionManagementService {
         }
         String url = stripeService.createCheckoutSession(userId, plan);
         log.info("[Subscription] LIVE checkout user={} plan={}", userId, plan);
-        return Map.of("mode", "live", "checkoutUrl", url, "plan", plan);
+        return Map.of("mode", "live", "live", true, "checkoutUrl", url, "plan", plan);
     }
 
     // ── Portal ────────────────────────────────────────────────────────────────
