@@ -1,0 +1,53 @@
+{
+  "seeded_at": "2026-06-28T13:03:01.584616",
+  "backend": "https://pallybackend-production.up.railway.app",
+  "teacher": {
+    "email": "demo+teacher-demo-blpk0k@apalchi-demo.com",
+    "password": "DemoPass123!",
+    "userId": "9bd61349-54a7-41d3-bd6a-a68604352ad9"
+  },
+  "org_id": "466bd5a9-3a67-40ac-bae7-a74315f1eeb5",
+  "class_id": "eeafcd60-e0e8-4fd6-aa05-10b94fbf5f6a",
+  "corpus_avatar": "4cb60026-ae6f-4606-9d14-2547977cf165",
+  "join_code": "66667WCU",
+  "class_name": "Sec 2 Mathematics \u2014 Express",
+  "module_ids": [
+    "1a0230e7-fb05-454d-a287-ba3b6765fd2f",
+    "ffb83f2d-f004-4b39-a2de-3ddd48664eb6",
+    "709a07e7-130b-47b9-ae76-e59d3df32ba1",
+    "5853f1a2-01ef-4fec-b1c1-81b716a6b300",
+    "055b9cb7-3ebb-4db0-af7f-e28b76b08c9c",
+    "89f08142-00e2-48a9-8ee1-e2fa25fe59a5",
+    "3fdd2bae-24a4-4a2e-b0f6-ab1a7ee0dcfb"
+  ],
+  "assignment_id": null,
+  "students": [
+    {
+      "name": "Wei Jie Tan",
+      "email": "demo+weijie-vp61a6@apalchi-demo.com",
+      "password": "DemoPass123!",
+      "userId": "7b0a69fe-9c0e-4537-b1c0-882b31f83f1e",
+      "avatar": "e656c6f2-2bfd-4122-b107-d6246fddd5f4",
+      "profile": "strong",
+      "quiz_score": 0
+    },
+    {
+      "name": "Priya Nair",
+      "email": "demo+priya-0dkyq0@apalchi-demo.com",
+      "password": "DemoPass123!",
+      "userId": "883bc0a9-2808-44d4-99f3-3d779221fd8e",
+      "avatar": "91037be3-cd39-4d9f-990a-7721601249be",
+      "profile": "average",
+      "quiz_score": 3
+    },
+    {
+      "name": "Marcus Lim",
+      "email": "demo+marcus-u95xlh@apalchi-demo.com",
+      "password": "DemoPass123!",
+      "userId": "4b88c72f-e018-410e-a8c7-74130f51cf43",
+      "avatar": "e876c8a0-1094-46d3-ba30-bbdbe741517d",
+      "profile": "struggling",
+      "quiz_score": 2
+    }
+  ]
+}

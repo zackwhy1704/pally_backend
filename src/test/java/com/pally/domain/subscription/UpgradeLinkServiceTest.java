@@ -128,17 +128,42 @@ class UpgradeLinkServiceTest {
     }
 
     @Test
-    void pushPayload_carriesBillingUrlForDeepLink() {
+    void pushPayload_carriesNoBillingUrlOrCheckoutCta() {
+        // App Store 3.1.1 anti-steering: a push lives inside Apple's ecosystem,
+        // so it must never carry the billing URL or a web-checkout CTA. It only
+        // points the user back to the sanctioned out-of-app channel (email).
         allowRateLimit();
         userExists();
         when(fcmService.isConfigured()).thenReturn(true);
 
         service.sendUpgradeLink(USER_ID, List.of("push"));
 
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> data = ArgumentCaptor.forClass(Map.class);
-        verify(fcmService).sendToUser(eq(USER_ID), anyString(), anyString(), data.capture());
-        assertThat(data.getValue()).containsEntry("billingUrl", EXPECTED_URL);
+        verify(fcmService).sendToUser(eq(USER_ID), anyString(), body.capture(), data.capture());
+
+        // No URL anywhere in the data payload.
+        assertThat(data.getValue()).doesNotContainKey("billingUrl");
+        assertThat(data.getValue().values()).noneMatch(v -> v != null && v.contains(BASE));
+        // No URL / link in the visible push body.
+        assertThat(body.getValue()).doesNotContain(BASE);
+        assertThat(body.getValue()).doesNotContainIgnoringCase("http");
+        assertThat(body.getValue()).doesNotContainIgnoringCase("checkout");
+    }
+
+    @Test
+    void emailBody_stillContainsBillingLink() {
+        // Email IS the sanctioned out-of-app payment channel — the link stays.
+        allowRateLimit();
+        userExists();
+        when(emailService.isConfigured()).thenReturn(true);
+
+        service.sendUpgradeLink(USER_ID, List.of("email"));
+
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+        verify(emailService).sendHtml(eq(EMAIL), anyString(), html.capture());
+        assertThat(html.getValue()).contains(EXPECTED_URL);
     }
 
     @Test

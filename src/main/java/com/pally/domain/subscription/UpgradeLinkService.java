@@ -95,7 +95,7 @@ public class UpgradeLinkService {
             emailSent = dispatchEmail(user, billingUrl);
         }
         if (requested.contains(CHANNEL_PUSH)) {
-            pushSent = dispatchPush(user.getId(), billingUrl);
+            pushSent = dispatchPush(user.getId());
         }
 
         log.info("[UpgradeLink] user={} channels={} emailSent={} pushSent={}",
@@ -144,16 +144,23 @@ public class UpgradeLinkService {
         return true;
     }
 
-    /** @return true if we attempted a real push send (FCM configured). */
-    private boolean dispatchPush(String userId, String billingUrl) {
+    /**
+     * @return true if we attempted a real push send (FCM configured).
+     *
+     * <p>App Store 3.1.1 anti-steering: the push is delivered inside Apple's
+     * ecosystem, so it must NOT carry a web-checkout CTA or any billing URL.
+     * It only nudges the user to the sanctioned out-of-app channel (email);
+     * the data payload deliberately carries no URL.
+     */
+    private boolean dispatchPush(String userId) {
         if (!fcmService.isConfigured()) {
             return false;
         }
         fcmService.sendToUser(
                 userId,
-                "Finish your Apalchi upgrade",
-                "Tap to continue checkout in your browser.",
-                Map.of("billingUrl", billingUrl));
+                "Your upgrade link is ready",
+                "Check your email to finish on the web.",
+                Map.of());
         return true;
     }
 
