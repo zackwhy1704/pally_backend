@@ -261,12 +261,41 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(
             org.springframework.dao.DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation (mapped to 400): {}",
-                ex.getMostSpecificCause().getMessage());
+        // Log the PRECISE failing column/constraint, not the generic umbrella
+        // message — "too long" (sqlState 22001) and "violated a constraint"
+        // (23502 NOT NULL / 23505 UNIQUE / 23503 FK) are different fixes, and
+        // Postgres names the exact table/column/constraint in the wrapped cause.
+        // Schema detail stays server-side; the client still gets the generic msg.
+        log.warn("Data integrity violation (mapped to 400): {}", describeIntegrityCause(ex));
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error(
                         "Invalid input — a value was too long or violated a constraint.", 400));
+    }
+
+    /// Unwrap a {@link org.springframework.dao.DataIntegrityViolationException} to the
+    /// underlying {@link java.sql.SQLException} so the log names exactly what broke.
+    /// The 5-char sqlState discriminates the fix (22001 value-too-long vs 23502 NOT NULL
+    /// vs 23503 FK vs 23505 UNIQUE), and the Postgres driver's message text already
+    /// carries the constraint name + offending key detail. Uses only JDBC types (the pg
+    /// driver is runtimeOnly, not on the compile classpath).
+    private String describeIntegrityCause(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof java.sql.SQLException se) {
+                String state = se.getSQLState();
+                String kind = switch (state == null ? "" : state) {
+                    case "22001" -> "VALUE_TOO_LONG";
+                    case "23502" -> "NOT_NULL_VIOLATION";
+                    case "23503" -> "FK_VIOLATION";
+                    case "23505" -> "UNIQUE_VIOLATION";
+                    case "22021" -> "INVALID_UTF8";
+                    default -> "OTHER";
+                };
+                return "sqlState=" + state + " kind=" + kind + " cause=" + se.getMessage();
+            }
+        }
+        return (ex instanceof org.springframework.dao.DataIntegrityViolationException dive)
+                ? dive.getMostSpecificCause().getMessage() : ex.getMessage();
     }
 
     /**

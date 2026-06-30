@@ -59,8 +59,10 @@ public class ModuleGenerationService {
                 LearningModule module = contentGenerator.generate(avatar, page);
                 created.add(module);
             } catch (Exception e) {
-                log.error("[Module] Failed to generate module for slug={}: {}",
-                        page.getSlug(), e.getMessage());
+                // Log the full cause chain (not just getMessage) so a persistence
+                // failure surfaces the underlying Postgres server error — sqlState +
+                // constraint/column/detail — naming exactly which page+column broke.
+                log.error("[Module] Failed to generate module for slug={}", page.getSlug(), e);
             }
         }
 
