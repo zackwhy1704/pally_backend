@@ -33,6 +33,8 @@ public class HomeworkSubmissionService {
     private static final int MAX_BRAIN_CHARS = 12_000;
     /** Cap the work text similarly (a long multi-page extraction is still bounded). */
     private static final int MAX_WORK_CHARS = 12_000;
+    /** Cap the teacher's marking-standard grounding so it can't crowd out the rest. */
+    private static final int MAX_MARKING_CHARS = 8_000;
 
     private final HomeworkSubmissionRepository submissionRepository;
     private final StoragePort storagePort;
@@ -41,6 +43,7 @@ public class HomeworkSubmissionService {
     private final OrgClassRepository orgClassRepository;
     private final WikiRepository wikiRepository;
     private final FcmService fcmService;
+    private final MarkingReferenceContextPort markingContextPort;
 
     // ── Create (student submits, or teacher uploads on a student's behalf) ──────
 
@@ -99,6 +102,8 @@ public class HomeworkSubmissionService {
         }
 
         String brain = clamp(loadBrainContext(submission.getClassId()), MAX_BRAIN_CHARS);
+        String marking = markingContextPort.contextForClass(submission.getClassId(), MAX_MARKING_CHARS);
+        String grounding = combineGrounding(brain, marking);
         String work = clamp(
                 submission.getExtractedText() == null ? "" : submission.getExtractedText(),
                 MAX_WORK_CHARS);
@@ -106,7 +111,7 @@ public class HomeworkSubmissionService {
         String draftJson;
         try {
             draftJson = feedbackGenerator.generateDraftJson(
-                    brain, work, submission.getTitle(), submission.getSubject());
+                    grounding, work, submission.getTitle(), submission.getSubject());
         } catch (Exception e) {
             log.warn("[Homework] AI draft failed for submission={}: {}", submissionId, e.toString());
             throw new BusinessException(
@@ -205,6 +210,25 @@ public class HomeworkSubmissionService {
             sb.append("## ").append(p.getTitle()).append('\n').append(body.trim()).append("\n\n");
             if (sb.length() > MAX_BRAIN_CHARS) break;
         }
+        return sb.toString();
+    }
+
+    /**
+     * Fold the teacher's uploaded marking standard (marked exemplars / rubrics /
+     * guidelines) into the grounding the model marks against, under a clear
+     * header so it reads as the authority on HOW to mark — not just more class
+     * material. Purely additive: with no marking references this returns the
+     * brain context unchanged.
+     */
+    private static String combineGrounding(String brain, String marking) {
+        if (marking == null || marking.isBlank()) {
+            return brain;
+        }
+        StringBuilder sb = new StringBuilder();
+        if (brain != null && !brain.isBlank()) {
+            sb.append(brain).append("\n\n");
+        }
+        sb.append("=== TEACHER'S MARKING STANDARD (mark against this) ===\n").append(marking);
         return sb.toString();
     }
 
