@@ -205,8 +205,11 @@ public class StripeService {
             case "max_annual"                          -> 15900L;
             case "family_monthly", "family_monthly_new"-> 3499L;
             case "family_annual"                       -> 27900L;
-            case "centre_monthly"                      -> 8999L;
-            case "centre_annual"                       -> 72000L;
+            // Centre USD (consolidated): $99/$990 solo, $149/$1,490 centre-per-class.
+            case "solo_monthly"                        ->  9900L;
+            case "solo_annual"                         -> 99000L;
+            case "centre_monthly"                      -> 14900L;
+            case "centre_annual"                       -> 149000L;
             // Legacy
             case "individual_monthly"                  ->  999L;
             default                                    ->  999L;
