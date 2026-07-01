@@ -92,43 +92,9 @@ class MarkingReferenceServiceTest {
         verify(repository, never()).save(any());
     }
 
-    // ── grounding (MarkingReferenceContextPort) ─────────────────────────────
-
-    @Test
-    void contextForClass_withNoReferencesReturnsEmptyNotNull() {
-        when(repository.findByClassId("class-1")).thenReturn(List.of());
-
-        String ctx = service.contextForClass("class-1", 8_000);
-
-        assertThat(ctx).isEmpty();
-    }
-
-    @Test
-    void contextForClass_labelsEachReferenceByKindAndIncludesItsText() {
-        MarkingReference exemplar = MarkingReference.create(
-                "class-1", MarkingReferenceKind.MARKED_PAPER, "A-grade script", "clean working",
-                List.of(), "Award full marks when the method is shown.");
-        when(repository.findByClassId("class-1")).thenReturn(List.of(exemplar));
-
-        String ctx = service.contextForClass("class-1", 8_000);
-
-        assertThat(ctx).contains("MARKED EXEMPLAR");
-        assertThat(ctx).contains("A-grade script");
-        assertThat(ctx).contains("clean working");
-        assertThat(ctx).contains("Award full marks when the method is shown.");
-    }
-
-    @Test
-    void contextForClass_isBoundedByMaxChars() {
-        String big = "x".repeat(20_000);
-        MarkingReference ref = MarkingReference.create(
-                "class-1", MarkingReferenceKind.RUBRIC, "Huge rubric", null, List.of(), big);
-        when(repository.findByClassId("class-1")).thenReturn(List.of(ref));
-
-        String ctx = service.contextForClass("class-1", 8_000);
-
-        assertThat(ctx.length()).isLessThanOrEqualTo(8_000);
-    }
+    // Grounding is no longer served from this raw store — the compiled
+    // marking-wiki (MarkingCorpusService) is the single grounding source. See
+    // MarkingIngestServiceTest + HomeworkSubmissionServiceTest.
 
     // ── delete ──────────────────────────────────────────────────────────────
 

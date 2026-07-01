@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,7 +40,7 @@ class HomeworkSubmissionServiceTest {
     @Mock private OrgClassRepository orgClassRepository;
     @Mock private WikiRepository wikiRepository;
     @Mock private FcmService fcmService;
-    @Mock private MarkingReferenceContextPort markingContextPort;
+    @Mock private com.pally.domain.marking.MarkingCorpusService markingCorpusService;
 
     private HomeworkSubmissionService service;
 
@@ -47,7 +48,7 @@ class HomeworkSubmissionServiceTest {
     void setUp() {
         service = new HomeworkSubmissionService(
                 submissionRepository, storagePort, textExtractor, feedbackGenerator,
-                orgClassRepository, wikiRepository, fcmService, markingContextPort);
+                orgClassRepository, wikiRepository, fcmService, markingCorpusService);
         // save() echoes its argument back, like a real repository round-trip.
         // Lenient: the validation/failure tests deliberately never reach save().
         lenient().when(submissionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
@@ -106,6 +107,45 @@ class HomeworkSubmissionServiceTest {
         assertThat(result.isReleased()).isFalse();
         assertThat(result.getAiDraftFeedbackJson()).contains("good start");
         assertThat(result.getTeacherFeedback()).isNull();
+    }
+
+    @Test
+    void generateAiDraft_grounding_putsCompiledMarkingStandardBeforeClassMaterial() {
+        HomeworkSubmission submitted = HomeworkSubmission.create(
+                "class-1", "stud-1", "Maths WS3", "Maths", List.of(), "2 + 2 = 5");
+        when(submissionRepository.findById("s1")).thenReturn(Optional.of(submitted));
+        // Build page mocks first (each stubs internally — never nest inside when()).
+        var markPage = page("How Marks Are Awarded",
+                "Award the method mark even if the answer is wrong.");
+        var classPage = page("Fractions", "A fraction is part of a whole.");
+        // Compiled marking standard (authority) for this class's (org, subject).
+        when(markingCorpusService.findAvatarIdForClass("class-1")).thenReturn(Optional.of("mark-av"));
+        when(wikiRepository.findActiveByAvatarId("mark-av")).thenReturn(List.of(markPage));
+        // Class content brain (background).
+        when(orgClassRepository.findCorpusAvatarIdByClassId("class-1")).thenReturn(Optional.of("class-av"));
+        when(wikiRepository.findActiveByAvatarId("class-av")).thenReturn(List.of(classPage));
+
+        ArgumentCaptor<String> grounding = ArgumentCaptor.forClass(String.class);
+        when(feedbackGenerator.generateDraftJson(grounding.capture(), any(), any(), any()))
+                .thenReturn("{\"feedback\":\"ok\"}");
+
+        service.generateAiDraft("s1");
+
+        String g = grounding.getValue();
+        assertThat(g).contains("MARKING STANDARD").contains("How Marks Are Awarded")
+                .contains("CLASS MATERIAL").contains("Fractions");
+        // The marking standard leads; class material is background.
+        assertThat(g.indexOf("MARKING STANDARD")).isLessThan(g.indexOf("CLASS MATERIAL"));
+        assertThat(g.indexOf("Award the method mark"))
+                .isLessThan(g.indexOf("A fraction is part"));
+    }
+
+    private com.pally.domain.knowledge.WikiPage page(String title, String content) {
+        com.pally.domain.knowledge.WikiPage p = mock(com.pally.domain.knowledge.WikiPage.class);
+        when(p.getTitle()).thenReturn(title);
+        when(p.getContent()).thenReturn(content);
+        when(p.getHumanCorrection()).thenReturn(null);
+        return p;
     }
 
     @Test

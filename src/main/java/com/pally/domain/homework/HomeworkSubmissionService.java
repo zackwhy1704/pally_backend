@@ -43,7 +43,7 @@ public class HomeworkSubmissionService {
     private final OrgClassRepository orgClassRepository;
     private final WikiRepository wikiRepository;
     private final FcmService fcmService;
-    private final MarkingReferenceContextPort markingContextPort;
+    private final com.pally.domain.marking.MarkingCorpusService markingCorpusService;
 
     // ── Create (student submits, or teacher uploads on a student's behalf) ──────
 
@@ -102,8 +102,11 @@ public class HomeworkSubmissionService {
         }
 
         String brain = clamp(loadBrainContext(submission.getClassId()), MAX_BRAIN_CHARS);
-        String marking = markingContextPort.contextForClass(submission.getClassId(), MAX_MARKING_CHARS);
-        String grounding = combineGrounding(brain, marking);
+        // The teacher's marking standard is now a COMPILED marking-wiki (see
+        // MarkingCorpusService), not a flat concatenation of raw references.
+        String marking = clamp(loadMarkingContext(submission.getClassId()), MAX_MARKING_CHARS);
+        // A marking task: the marking standard leads, class material is background.
+        String grounding = combineGrounding(marking, brain);
         String work = clamp(
                 submission.getExtractedText() == null ? "" : submission.getExtractedText(),
                 MAX_WORK_CHARS);
@@ -213,23 +216,42 @@ public class HomeworkSubmissionService {
         return sb.toString();
     }
 
-    /**
-     * Fold the teacher's uploaded marking standard (marked exemplars / rubrics /
-     * guidelines) into the grounding the model marks against, under a clear
-     * header so it reads as the authority on HOW to mark — not just more class
-     * material. Purely additive: with no marking references this returns the
-     * brain context unchanged.
-     */
-    private static String combineGrounding(String brain, String marking) {
-        if (marking == null || marking.isBlank()) {
-            return brain;
+    /** Concatenate the centre's compiled MARKING-STANDARD pages for this class's
+     * (orgId, subject). This is the authority on HOW to mark; empty when no
+     * marking materials have been compiled yet. */
+    private String loadMarkingContext(String classId) {
+        String markingAvatarId = markingCorpusService.findAvatarIdForClass(classId).orElse(null);
+        if (markingAvatarId == null) {
+            return "";
         }
+        List<WikiPage> pages = wikiRepository.findActiveByAvatarId(markingAvatarId);
         StringBuilder sb = new StringBuilder();
-        if (brain != null && !brain.isBlank()) {
-            sb.append(brain).append("\n\n");
+        for (WikiPage p : pages) {
+            String body = p.getHumanCorrection() != null && !p.getHumanCorrection().isBlank()
+                    ? p.getHumanCorrection() : p.getContent();
+            if (body == null || body.isBlank()) continue;
+            sb.append("## ").append(p.getTitle()).append('\n').append(body.trim()).append("\n\n");
+            if (sb.length() > MAX_MARKING_CHARS) break;
         }
-        sb.append("=== TEACHER'S MARKING STANDARD (mark against this) ===\n").append(marking);
         return sb.toString();
+    }
+
+    /**
+     * Fold the compiled marking standard and the class brain into the grounding
+     * the model marks against. For a MARKING task the standard leads (the
+     * authority on HOW to mark) and the class material follows as background.
+     * Purely additive: an empty section is omitted.
+     */
+    private static String combineGrounding(String marking, String brain) {
+        StringBuilder sb = new StringBuilder();
+        if (marking != null && !marking.isBlank()) {
+            sb.append("=== TEACHER'S MARKING STANDARD (mark against this FIRST) ===\n")
+              .append(marking.strip()).append("\n\n");
+        }
+        if (brain != null && !brain.isBlank()) {
+            sb.append("=== CLASS MATERIAL (background context) ===\n").append(brain.strip());
+        }
+        return sb.toString().strip();
     }
 
     private void notifyReleased(HomeworkSubmission submission) {

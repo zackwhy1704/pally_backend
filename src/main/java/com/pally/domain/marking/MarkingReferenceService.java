@@ -1,7 +1,6 @@
 package com.pally.domain.marking;
 
 import com.pally.domain.homework.DocumentTextExtractionPort;
-import com.pally.domain.homework.MarkingReferenceContextPort;
 import com.pally.domain.knowledge.port.StoragePort;
 import com.pally.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +16,15 @@ import java.util.List;
  * and extract their text so the AI homework-feedback draft is grounded in THAT
  * teacher's own marking standard instead of a generic syllabus.
  *
- * <p>Implements {@link MarkingReferenceContextPort} so the homework feedback
- * path can pull this grounding without depending on the marking domain.
+ * <p>This is the RAW artifact store of record. The grounding the AI marks
+ * against is the COMPILED marking-wiki (see {@code MarkingIngestService} +
+ * {@code MarkingCorpusService}), not this flat text — so a teacher's uploads
+ * merge and refine instead of piling up as competing blobs.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class MarkingReferenceService implements MarkingReferenceContextPort {
+public class MarkingReferenceService {
 
     /** Per-reference stored extraction cap (a multi-page paper is still bounded). */
     private static final int MAX_EXTRACT_CHARS = 40_000;
@@ -122,41 +123,11 @@ public class MarkingReferenceService implements MarkingReferenceContextPort {
         log.info("[Marking] deleted reference={} class={}", id, ref.getClassId());
     }
 
-    // ── Grounding (MarkingReferenceContextPort) ─────────────────────────────
-
-    @Override
-    public String contextForClass(String classId, int maxChars) {
-        List<MarkingReference> refs = repository.findByClassId(classId);
-        if (refs.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (MarkingReference r : refs) {
-            String body = r.getExtractedText();
-            if (body == null || body.isBlank()) continue;
-            sb.append("### ").append(label(r.getKind())).append(": ").append(r.getTitle());
-            if (r.getNote() != null && !r.getNote().isBlank()) {
-                sb.append(" — ").append(r.getNote());
-            }
-            sb.append('\n').append(body.trim()).append("\n\n");
-            if (sb.length() >= maxChars) break;
-        }
-        return clamp(sb.toString(), maxChars);
-    }
-
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private MarkingReference require(String id) {
         return repository.findById(id)
                 .orElseThrow(() -> new BusinessException("Marking reference not found", 404));
-    }
-
-    private static String label(MarkingReferenceKind kind) {
-        return switch (kind) {
-            case MARKED_PAPER -> "MARKED EXEMPLAR";
-            case RUBRIC -> "RUBRIC / MARK SCHEME";
-            case GUIDELINE -> "MARKING GUIDELINE";
-        };
     }
 
     private static String buildKey(String classId, String fileName) {
