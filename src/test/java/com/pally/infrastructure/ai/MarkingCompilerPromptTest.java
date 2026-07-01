@@ -63,6 +63,7 @@ class MarkingCompilerPromptTest {
                 .contains("MARKING STANDARD")
                 .contains("MARKING-BEHAVIOUR")
                 .contains("How marks are awarded")
+                .containsIgnoringCase("context") // contextual chunk summary requested
                 .doesNotContain("knowledge organiser for a student study app");
     }
 
@@ -71,7 +72,28 @@ class MarkingCompilerPromptTest {
         String prompt = capturePromptFor(false);
         assertThat(prompt)
                 .contains("knowledge organiser for a student study app")
+                .containsIgnoringCase("context") // contextual chunk summary requested
                 .doesNotContain("MARKING STANDARD");
+    }
+
+    @Test
+    void compile_parsesTheContextFieldIntoTheDraft() {
+        when(mockApiClient.complete(anyString(), anyInt(), anyString())).thenReturn(
+                "[{\"slug\":\"s\",\"title\":\"T\",\"content\":\"Body.\","
+                + "\"context\":\"Covers X within Maths.\",\"prerequisites\":[]}]");
+        Avatar a = mock(Avatar.class);
+        when(a.getId()).thenReturn("av-1");
+        when(a.getName()).thenReturn("Zap");
+        when(a.getSubject()).thenReturn(Subject.MATHS);
+        when(a.isMarkingCorpus()).thenReturn(false);
+        KnowledgeFile f = mock(KnowledgeFile.class);
+        when(f.getFileName()).thenReturn("n.txt");
+        when(f.getExtractedText()).thenReturn("some source text");
+
+        var drafts = compiler.compile(a, List.of(f), List.of());
+
+        assertThat(drafts).hasSize(1);
+        assertThat(drafts.get(0).context()).isEqualTo("Covers X within Maths.");
     }
 
     /**

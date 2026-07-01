@@ -197,8 +197,11 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
             for (String p : d.prerequisites()) {
                 if (!prereqs.contains(p)) prereqs.add(p);
             }
+            // Keep the first non-blank context summary across merged chunks.
+            String context = existing.context() != null && !existing.context().isBlank()
+                    ? existing.context() : d.context();
             bySlug.put(slug, new WikiPageDraft(
-                    slug, existing.title(), content.toString(), prereqs));
+                    slug, existing.title(), content.toString(), prereqs, context));
         }
     }
 
@@ -266,8 +269,11 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 Each object:
                 {"slug": "lowercase-hyphenated", "title": "Human Title",
                  "content": "full markdown content",
+                 "context": "1-2 sentence summary: this page covers <what> within <subject/topic>",
                  "prerequisites": ["slug-a","slug-b"]}
 
+                For "context": a short summary that situates the page; it is
+                prepended to the page when finding it later, so make it specific.
                 For "prerequisites": list the slugs of OTHER pages in this same
                 set (or existing pages listed above) that a student must
                 understand FIRST to grasp this page. Use the exact slug strings.
@@ -317,6 +323,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 [{"slug": "boiling-point-of-water",
                   "title": "Boiling Point of Water",
                   "content": "## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas** (water vapour).\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- The boiling point **decreases** as altitude increases\\n- Boiling requires heat energy: **2260 kJ/kg** (latent heat of vaporisation)\\n\\n## Why Does Altitude Matter?\\nAt higher altitudes, there is less air pressure pushing down on the water, so water boils at a lower temperature.",
+                  "context": "Covers the boiling point of water, altitude effects and latent heat, within states of matter.",
                   "prerequisites": []}]
 
                 ### Example Source Text 2:
@@ -327,6 +334,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 [{"slug": "ohms-law",
                   "title": "Ohm's Law",
                   "content": "## Ohm's Law\\n**V = IR**\\n\\nWhere:\\n- **V** = Voltage (measured in Volts)\\n- **I** = Current (measured in Amperes)\\n- **R** = Resistance (measured in Ohms)\\n\\n## Example Calculation\\nA circuit with a **12V** battery and **4Ω** resistor:\\n- I = V ÷ R = 12 ÷ 4 = **3A**\\n\\n## Key Points\\n- Higher resistance → lower current (for same voltage)\\n- Higher voltage → higher current (for same resistance)",
+                  "context": "Explains Ohm's Law (V=IR) and a worked current calculation, within electricity/circuits.",
                   "prerequisites": []}]
 
                 Now apply the same approach to the actual content below:
@@ -383,6 +391,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
             String slug = node.path("slug").asText();
             String title = node.path("title").asText();
             String content = node.path("content").asText();
+            String context = node.path("context").asText(null);
             List<String> prereqs = new ArrayList<>();
             JsonNode pre = node.path("prerequisites");
             if (pre.isArray()) {
@@ -392,7 +401,7 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 }
             }
             if (!slug.isBlank() && !title.isBlank()) {
-                drafts.add(new WikiPageDraft(slug, title, content, prereqs));
+                drafts.add(new WikiPageDraft(slug, title, content, prereqs, context));
             }
         }
         log.debug("[WikiCompiler] Parsed {} wiki page drafts", drafts.size());

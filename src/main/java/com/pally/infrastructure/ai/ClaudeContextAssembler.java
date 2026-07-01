@@ -517,6 +517,11 @@ public class ClaudeContextAssembler {
                         + "questions this, suggest they re-check their notes "
                         + "rather than insisting.)\n");
             }
+            // Contextual chunk summary (retrieval lift) — a one-line situating
+            // note prepended to the page content.
+            if (page.getContext() != null && !page.getContext().isBlank()) {
+                sb.append("_").append(page.getContext().trim()).append("_\n");
+            }
             sb.append(content).append("\n\n");
         }
         return sb.toString();

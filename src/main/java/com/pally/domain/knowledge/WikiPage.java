@@ -41,6 +41,11 @@ public final class WikiPage {
     // Short human-readable note explaining WHY this page conflicts. Stays null
     // until the (later-wave) conflict-explanation extraction populates it.
     private String conflictNote;
+    // Contextual chunk summary (1-2 sentences: "This page covers X within
+    // Subject/Topic Y") emitted by the compiler and PREPENDED to the page's
+    // retrieval/grounding text. The single highest-impact cheap retrieval lift:
+    // it disambiguates a page for the model even when the query is terse.
+    private String context;
 
     private WikiPage(
             String id, String avatarId, String slug,
@@ -249,6 +254,23 @@ public final class WikiPage {
         this.conflictNote = conflictNote;
     }
 
+    /** Sets the contextual chunk summary, null-tolerant. */
+    public void setContext(String context) {
+        this.context = context;
+    }
+
+    /**
+     * The page text as fed to the model for grounding/retrieval: the contextual
+     * summary (when present) prepended to the content, so a terse query still
+     * lands the right page. Falls back to plain content when no context exists.
+     */
+    public String groundingText() {
+        String body = humanCorrection != null && !humanCorrection.isBlank()
+                ? humanCorrection : content;
+        if (context == null || context.isBlank()) return body == null ? "" : body;
+        return "_" + context.trim() + "_\n" + (body == null ? "" : body);
+    }
+
     public String getSummary() {
         if (content == null || content.isBlank()) return "";
         int end = content.indexOf('\n');
@@ -277,4 +299,5 @@ public final class WikiPage {
     public String getVerificationSource()  { return verificationSource; }
     public String getVerifiedBy()          { return verifiedBy; }
     public String getConflictNote()        { return conflictNote; }
+    public String getContext()             { return context; }
 }

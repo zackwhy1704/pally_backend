@@ -99,6 +99,11 @@ public class WikiPageJpaEntity {
     @Column(name = "conflict_note", columnDefinition = "TEXT")
     private String conflictNote;
 
+    /// Contextual chunk summary (1-2 sentences) prepended to the page's grounding
+    /// text to lift retrieval precision. LLM free-text — unbounded (TEXT).
+    @Column(name = "context", columnDefinition = "TEXT")
+    private String context;
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();
@@ -122,6 +127,7 @@ public class WikiPageJpaEntity {
         e.verificationSource = wp.getVerificationSource();
         e.verifiedBy = wp.getVerifiedBy();
         e.conflictNote = wp.getConflictNote();
+        e.context = wp.getContext();
         return e;
     }
 
@@ -134,6 +140,7 @@ public class WikiPageJpaEntity {
         wp.setVerificationSource(verificationSource);
         wp.setVerifiedBy(verifiedBy);
         wp.setConflictNote(conflictNote);
+        wp.setContext(context);
         return wp;
     }
 }

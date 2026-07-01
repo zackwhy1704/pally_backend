@@ -18,14 +18,19 @@ public sealed interface UploadResult permits
      * @param quality        OCR quality verdict: GOOD, BORDERLINE, or null for non-image uploads
      * @param qualityReason  human-readable reason for the quality verdict
      * @param extractedText  OCR-extracted text (only for image uploads, null for text/PDF)
+     * @param extractedChars how many characters of text we extracted from this file.
+     *                       The client uses this to warn "we couldn't read much —
+     *                       it won't train well" for low-but-nonzero extractions
+     *                       (a truly empty extraction already fails the upload).
      */
     record Success(String fileId, int pageCount, List<String> wikiPageTitles,
-                   String quality, String qualityReason, String extractedText)
+                   String quality, String qualityReason, String extractedText,
+                   int extractedChars)
             implements UploadResult {
 
         /** Backward-compatible constructor for callers that don't need quality info. */
         public Success(String fileId, int pageCount, List<String> wikiPageTitles) {
-            this(fileId, pageCount, wikiPageTitles, null, null, null);
+            this(fileId, pageCount, wikiPageTitles, null, null, null, 0);
         }
     }
 

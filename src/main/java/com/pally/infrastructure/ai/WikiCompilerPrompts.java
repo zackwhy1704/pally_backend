@@ -54,9 +54,13 @@ final class WikiCompilerPrompts {
                 3. 150-400 words per page.
 
                 ## EXAMPLE OUTPUT
+                Each object MUST include a "context" field: a 1-2 sentence summary
+                situating the rule ("This page covers <which marking rule> for <subject>") —
+                it is prepended to the page when finding it later, so make it specific.
                 [{"slug": "awarding-method-marks",
                   "title": "How Method Marks Are Awarded",
                   "content": "## Principle\\nAward the **method mark** when the correct approach is shown, even if the final answer is wrong (ECF applies).\\n\\n## In practice\\n- 1 mark for the correct formula\\n- 1 mark for correct substitution",
+                  "context": "How method (M) marks are awarded, including ECF, in this centre's marking standard.",
                   "prerequisites": []}]
 
                 ## MARKING MATERIALS TO COMPILE

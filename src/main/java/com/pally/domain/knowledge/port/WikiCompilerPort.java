@@ -48,11 +48,16 @@ public interface WikiCompilerPort {
      * @param prerequisites slugs of pages a student must understand first
      */
     record WikiPageDraft(
-            String slug, String title, String content, List<String> prerequisites
+            String slug, String title, String content, List<String> prerequisites,
+            String context
     ) {
         /// Back-compat constructor for callers that don't supply prerequisites.
         public WikiPageDraft(String slug, String title, String content) {
-            this(slug, title, content, List.of());
+            this(slug, title, content, List.of(), null);
+        }
+        /// Back-compat constructor for callers that don't supply a context summary.
+        public WikiPageDraft(String slug, String title, String content, List<String> prerequisites) {
+            this(slug, title, content, prerequisites, null);
         }
     }
 }

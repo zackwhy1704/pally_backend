@@ -319,8 +319,9 @@ public class UploadFileUseCase {
         String quality = qualityResult != null ? qualityResult.quality().name() : "GOOD";
         String qualityReason = qualityResult != null ? qualityResult.reason() : null;
         String returnedExtractedText = qualityResult != null ? qualityResult.cleanedText() : null;
+        int extractedChars = extractedText != null ? extractedText.length() : 0;
         return new UploadResult.Success(fileId, pageCount, List.of(),
-                quality, qualityReason, returnedExtractedText);
+                quality, qualityReason, returnedExtractedText, extractedChars);
     }
 
     private KnowledgeFile.UploadType resolveUploadType(String normalisedMime) {

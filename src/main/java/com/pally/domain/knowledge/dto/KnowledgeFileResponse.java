@@ -12,5 +12,8 @@ public record KnowledgeFileResponse(
         Instant createdAt,
         String ocrEngine,
         String compiledBy,
-        boolean degraded
+        boolean degraded,
+        // How many characters of text we extracted — lets the client warn when a
+        // file read as ~empty ("won't train well") instead of failing silently.
+        int extractedChars
 ) {}

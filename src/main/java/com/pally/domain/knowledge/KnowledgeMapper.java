@@ -11,6 +11,7 @@ public class KnowledgeMapper {
     public KnowledgeFileResponse toResponse(KnowledgeFile file) {
         String ocrEngine = file.getOcrEngine();
         boolean degraded = ocrEngine != null && !ocrEngine.startsWith("claude");
+        int extractedChars = file.getExtractedText() != null ? file.getExtractedText().length() : 0;
         return new KnowledgeFileResponse(
                 file.getId(),
                 file.getFileName(),
@@ -19,7 +20,8 @@ public class KnowledgeMapper {
                 file.getCreatedAt(),
                 ocrEngine,
                 file.getCompiledBy(),
-                degraded
+                degraded,
+                extractedChars
         );
     }
 

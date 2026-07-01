@@ -210,7 +210,8 @@ public class HomeworkSubmissionService {
             String body = p.getHumanCorrection() != null && !p.getHumanCorrection().isBlank()
                     ? p.getHumanCorrection() : p.getContent();
             if (body == null || body.isBlank()) continue;
-            sb.append("## ").append(p.getTitle()).append('\n').append(body.trim()).append("\n\n");
+            sb.append("## ").append(p.getTitle()).append('\n')
+              .append(p.groundingText().trim()).append("\n\n");
             if (sb.length() > MAX_BRAIN_CHARS) break;
         }
         return sb.toString();
@@ -230,7 +231,8 @@ public class HomeworkSubmissionService {
             String body = p.getHumanCorrection() != null && !p.getHumanCorrection().isBlank()
                     ? p.getHumanCorrection() : p.getContent();
             if (body == null || body.isBlank()) continue;
-            sb.append("## ").append(p.getTitle()).append('\n').append(body.trim()).append("\n\n");
+            sb.append("## ").append(p.getTitle()).append('\n')
+              .append(p.groundingText().trim()).append("\n\n");
             if (sb.length() > MAX_MARKING_CHARS) break;
         }
         return sb.toString();

@@ -241,6 +241,9 @@ public class WikiPagePersistenceService {
                 existingPage.setPrerequisiteSlugs(
                         String.join(",", draft.prerequisites()));
             }
+            if (draft.context() != null && !draft.context().isBlank()) {
+                existingPage.setContext(draft.context());
+            }
             savedPage = wikiRepository.save(existingPage);
             hintTreeGenerator.generateForPage(avatarId, savedPage);
             try {
@@ -257,6 +260,9 @@ public class WikiPagePersistenceService {
                     && !draft.prerequisites().isEmpty()) {
                 newPage.setPrerequisiteSlugs(
                         String.join(",", draft.prerequisites()));
+            }
+            if (draft.context() != null && !draft.context().isBlank()) {
+                newPage.setContext(draft.context());
             }
             savedPage = wikiRepository.save(newPage);
             hintTreeGenerator.generateForPage(avatarId, savedPage);

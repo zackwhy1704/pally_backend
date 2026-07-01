@@ -354,8 +354,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, formulas EXACTLY as stated.
                 2. One topic per page. Use markdown: ## headings, - bullets, **bold** for key terms.
                 3. Pages: 200-500 words each.
-                4. Reply ONLY with a JSON array — no fences:
-                [{"slug":"lowercase-hyphen","title":"Title","content":"markdown","prerequisites":["slug-a"]}]
+                4. Include a "context" field per page: 1-2 sentences — "This page covers <what> within <subject/topic>".
+                5. Reply ONLY with a JSON array — no fences:
+                [{"slug":"lowercase-hyphen","title":"Title","content":"markdown","context":"This page covers <what> within <subject/topic>.","prerequisites":["slug-a"]}]
 
                 ## CONTENT (chunk %d of %d):
                 %s
@@ -501,8 +502,11 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         sb.append("""
 
                 ## OUTPUT
-                Reply ONLY with a JSON array — no markdown fences, no explanation:
-                [{"slug":"lowercase-hyphen","title":"Title","content":"markdown","prerequisites":["slug-a"]}]
+                Reply ONLY with a JSON array — no markdown fences, no explanation.
+                Each object MUST include a "context" field: a 1-2 sentence summary that
+                situates the page ("This page covers <what> within <subject/topic>") — it
+                is prepended to the page for retrieval, so make it specific.
+                [{"slug":"lowercase-hyphen","title":"Title","content":"markdown","context":"This page covers <what> within <subject/topic>.","prerequisites":["slug-a"]}]
                 """);
 
         return sb.toString();
@@ -531,6 +535,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 ## EXAMPLE OUTPUT FORMAT
                 [{"slug":"boiling-point-of-water","title":"Boiling Point of Water",
                   "content":"## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas**.\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- Requires **2260 kJ/kg** of heat energy",
+                  "context":"Covers the boiling point of water and latent heat, within states of matter.",
                   "prerequisites":[]}]
 
                 ## EXTRACTED CONTENT
@@ -573,6 +578,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 String slug = node.path("slug").asText();
                 String title = node.path("title").asText();
                 String content = node.path("content").asText();
+                String context = node.path("context").asText(null);
                 List<String> prereqs = new ArrayList<>();
                 JsonNode pre = node.path("prerequisites");
                 if (pre.isArray()) {
@@ -582,7 +588,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                     }
                 }
                 if (!slug.isBlank() && !title.isBlank()) {
-                    drafts.add(new WikiPageDraft(slug, title, content, prereqs));
+                    drafts.add(new WikiPageDraft(slug, title, content, prereqs, context));
                 }
             }
             return drafts;
