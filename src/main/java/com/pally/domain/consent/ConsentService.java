@@ -4,6 +4,7 @@ import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.infrastructure.email.EmailService;
+import com.pally.infrastructure.push.FcmService;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class ConsentService {
     private final UserRepository    userRepository;
     private final PremiumService    premiumService;
     private final EmailService      emailService;
+    private final FcmService        fcmService;
 
     @Value("${pally.web-base-url:https://apalchi.com}")
     private String webBaseUrl;
@@ -233,6 +235,21 @@ public class ConsentService {
 
         log.info("[Consent] APPROVED child={} by parent email={}",
                 req.childUserId(), req.parentEmail());
+
+        // Event-driven unlock (primary trigger): push the child so the app
+        // re-checks consent and unlocks without a restart. Best-effort — a push
+        // failure (no token / denied notifs / FCM down) must NEVER break the
+        // approval; the child app's resume-check is the reliability backbone.
+        try {
+            fcmService.sendToUser(
+                    req.childUserId(),
+                    "You're approved! 🎉",
+                    "Your parent said yes — tap to start learning.",
+                    Map.of("type", "PARENTAL_CONSENT_APPROVED"));
+        } catch (Exception e) {
+            log.warn("[Consent] approval push failed child={} (non-fatal): {}",
+                    req.childUserId(), e.getMessage());
+        }
 
         return Map.of("status", "APPROVED", "childUserId", req.childUserId());
     }

@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.contains;
 import static org.mockito.Mockito.never;
@@ -41,6 +42,7 @@ class ConsentServiceTest {
     @Mock UserRepository    userRepository;
     @Mock PremiumService    premiumService;
     @Mock EmailService      emailService;
+    @Mock com.pally.infrastructure.push.FcmService fcmService;
 
     @InjectMocks ConsentService service;
 
@@ -310,6 +312,27 @@ class ConsentServiceTest {
         assertThat(result.get("childUserId")).isEqualTo(USER_ID);
         verify(premiumService).grantTrial(USER_ID);
         verify(consentRepository).saveRecord(any());
+        // Event-driven unlock: the child is pushed on approval.
+        verify(fcmService).sendToUser(eq(USER_ID), any(), any(),
+                argThat(m -> "PARENTAL_CONSENT_APPROVED".equals(m.get("type"))));
+    }
+
+    @Test
+    void approveParentConsent_stillSucceedsWhenApprovalPushThrows() {
+        ConsentRepository.ConsentRequest req = pendingRequest();
+        when(consentRepository.findRequestByToken("token123")).thenReturn(Optional.of(req));
+        when(consentRepository.saveRequest(any())).thenAnswer(inv -> inv.getArgument(0));
+        User child = activeUser();
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(child));
+        when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // Push failure (no token / FCM down) must never break the approval.
+        org.mockito.Mockito.doThrow(new RuntimeException("fcm down"))
+                .when(fcmService).sendToUser(any(), any(), any(), any());
+
+        Map<String, Object> result = service.approveParentConsent("token123");
+
+        assertThat(result.get("status")).isEqualTo("APPROVED");
+        verify(premiumService).grantTrial(USER_ID);
     }
 
     @Test
