@@ -6,6 +6,7 @@ import com.pally.domain.marking.IncomingFile;
 import com.pally.domain.marking.LoadedArtifact;
 import com.pally.domain.marking.MarkingReference;
 import com.pally.domain.marking.MarkingReferenceFile;
+import com.pally.domain.marking.MarkingIngestService;
 import com.pally.domain.marking.MarkingReferenceKind;
 import com.pally.domain.marking.MarkingReferenceService;
 import com.pally.shared.exception.BusinessException;
@@ -51,6 +52,7 @@ public class MarkingReferenceController {
     private final CentreAccessService accessService;
     private final OrgClassRepository orgClassRepository;
     private final MarkingReferenceService markingService;
+    private final MarkingIngestService markingIngestService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> upload(
@@ -65,7 +67,9 @@ public class MarkingReferenceController {
         requireClass(orgId, classId);
 
         List<IncomingFile> incoming = readFiles(files);
-        MarkingReference saved = markingService.create(
+        // Stores the raw artifact AND compiles it into the (orgId, subject)
+        // marking brain via the wiki harness (see MarkingIngestService).
+        MarkingReference saved = markingIngestService.createAndIngest(
                 classId, parseKind(kind), title, note, incoming);
         return ResponseEntity.status(201).body(ApiResponse.created(toDto(saved)));
     }
