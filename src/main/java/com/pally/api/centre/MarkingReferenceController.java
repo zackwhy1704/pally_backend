@@ -53,6 +53,7 @@ public class MarkingReferenceController {
     private final OrgClassRepository orgClassRepository;
     private final MarkingReferenceService markingService;
     private final MarkingIngestService markingIngestService;
+    private final com.pally.domain.marking.MarkingBrainService markingBrainService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> upload(
@@ -87,6 +88,21 @@ public class MarkingReferenceController {
             out.add(toDto(r));
         }
         return ResponseEntity.ok(ApiResponse.success(out));
+    }
+
+    /**
+     * The COMPILED marking standard the assistant has learned (marking-wiki pages
+     * + brain state + conflict flags) — so the teacher sees the assistant's
+     * learned standard, not just the raw artifacts they uploaded.
+     */
+    @GetMapping("/brain")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> brain(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId) {
+        accessService.ensureStaff(userId, orgId);
+        requireClass(orgId, classId);
+        return ResponseEntity.ok(ApiResponse.success(markingBrainService.brainForClass(classId)));
     }
 
     @GetMapping("/{referenceId}/files/{index}")
