@@ -54,6 +54,7 @@ public class MarkingBrainService {
             dto.put("slug", p.getSlug());
             dto.put("preview", preview(body));
             dto.put("certainty", p.getCertainty() != null ? p.getCertainty().name() : null);
+            dto.put("certaintyScore", p.getCertaintyScore());
             dto.put("hasConflict", p.isHasConflict());
             anyConflict = anyConflict || p.isHasConflict();
             pageDtos.add(dto);
