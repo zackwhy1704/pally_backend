@@ -64,7 +64,8 @@ public class MarkingCorpusService {
 
         try {
             markingCorpusRepository.save(new MarkingCorpus(
-                    IdGenerator.newId(), orgId, subjectName, savedAvatar.getId(), Instant.now()));
+                    IdGenerator.newId(), orgId, subjectName, savedAvatar.getId(),
+                    MarkingCorpus.SCOPE_ORG, Instant.now()));
             log.info("[MarkingCorpus] created marking brain org={} subject={} avatar={}",
                     orgId, subjectName, savedAvatar.getId());
             return savedAvatar.getId();

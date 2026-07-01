@@ -36,12 +36,13 @@ public class MarkingCorpusRepositoryAdapter implements MarkingCorpusRepository {
         e.setOrgId(c.orgId());
         e.setSubject(c.subject());
         e.setAvatarId(c.avatarId());
+        e.setScope(c.scope() != null ? c.scope() : MarkingCorpus.SCOPE_ORG);
         e.setCreatedAt(c.createdAt());
         return e;
     }
 
     private MarkingCorpus toDomain(MarkingCorpusJpaEntity e) {
         return new MarkingCorpus(e.getId(), e.getOrgId(), e.getSubject(),
-                e.getAvatarId(), e.getCreatedAt());
+                e.getAvatarId(), e.getScope(), e.getCreatedAt());
     }
 }

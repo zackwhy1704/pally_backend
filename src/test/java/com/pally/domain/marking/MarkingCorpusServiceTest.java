@@ -37,7 +37,8 @@ class MarkingCorpusServiceTest {
     @InjectMocks private MarkingCorpusService service;
 
     private MarkingCorpus mapping(String avatarId) {
-        return new MarkingCorpus("mc-1", "org-1", "MATHS", avatarId, Instant.now());
+        return new MarkingCorpus("mc-1", "org-1", "MATHS", avatarId,
+                MarkingCorpus.SCOPE_ORG, Instant.now());
     }
 
     @Test
@@ -77,6 +78,8 @@ class MarkingCorpusServiceTest {
         assertThat(mapCaptor.getValue().orgId()).isEqualTo("org-1");
         assertThat(mapCaptor.getValue().subject()).isEqualTo("MATHS");
         assertThat(mapCaptor.getValue().avatarId()).isEqualTo(created.getId());
+        // Ownership hedge: every corpus is ORG-scoped today (dormant column).
+        assertThat(mapCaptor.getValue().scope()).isEqualTo("ORG");
     }
 
     @Test

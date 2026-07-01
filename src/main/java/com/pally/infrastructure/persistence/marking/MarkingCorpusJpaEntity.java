@@ -44,6 +44,11 @@ public class MarkingCorpusJpaEntity {
     @Column(name = "avatar_id", nullable = false, length = 36)
     private String avatarId;
 
+    // Ownership hedge (V102), dormant: every row is "ORG" today. Kept so a future
+    // per-teacher (or other) marking-brain phase needs no migration scramble.
+    @Column(nullable = false, length = 16)
+    private String scope = "ORG";
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 }

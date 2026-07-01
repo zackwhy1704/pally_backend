@@ -10,7 +10,11 @@ import java.time.Instant;
 public record MarkingCorpus(
         String id,
         String orgId,
-        String subject,   // Subject enum name (e.g. "MATH")
+        String subject,   // Subject enum name (e.g. "MATHS")
         String avatarId,
+        String scope,     // ownership hedge (V102); always "ORG" today, dormant
         Instant createdAt
-) {}
+) {
+    /** The only scope in use today: one marking brain per (org, subject). */
+    public static final String SCOPE_ORG = "ORG";
+}
