@@ -140,12 +140,11 @@ class HomeworkSubmissionServiceTest {
                 .isLessThan(g.indexOf("A fraction is part"));
     }
 
+    // Real WikiPage (not a mock) so groundingText() — which prepends any context
+    // to the content — runs for real in the grounding assembly.
     private com.pally.domain.knowledge.WikiPage page(String title, String content) {
-        com.pally.domain.knowledge.WikiPage p = mock(com.pally.domain.knowledge.WikiPage.class);
-        when(p.getTitle()).thenReturn(title);
-        when(p.getContent()).thenReturn(content);
-        when(p.getHumanCorrection()).thenReturn(null);
-        return p;
+        return com.pally.domain.knowledge.WikiPage.create(
+                "av", title.toLowerCase().replace(' ', '-'), title, content);
     }
 
     @Test
