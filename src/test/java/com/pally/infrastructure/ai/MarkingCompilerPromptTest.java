@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.knowledge.KnowledgeFile;
+import com.pally.domain.knowledge.port.StoragePort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.reactive.function.client.WebClient;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,5 +72,34 @@ class MarkingCompilerPromptTest {
         assertThat(prompt)
                 .contains("knowledge organiser for a student study app")
                 .doesNotContain("MARKING STANDARD");
+    }
+
+    /**
+     * The marking prompt must be ONE definition — the Gemini (primary) and Claude
+     * (fallback) compilers must emit an identical marking header, so the compiled
+     * marking standard can't drift by which tier served the compile.
+     */
+    @Test
+    void markingPrompt_isIdenticalAcrossGeminiAndClaude() throws Exception {
+        ClaudeWikiCompiler claude =
+                new ClaudeWikiCompiler(mock(ClaudeApiClient.class), new ObjectMapper(), mock(ModelRouter.class));
+        GeminiWikiCompiler gemini =
+                new GeminiWikiCompiler(mock(WebClient.class), new ObjectMapper(), claude, mock(StoragePort.class));
+
+        Avatar a = mock(Avatar.class);
+        when(a.getSubject()).thenReturn(Subject.MATHS);
+
+        String claudeHeader = markingHeaderOf(claude, a);
+        String geminiHeader = markingHeaderOf(gemini, a);
+
+        assertThat(geminiHeader).isEqualTo(claudeHeader);
+        // ...and both come from the single shared source.
+        assertThat(claudeHeader).isEqualTo(WikiCompilerPrompts.markingHeader("Maths"));
+    }
+
+    private static String markingHeaderOf(Object compiler, Avatar a) throws Exception {
+        Method m = compiler.getClass().getDeclaredMethod("markingPromptHeader", Avatar.class);
+        m.setAccessible(true);
+        return (String) m.invoke(compiler, a);
     }
 }
