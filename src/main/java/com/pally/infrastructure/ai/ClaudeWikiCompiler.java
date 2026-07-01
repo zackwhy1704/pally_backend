@@ -222,59 +222,13 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                                List<WikiPage> existingPages,
                                ChunkContext chunkContext) {
         StringBuilder sb = new StringBuilder();
-        sb.append("""
-                You are a knowledge organiser for a student study app used by learners aged 13-25.
+        // A MARKING_CORPUS avatar compiles a teacher's marking standard into
+        // marking-BEHAVIOUR pages; everything after the header (source loop,
+        // merge block, output format) is shared so parsing + merge are identical.
+        sb.append(avatar.isMarkingCorpus()
+                ? markingPromptHeader(avatar)
+                : notesPromptHeader(avatar));
 
-                Avatar name: %s
-                Subject: %s
-
-                ## YOUR TASK
-                Convert the extracted text below into structured wiki pages.
-
-                ## CRITICAL RULES
-                1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, lists, step-by-step
-                   processes, experiment procedures, and definitions MUST appear in the
-                   wiki page exactly as stated in the source material. Do NOT generalise
-                   or paraphrase specific facts.
-                2. Each wiki page covers ONE topic (e.g., "Photosynthesis",
-                   "Electrical Circuits").
-                3. Use markdown formatting: ## for headings, - for bullet points,
-                   **bold** for key terms.
-                4. Use clear, accurate language suitable for secondary and university students (ages 13-25).
-                5. If the content mentions an equation, write it out in full.
-                6. If the content contains an experiment, include ALL steps.
-                7. Each page should be 200-500 words — comprehensive but not overwhelming.
-
-                """.formatted(avatar.getName(), avatar.getSubject().name()));
-
-        sb.append("""
-                ## EXAMPLE (follow this structure exactly)
-
-                ### Example Source Text:
-                Water boils at 100°C at sea level. The boiling point decreases as altitude increases.
-                Boiling is when water turns from liquid to gas (water vapour). The process requires
-                heat energy — specifically 2260 kJ/kg (latent heat of vaporisation).
-
-                ### Example Output:
-                [{"slug": "boiling-point-of-water",
-                  "title": "Boiling Point of Water",
-                  "content": "## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas** (water vapour).\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- The boiling point **decreases** as altitude increases\\n- Boiling requires heat energy: **2260 kJ/kg** (latent heat of vaporisation)\\n\\n## Why Does Altitude Matter?\\nAt higher altitudes, there is less air pressure pushing down on the water, so water boils at a lower temperature.",
-                  "prerequisites": []}]
-
-                ### Example Source Text 2:
-                Ohm's Law: V = IR, where V is voltage (volts), I is current (amperes), R is resistance (ohms).
-                A circuit with 12V battery and 4Ω resistor has current I = 12/4 = 3A.
-
-                ### Example Output 2:
-                [{"slug": "ohms-law",
-                  "title": "Ohm's Law",
-                  "content": "## Ohm's Law\\n**V = IR**\\n\\nWhere:\\n- **V** = Voltage (measured in Volts)\\n- **I** = Current (measured in Amperes)\\n- **R** = Resistance (measured in Ohms)\\n\\n## Example Calculation\\nA circuit with a **12V** battery and **4Ω** resistor:\\n- I = V ÷ R = 12 ÷ 4 = **3A**\\n\\n## Key Points\\n- Higher resistance → lower current (for same voltage)\\n- Higher voltage → higher current (for same resistance)",
-                  "prerequisites": []}]
-
-                Now apply the same approach to the actual content below:
-                """);
-
-        sb.append("## EXTRACTED CONTENT TO COMPILE\n\n");
         for (KnowledgeFile file : files) {
             sb.append("### Source: ").append(file.getFileName());
             if (chunkContext != null) {
@@ -325,6 +279,107 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 """);
 
         return sb.toString();
+    }
+
+    /** Header for a normal study-notes avatar — topic pages (ends at the source section). */
+    private String notesPromptHeader(Avatar avatar) {
+        return """
+                You are a knowledge organiser for a student study app used by learners aged 13-25.
+
+                Avatar name: %s
+                Subject: %s
+
+                ## YOUR TASK
+                Convert the extracted text below into structured wiki pages.
+
+                ## CRITICAL RULES
+                1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, lists, step-by-step
+                   processes, experiment procedures, and definitions MUST appear in the
+                   wiki page exactly as stated in the source material. Do NOT generalise
+                   or paraphrase specific facts.
+                2. Each wiki page covers ONE topic (e.g., "Photosynthesis",
+                   "Electrical Circuits").
+                3. Use markdown formatting: ## for headings, - for bullet points,
+                   **bold** for key terms.
+                4. Use clear, accurate language suitable for secondary and university students (ages 13-25).
+                5. If the content mentions an equation, write it out in full.
+                6. If the content contains an experiment, include ALL steps.
+                7. Each page should be 200-500 words — comprehensive but not overwhelming.
+
+                ## EXAMPLE (follow this structure exactly)
+
+                ### Example Source Text:
+                Water boils at 100°C at sea level. The boiling point decreases as altitude increases.
+                Boiling is when water turns from liquid to gas (water vapour). The process requires
+                heat energy — specifically 2260 kJ/kg (latent heat of vaporisation).
+
+                ### Example Output:
+                [{"slug": "boiling-point-of-water",
+                  "title": "Boiling Point of Water",
+                  "content": "## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas** (water vapour).\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- The boiling point **decreases** as altitude increases\\n- Boiling requires heat energy: **2260 kJ/kg** (latent heat of vaporisation)\\n\\n## Why Does Altitude Matter?\\nAt higher altitudes, there is less air pressure pushing down on the water, so water boils at a lower temperature.",
+                  "prerequisites": []}]
+
+                ### Example Source Text 2:
+                Ohm's Law: V = IR, where V is voltage (volts), I is current (amperes), R is resistance (ohms).
+                A circuit with 12V battery and 4Ω resistor has current I = 12/4 = 3A.
+
+                ### Example Output 2:
+                [{"slug": "ohms-law",
+                  "title": "Ohm's Law",
+                  "content": "## Ohm's Law\\n**V = IR**\\n\\nWhere:\\n- **V** = Voltage (measured in Volts)\\n- **I** = Current (measured in Amperes)\\n- **R** = Resistance (measured in Ohms)\\n\\n## Example Calculation\\nA circuit with a **12V** battery and **4Ω** resistor:\\n- I = V ÷ R = 12 ÷ 4 = **3A**\\n\\n## Key Points\\n- Higher resistance → lower current (for same voltage)\\n- Higher voltage → higher current (for same resistance)",
+                  "prerequisites": []}]
+
+                Now apply the same approach to the actual content below:
+                ## EXTRACTED CONTENT TO COMPILE
+
+                """.formatted(avatar.getName(), avatar.getSubject().name());
+    }
+
+    /**
+     * Header for a MARKING_CORPUS avatar — compiles a teacher's rubrics, mark
+     * schemes, guidelines and PAST MARKED papers into reusable marking-BEHAVIOUR
+     * pages so the AI drafts feedback in THIS centre's marking style.
+     */
+    private String markingPromptHeader(Avatar avatar) {
+        return """
+                You are building a TUITION CENTRE'S MARKING STANDARD — a reusable guide to HOW
+                THIS CENTRE MARKS a subject, learned from the teacher's rubrics, mark schemes,
+                marking guidelines, and PAST MARKED papers.
+
+                Subject: %s
+
+                ## YOUR TASK
+                Convert the marking materials below into structured MARKING-BEHAVIOUR pages —
+                NOT topic/content pages. Each page captures ONE reusable marking RULE or PATTERN
+                a grader applies, so an AI can draft feedback that matches this centre's standard.
+
+                ## WHAT TO EXTRACT (create the pages the material supports)
+                - "How marks are awarded" — method vs accuracy vs ECF (error-carried-forward),
+                  what earns each mark, mark allocation per step.
+                - "Common deductions & why" — the mistakes this teacher penalises, and how much.
+                - "Model answer shape per question type" — the structure a full-mark answer takes.
+                - "Grade band descriptors" — what distinguishes an A / B / C response.
+                - "House style / comment phrasing" — how this teacher phrases feedback and praise.
+
+                ## FROM MARKED PAPERS SPECIFICALLY
+                Infer the marking BEHAVIOUR, not the question content: where marks were given or
+                taken, the annotations, and the comment wording. Record the PATTERN (e.g. "awards
+                the method mark even when the final answer is wrong"), never the specific question.
+
+                ## CRITICAL RULES
+                1. PRESERVE exact mark allocations, numbers, and rule thresholds.
+                2. Each page covers ONE marking rule/pattern; markdown (## / - / **bold**).
+                3. 150-400 words per page.
+
+                ## EXAMPLE OUTPUT
+                [{"slug": "awarding-method-marks",
+                  "title": "How Method Marks Are Awarded",
+                  "content": "## Principle\\nAward the **method mark** when the correct approach is shown, even if the final answer is wrong (ECF applies).\\n\\n## In practice\\n- 1 mark for the correct formula\\n- 1 mark for correct substitution",
+                  "prerequisites": []}]
+
+                ## MARKING MATERIALS TO COMPILE
+
+                """.formatted(avatar.getSubject().label());
     }
 
     private List<WikiPageDraft> parseResponse(String raw) {

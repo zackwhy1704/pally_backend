@@ -474,31 +474,13 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     private String buildPrompt(Avatar avatar, List<KnowledgeFile> files,
                                 List<WikiPage> existingPages) {
         StringBuilder sb = new StringBuilder();
-        sb.append("""
-                You are a knowledge organiser for a student study app used by learners aged 13-25.
-
-                Avatar name: %s
-                Subject: %s
-
-                ## YOUR TASK
-                Convert the extracted text below into structured wiki pages.
-
-                ## CRITICAL RULES
-                1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, lists, step-by-step
-                   processes, experiment procedures, and definitions MUST appear in the
-                   wiki page exactly as stated in the source material.
-                2. Each wiki page covers ONE topic (e.g., "Photosynthesis", "Electrical Circuits").
-                3. Use markdown: ## for headings, - for bullet points, **bold** for key terms.
-                4. Use clear, accurate language suitable for secondary and university students (ages 13-25).
-                5. Each page: 200-500 words — comprehensive but not overwhelming.
-
-                ## EXAMPLE OUTPUT FORMAT
-                [{"slug":"boiling-point-of-water","title":"Boiling Point of Water",
-                  "content":"## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas**.\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- Requires **2260 kJ/kg** of heat energy",
-                  "prerequisites":[]}]
-
-                ## EXTRACTED CONTENT
-                """.formatted(avatar.getName(), avatar.getSubject().name()));
+        // A MARKING_CORPUS avatar compiles a teacher's marking standard into
+        // marking-BEHAVIOUR pages; a normal avatar compiles study notes into
+        // topic pages. Everything after the header (source append, merge block,
+        // output format) is shared, so merge + JSON parsing are identical.
+        sb.append(avatar.isMarkingCorpus()
+                ? markingPromptHeader(avatar)
+                : notesPromptHeader(avatar));
 
         for (KnowledgeFile file : files) {
             sb.append("\n### Source: ").append(file.getFileName()).append("\n");
@@ -524,6 +506,81 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 """);
 
         return sb.toString();
+    }
+
+    /** Header for a normal study-notes avatar — topic pages. */
+    private String notesPromptHeader(Avatar avatar) {
+        return """
+                You are a knowledge organiser for a student study app used by learners aged 13-25.
+
+                Avatar name: %s
+                Subject: %s
+
+                ## YOUR TASK
+                Convert the extracted text below into structured wiki pages.
+
+                ## CRITICAL RULES
+                1. PRESERVE ALL SPECIFIC FACTS — equations, numbers, lists, step-by-step
+                   processes, experiment procedures, and definitions MUST appear in the
+                   wiki page exactly as stated in the source material.
+                2. Each wiki page covers ONE topic (e.g., "Photosynthesis", "Electrical Circuits").
+                3. Use markdown: ## for headings, - for bullet points, **bold** for key terms.
+                4. Use clear, accurate language suitable for secondary and university students (ages 13-25).
+                5. Each page: 200-500 words — comprehensive but not overwhelming.
+
+                ## EXAMPLE OUTPUT FORMAT
+                [{"slug":"boiling-point-of-water","title":"Boiling Point of Water",
+                  "content":"## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas**.\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- Requires **2260 kJ/kg** of heat energy",
+                  "prerequisites":[]}]
+
+                ## EXTRACTED CONTENT
+                """.formatted(avatar.getName(), avatar.getSubject().name());
+    }
+
+    /**
+     * Header for a MARKING_CORPUS avatar — compiles a teacher's rubrics, mark
+     * schemes, guidelines and PAST MARKED papers into reusable marking-BEHAVIOUR
+     * pages (how marks are awarded, common deductions, model-answer shape, grade
+     * bands, comment phrasing) so the AI drafts feedback in THIS centre's style.
+     */
+    private String markingPromptHeader(Avatar avatar) {
+        return """
+                You are building a TUITION CENTRE'S MARKING STANDARD — a reusable guide to HOW
+                THIS CENTRE MARKS a subject, learned from the teacher's rubrics, mark schemes,
+                marking guidelines, and PAST MARKED papers.
+
+                Subject: %s
+
+                ## YOUR TASK
+                Convert the marking materials below into structured MARKING-BEHAVIOUR pages —
+                NOT topic/content pages. Each page captures ONE reusable marking RULE or PATTERN
+                a grader applies, so an AI can draft feedback that matches this centre's standard.
+
+                ## WHAT TO EXTRACT (create the pages the material supports)
+                - "How marks are awarded" — method vs accuracy vs ECF (error-carried-forward),
+                  what earns each mark, mark allocation per step.
+                - "Common deductions & why" — the mistakes this teacher penalises, and how much.
+                - "Model answer shape per question type" — the structure a full-mark answer takes.
+                - "Grade band descriptors" — what distinguishes an A / B / C response.
+                - "House style / comment phrasing" — how this teacher phrases feedback and praise.
+
+                ## FROM MARKED PAPERS SPECIFICALLY
+                Infer the marking BEHAVIOUR, not the question content: where marks were given or
+                taken, the annotations, and the comment wording. Record the PATTERN (e.g. "awards
+                the method mark even when the final answer is wrong"), never the specific question.
+
+                ## CRITICAL RULES
+                1. PRESERVE exact mark allocations, numbers, and rule thresholds.
+                2. Each page covers ONE marking rule/pattern; markdown (## / - / **bold**).
+                3. 150-400 words per page.
+
+                ## EXAMPLE OUTPUT FORMAT
+                [{"slug":"awarding-method-marks","title":"How Method Marks Are Awarded",
+                  "content":"## Principle\\nAward the **method mark** when the correct approach is shown, even if the final answer is wrong (ECF applies).\\n\\n## In practice\\n- 1 mark for the correct formula\\n- 1 mark for correct substitution",
+                  "prerequisites":[]}]
+
+                ## MARKING MATERIALS
+                """.formatted(avatar.getSubject().label());
     }
 
     private List<WikiPageDraft> parseResponse(String raw) {
