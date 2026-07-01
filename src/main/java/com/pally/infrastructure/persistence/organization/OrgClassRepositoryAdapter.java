@@ -25,4 +25,9 @@ public class OrgClassRepositoryAdapter implements OrgClassRepository {
     public Optional<String> findCorpusAvatarIdByClassId(String classId) {
         return jpa.findById(classId).map(OrgClassJpaEntity::getCorpusAvatarId);
     }
+
+    @Override
+    public Optional<String> findSubjectByClassId(String classId) {
+        return jpa.findById(classId).map(OrgClassJpaEntity::getSubject);
+    }
 }

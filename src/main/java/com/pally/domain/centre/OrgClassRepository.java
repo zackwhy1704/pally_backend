@@ -19,4 +19,10 @@ public interface OrgClassRepository {
      * does not exist or has no corpus avatar assigned yet.
      */
     Optional<String> findCorpusAvatarIdByClassId(String classId);
+
+    /**
+     * Returns the raw (free-text) subject of the given class, or empty if the
+     * class does not exist. Callers normalise this to a {@code Subject} enum.
+     */
+    Optional<String> findSubjectByClassId(String classId);
 }

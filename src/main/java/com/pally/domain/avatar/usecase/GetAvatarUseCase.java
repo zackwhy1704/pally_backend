@@ -1,6 +1,7 @@
 package com.pally.domain.avatar.usecase;
 
 import com.pally.domain.avatar.Avatar;
+import com.pally.domain.avatar.AvatarKind;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +31,11 @@ public class GetAvatarUseCase {
 
     public List<Avatar> getAllForUser(String userId) {
         log.debug("Listing avatars for userId={}", userId);
-        return avatarRepository.findByUserId(userId);
+        // MARKING_CORPUS is a hidden teacher marking-standard brain, never a
+        // listable/collectible avatar — exclude it from the user's avatar list.
+        // (CENTRE_CLASS is intentionally left in; the mapper renders it.)
+        return avatarRepository.findByUserId(userId).stream()
+                .filter(a -> a.getKind() != AvatarKind.MARKING_CORPUS)
+                .toList();
     }
 }

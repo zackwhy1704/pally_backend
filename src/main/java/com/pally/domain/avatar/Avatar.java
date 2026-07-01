@@ -316,6 +316,11 @@ public final class Avatar {
     /// Marks this avatar as a centre class avatar: sets kind=CENTRE_CLASS and
     /// the centre flag together so provisioning never half-tags an avatar.
     public void markCentreClassAvatar()         { this.kind = AvatarKind.CENTRE_CLASS; this.centreAvatar = true; }
+    public boolean isMarkingCorpus()            { return getKind() == AvatarKind.MARKING_CORPUS; }
+    /// Marks this avatar as a centre's hidden marking-standard brain, keyed by
+    /// (orgId, subject). Teacher-only, never student-visible; compiled through the
+    /// same wiki harness as student notes.
+    public void markMarkingCorpus()             { this.kind = AvatarKind.MARKING_CORPUS; this.centreAvatar = true; }
 
     // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
     public String getClassId()                  { return classId; }

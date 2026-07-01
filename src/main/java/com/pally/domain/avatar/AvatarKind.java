@@ -16,9 +16,18 @@ package com.pally.domain.avatar;
  *       closed-book avatars handed to each enrolled student). Rendered with a
  *       server-derived "class uniform" appearance and invisible to the economy.
  *       Students may not rename or delete these.</li>
+ *   <li>{@link #MARKING_CORPUS} — a hidden, teacher-facing brain holding a
+ *       centre's compiled MARKING STANDARD, keyed by (orgId, subject). Created
+ *       lazily when a teacher first uploads a marking reference for a subject.
+ *       Never student-visible, never in the economy, never in student
+ *       {@code listAvatars}. Its knowledge files run through the SAME wiki
+ *       harness (incremental compile, merge-into-existing, conflict, decay) so
+ *       the marking standard improves per upload exactly like the student
+ *       notes-wiki.</li>
  * </ul>
  */
 public enum AvatarKind {
     PERSONAL,
-    CENTRE_CLASS
+    CENTRE_CLASS,
+    MARKING_CORPUS
 }
