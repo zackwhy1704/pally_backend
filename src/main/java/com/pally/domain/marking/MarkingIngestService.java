@@ -45,7 +45,7 @@ public class MarkingIngestService {
         MarkingReference saved =
                 markingReferenceService.create(classId, kind, title, note, files);
         try {
-            ingestIntoCorpus(classId, files);
+            ingestFiles(classId, files);
         } catch (Exception e) {
             // Best-effort: the artifact is stored; the brain can be recompiled.
             log.warn("[MarkingIngest] corpus ingest failed class={} ref={}: {}",
@@ -54,7 +54,12 @@ public class MarkingIngestService {
         return saved;
     }
 
-    private void ingestIntoCorpus(String classId, List<IncomingFile> files) {
+    /**
+     * Uploads the given files into the class's (orgId, subject) marking corpus and
+     * compiles them into marking-wiki pages. Reused by the backfill of existing raw
+     * references. Throws on hard failures so callers can decide how to handle them.
+     */
+    public void ingestFiles(String classId, List<IncomingFile> files) {
         String corpusAvatarId = markingCorpusService.resolveOrCreateForClass(classId);
         String ownerUserId = avatarRepository.findById(corpusAvatarId)
                 .map(Avatar::getUserId)

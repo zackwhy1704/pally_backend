@@ -30,4 +30,11 @@ public class OrgClassRepositoryAdapter implements OrgClassRepository {
     public Optional<String> findSubjectByClassId(String classId) {
         return jpa.findById(classId).map(OrgClassJpaEntity::getSubject);
     }
+
+    @Override
+    public java.util.List<String> findClassIdsByOrgId(String orgId) {
+        return jpa.findByOrganizationId(orgId).stream()
+                .map(OrgClassJpaEntity::getId)
+                .toList();
+    }
 }

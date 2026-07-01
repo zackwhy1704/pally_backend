@@ -25,4 +25,7 @@ public interface OrgClassRepository {
      * class does not exist. Callers normalise this to a {@code Subject} enum.
      */
     Optional<String> findSubjectByClassId(String classId);
+
+    /** All class ids belonging to an org (for org-wide operations like backfill). */
+    java.util.List<String> findClassIdsByOrgId(String orgId);
 }
