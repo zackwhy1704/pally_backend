@@ -288,6 +288,6 @@ class ModuleContentGeneratorTest {
     void extractBalancedObjects_handlesNestingAndStringBraces_skipsTruncatedTail() {
         // A brace inside a string must not close the object; the truncated 3rd is skipped.
         String s = "[{\"a\":{\"n\":1},\"s\":\"has } brace\"},{\"b\":2},{\"c\":";
-        assertThat(ModuleContentGenerator.extractBalancedObjects(s)).hasSize(2);
+        assertThat(com.pally.shared.json.JsonExtraction.extractBalancedObjects(s)).hasSize(2);
     }
 }

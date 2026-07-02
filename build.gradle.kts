@@ -113,6 +113,11 @@ dependencyManagement {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // Forward -Dprobe.* to the forked test JVM so the @Tag("probe") reporters can
+    // read their sample/manifest paths (Gradle doesn't forward -D by default).
+    System.getProperties().forEach { k, v ->
+        if (k.toString().startsWith("probe.")) systemProperty(k.toString(), v.toString())
+    }
     // Pass Docker socket to forked test JVM for Testcontainers on macOS Docker Desktop
     val dockerSock = System.getenv("DOCKER_HOST")
         ?: "unix:///Users/${System.getProperty("user.name")}/.docker/run/docker.sock"

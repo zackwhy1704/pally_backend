@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.ai.ClaudeApiClient;
+import com.pally.shared.json.JsonExtraction;
 import com.pally.infrastructure.ai.GeminiCompletionService;
 import com.pally.infrastructure.ai.ModelRouter;
 import com.pally.infrastructure.persistence.assignment.AssignmentJpaEntity;
@@ -225,14 +226,14 @@ public class ClassBriefService {
 
         try {
             objectMapper.readTree(raw);
-            return extractJson(raw);
+            return JsonExtraction.extractJson(raw, '{', '}');
         } catch (Exception e) {
             log.warn("[ClassBrief] Gemini response not valid JSON — retrying with Haiku");
             String retry = claudeClient.complete(
                     modelRouter.getHaikuModel(), BRIEF_MAX_TOKENS, prompt, BRIEF_TASK);
             try {
                 objectMapper.readTree(retry);
-                return extractJson(retry);
+                return JsonExtraction.extractJson(retry, '{', '}');
             } catch (Exception e2) {
                 throw new BusinessException(
                         "AI service returned unparseable brief — please try again", 503);
@@ -287,14 +288,6 @@ public class ClassBriefService {
         return sb.toString();
     }
 
-    private String extractJson(String raw) {
-        int start = raw.indexOf('{');
-        int end = raw.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return raw.substring(start, end + 1);
-        }
-        return raw;
-    }
 
     // ── Re-identify phase ─────────────────────────────────────────────────────
 

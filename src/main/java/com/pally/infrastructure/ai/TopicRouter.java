@@ -3,6 +3,7 @@ package com.pally.infrastructure.ai;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.DetectedTopic;
+import com.pally.shared.json.JsonExtraction;
 import com.pally.domain.knowledge.WikiPageIndex;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -73,7 +74,7 @@ public class TopicRouter {
 
     private List<DetectedTopic> parseTopics(String response) {
         try {
-            String json = extractJson(response);
+            String json = JsonExtraction.extractJson(response, '[', ']');
             JsonNode array = objectMapper.readTree(json);
             List<DetectedTopic> topics = new ArrayList<>();
             for (JsonNode node : array) {
@@ -91,12 +92,4 @@ public class TopicRouter {
         }
     }
 
-    private String extractJson(String response) {
-        int start = response.indexOf('[');
-        int end = response.lastIndexOf(']');
-        if (start >= 0 && end > start) {
-            return response.substring(start, end + 1);
-        }
-        return response.trim();
-    }
 }

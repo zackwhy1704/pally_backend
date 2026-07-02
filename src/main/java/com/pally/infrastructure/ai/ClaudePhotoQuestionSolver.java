@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.chat.dto.QuestionAnswerDto;
+import com.pally.shared.json.JsonExtraction;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.chat.usecase.PhotoQuestionPort;
 import com.pally.domain.knowledge.WikiPage;
@@ -283,7 +284,7 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
                                                   String raw) {
         try {
             String cleaned = raw.replaceAll("(?s)<reasoning>.*?</reasoning>", "").strip();
-            String json = extractJson(cleaned);
+            String json = JsonExtraction.extractJson(cleaned, '[', ']');
             JsonNode array = objectMapper.readTree(json);
             List<QuestionAnswerDto> answers = new ArrayList<>();
 
@@ -325,11 +326,6 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
         }
     }
 
-    private String extractJson(String raw) {
-        int start = raw.indexOf('['), end = raw.lastIndexOf(']');
-        if (start >= 0 && end > start) return raw.substring(start, end + 1);
-        return raw;
-    }
 
     private List<QuestionAnswerDto> buildStubAnswers(List<String> questions) {
         log.error("[PhotoSolver] Returning error sentinel for {} question(s)", questions.size());

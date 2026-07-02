@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.pally.domain.avatar.Avatar;
+import com.pally.shared.json.JsonExtraction;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.groundedness.GroundednessVerifier;
 import com.pally.domain.subscription.PremiumService;
@@ -674,19 +675,9 @@ public class ModuleContentGenerator {
         }
     }
 
+    // Delegates to the shared JsonExtraction (one robust extractor for all AI classes).
     String extractJson(String raw, char openChar, char closeChar) {
-        if (raw == null || raw.isBlank()) return openChar == '[' ? "[]" : "{}";
-        String trimmed = raw.strip();
-        // Strip markdown fences
-        if (trimmed.startsWith("```")) {
-            trimmed = trimmed.replaceAll("```[a-z]*\\n?", "").replaceAll("```", "").strip();
-        }
-        int start = trimmed.indexOf(openChar);
-        int end = trimmed.lastIndexOf(closeChar);
-        if (start >= 0 && end > start) {
-            return trimmed.substring(start, end + 1);
-        }
-        return openChar == '[' ? "[]" : "{}";
+        return JsonExtraction.extractJson(raw, openChar, closeChar);
     }
 
     private String truncate(String s, int max) {
@@ -734,68 +725,8 @@ public class ModuleContentGenerator {
     /// Parse a JSON array of objects; if the array is truncated (the common Gemini
     /// failure), salvage every COMPLETE top-level object before the cut-off instead of
     /// discarding the whole response.
+    // Delegates to the shared JsonExtraction (truncation-salvage lives there now).
     List<Map<String, Object>> parseJsonObjectsLenient(String raw) {
-        String json = extractJson(raw, '[', ']');
-        try {
-            List<Map<String, Object>> all = objectMapper.readValue(json, new TypeReference<>() {});
-            if (all != null && !all.isEmpty()) {
-                return all;
-            }
-        } catch (Exception truncated) {
-            // fall through to element-level salvage
-        }
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (String obj : extractBalancedObjects(raw)) {
-            try {
-                out.add(objectMapper.readValue(obj, new TypeReference<>() {}));
-            } catch (Exception skip) {
-                // a malformed / incomplete object — skip just this one
-            }
-        }
-        if (!out.isEmpty()) {
-            log.info("[Module] Salvaged {} complete item(s) from a truncated JSON response", out.size());
-        }
-        return out;
-    }
-
-    /// Returns every balanced, top-level {...} object in {@code s}, honouring quoted
-    /// strings + escapes. An unbalanced trailing object (the truncation) is skipped.
-    static List<String> extractBalancedObjects(String s) {
-        List<String> out = new ArrayList<>();
-        if (s == null) {
-            return out;
-        }
-        int depth = 0;
-        int start = -1;
-        boolean inStr = false;
-        boolean esc = false;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (inStr) {
-                if (esc) {
-                    esc = false;
-                } else if (c == '\\') {
-                    esc = true;
-                } else if (c == '"') {
-                    inStr = false;
-                }
-                continue;
-            }
-            if (c == '"') {
-                inStr = true;
-            } else if (c == '{') {
-                if (depth == 0) {
-                    start = i;
-                }
-                depth++;
-            } else if (c == '}' && depth > 0) {
-                depth--;
-                if (depth == 0 && start >= 0) {
-                    out.add(s.substring(start, i + 1));
-                    start = -1;
-                }
-            }
-        }
-        return out;
+        return JsonExtraction.parseObjects(objectMapper, raw);
     }
 }
