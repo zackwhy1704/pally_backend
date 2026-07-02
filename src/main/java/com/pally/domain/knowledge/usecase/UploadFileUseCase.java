@@ -82,6 +82,12 @@ public class UploadFileUseCase {
     private final AvatarSlotGuard avatarSlotGuard;
     private final OcrQualityGate ocrQualityGate;
 
+    /// Hard upper bound on a single file's extracted text — above this, even
+    /// within-file compile segmentation is impractical (a whole textbook). ~600k
+    /// chars ≈ 330 pages. Rejected loudly at upload with a "split by chapter" hint.
+    @org.springframework.beans.factory.annotation.Value("${compile.max-total-chars:600000}")
+    private int maxTotalChars;
+
     public UploadFileUseCase(
             AvatarRepository avatarRepository,
             KnowledgeRepository knowledgeRepository,
@@ -228,6 +234,22 @@ public class UploadFileUseCase {
                       + "(3) handwriting is very light — try higher contrast. "
                       + "Tip: crop to just the notes before uploading.";
             return new UploadResult.Failure(ocrFailMsg, null);
+        }
+
+        // Hard ceiling: even with within-file compile segmentation, a document
+        // far larger than a normal set of notes (≈ a whole textbook) produces so
+        // many segments that the compile is slow + fragile. Reject LOUDLY here —
+        // with the page estimate — so the user splits it, rather than accepting a
+        // job that will grind for many minutes. Tunable via compile.max-total-chars.
+        if (maxTotalChars > 0 && extractedText.length() > maxTotalChars) {
+            int estPages = Math.max(1, extractedText.length() / 1800); // ~1800 chars/page
+            log.warn("[Upload] REJECTED fileId={} — {} chars (~{} pages) exceeds ceiling {}",
+                    fileId, extractedText.length(), estPages, maxTotalChars);
+            kf.markFailed();
+            knowledgeRepository.save(kf);
+            return new UploadResult.Failure(
+                    "This document is very large (~" + estPages + " pages) — please split it by "
+                    + "chapter or topic and upload each part. That keeps Mochi accurate and fast.", null);
         }
 
         // ── OCR Quality Gate (image uploads only) ───────────────────────────

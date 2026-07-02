@@ -173,8 +173,11 @@ public class CompileWikiUseCase {
         }
         final java.util.Set<String> alreadyCompiledIds = compiled;
 
+        // "Needs compile" = compiled_by NULL (completion marker), so a file left
+        // incomplete by a prior segment failure is re-run, not skipped. (The
+        // sources-based alreadyCompiledIds is still used below for orphan-archive.)
         List<KnowledgeFile> newFiles = readyFiles.stream()
-                .filter(f -> !alreadyCompiledIds.contains(f.getId()))
+                .filter(f -> f.getCompiledBy() == null)
                 .toList();
         int skippedCount = readyFiles.size() - newFiles.size();
 
@@ -288,17 +291,10 @@ public class CompileWikiUseCase {
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
                 .toList();
 
-        java.util.Set<String> compiled;
-        try {
-            compiled = new java.util.HashSet<>(
-                    wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId));
-        } catch (Exception e) {
-            compiled = java.util.Set.of();
-        }
-        final java.util.Set<String> alreadyCompiledIds = compiled;
-
+        // Same "needs compile" definition as the compile paths (compiled_by NULL),
+        // so routing (sync vs async) and compilation agree on what's outstanding.
         int totalChars = readyFiles.stream()
-                .filter(f -> !alreadyCompiledIds.contains(f.getId()))
+                .filter(f -> f.getCompiledBy() == null)
                 .mapToInt(f -> f.getExtractedText() != null ? f.getExtractedText().length() : 0)
                 .sum();
 
@@ -357,17 +353,13 @@ public class CompileWikiUseCase {
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
                 .toList();
 
-        java.util.Set<String> compiled;
-        try {
-            compiled = new java.util.HashSet<>(
-                    wikiPageSourceRepo.findCompiledFileIdsByAvatarId(avatarId));
-        } catch (Exception e) {
-            compiled = java.util.Set.of();
-        }
-        final java.util.Set<String> alreadyCompiledIds = compiled;
-
+        // "Already compiled" = compiled_by is set (a true COMPLETION marker), NOT
+        // merely "has a wiki_page_sources row". A segmented file whose compile
+        // failed mid-run has source rows for the done segments but compiled_by
+        // stays NULL — so it is re-compiled here instead of being silently skipped
+        // as done (the partial-data-loss bug). Idempotent: pages merge by slug.
         List<KnowledgeFile> newFiles = readyFiles.stream()
-                .filter(f -> !alreadyCompiledIds.contains(f.getId()))
+                .filter(f -> f.getCompiledBy() == null)
                 .toList();
 
         if (newFiles.isEmpty()) {
@@ -392,6 +384,9 @@ public class CompileWikiUseCase {
         String lastTier = "unknown";
         int totalFilesCompiled = 0;
         int totalCharsCompiled = 0;
+        // fileIds with at least one FAILED segment — these must NOT be marked
+        // compiled (compiled_by stays NULL) so the next run re-compiles them.
+        java.util.Set<String> failedFileIds = new java.util.HashSet<>();
 
         for (int i = 0; i < batches.size(); i++) {
             List<KnowledgeFile> batch = batches.get(i);
@@ -438,21 +433,36 @@ public class CompileWikiUseCase {
                         i + 1, batches.size(), outcome.created(), outcome.updated());
 
             } catch (Exception e) {
+                // Every fileId in this batch is now incomplete — record so it is
+                // NOT marked compiled and is re-run next time (resume).
+                batch.forEach(f -> failedFileIds.add(f.getId()));
                 log.error("[Pipeline:BatchCompile] Batch {}/{} FAILED: {} — " +
-                          "previous batches ({} pages) are safe",
+                          "previous batches ({} pages) are safe; file(s) {} left INCOMPLETE "
+                          + "(compiled_by stays NULL → re-compiled next run)",
                         i + 1, batches.size(), e.getMessage(),
-                        totalCreated + totalUpdated);
+                        totalCreated + totalUpdated,
+                        batch.stream().map(KnowledgeFile::getId).distinct().toList());
                 // Continue — partial persist: previous batches are already saved
             }
         }
 
-        // Mark provenance on the ORIGINAL files (once) — never on segment variants.
-        // A file counts as compiled when its segments have run; wiki_page_sources
-        // (written by persistDrafts, keyed on the shared fileId) drives re-upload
-        // dedup so the same file isn't recompiled.
+        // Mark compiled_by ONLY on files whose every segment succeeded — this is
+        // the completion marker the incremental skip keys on. Files with a failed
+        // segment are left NULL (visibly incomplete) so the next compile resumes
+        // them; the pages that DID persist are safe and merge on re-run.
+        int incomplete = 0;
         for (KnowledgeFile f : newFiles) {
+            if (failedFileIds.contains(f.getId())) {
+                incomplete++;
+                continue; // leave compiled_by NULL → re-compiled next run
+            }
             f.setCompiledBy(lastTier);
             knowledgeRepository.save(f);
+        }
+        if (incomplete > 0) {
+            log.warn("[Pipeline:BatchCompile] avatarId={} — {} file(s) left INCOMPLETE after a "
+                    + "segment failure; they will be re-compiled on the next trigger.",
+                    avatarId, incomplete);
         }
 
         // Cache invalidation
@@ -529,6 +539,10 @@ public class CompileWikiUseCase {
      * next window for cross-boundary context.
      */
     static List<String> segmentText(String text, int maxChars, int overlap) {
+        // Cap overlap so each window always advances by ≥75% of maxChars — else a
+        // misconfigured overlap ≥ maxChars would make `start` crawl and explode the
+        // segment count. (Prod: 800 overlap vs 50k window — far below this cap.)
+        int effOverlap = Math.max(0, Math.min(overlap, maxChars / 4));
         List<String> segs = new ArrayList<>();
         int n = text.length();
         int start = 0;
@@ -545,7 +559,7 @@ public class CompileWikiUseCase {
             if (end >= n) {
                 break;
             }
-            start = Math.max(end - overlap, start + 1);
+            start = Math.max(end - effOverlap, start + 1);
         }
         return segs;
     }
