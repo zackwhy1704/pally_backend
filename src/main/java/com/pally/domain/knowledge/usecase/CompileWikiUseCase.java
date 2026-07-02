@@ -374,10 +374,16 @@ public class CompileWikiUseCase {
             return new CompileResult(0, 0, List.of(), "skipped-all-compiled", 0, 0);
         }
 
-        // Split into batches
-        List<List<KnowledgeFile>> batches = splitIntoBatches(newFiles, maxSyncChars);
-        log.info("[Pipeline:BatchCompile] avatarId={} totalFiles={} batches={}",
-                avatarId, newFiles.size(), batches.size());
+        // Split large files WITHIN the file first, then batch. A single big file
+        // (e.g. a 157-page, ~400k-char book) would otherwise be one indivisible
+        // compile unit → the compiler's internal chunking explodes into hundreds
+        // of sequential AI calls and the job times out. Segmenting into
+        // ~maxSyncChars windows keeps every compile call bounded AND lets the loop
+        // persist after each segment, so progress is saved incrementally.
+        List<KnowledgeFile> units = segmentOversizedFiles(newFiles, maxSyncChars);
+        List<List<KnowledgeFile>> batches = splitIntoBatches(units, maxSyncChars);
+        log.info("[Pipeline:BatchCompile] avatarId={} totalFiles={} units(after-segmenting)={} batches={}",
+                avatarId, newFiles.size(), units.size(), batches.size());
 
         int totalCreated = 0;
         int totalUpdated = 0;
@@ -412,11 +418,10 @@ public class CompileWikiUseCase {
                 totalFilesCompiled += batch.size();
                 totalCharsCompiled += batchChars;
 
-                // Set compiledBy on each file
-                for (KnowledgeFile f : batch) {
-                    f.setCompiledBy(output.tierServed());
-                    knowledgeRepository.save(f);
-                }
+                // NB: do NOT persist `batch` entries here — they may be transient
+                // segment VARIANTS (same fileId, sliced text, "part k/N" name).
+                // Saving one would overwrite the real file's text/name. compiledBy
+                // is set on the ORIGINAL files once, after all batches (below).
 
                 // Update job progress
                 if (jobId != null) {
@@ -441,11 +446,20 @@ public class CompileWikiUseCase {
             }
         }
 
+        // Mark provenance on the ORIGINAL files (once) — never on segment variants.
+        // A file counts as compiled when its segments have run; wiki_page_sources
+        // (written by persistDrafts, keyed on the shared fileId) drives re-upload
+        // dedup so the same file isn't recompiled.
+        for (KnowledgeFile f : newFiles) {
+            f.setCompiledBy(lastTier);
+            knowledgeRepository.save(f);
+        }
+
         // Cache invalidation
         cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
 
         return new CompileResult(totalCreated, totalUpdated, allTitles,
-                lastTier, totalFilesCompiled, totalCharsCompiled, allFailedPages);
+                lastTier, newFiles.size(), totalCharsCompiled, allFailedPages);
     }
 
     /**
@@ -475,6 +489,76 @@ public class CompileWikiUseCase {
         }
 
         return batches;
+    }
+
+    /// Overlap carried into the next segment so a fact spanning a boundary isn't
+    /// lost (the merge/dedup machinery collapses the resulting duplicate).
+    static final int SEGMENT_OVERLAP = 800;
+
+    /**
+     * Expands any file whose extracted text exceeds {@code maxChars} into ordered
+     * segment VARIANTS — each carries the SAME fileId (so provenance / re-upload
+     * dedup are preserved) but a sliced text window and a "(part k/N)" name.
+     * Files within budget pass through unchanged. Segment variants are transient:
+     * they are fed to the compiler but never persisted back to the file store.
+     */
+    static List<KnowledgeFile> segmentOversizedFiles(List<KnowledgeFile> files, int maxChars) {
+        List<KnowledgeFile> out = new ArrayList<>();
+        for (KnowledgeFile f : files) {
+            String text = f.getExtractedText();
+            if (text == null || text.length() <= maxChars) {
+                out.add(f);
+                continue;
+            }
+            List<String> segments = segmentText(text, maxChars, SEGMENT_OVERLAP);
+            for (int i = 0; i < segments.size(); i++) {
+                out.add(KnowledgeFile.reconstitute(
+                        f.getId(), f.getAvatarId(), f.getUserId(),
+                        f.getFileName() + " (part " + (i + 1) + "/" + segments.size() + ")",
+                        f.getStorageKey(), f.getPageCount(), f.getUploadType(),
+                        f.getStatus(), f.getCreatedAt(), segments.get(i)));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Splits {@code text} into windows of at most {@code maxChars}, backing each
+     * window off to a natural boundary (paragraph → sentence → space) so segments
+     * don't cut mid-word/mid-sentence, and carrying {@code overlap} chars into the
+     * next window for cross-boundary context.
+     */
+    static List<String> segmentText(String text, int maxChars, int overlap) {
+        List<String> segs = new ArrayList<>();
+        int n = text.length();
+        int start = 0;
+        while (start < n) {
+            int end = Math.min(start + maxChars, n);
+            if (end < n) {
+                int floor = start + (maxChars * 9 / 10); // don't back off more than ~10%
+                int b = lastBoundary(text, Math.max(floor, start + 1), end);
+                if (b > start) {
+                    end = b;
+                }
+            }
+            segs.add(text.substring(start, end));
+            if (end >= n) {
+                break;
+            }
+            start = Math.max(end - overlap, start + 1);
+        }
+        return segs;
+    }
+
+    /** Last natural boundary in [floor, end): paragraph break, else newline, else sentence end. */
+    private static int lastBoundary(String text, int floor, int end) {
+        int para = text.lastIndexOf("\n\n", end - 1);
+        if (para >= floor) return para + 2;
+        int nl = text.lastIndexOf('\n', end - 1);
+        if (nl >= floor) return nl + 1;
+        int dot = text.lastIndexOf(". ", end - 1);
+        if (dot >= floor) return dot + 2;
+        return end;
     }
 
 }

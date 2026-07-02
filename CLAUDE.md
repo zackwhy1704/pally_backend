@@ -98,3 +98,9 @@ never re-implemented inline in handlers.
 - **CONSISTENCY over cleverness.** The recurring root cause of every bug here is a good pattern applied in
   one place but not its siblings. When you adopt/fix a pattern, grep all siblings AND add a guard test to
   hold the line.
+- **A fix at the VISIBLE layer is not a fix at the WORK layer.** The client showed "Mochi splits it into
+  sections" while the compiler batched WHOLE files only — a reassuring label over a capability that didn't
+  exist, so a big file still timed out. Before trusting UI/log copy that claims a behaviour, verify the
+  behaviour exists beneath it. (Fixed: real within-file segmentation in CompileWikiUseCase — a single
+  over-budget file now splits into ordered ~max-sync-chars segments sharing one fileId, compiled + persisted
+  per segment.)

@@ -95,6 +95,58 @@ class BatchSplittingTest {
         assertThat(batches.get(0)).hasSize(1);
     }
 
+    // ── Within-file segmentation (the fix for a single huge file timing out) ──
+
+    @Test
+    void segmentOversizedFiles_splitsBigFile_allSegmentsShareOneFileId() {
+        KnowledgeFile big = makeFile("book.pdf", 120_000);
+        String id = big.getId();
+
+        List<KnowledgeFile> units =
+                CompileWikiUseCase.segmentOversizedFiles(List.of(big), 50_000);
+
+        assertThat(units.size()).isGreaterThanOrEqualTo(3); // 120k → 3+ windows
+        assertThat(units).allSatisfy(u -> {
+            assertThat(u.getId()).isEqualTo(id); // provenance preserved across segments
+            assertThat(u.getExtractedText().length()).isLessThanOrEqualTo(50_000);
+        });
+        assertThat(units.get(0).getFileName()).contains("part 1/");
+    }
+
+    @Test
+    void segmentOversizedFiles_smallFilePassesThroughUnchanged() {
+        KnowledgeFile small = makeFile("notes.pdf", 10_000);
+        List<KnowledgeFile> units =
+                CompileWikiUseCase.segmentOversizedFiles(List.of(small), 50_000);
+        assertThat(units).containsExactly(small); // same instance, not segmented
+    }
+
+    @Test
+    void oversizedFile_afterSegmenting_producesMultipleBatches() {
+        // THE FIX: a single 120k-char file used to be one indivisible batch
+        // (→ compile timeout). After segmenting it becomes several.
+        KnowledgeFile big = makeFile("book.pdf", 120_000);
+        List<KnowledgeFile> units =
+                CompileWikiUseCase.segmentOversizedFiles(List.of(big), 50_000);
+        List<List<KnowledgeFile>> batches =
+                CompileWikiUseCase.splitIntoBatches(units, 50_000);
+        assertThat(batches.size()).isGreaterThan(1);
+    }
+
+    @Test
+    void segmentText_coversText_eachWithinBudget() {
+        List<String> segs = CompileWikiUseCase.segmentText("x".repeat(130_000), 50_000, 800);
+        assertThat(segs.size()).isGreaterThanOrEqualTo(3);
+        assertThat(segs).allSatisfy(s -> assertThat(s.length()).isLessThanOrEqualTo(50_000));
+    }
+
+    @Test
+    void segmentText_backsOffToParagraphBoundary() {
+        String text = "a".repeat(49_500) + "\n\n" + "b".repeat(20_000);
+        List<String> segs = CompileWikiUseCase.segmentText(text, 50_000, 800);
+        assertThat(segs.get(0)).endsWith("\n\n"); // split on the boundary, not mid-run
+    }
+
     private KnowledgeFile makeFile(String name, int textLength) {
         KnowledgeFile kf = KnowledgeFile.create("avatar-1", "user-1", name,
                 "key/" + name, KnowledgeFile.UploadType.PDF);
