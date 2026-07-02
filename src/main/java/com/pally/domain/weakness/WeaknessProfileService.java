@@ -20,8 +20,11 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The WEAKNESS_PROFILE head, end to end — compiles a student's performance
@@ -100,6 +103,27 @@ public class WeaknessProfileService {
         } catch (Exception e) {
             log.warn("[Weakness] onMasteryUpdated failed (non-fatal): {}", e.getMessage());
         }
+    }
+
+    /**
+     * The student-facing focus view: current focus areas (title + short summary)
+     * + recently-recovered wins + the enabled flag (so the client hides the UI
+     * when the pilot is off). Empty lists when off / no profile.
+     */
+    public Map<String, Object> focusFor(String userId, Subject subject) {
+        List<Map<String, Object>> areas = new ArrayList<>();
+        for (WikiPage p : weaknessPagesFor(userId, subject)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("title", p.getTitle());
+            String c = p.getContent() == null ? "" : p.getContent();
+            m.put("summary", c.length() > 200 ? c.substring(0, 200) + "…" : c);
+            areas.add(m);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("enabled", enabled);
+        out.put("focusAreas", areas);
+        out.put("recentWins", recentWins(userId, subject));
+        return out;
     }
 
     /** Topics the student recently recovered — for the "you improved" celebration. */

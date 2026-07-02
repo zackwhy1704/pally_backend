@@ -181,4 +181,13 @@ class WeaknessProfileServiceTest {
         assertThat(service.weaknessPagesFor("user-1", Subject.MATHS)).isEmpty();
         verifyNoInteractions(wikiRepository);
     }
+
+    @Test
+    void focusFor_reportsEnabledFlagAndEmptyListsWhenOff() {
+        ReflectionTestUtils.setField(service, "enabled", false);
+        var out = service.focusFor("user-1", Subject.MATHS);
+        assertThat(out.get("enabled")).isEqualTo(false);
+        assertThat((List<?>) out.get("focusAreas")).isEmpty();
+        assertThat((List<?>) out.get("recentWins")).isEmpty();
+    }
 }
