@@ -69,6 +69,19 @@ class GroundednessVerifierTest {
     }
 
     @Test
+    void pairWindow_doesNotRescueNumericFabrication_judgeStillFlags() {
+        // False-negative guard for the widened pre-pass: a claim whose TOKENS overlap
+        // two adjacent source sentences (high coverage) but which carries a FABRICATED
+        // NUMBER must NOT slip through — numbersCovered() fails, so it still goes to the
+        // judge and is flagged. The coverage loosening must not open a fabrication hole.
+        var report = verifier.check(SOURCE, List.of(
+                "Photosynthesis in the chloroplasts produces 300000 units of glucose energy."));
+        assertThat(judgeCalls.get()).isGreaterThan(0); // not short-circuited by the pair window
+        assertThat(report.flagged()).isNotEmpty();       // fabrication caught
+        assertThat(report.needsAttention()).isTrue();
+    }
+
+    @Test
     void case2_elaborationWithNoHardFact_isAllowed_notFlagged() {
         // Soft definitional claim, low overlap with the source → must be ALLOWED.
         var report = verifier.check(SOURCE, List.of("Plants are producers in the food chain."));
