@@ -230,7 +230,9 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
         // merge block, output format) is shared so parsing + merge are identical.
         sb.append(avatar.isMarkingCorpus()
                 ? markingPromptHeader(avatar)
-                : notesPromptHeader(avatar));
+                : avatar.isWeaknessProfile()
+                    ? weaknessPromptHeader(avatar)
+                    : notesPromptHeader(avatar));
 
         for (KnowledgeFile file : files) {
             sb.append("### Source: ").append(file.getFileName());
@@ -352,6 +354,11 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
     // between the Gemini (primary) compiler and this fallback.
     private String markingPromptHeader(Avatar avatar) {
         return WikiCompilerPrompts.markingHeader(avatar.getSubject().label());
+    }
+
+    // Weakness-profile prompt also lives in WikiCompilerPrompts so it can't drift.
+    private String weaknessPromptHeader(Avatar avatar) {
+        return WikiCompilerPrompts.weaknessHeader(avatar.getSubject().label());
     }
 
     private List<WikiPageDraft> parseResponse(String raw) {

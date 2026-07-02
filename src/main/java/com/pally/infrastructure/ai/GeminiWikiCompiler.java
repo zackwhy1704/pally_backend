@@ -481,7 +481,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         // output format) is shared, so merge + JSON parsing are identical.
         sb.append(avatar.isMarkingCorpus()
                 ? markingPromptHeader(avatar)
-                : notesPromptHeader(avatar));
+                : avatar.isWeaknessProfile()
+                    ? weaknessPromptHeader(avatar)
+                    : notesPromptHeader(avatar));
 
         for (KnowledgeFile file : files) {
             sb.append("\n### Source: ").append(file.getFileName()).append("\n");
@@ -552,6 +554,11 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     // between this (primary) compiler and the Claude fallback.
     private String markingPromptHeader(Avatar avatar) {
         return WikiCompilerPrompts.markingHeader(avatar.getSubject().label());
+    }
+
+    // Weakness-profile prompt also lives in WikiCompilerPrompts so it can't drift.
+    private String weaknessPromptHeader(Avatar avatar) {
+        return WikiCompilerPrompts.weaknessHeader(avatar.getSubject().label());
     }
 
     private List<WikiPageDraft> parseResponse(String raw) {

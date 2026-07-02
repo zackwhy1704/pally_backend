@@ -77,6 +77,30 @@ class MarkingCompilerPromptTest {
     }
 
     @Test
+    void weaknessProfileAvatar_usesWeaknessProfilePrompt() {
+        Avatar a = mock(Avatar.class);
+        when(a.getId()).thenReturn("wk-1");
+        when(a.getName()).thenReturn("Weakness");
+        when(a.getSubject()).thenReturn(Subject.MATHS);
+        when(a.isMarkingCorpus()).thenReturn(false);
+        when(a.isWeaknessProfile()).thenReturn(true);
+        KnowledgeFile f = mock(KnowledgeFile.class);
+        when(f.getFileName()).thenReturn("performance-signals");
+        when(f.getExtractedText()).thenReturn("Weak: fractions 1/5 correct.");
+
+        compiler.compile(a, List.of(f), List.of());
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(mockApiClient).complete(anyString(), anyInt(), captor.capture());
+        String prompt = captor.getValue();
+        assertThat(prompt)
+                .contains("WEAKNESS PROFILE")
+                .containsIgnoringCase("performance signals")
+                .doesNotContain("MARKING STANDARD")
+                .doesNotContain("knowledge organiser for a student study app");
+    }
+
+    @Test
     void compile_parsesTheContextFieldIntoTheDraft() {
         when(mockApiClient.complete(anyString(), anyInt(), anyString())).thenReturn(
                 "[{\"slug\":\"s\",\"title\":\"T\",\"content\":\"Body.\","

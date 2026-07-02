@@ -29,5 +29,13 @@ package com.pally.domain.avatar;
 public enum AvatarKind {
     PERSONAL,
     CENTRE_CLASS,
-    MARKING_CORPUS
+    MARKING_CORPUS,
+    /**
+     * A hidden, per-student brain holding the student's compiled WEAKNESS
+     * PROFILE — what THIS student repeatedly gets wrong — keyed by (userId,
+     * subject). Compiled from performance signals (quiz results, confidence,
+     * low mastery) rather than uploaded files, through the SAME wiki harness.
+     * Never listed/collectible; owner is the student. Dormant behind a flag.
+     */
+    WEAKNESS_PROFILE
 }

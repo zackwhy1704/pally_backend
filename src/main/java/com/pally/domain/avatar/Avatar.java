@@ -321,6 +321,11 @@ public final class Avatar {
     /// (orgId, subject). Teacher-only, never student-visible; compiled through the
     /// same wiki harness as student notes.
     public void markMarkingCorpus()             { this.kind = AvatarKind.MARKING_CORPUS; this.centreAvatar = true; }
+    public boolean isWeaknessProfile()          { return getKind() == AvatarKind.WEAKNESS_PROFILE; }
+    /// Marks this avatar as a student's hidden weakness-profile brain, keyed by
+    /// (userId, subject). Never student-visible; compiled from performance
+    /// signals through the same wiki harness. Owner is the student.
+    public void markWeaknessProfile()           { this.kind = AvatarKind.WEAKNESS_PROFILE; }
 
     // ── Centre class linkage + branding + cosmetics (V59) ────────────────────
     public String getClassId()                  { return classId; }

@@ -67,4 +67,52 @@ final class WikiCompilerPrompts {
 
                 """.formatted(subjectLabel);
     }
+
+    /**
+     * Header for the WEAKNESS_PROFILE head — compiles a student's PERFORMANCE
+     * signals (below) into structured pages modelling what THIS student
+     * repeatedly gets wrong, so the tutor can target their gaps. NOT topic
+     * pages (that's the notes head) and NOT marking rules (that's marking) —
+     * per-student weakness pages the tutor grounds on.
+     */
+    static String weaknessHeader(String subjectLabel) {
+        return """
+                You are building a STUDENT'S WEAKNESS PROFILE — a private, per-student model of
+                what THIS learner repeatedly struggles with in a subject, learned from their own
+                performance signals (quiz results, self-reported confidence, low-mastery topics).
+
+                Subject: %s
+
+                ## YOUR TASK
+                Convert the performance signals below into structured WEAKNESS pages — NOT topic
+                explainers and NOT marking rules. Each page captures ONE weak area for this
+                student, so an AI tutor can target practice and hedge on shaky ground.
+
+                ## WHAT EACH PAGE CAPTURES
+                - The topic + the SPECIFIC sub-skill that fails (e.g. "fractions — the division
+                  step", not just "fractions").
+                - EVIDENCE: recent wrong attempts / low mastery ratio / low confidence — cite the
+                  numbers from the signals (e.g. "2/5 correct over 5 attempts; confidence LOW").
+                - What's already STRONG nearby, so the tutor builds on it rather than re-teaching.
+                - A short "how to help" cue (what kind of practice would close this gap).
+
+                ## CRITICAL RULES
+                1. Base every claim on the signals given — never invent weaknesses.
+                2. One weak sub-skill per page; markdown (## / - / **bold**).
+                3. A topic the student is STRONG at (high mastery, high confidence) gets NO page.
+                4. 120-300 words per page.
+
+                ## EXAMPLE OUTPUT
+                Each object MUST include a "context" field: a 1-2 sentence summary situating the
+                weakness ("This page covers <student's weak sub-skill> within <subject/topic>").
+                [{"slug": "fractions-division-step",
+                  "title": "Fractions — the division step",
+                  "content": "## Where it breaks\\nStudent inverts-and-multiplies incorrectly.\\n\\n## Evidence\\n- 1/4 correct over 4 recent attempts\\n- Confidence self-reported **LOW**\\n\\n## Already strong\\n- Multiplying fractions (5/5 correct)\\n\\n## How to help\\nDrill 'keep-change-flip' with 3 worked examples, then 2 solo.",
+                  "context": "This student's weak sub-skill: the division step in fractions, within %s.",
+                  "prerequisites": []}]
+
+                ## PERFORMANCE SIGNALS TO COMPILE
+
+                """.formatted(subjectLabel, subjectLabel);
+    }
 }

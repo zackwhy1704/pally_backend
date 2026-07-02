@@ -36,6 +36,7 @@ public class GetAvatarUseCase {
         // (CENTRE_CLASS is intentionally left in; the mapper renders it.)
         return avatarRepository.findByUserId(userId).stream()
                 .filter(a -> a.getKind() != AvatarKind.MARKING_CORPUS)
+                .filter(a -> a.getKind() != AvatarKind.WEAKNESS_PROFILE)
                 .toList();
     }
 }
