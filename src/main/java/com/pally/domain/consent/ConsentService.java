@@ -278,7 +278,7 @@ public class ConsentService {
                       </p>
                       <hr style="border:none;border-top:1px solid #E0DAF0;margin:24px 0"/>
                       <p style="color:#A8A0BD;font-size:11px">
-                        Apalchi &middot; apalchi.com &middot; Questions? Reply to this email.
+                        Apalchi &middot; apalchi.com &middot; Questions? Visit apalchi.com/support
                       </p>
                     </div>
                     """.formatted(approveUrl);
