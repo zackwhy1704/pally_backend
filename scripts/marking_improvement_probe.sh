@@ -43,18 +43,25 @@ setup_subject(){
       GT_GRADE="3/3"
       GT_COMMENTS="Correct. You wrote the formula R=V/I which earns the method mark under our centre rule (formula must be shown). 3/3."
       TAUGHT_RE="formula.{0,30}(shown|written|earn|method)|no formula.{0,20}no|centre rule"
-      CONTROL_RE="units|significant figures|spelling"
+      # Genuinely-absent control: a circuit-DIAGRAM requirement is neither taught in
+      # the exemplars nor a model default for a numeric resistance answer → must read ~0.
+      CONTROL_RE="diagram|draw.{0,15}circuit"
       ;;
     english)
       SUBJECT_ENUM="English"
-      RUBRIC="Give feedback on the paragraph. Comment on structure and clarity."
-      EX1="MARKED PAPER band: Developing — Paragraph has an idea but no clear topic sentence. THIS CENTRE labels a mid-band response 'Developing' and requires a TOPIC SENTENCE. Feedback: 'Developing — add a topic sentence to reach Secure.'"
-      EX2="MARKED PAPER band: Developing — Ideas present, topic sentence missing. Centre band label 'Developing'. 'Add a clear topic sentence.'"
+      # NON-GENERIC taught rule: an arbitrary, detectable, counter-intuitive centre
+      # convention the model would NEVER emit unprompted — a discrete "+1 hook mark"
+      # awarded ONLY for a question/statistic opening. (The old "comment on structure"
+      # rule was something the model already does → no headroom → proved nothing.)
+      RUBRIC="Give brief feedback on the paragraph."
+      EX1="MARKED PARAGRAPH — hook mark: 0/1. THIS CENTRE awards a discrete +1 'hook mark' ONLY when the FIRST sentence is a QUESTION or a STATISTIC. This opening is a plain statement, so the hook mark is 0. Feedback: 'No hook mark — open with a question or a statistic to earn the +1 hook mark.'"
+      EX2="MARKED PARAGRAPH — hook mark: 1/1. Opening is a question ('Did you know dogs sleep 12 hours?') so the centre's +1 hook mark is awarded. 'Great hook — a question opening earns the hook mark.'"
       SUB="Paragraph: Dogs are good. They run and play. My dog is brown and likes food."
       GT_GRADE=""
-      GT_COMMENTS="Developing — there is no clear topic sentence; add one to reach Secure (our centre band labels this Developing)."
-      TAUGHT_RE="developing|topic sentence"     # the centre band label + rule
-      CONTROL_RE="grammar|punctuation|word count"
+      GT_COMMENTS="No hook mark (0/1) — the opening is a plain statement; our centre awards the +1 hook mark only for a question or statistic opening."
+      TAUGHT_RE="hook mark"     # arbitrary centre artifact; the model won't invent this phrase
+      # Genuinely-absent control: adjective-counting is neither taught nor a model default.
+      CONTROL_RE="adjective"
       ;;
   esac
   printf '%s\t%s\t%s\t%s\t%s\n' "$SUBJ" "$GT_GRADE" "$TAUGHT_RE" "$CONTROL_RE" "$GT_COMMENTS" >> "$OUT/manifest.tsv"
