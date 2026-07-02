@@ -42,7 +42,7 @@ class ClaudeContextAssemblerCorpusTest {
     @BeforeEach
     void setUp() {
         assembler = new ClaudeContextAssembler(
-                topicRouter, wikiRepository, chatRepository,
+                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class), chatRepository,
                 new ObjectMapper(), sessionSummariser, calculatorTool, algebraTool);
     }
 

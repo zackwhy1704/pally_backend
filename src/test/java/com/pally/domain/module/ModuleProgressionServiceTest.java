@@ -40,6 +40,7 @@ class ModuleProgressionServiceTest {
     @Mock private com.pally.domain.progress.XpService xpService;
     @Mock private com.pally.domain.avatar.AvatarRepository avatarRepository;
     @Mock private com.pally.domain.centre.CentreAccessService centreAccessService;
+    @Mock private com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
 
     private ModuleProgressionService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -50,7 +51,7 @@ class ModuleProgressionServiceTest {
                 moduleRepository, itemRepository, progressRepository,
                 contentGenerator, proveEvaluator, wikiRepository, objectMapper,
                 milestoneNotifier, activityLogService, xpService,
-                avatarRepository, centreAccessService);
+                avatarRepository, centreAccessService, weaknessProfileService);
         // Default: caller owns the module's avatar, so the access guard passes.
         // Individual tests override this to exercise the IDOR rejection.
         lenient().when(avatarRepository.existsByIdAndUserId(anyString(), anyString()))

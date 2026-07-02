@@ -11,6 +11,8 @@ import com.pally.domain.knowledge.port.WikiCompilerPort.CompileOutput;
 import com.pally.domain.knowledge.port.WikiCompilerPort.WikiPageDraft;
 import com.pally.domain.knowledge.usecase.WikiPagePersistenceService;
 import com.pally.domain.weakness.WeaknessSignalRepository.TopicMastery;
+import com.pally.domain.weakness.WeaknessStateStore.WeaknessState;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +37,7 @@ class WeaknessProfileServiceTest {
     @Mock WikiCompilerPort wikiCompiler;
     @Mock WikiPagePersistenceService persistenceService;
     @Mock WikiRepository wikiRepository;
+    @Mock WeaknessStateStore stateStore;
 
     WeaknessProfileService service;
 
@@ -46,7 +49,7 @@ class WeaknessProfileServiceTest {
     @BeforeEach
     void setUp() {
         service = new WeaknessProfileService(avatarRepository, signalRepository,
-                signalService, wikiCompiler, persistenceService, wikiRepository);
+                signalService, wikiCompiler, persistenceService, wikiRepository, stateStore);
     }
 
     @Test
@@ -107,6 +110,69 @@ class WeaknessProfileServiceTest {
 
         assertThat(resolved).isSameAs(existing);
         verify(avatarRepository, never()).save(any());
+    }
+
+    @Test
+    void onMasteryUpdated_isANoOpWhenFlagOff() {
+        ReflectionTestUtils.setField(service, "enabled", false);
+        service.onMasteryUpdated("user-1", "av-x");
+        verifyNoInteractions(avatarRepository, signalRepository, stateStore, wikiCompiler);
+    }
+
+    @Test
+    void onMasteryUpdated_debounce_skipsWhenWeakSetUnchanged() {
+        ReflectionTestUtils.setField(service, "enabled", true);
+        Avatar src = sourceAvatar();
+        when(avatarRepository.findById(src.getId())).thenReturn(Optional.of(src));
+        when(signalRepository.findTopicMastery(eq("user-1"), anyString()))
+                .thenReturn(List.of(new TopicMastery("fractions", 0.2, 5)));
+        when(signalService.weakSlugs(any())).thenReturn(List.of("fractions"));
+        when(stateStore.find("user-1", Subject.MATHS))
+                .thenReturn(Optional.of(new WeaknessState("fractions", "")));
+
+        service.onMasteryUpdated("user-1", src.getId());
+
+        // Unchanged weak-set → no recompile, no state write (the debounce guard).
+        verify(stateStore, never()).upsert(any(), any(), any(), any());
+        verify(wikiCompiler, never()).compileWithTier(any(), any(), any());
+    }
+
+    @Test
+    void onMasteryUpdated_recompilesAndRecordsWins_whenWeakSetChanged() {
+        ReflectionTestUtils.setField(service, "enabled", true);
+        Avatar src = sourceAvatar();
+        when(avatarRepository.findById(src.getId())).thenReturn(Optional.of(src));
+        when(signalRepository.findTopicMastery(eq("user-1"), anyString()))
+                .thenReturn(List.of(new TopicMastery("ratios", 0.3, 5)));
+        when(signalService.weakSlugs(any())).thenReturn(List.of("ratios"));
+        when(stateStore.find("user-1", Subject.MATHS))
+                .thenReturn(Optional.of(new WeaknessState("fractions,ratios", "")));
+        // rebuildFor path:
+        when(signalService.renderReport(eq(Subject.MATHS), any())).thenReturn("weak: ratios");
+        when(avatarRepository.findByUserId("user-1")).thenReturn(List.of());
+        when(avatarRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(wikiRepository.findByAvatarId(anyString())).thenReturn(List.of());
+        when(wikiCompiler.compileWithTier(any(), any(), any()))
+                .thenReturn(new CompileOutput(List.of(
+                        new WikiPageDraft("ratios", "Ratios", "body"))));
+
+        service.onMasteryUpdated("user-1", src.getId());
+
+        // fractions recovered (was weak, now not) → recorded as a win; recompiled.
+        ArgumentCaptor<String> wins = ArgumentCaptor.forClass(String.class);
+        verify(stateStore).upsert(eq("user-1"), eq(Subject.MATHS), eq("ratios"), wins.capture());
+        assertThat(wins.getValue()).contains("fractions");
+        verify(wikiCompiler).compileWithTier(any(), any(), any());
+        verify(persistenceService).persistDrafts(any(), any(), any());
+    }
+
+    @Test
+    void recentWins_returnsStoredWins_whenEnabled() {
+        ReflectionTestUtils.setField(service, "enabled", true);
+        when(stateStore.find("user-1", Subject.MATHS))
+                .thenReturn(Optional.of(new WeaknessState("ratios", "fractions,decimals")));
+        assertThat(service.recentWins("user-1", Subject.MATHS))
+                .containsExactly("fractions", "decimals");
     }
 
     @Test

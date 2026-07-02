@@ -43,6 +43,7 @@ public class ModuleProgressionService {
     private final com.pally.domain.progress.XpService xpService;
     private final AvatarRepository avatarRepository;
     private final CentreAccessService centreAccessService;
+    private final com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
 
     /// Flat XP awarded when a module is fully completed (reaches COMPLETE).
     private static final int MODULE_COMPLETE_XP = 25;
@@ -333,6 +334,17 @@ public class ModuleProgressionService {
                     module.setCompletedAt(Instant.now());
                     // Calculate mastery from PROVE scores
                     updateMastery(module, userId);
+                    // Weakness head (pilot, flag-gated): debounced async recompile
+                    // of the student's weakness brain. Only enqueue when enabled;
+                    // never let it affect module completion.
+                    if (weaknessProfileService.isEnabled()) {
+                        try {
+                            weaknessProfileService.onMasteryUpdated(
+                                    userId, module.getAvatarId());
+                        } catch (Exception ignored) {
+                            // async dispatch is best-effort; module result stands
+                        }
+                    }
                     // Award a small flat XP for completing the whole module.
                     try {
                         xpService.awardFlat(userId, MODULE_COMPLETE_XP);

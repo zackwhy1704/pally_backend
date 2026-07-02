@@ -24,6 +24,7 @@ class ArithmeticVerificationTest {
         assembler = new ClaudeContextAssembler(
                 mock(TopicRouter.class),
                 mock(WikiRepository.class),
+                org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class),
                 mock(ChatRepository.class),
                 new ObjectMapper(),
                 mock(ChatSessionSummariser.class),

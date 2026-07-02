@@ -10,13 +10,17 @@ import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.domain.knowledge.usecase.WikiPagePersistenceService;
+import com.pally.domain.weakness.WeaknessStateStore.WeaknessState;
+import com.pally.infrastructure.config.AiTaskExecutorConfig;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -40,9 +44,78 @@ public class WeaknessProfileService {
     private final WikiCompilerPort wikiCompiler;
     private final WikiPagePersistenceService persistenceService;
     private final WikiRepository wikiRepository;
+    private final WeaknessStateStore stateStore;
+
+    /** How many recovered topics to remember for the "you improved" celebration. */
+    private static final int MAX_WINS = 5;
 
     @Value("${weakness.profile.enabled:false}")
     private boolean enabled;
+
+    /** Exposed so callers skip enqueuing an async trigger when the pilot is off. */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /**
+     * Debounced trigger — call after a mastery update (PROVE→mastery). Runs async
+     * so it never adds latency to module completion, and only (re)compiles when
+     * the student's weak-set MATERIALLY changed since last time (no
+     * compile-per-session storm). Records recovered topics as "wins". No-op when
+     * the flag is off. Never throws into the caller.
+     */
+    @Async(AiTaskExecutorConfig.AI_TASK_EXECUTOR)
+    public void onMasteryUpdated(String userId, String sourceAvatarId) {
+        if (!enabled) return;
+        try {
+            Avatar source = avatarRepository.findById(sourceAvatarId).orElse(null);
+            if (source == null || source.getSubject() == null) return;
+            Subject subject = source.getSubject();
+
+            List<String> currentWeak =
+                    signalService.weakSlugs(signalRepository.findTopicMastery(userId, sourceAvatarId));
+            String currentSig = String.join(",", currentWeak);
+
+            var prev = stateStore.find(userId, subject);
+            String prevSig = prev.map(WeaknessState::weakSlugs).orElse("");
+            if (currentSig.equals(prevSig)) {
+                log.debug("[Weakness] debounce skip user={} subject={} weak-set unchanged",
+                        hash(userId), subject);
+                return;
+            }
+
+            // Wins = topics that were weak before and no longer are.
+            List<String> prevWeak = prevSig.isBlank()
+                    ? List.of() : Arrays.asList(prevSig.split(","));
+            List<String> recovered = prevWeak.stream()
+                    .filter(s -> !currentWeak.contains(s)).toList();
+            String recentWins = recovered.isEmpty()
+                    ? prev.map(WeaknessState::recentWins).orElse("")
+                    : String.join(",", recovered.stream().limit(MAX_WINS).toList());
+
+            stateStore.upsert(userId, subject, currentSig, recentWins);
+            log.info("[Weakness] recompile user={} subject={} weak={} recovered={}",
+                    hash(userId), subject, currentWeak.size(), recovered.size());
+            rebuildFor(source);
+        } catch (Exception e) {
+            log.warn("[Weakness] onMasteryUpdated failed (non-fatal): {}", e.getMessage());
+        }
+    }
+
+    /** Topics the student recently recovered — for the "you improved" celebration. */
+    public List<String> recentWins(String userId, Subject subject) {
+        if (!enabled) return List.of();
+        return stateStore.find(userId, subject)
+                .map(WeaknessState::recentWins)
+                .filter(s -> s != null && !s.isBlank())
+                .map(s -> Arrays.asList(s.split(",")))
+                .orElseGet(List::of);
+    }
+
+    /** Privacy: never log a raw userId. */
+    private static String hash(String userId) {
+        return userId == null ? "?" : Integer.toHexString(userId.hashCode());
+    }
 
     /**
      * Rebuilds the student's weakness brain for the subject of [sourceAvatar]

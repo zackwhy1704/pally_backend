@@ -54,6 +54,10 @@ public class ClaudeContextAssembler {
     private static final Logger log = LoggerFactory.getLogger(ClaudeContextAssembler.class);
     private static final int MAX_TIER3_PAGES = 5;
     private static final int MAX_TIER4_PAGES = 3;
+    // Weakness head (pilot): a small, SECONDARY focus block — capped so it can
+    // never crowd out the subject-notes tiers above it.
+    private static final int MAX_WEAKNESS_PAGES = 3;
+    private static final int MAX_WEAKNESS_PAGE_CHARS = 400;
 
     /// Matches simple arithmetic expressions in user messages, e.g. "12 × 5", "100 / 4".
     /// Same pattern as ClaudeQuizGenerator — single two-operand expression.
@@ -103,6 +107,7 @@ public class ClaudeContextAssembler {
 
     private final TopicRouter topicRouter;
     private final WikiRepository wikiRepository;
+    private final com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
     private final ChatRepository chatRepository;
     private final ObjectMapper objectMapper;
     private final ChatSessionSummariser sessionSummariser;
@@ -261,6 +266,18 @@ public class ClaudeContextAssembler {
                     estimateTokens(memoryBlock));
         }
 
+        // ── Block 3.6: Weakness focus — pilot, flag-gated, NO cache ───────────
+        // Sits before Block 4 (dynamic tail) so "replace last block" still targets
+        // block4. Small + SECONDARY: capped pages/chars so subject notes above are
+        // never starved. Empty (byte-for-byte unchanged) when the flag is off.
+        String weaknessBlock = buildWeaknessBlock(avatar);
+        if (!weaknessBlock.isEmpty()) {
+            Map<String, Object> bw = new HashMap<>();
+            bw.put("type", "text");
+            bw.put("text", weaknessBlock);
+            blocks.add(bw); // user-specific + changes → intentionally no cache
+        }
+
         // ── Block 4: Dynamic tail — NO cache ──────────────────────────────────
         // Fix 4: include recently-archived slugs so the tutor is honest about deletions.
         // Centre avatars track the class corpus's archived pages, not their own.
@@ -280,6 +297,37 @@ public class ClaudeContextAssembler {
                 estimateTokens(block4), recentlyArchived.size());
 
         return blocks;
+    }
+
+    /**
+     * The weakness focus block — the tutor's "where to focus" steer, SECONDARY to
+     * the subject notes. Personal avatars only (centre chat doesn't carry the
+     * student's own userId here). Empty when the flag is off / no profile exists,
+     * so assembly is byte-for-byte unchanged in the default state.
+     */
+    private String buildWeaknessBlock(Avatar avatar) {
+        if (avatar.getCorpusAvatarId() != null || avatar.getSubject() == null) return "";
+        List<WikiPage> pages =
+                weaknessProfileService.weaknessPagesFor(avatar.getUserId(), avatar.getSubject());
+        if (pages.isEmpty()) return "";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("## THINGS THIS STUDENT STRUGGLES WITH (focus here — secondary to the notes above)\n");
+        sb.append("Use these to steer WHERE to focus and what to reinforce. The wiki pages above ")
+          .append("remain the source of truth for what is correct — do NOT let these override them.\n\n");
+        int n = 0;
+        for (WikiPage p : pages) {
+            if (n >= MAX_WEAKNESS_PAGES) break;
+            String body = p.getContent() == null ? "" : p.getContent();
+            if (body.length() > MAX_WEAKNESS_PAGE_CHARS) {
+                body = body.substring(0, MAX_WEAKNESS_PAGE_CHARS) + "…";
+            }
+            sb.append("### ").append(p.getTitle()).append("\n").append(body).append("\n\n");
+            n++;
+        }
+        log.info("[Weakness] grounded {} focus page(s) (~{}t) for avatarId={}",
+                n, estimateTokens(sb.toString()), avatar.getId());
+        return sb.toString();
     }
 
     // ── Safe format helper ────────────────────────────────────────────────────

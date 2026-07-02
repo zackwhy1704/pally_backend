@@ -26,15 +26,31 @@ public class WeaknessSignalService {
      * Builds the report, or returns null when there isn't enough signal to
      * bother compiling (caller then skips the rebuild).
      */
+    /** The weak topics (weakest-first) — the shared basis for the report + the
+     *  debounce signature. Filters out under-attested topics. */
+    public List<TopicMastery> weakTopics(List<TopicMastery> mastery) {
+        return mastery.stream()
+                .filter(m -> m.topicSlug() != null && !m.topicSlug().isBlank())
+                .filter(m -> m.attempts() >= MIN_ATTEMPTS)
+                .filter(m -> m.correctRatio() < WEAK_RATIO)
+                .sorted((a, b) -> Double.compare(a.correctRatio(), b.correctRatio()))
+                .toList();
+    }
+
+    /** Sorted weak-topic slugs — the debounce signature for a recompile trigger. */
+    public List<String> weakSlugs(List<TopicMastery> mastery) {
+        return weakTopics(mastery).stream()
+                .map(TopicMastery::topicSlug)
+                .sorted()
+                .toList();
+    }
+
     public String renderReport(Subject subject, List<TopicMastery> mastery) {
         List<TopicMastery> usable = mastery.stream()
                 .filter(m -> m.topicSlug() != null && !m.topicSlug().isBlank())
                 .filter(m -> m.attempts() >= MIN_ATTEMPTS)
                 .toList();
-        List<TopicMastery> weak = usable.stream()
-                .filter(m -> m.correctRatio() < WEAK_RATIO)
-                .sorted((a, b) -> Double.compare(a.correctRatio(), b.correctRatio()))
-                .toList();
+        List<TopicMastery> weak = weakTopics(mastery);
         if (weak.isEmpty()) return null; // nothing to target — skip
 
         List<TopicMastery> strong = usable.stream()
