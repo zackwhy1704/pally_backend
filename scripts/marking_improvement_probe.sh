@@ -36,13 +36,17 @@ setup_subject(){
       ;;
     science)
       SUBJECT_ENUM="Science"
+      # Counter-intuitive centre rule: the METHOD MARK is 0 unless the formula is
+      # written FIRST — even when the final answer is correct. The submission below
+      # deliberately OMITS the formula (bare arithmetic) so the rule has something to
+      # bite on; the detectable artifact is "no method mark" / "method mark: 0".
       RUBRIC="Mark each question. Credit correct science reasoning and the correct answer."
-      EX1="MARKED PAPER 3/5 — Q: current in a 12V, 4ohm circuit? Used I=V/R [+1 formula: THIS CENTRE requires the FORMULA written to earn the mark] =3 [+1] Answer 3A [+1]. Missing formula would score 0 for that step. 3/5. 'Centre rule: no formula written = no method mark.'"
-      EX2="MARKED PAPER 2/5 — Q: power? Wrote P=VI [+1 formula shown] =36 [+1] Answer 36W. Centre rule: formula MUST be written to earn the method mark."
-      SUB="Q: A 9V battery drives 3A through a resistor. Find the resistance. R = 9/3 = 3. Answer: 3 ohms"
-      GT_GRADE="3/3"
-      GT_COMMENTS="Correct. You wrote the formula R=V/I which earns the method mark under our centre rule (formula must be shown). 3/3."
-      TAUGHT_RE="formula.{0,30}(shown|written|earn|method)|no formula.{0,20}no|centre rule"
+      EX1="MARKED PAPER — method mark: 0/1. Q: current in a 12V, 4ohm circuit? Student wrote '12/4 = 3, Answer 3A' — correct answer BUT no formula. THIS CENTRE gives method mark = 0 unless the formula (I=V/R) is written first. So: method mark 0 even though the answer is right. 'No method mark — you must write the formula I=V/R first (centre rule).'"
+      EX2="MARKED PAPER — method mark: 1/1. Q: power? Student wrote 'P=VI = 12x3 = 36W'. Formula written first, so the method mark is awarded. 'Method mark given — formula shown as our centre requires.'"
+      SUB="Q: A 9V battery drives 3A through a resistor. Find the resistance. 9 divided by 3 is 3. Answer: 3 ohms"
+      GT_GRADE=""
+      GT_COMMENTS="No method mark — the answer (3 ohms) is correct but you did not write the formula R=V/I first, and our centre gives the method mark 0 without the formula."
+      TAUGHT_RE="no method mark|method mark.{0,8}0|without.{0,20}formula|formula.{0,30}first"
       # Genuinely-absent control: a circuit-DIAGRAM requirement is neither taught in
       # the exemplars nor a model default for a numeric resistance answer → must read ~0.
       CONTROL_RE="diagram|draw.{0,15}circuit"
@@ -78,7 +82,7 @@ draft(){ # $1=subject $2=round $3=rep ; writes flattened comments to samples/
 }
 
 echo "== rigorous marking-improvement probe @ $BASE (N=$N reps/round) =="
-for SUBJ in maths science english; do
+for SUBJ in ${SUBJECTS:-maths science english}; do
   setup_subject "$SUBJ"
   echo "── subject: $SUBJ ──"
   TOKEN="$(api POST /api/v1/auth/register "$(jq -nc --arg e "mk-${SUBJ}-$(date +%s)@apalchi-test.com" '{email:$e,password:"Probe12345!",displayName:"Probe",birthYear:1990}')" | uw | jq -r '.token // empty')"
