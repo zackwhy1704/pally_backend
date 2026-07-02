@@ -82,3 +82,19 @@ never re-implemented inline in handlers.
 ./gradlew test             # unit + integration (Testcontainers)
 ./gradlew bootRun          # local run
 ```
+
+## Hard-won lessons (enforce these)
+- **Fix the FAMILY, not the instance.** Every parser/prompt/guard fix must be applied to ALL sibling
+  methods the same day, and grep for the siblings. History: the robust JSON parser lived only in the LEARN
+  generator while PROVE/TEST used the fragile `extractJson` → 0 PROVE items → NO module could COMPLETE →
+  every student blocked. The marking prompt was duplicated across the Gemini + Claude compilers and drifted.
+- **Domain never imports `infrastructure.persistence`.** Depend on domain repository interfaces (Ports).
+  Enforced by `DomainLayeringGuardTest` (allow-list only ever shrinks — never add to it).
+- **A generator must never return empty on model prose/truncation.** Use `robustJsonArray`/`robustJsonObject`
+  (retry + salvage) + a fallback item. Empty output that gates a state machine = a launch blocker.
+- **Externalized safety gates must be MEASURED, not hidden.** If a gate (e.g. GroundednessVerifier) logs
+  over its own ceiling, fix the over-firing (coverage precision / hard-fact classifier) and log a sample of
+  what's flagged — never relax the ceiling to silence the warning.
+- **CONSISTENCY over cleverness.** The recurring root cause of every bug here is a good pattern applied in
+  one place but not its siblings. When you adopt/fix a pattern, grep all siblings AND add a guard test to
+  hold the line.

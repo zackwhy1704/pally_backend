@@ -157,9 +157,17 @@ public class GroundednessVerifier {
     double sourceCoverage(String claim, String source) {
         Set<String> ct = tokens(claim);
         if (ct.isEmpty()) return 0.0;
+        String[] sents = source.split("[.!?\\n]");
         double best = 0.0;
-        for (String sentence : source.split("[.!?\\n]")) {
-            Set<String> st = tokens(sentence);
+        for (int i = 0; i < sents.length; i++) {
+            // Single sentence AND the adjacent-sentence-pair window: a grounded
+            // claim frequently paraphrases TWO consecutive source sentences, and
+            // single-sentence coverage under-counts it → a false flag. The pair
+            // window (not the whole page — that would gut the gate) absorbs that
+            // real false-positive without weakening the hard-fact number check
+            // (numbersCovered) or contradiction detection (the judge).
+            Set<String> st = new HashSet<>(tokens(sents[i]));
+            if (i + 1 < sents.length) st.addAll(tokens(sents[i + 1]));
             if (st.isEmpty()) continue;
             Set<String> inter = new HashSet<>(ct);
             inter.retainAll(st);
@@ -198,13 +206,27 @@ public class GroundednessVerifier {
         if (report.needsAttention()) itemsFlagged.incrementAndGet();
         // Only judge calibration once there's a meaningful sample.
         if (checked >= 20 && currentFlagRate() > flagRateCeiling) {
+            // Observability: surface a SAMPLE of what's actually being flagged so the
+            // tune is data-driven (are these real fabrications or false positives?),
+            // not a blind threshold change. NB: lowering high-overlap widens pre-pass
+            // (fewer flags); raising it flags MORE — the opposite of what "too
+            // aggressive" needs. Prefer fixing false positives (coverage precision /
+            // hard-fact classifier), never relax flag-rate-ceiling to hide the rate.
+            String sample = report.verdicts().stream()
+                    .filter(v -> v.action() == Action.FLAG || v.action() == Action.CONTRADICTED)
+                    .map(v -> v.action() + ": " + trim(v.claim()))
+                    .limit(3)
+                    .collect(Collectors.joining(" | "));
             log.warn("[Groundedness] flag rate {}% over {} items exceeds ceiling {}% — "
-                    + "the gate is likely mis-calibrated (too aggressive). Tune "
-                    + "groundedness.high-overlap up or relax the hard-fact classifier; "
-                    + "a noisy gate trains teachers to ignore flags.",
+                    + "review the flagged sample (real fabrication vs false positive): {}",
                     Math.round(currentFlagRate() * 100), checked,
-                    Math.round(flagRateCeiling * 100));
+                    Math.round(flagRateCeiling * 100), sample.isEmpty() ? "(none this item)" : sample);
         }
+    }
+
+    private static String trim(String s) {
+        if (s == null) return "";
+        return s.length() <= 90 ? s : s.substring(0, 90) + "…";
     }
 
     /** Running share of checked items that produced a flag (calibration metric). */

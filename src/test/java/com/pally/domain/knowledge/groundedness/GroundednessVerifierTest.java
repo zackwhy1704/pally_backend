@@ -58,6 +58,17 @@ class GroundednessVerifierTest {
     }
 
     @Test
+    void sourceCoverage_absorbsClaimSpreadAcrossAdjacentSentences() {
+        // False-positive fix: a claim grounded across TWO consecutive source
+        // sentences must pre-pass. Single-sentence coverage is ~0.5 (< 0.6 gate);
+        // the adjacent-pair window lifts it over the bar so it isn't false-flagged.
+        String source = "Photosynthesis uses sunlight. Chlorophyll absorbs energy.";
+        double cov = verifier.sourceCoverage(
+                "photosynthesis uses sunlight and chlorophyll absorbs energy", source);
+        assertThat(cov).isGreaterThanOrEqualTo(0.6);
+    }
+
+    @Test
     void case2_elaborationWithNoHardFact_isAllowed_notFlagged() {
         // Soft definitional claim, low overlap with the source → must be ALLOWED.
         var report = verifier.check(SOURCE, List.of("Plants are producers in the food chain."));
