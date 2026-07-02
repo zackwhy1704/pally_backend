@@ -103,11 +103,18 @@ class MarkingImprovementReportTest {
                             + "/" + s.r1().total() + ") — pick an absent control")
                     .isTrue();
         }
-        // 2) The known-good positive control (maths "-2 units") MUST pass — proves the probe detects learning.
+        // 2) The known-good positive control (maths "-2 units") must LEARN — round-2 adoption
+        //    strictly above round-1. Robust to LLM variance in the MAGNITUDE (some runs 1/5,
+        //    some 4/5); a FAIL here means the probe stopped detecting learning at all.
         SubjectResult maths = results.stream().filter(r -> r.subject().equals("maths")).findFirst().orElseThrow();
-        assertThat(maths.verdict()).as("maths positive-control must PASS").isEqualTo("PASS");
-        // 3) At least a majority of subjects learn (aggregate causal claim).
-        long passing = results.stream().filter(r -> r.verdict().startsWith("PASS")).count();
+        assertThat(rate(maths.r2().taught(), maths.r2().total()))
+                .as("maths positive-control must LEARN (round2 taught > round1)")
+                .isGreaterThan(rate(maths.r1().taught(), maths.r1().total()));
+        // 3) No control drifted (no confound), on any subject.
+        assertThat(results).allSatisfy(s -> assertThat(s.verdict())
+                .as(s.subject() + " control must not drift").doesNotContain("control drifted"));
+        // 4) A majority of subjects must reach strong PASS (the aggregate causal claim).
+        long passing = results.stream().filter(r -> r.verdict().equals("PASS")).count();
         assertThat(passing).as("most subjects must PASS").isGreaterThanOrEqualTo((results.size() + 1) / 2);
     }
 
