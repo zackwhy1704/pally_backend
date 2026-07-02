@@ -11,6 +11,7 @@ spring:
       # swallow unmapped requests and NoHandlerFoundException would never fire.
       # This is a JSON API — Spring serves no static assets.
       add-mappings: false
+  # (compile.* tunables live at the root, below)
   servlet:
     multipart:
       # Uploads (PDF/image notes) can be large — a full book is ~20MB. Without
@@ -277,3 +278,12 @@ logging:
     io.netty.resolver.dns: ERROR
   pattern:
     console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{30} - %msg%n"
+
+# Wiki-compile tuning (defaults live in @Value fallbacks; set here to override).
+compile:
+  # Files whose combined new text exceeds this compile ASYNC (batched + segmented).
+  max-sync-chars: 50000
+  # Hard upper bound on a SINGLE file's extracted text — above this even within-file
+  # segmentation is impractical (~330 pages); the upload is rejected with a
+  # "split by chapter" message. Set 0 to disable the ceiling.
+  max-total-chars: 600000
