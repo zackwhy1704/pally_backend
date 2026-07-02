@@ -221,9 +221,7 @@ public class ModuleContentGenerator {
                 """.formatted(n, level, subject, guidanceSection, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-learn");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-learn");
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
                 items.add(buildDraftItem(moduleId, ModuleStage.LEARN.name(), ContentItemType.MICRO_CARD.name(),
@@ -251,9 +249,7 @@ public class ModuleContentGenerator {
                 """.formatted(n, level, guidanceSection, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-hottake");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-hottake");
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
                 String contentJson = objectMapper.writeValueAsString(
@@ -285,9 +281,7 @@ public class ModuleContentGenerator {
                 """.formatted(level, guidanceSection, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-spotmistake");
-            String json = extractJson(raw, '{', '}');
-            Map<String, Object> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt, "centre-regen-spotmistake");
             String contentJson = objectMapper.writeValueAsString(Map.of(
                     "problem", parsed.getOrDefault("problem", ""),
                     "wrongSolution", parsed.getOrDefault("wrongSolution", "")));
@@ -317,9 +311,7 @@ public class ModuleContentGenerator {
                 """.formatted(n, level, guidanceSection, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "centre-regen-challenges");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-challenges");
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
                 String contentJson = objectMapper.writeValueAsString(Map.of(
@@ -382,29 +374,21 @@ public class ModuleContentGenerator {
                 A student studied %s and scored these on their test:
                 %s
 
-                Generate %d prove-it questions. Each targets ONE specific concept.
+                Generate exactly %d prove-it questions. Each targets ONE specific concept.
                 The student must answer in 1-3 sentences to demonstrate understanding.
-                Prioritize concepts the student scored poorly on.
+                Prioritize concepts the student scored poorly on; if they did well,
+                still generate reinforcement questions on the key concepts.
 
-                Reply ONLY with a JSON array:
+                Output ONLY the JSON array — no prose, no preamble, no markdown fences.
+                Start your reply with [ and end with ]. Shape:
                 [{"question":"...","targetConcept":"...","expectedKeyPoints":["..."],"difficulty":"easy/medium/hard"}]
                 """.formatted(page.getTitle(), testSummary, n);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "module-prove-gen");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json,
-                    new TypeReference<>() {});
-            // Diagnostic: PROVE-gen has been returning 0 items in prod, stalling
-            // module completion. Log the raw model output when the parse is empty
-            // so we can see WHAT the model actually returned.
-            if (parsed.isEmpty()) {
-                log.warn("[Module] PROVE-gen parsed 0 items module={} rawLen={} raw(head)={}",
-                        module.getId(), raw == null ? 0 : raw.length(),
-                        raw == null ? "null"
-                                : raw.substring(0, Math.min(500, raw.length()))
-                                     .replaceAll("\\s+", " "));
-            }
+            // Robust parse (retry + salvage from prose/truncation) — the fragile
+            // extractJson+readValue path was silently yielding [] on prose output,
+            // which stalled module completion.
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-prove-gen");
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (Map<String, Object> q : parsed) {
@@ -428,6 +412,16 @@ public class ModuleContentGenerator {
                 items.add(item);
             }
 
+            if (items.isEmpty()) {
+                // Never leave PROVE empty — a module with 0 prove items can never
+                // reach COMPLETE (student stuck; weakness trigger never fires). One
+                // reinforcement question keeps the loop closeable even when the model
+                // returns nothing or the student aced TEST (no weak concepts).
+                items.add(fallbackProveItem(module, page, tier));
+                log.warn("[Module] PROVE-gen yielded 0 items for module={} — using a reinforcement fallback",
+                        module.getId());
+            }
+
             // sortOrder + persist in a short transaction (count is read there too).
             List<ModuleContentItem> saved = moduleWriter.appendProveItems(module.getId(), items);
             log.info("[Module] Generated {} PROVE questions for module={}",
@@ -435,10 +429,45 @@ public class ModuleContentGenerator {
             return saved;
 
         } catch (Exception e) {
-            log.error("[Module] Failed to generate PROVE questions for module={}",
+            // Even on hard failure, persist a fallback so the module stays completable.
+            log.error("[Module] Failed to generate PROVE questions for module={} — using fallback",
                     module.getId(), e);
-            return List.of();
+            try {
+                return moduleWriter.appendProveItems(module.getId(),
+                        List.of(fallbackProveItem(module, page, tier)));
+            } catch (Exception persistFail) {
+                log.error("[Module] Fallback PROVE persist also failed module={}",
+                        module.getId(), persistFail);
+                return List.of();
+            }
         }
+    }
+
+    /** A generic reinforcement PROVE question so a module is never stuck with 0 items. */
+    private ModuleContentItem fallbackProveItem(LearningModule module, WikiPage page, String tier) {
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId(IdGenerator.newId());
+        item.setModuleId(module.getId());
+        item.setStage(ModuleStage.PROVE.name());
+        item.setType(ContentItemType.PROVE_QUESTION.name());
+        String concept = page.getTitle();
+        try {
+            item.setContentJson(objectMapper.writeValueAsString(Map.of(
+                    "question", "In your own words, explain the main idea of \"" + concept
+                            + "\" and give one worked example.",
+                    "targetConcept", concept,
+                    "expectedKeyPoints", List.of(concept),
+                    "difficulty", "medium")));
+            item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
+                    "expectedKeyPoints", List.of(concept),
+                    "targetConcept", concept)));
+        } catch (Exception e) {
+            item.setContentJson("{\"question\":\"Explain the main idea in your own words.\"}");
+            item.setAnswerJson("{\"expectedKeyPoints\":[],\"targetConcept\":\"\"}");
+        }
+        item.setTierRequired(tier);
+        item.setCreatedAt(Instant.now());
+        return item;
     }
 
     // ── LEARN: micro-cards ───────────────────────────────────────────────
@@ -504,10 +533,7 @@ public class ModuleContentGenerator {
                 """.formatted(n, level, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "module-hottake-gen");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json,
-                    new TypeReference<>() {});
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-hottake-gen");
 
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 100; // hot takes start at sort_order 100
@@ -552,10 +578,7 @@ public class ModuleContentGenerator {
                 """.formatted(level, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "module-spotmistake-gen");
-            String json = extractJson(raw, '{', '}');
-            Map<String, Object> parsed = objectMapper.readValue(json,
-                    new TypeReference<>() {});
+            Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt, "module-spotmistake-gen");
 
             ModuleContentItem item = new ModuleContentItem();
             item.setId(IdGenerator.newId());
@@ -597,10 +620,7 @@ public class ModuleContentGenerator {
                 """.formatted(n, level, content);
 
         try {
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "module-challenge-gen");
-            String json = extractJson(raw, '[', ']');
-            List<Map<String, Object>> parsed = objectMapper.readValue(json,
-                    new TypeReference<>() {});
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-challenge-gen");
 
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 300; // challenges start at sort_order 300
@@ -690,6 +710,25 @@ public class ModuleContentGenerator {
             log.warn("[Module] {} produced no parseable JSON objects (attempt {}/2)", label, attempt);
         }
         return last;
+    }
+
+    /// Single-object sibling of {@link #robustJsonArray}: retries once so a
+    /// prose/markdown-wrapped object response doesn't silently yield an empty map.
+    private Map<String, Object> robustJsonObject(int tokens, String prompt, String label) {
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            String raw = geminiCompletion.complete(tokens, prompt, label);
+            try {
+                Map<String, Object> parsed = objectMapper.readValue(
+                        extractJson(raw, '{', '}'), new TypeReference<>() {});
+                if (parsed != null && !parsed.isEmpty()) {
+                    return parsed;
+                }
+            } catch (Exception ignored) {
+                // fall through to retry
+            }
+            log.warn("[Module] {} produced no parseable JSON object (attempt {}/2)", label, attempt);
+        }
+        return Map.of();
     }
 
     /// Parse a JSON array of objects; if the array is truncated (the common Gemini

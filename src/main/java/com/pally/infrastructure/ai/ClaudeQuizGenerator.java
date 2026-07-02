@@ -58,7 +58,7 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
     @Override
     public List<QuizQuestion> generate(String avatarId, List<WikiPage> pages) {
         String material = pages.stream()
-                .map(p -> p.getTitle() + ": " + p.getContent())
+                .map(p -> "[slug: " + p.getSlug() + "] " + p.getTitle() + ": " + p.getContent())
                 .collect(Collectors.joining("\n\n"));
 
         // Direct complete() — NOT tool_use. Tool_use requires 2 Haiku calls
@@ -70,8 +70,10 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                 Generate 5 multiple-choice questions from this study material.
                 Each question must test UNDERSTANDING, not memorisation.
 
-                Reply ONLY with a JSON array — no markdown fences, no explanation:
-                [{"question":"...","options":["A...","B...","C...","D..."],"correctIndex":0,"sourcePage":"slug","explanation":"one sentence"}]
+                Reply ONLY with a JSON array — no markdown fences, no explanation.
+                "sourcePage" MUST be the exact [slug: ...] value of the page the question
+                comes from (e.g. "dividing-fractions"), not the title:
+                [{"question":"...","options":["A...","B...","C...","D..."],"correctIndex":0,"sourcePage":"exact-slug","explanation":"one sentence"}]
 
                 Material:
                 %s
@@ -114,7 +116,10 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                         (String) q.get("question"),
                         opts,
                         ((Number) q.get("correctIndex")).intValue(),
-                        (String) q.getOrDefault("sourcePage", ""),
+                        // Map the model's echoed sourcePage back to a REAL wiki slug
+                        // (it often returns the title) so the weakness/mastery signal
+                        // keys on WikiPage.getSlug(), not a title.
+                        resolveSlug(pages, (String) q.getOrDefault("sourcePage", "")),
                         (String) q.getOrDefault("explanation", "")
                 ));
             }
@@ -201,6 +206,37 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                 return "[]";
             }
         }
+    }
+
+    /**
+     * Resolve the model's echoed {@code sourcePage} (often the page TITLE, or a
+     * near-miss) to a REAL {@link WikiPage#getSlug()}, so the downstream weakness
+     * / mastery signal keys on the canonical slug. Matches by exact slug, then by
+     * normalised slug/title; falls back to the sole page's slug (single-page quiz)
+     * or the raw value.
+     */
+    static String resolveSlug(List<WikiPage> pages, String raw) {
+        if (pages == null || pages.isEmpty()) return raw == null ? "" : raw;
+        String norm = normalizeKey(raw);
+        for (WikiPage p : pages) {
+            if (p.getSlug() != null && p.getSlug().equalsIgnoreCase(raw)) return p.getSlug();
+        }
+        if (!norm.isEmpty()) {
+            for (WikiPage p : pages) {
+                if (normalizeKey(p.getSlug()).equals(norm)
+                        || normalizeKey(p.getTitle()).equals(norm)) {
+                    return p.getSlug();
+                }
+            }
+        }
+        // Unambiguous single-page quiz → attribute to that page; else best-effort raw.
+        if (pages.size() == 1) return pages.get(0).getSlug();
+        return raw == null ? "" : raw;
+    }
+
+    /** Lowercase alphanumeric-only key so "Dividing Fractions" == "dividing-fractions". */
+    private static String normalizeKey(String s) {
+        return s == null ? "" : s.toLowerCase().replaceAll("[^a-z0-9]", "");
     }
 
     /**

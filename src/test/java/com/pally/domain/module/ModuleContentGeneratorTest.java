@@ -49,6 +49,50 @@ class ModuleContentGeneratorTest {
                         java.util.List.of(), 0));
     }
 
+    private LearningModule proveModule(String id) {
+        LearningModule m = new LearningModule();
+        m.setId(id);
+        m.setAvatarId("av-1");
+        m.setWikiPageSlug("dividing-fractions");
+        return m;
+    }
+
+    @Test
+    void generateProveQuestions_parsesProseAndMarkdownWrappedArray() {
+        // The real-world failure: model wraps the array in prose + ```json fences.
+        LearningModule m = proveModule("mod-1");
+        WikiPage page = WikiPage.create("av-1", "dividing-fractions", "Dividing Fractions", "keep change flip");
+        when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
+        when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen")))
+                .thenReturn("Sure! Here are the questions:\n```json\n"
+                        + "[{\"question\":\"Divide 1/2 by 1/4\",\"targetConcept\":\"dividing fractions\","
+                        + "\"expectedKeyPoints\":[\"keep change flip\"],\"difficulty\":\"medium\"}]\n```");
+
+        List<ModuleContentItem> items = generator.generateProveQuestions(m, page, List.of(), "FREE");
+
+        assertThat(items).isNotEmpty();
+        assertThat(items.get(0).getStage()).isEqualTo("PROVE");
+    }
+
+    @Test
+    void generateProveQuestions_fallsBackToReinforcement_soModuleCanComplete() {
+        // Model returns prose with NO array (both attempts) — must still yield >=1
+        // item so the module is completable (student not stuck; weakness trigger fires).
+        LearningModule m = proveModule("mod-2");
+        WikiPage page = WikiPage.create("av-1", "dividing-fractions", "Dividing Fractions", "keep change flip");
+        when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
+        when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen")))
+                .thenReturn("The student did great — no questions needed.");
+
+        List<ModuleContentItem> items = generator.generateProveQuestions(m, page, List.of(), "FREE");
+
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).getStage()).isEqualTo("PROVE");
+        assertThat(items.get(0).getContentJson()).contains("Dividing Fractions");
+    }
+
     @Test
     void generate_freeAvatar_creates4MicroCards_and_2HotTakes_and_1SpotMistake_and_1Challenge() {
         Avatar avatar = Avatar.create("user1", "TestAvatar", Subject.MATHS, CharacterType.ZAP);
