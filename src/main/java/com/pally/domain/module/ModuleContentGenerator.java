@@ -395,6 +395,16 @@ public class ModuleContentGenerator {
             String json = extractJson(raw, '[', ']');
             List<Map<String, Object>> parsed = objectMapper.readValue(json,
                     new TypeReference<>() {});
+            // Diagnostic: PROVE-gen has been returning 0 items in prod, stalling
+            // module completion. Log the raw model output when the parse is empty
+            // so we can see WHAT the model actually returned.
+            if (parsed.isEmpty()) {
+                log.warn("[Module] PROVE-gen parsed 0 items module={} rawLen={} raw(head)={}",
+                        module.getId(), raw == null ? 0 : raw.length(),
+                        raw == null ? "null"
+                                : raw.substring(0, Math.min(500, raw.length()))
+                                     .replaceAll("\\s+", " "));
+            }
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (Map<String, Object> q : parsed) {
