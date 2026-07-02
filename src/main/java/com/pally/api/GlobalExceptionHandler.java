@@ -167,6 +167,18 @@ public class GlobalExceptionHandler {
                         + "unavailable. Please try again shortly.", 422));
     }
 
+    /// A too-large multipart upload fails during request PARSING — before the
+    /// controller's own size check — so without this it falls through to a generic
+    /// 500. Map it to a clean 413 the client can show as "file too large".
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMaxUpload(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        log.warn("Upload rejected — exceeds multipart size limit: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.error("File is too large (max 25MB).", 413));
+    }
+
     /**
      * Handles any {@link PallyException} using its embedded HTTP status code.
      */

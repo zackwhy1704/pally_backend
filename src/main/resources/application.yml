@@ -11,6 +11,15 @@ spring:
       # swallow unmapped requests and NoHandlerFoundException would never fire.
       # This is a JSON API — Spring serves no static assets.
       add-mappings: false
+  servlet:
+    multipart:
+      # Uploads (PDF/image notes) can be large — a full book is ~20MB. Without
+      # this, Spring's defaults (1MB file / 10MB request) reject anything big
+      # DURING multipart parsing, before KnowledgeController's 25MB check ever
+      # runs (→ a generic 500). Keep file-size aligned with MAX_UPLOAD_BYTES
+      # (25MB); request-size is a little higher for multipart/form overhead.
+      max-file-size: 25MB
+      max-request-size: 30MB
   datasource:
     url: ${DB_URL}
     username: ${DB_USER:pally}
