@@ -99,6 +99,25 @@ class CompileResumeTest {
     }
 
     @Test
+    void zeroPageCompile_fileNotMarkedCompiled_staysRecompilable() {
+        // The soft-empty bug: the compile does NOT throw but produces 0 pages (all
+        // AI tiers degraded to empty). The file must NOT be marked compiled — else
+        // it's skipped forever with an empty wiki (silent data loss).
+        when(avatarRepository.findById("av-1")).thenReturn(Optional.of(avatar));
+        when(knowledgeRepository.findByAvatarId("av-1")).thenReturn(List.of(bigFile()));
+        when(wikiRepository.findByAvatarId("av-1")).thenReturn(List.of());
+        when(wikiCompiler.compileWithTier(any(), any(), any())).thenReturn(okOutput());
+        // persistDrafts reports ZERO created + ZERO updated for every batch.
+        when(persistenceService.persistDrafts(any(), any(), any()))
+                .thenReturn(new WikiPagePersistenceService.PersistOutcome(0, 0, List.of(), List.of()));
+
+        useCase.executeBatched("av-1", null);
+
+        // compiled_by is never set → the completion-marker save never runs.
+        verify(knowledgeRepository, never()).save(any());
+    }
+
+    @Test
     void allSegmentsSucceed_fileMarkedCompiled() {
         when(avatarRepository.findById("av-1")).thenReturn(Optional.of(avatar));
         when(knowledgeRepository.findByAvatarId("av-1")).thenReturn(List.of(bigFile()));

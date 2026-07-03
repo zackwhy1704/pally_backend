@@ -267,10 +267,17 @@ public class CompileWikiUseCase {
         // Best-effort cache work stays outside the persistence transaction.
         cacheInvalidationService.onWikiContentChanged(avatarId, cacheKeepAliveService);
 
-        // Set compiledBy on each file for provenance tracking
-        for (KnowledgeFile f : newFiles) {
-            f.setCompiledBy(tierServed);
-            knowledgeRepository.save(f);
+        // Set compiledBy only when the compile actually produced pages. A 0-page
+        // result (model degraded to empty without throwing) must NOT mark the files
+        // "done" — else they're skipped forever with an empty wiki (silent loss).
+        if (outcome.created() + outcome.updated() > 0) {
+            for (KnowledgeFile f : newFiles) {
+                f.setCompiledBy(tierServed);
+                knowledgeRepository.save(f);
+            }
+        } else {
+            log.warn("[Pipeline:Compile] avatarId={} — compile produced ZERO pages; leaving "
+                    + "{} file(s) re-compilable (not marked compiled).", avatarId, newFiles.size());
         }
 
         if (!outcome.failedPages().isEmpty()) {
@@ -387,6 +394,8 @@ public class CompileWikiUseCase {
         // fileIds with at least one FAILED segment — these must NOT be marked
         // compiled (compiled_by stays NULL) so the next run re-compiles them.
         java.util.Set<String> failedFileIds = new java.util.HashSet<>();
+        // fileIds that produced ≥1 page in some batch — only these are "done".
+        java.util.Set<String> producedFileIds = new java.util.HashSet<>();
 
         for (int i = 0; i < batches.size(); i++) {
             List<KnowledgeFile> batch = batches.get(i);
@@ -412,6 +421,15 @@ public class CompileWikiUseCase {
                 lastTier = output.tierServed();
                 totalFilesCompiled += batch.size();
                 totalCharsCompiled += batchChars;
+
+                // A batch that produced ≥1 page makes its files "productive". A file
+                // that produces ZERO pages across ALL its batches (model degraded to
+                // empty WITHOUT throwing) must NOT be marked compiled — else it's
+                // skipped forever with no wiki pages (silent data loss). Only
+                // productive-and-not-failed files get compiled_by (below).
+                if (outcome.created() + outcome.updated() > 0) {
+                    batch.forEach(f -> producedFileIds.add(f.getId()));
+                }
 
                 // NB: do NOT persist `batch` entries here — they may be transient
                 // segment VARIANTS (same fileId, sliced text, "part k/N" name).
@@ -451,18 +469,23 @@ public class CompileWikiUseCase {
         // segment are left NULL (visibly incomplete) so the next compile resumes
         // them; the pages that DID persist are safe and merge on re-run.
         int incomplete = 0;
+        int zeroPage = 0;
         for (KnowledgeFile f : newFiles) {
             if (failedFileIds.contains(f.getId())) {
                 incomplete++;
-                continue; // leave compiled_by NULL → re-compiled next run
+                continue; // a segment threw → leave compiled_by NULL → re-compiled
+            }
+            if (!producedFileIds.contains(f.getId())) {
+                zeroPage++;
+                continue; // produced 0 pages (soft-empty) → NOT "done", stays re-compilable
             }
             f.setCompiledBy(lastTier);
             knowledgeRepository.save(f);
         }
-        if (incomplete > 0) {
-            log.warn("[Pipeline:BatchCompile] avatarId={} — {} file(s) left INCOMPLETE after a "
-                    + "segment failure; they will be re-compiled on the next trigger.",
-                    avatarId, incomplete);
+        if (incomplete > 0 || zeroPage > 0) {
+            log.warn("[Pipeline:BatchCompile] avatarId={} — {} file(s) INCOMPLETE (segment "
+                    + "failure), {} file(s) produced ZERO pages; all left re-compilable on the "
+                    + "next trigger instead of marked done.", avatarId, incomplete, zeroPage);
         }
 
         // Cache invalidation
