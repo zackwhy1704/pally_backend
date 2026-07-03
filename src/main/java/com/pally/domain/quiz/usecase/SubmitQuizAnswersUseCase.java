@@ -14,6 +14,7 @@ import com.pally.domain.quiz.Sm2Scheduler;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaEntity;
 import com.pally.infrastructure.persistence.quiz.QuizQuestionResultJpaRepository;
 import com.pally.domain.quiz.QuizAnswerKeyRepository;
+import com.pally.domain.quiz.QuizIdempotencyRepository;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -64,6 +65,7 @@ public class SubmitQuizAnswersUseCase {
     /// REQUIRES_NEW transaction; a self-invocation would bypass the proxy and
     /// keep it inside the primary tx (the bug we are fixing).
     private final ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
+    private final QuizIdempotencyRepository idempotencyRepository;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -87,6 +89,24 @@ public class SubmitQuizAnswersUseCase {
                               Map<String, String> topicMap,
                               Map<String, String> confidenceMap) {
         return execute(submission, correctMap, topicMap, confidenceMap, 0);
+    }
+
+    /// Idempotent submit: claims the key, grades ONCE, stores the result — all in
+    /// ONE transaction. A concurrent retry with the same key blocks on the claim's
+    /// unique index until this commits, then throws {@link DuplicateSubmissionException}
+    /// (the caller returns the stored result). Grading therefore runs exactly once,
+    /// so no double XP/stars and no duplicate analytics rows on a retry/race.
+    @Transactional
+    public QuizResult executeWithIdempotency(AnswerSubmission submission,
+                                             Map<String, Integer> correctMap,
+                                             Map<String, String> topicMap,
+                                             Map<String, String> confidenceMap,
+                                             int durationSeconds,
+                                             String idempotencyKey) {
+        idempotencyRepository.claim(submission.userId(), idempotencyKey);
+        QuizResult result = execute(submission, correctMap, topicMap, confidenceMap, durationSeconds);
+        idempotencyRepository.storeResult(submission.userId(), idempotencyKey, result);
+        return result;
     }
 
     /**

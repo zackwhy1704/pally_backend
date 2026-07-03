@@ -67,6 +67,7 @@ class SubmitQuizAnswersUseCaseTest {
     @Mock XpService xpService;
     @Mock QuizAnswerKeyRepository answerKeyRepository;
     @Mock ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
+    @Mock com.pally.domain.quiz.QuizIdempotencyRepository idempotencyRepository;
 
     @InjectMocks SubmitQuizAnswersUseCase useCase;
 

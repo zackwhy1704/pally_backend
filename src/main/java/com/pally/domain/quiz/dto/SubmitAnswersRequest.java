@@ -15,11 +15,24 @@ import java.util.Map;
  *                       Clamped server-side to [0, 3600]. Null/missing → 0 so
  *                       legacy clients stay backward compatible. Feeds the
  *                       "minutes studied this week" progress chart.
+ * @param idempotencyKey optional per-attempt UUID minted ONCE by the client when a
+ *                       quiz attempt begins and reused on retry. When present, a
+ *                       duplicate/retried submit returns the first graded result
+ *                       instead of re-crediting XP/stars. Null (legacy clients) →
+ *                       grade normally (no dedup).
  */
 public record SubmitAnswersRequest(
         Map<String, Integer> answers,
         Map<String, Integer> correctMap,
         Map<String, String> topicMap,
         Map<String, String> confidenceMap,
-        Integer durationSeconds
-) {}
+        Integer durationSeconds,
+        String idempotencyKey
+) {
+    /// Backward-compatible 5-arg form for callers/tests predating idempotency.
+    public SubmitAnswersRequest(Map<String, Integer> answers, Map<String, Integer> correctMap,
+                                Map<String, String> topicMap, Map<String, String> confidenceMap,
+                                Integer durationSeconds) {
+        this(answers, correctMap, topicMap, confidenceMap, durationSeconds, null);
+    }
+}

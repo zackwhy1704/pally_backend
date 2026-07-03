@@ -42,6 +42,7 @@ public class QuizService {
 
     private final GetDailyQuizUseCase getDailyQuizUseCase;
     private final SubmitQuizAnswersUseCase submitQuizAnswersUseCase;
+    private final QuizIdempotencyRepository quizIdempotencyRepository;
     private final GetFlashcardsUseCase getFlashcardsUseCase;
     private final RateFlashcardUseCase rateFlashcardUseCase;
     private final QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
@@ -103,8 +104,28 @@ public class QuizService {
         Map<String, String> confidenceMap = request.confidenceMap() != null
                 ? request.confidenceMap() : Map.of();
         int durationSeconds = DurationClamp.clamp(request.durationSeconds());
-        return submitQuizAnswersUseCase.execute(
-                submission, correctMap, topicMap, confidenceMap, durationSeconds);
+
+        // No key (legacy client) → grade normally. With a key → dedup: a replay
+        // returns the first result instead of re-crediting XP/stars.
+        String idempotencyKey = request.idempotencyKey();
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return submitQuizAnswersUseCase.execute(
+                    submission, correctMap, topicMap, confidenceMap, durationSeconds);
+        }
+
+        // Fast path: the attempt was already graded (retry after completion).
+        var already = quizIdempotencyRepository.findResult(userId, idempotencyKey);
+        if (already.isPresent()) {
+            return already.get();
+        }
+        try {
+            return submitQuizAnswersUseCase.executeWithIdempotency(
+                    submission, correctMap, topicMap, confidenceMap, durationSeconds, idempotencyKey);
+        } catch (DuplicateSubmissionException e) {
+            // Lost the claim race → the winner has committed its result by now.
+            return quizIdempotencyRepository.findResult(userId, idempotencyKey)
+                    .orElseThrow(() -> e); // extremely rare: winner rolled back → surface
+        }
     }
 
     public List<FlashcardResponse> getFlashcards(String userId, String avatarId) {

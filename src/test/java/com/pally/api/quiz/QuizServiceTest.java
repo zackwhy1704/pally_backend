@@ -26,9 +26,13 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -42,6 +46,7 @@ class QuizServiceTest {
 
     @Mock GetDailyQuizUseCase getDailyQuizUseCase;
     @Mock SubmitQuizAnswersUseCase submitQuizAnswersUseCase;
+    @Mock com.pally.domain.quiz.QuizIdempotencyRepository quizIdempotencyRepository;
     @Mock GetFlashcardsUseCase getFlashcardsUseCase;
     @Mock RateFlashcardUseCase rateFlashcardUseCase;
     @Mock QuizAnswerRecordJpaRepository quizAnswerRecordRepository;
@@ -60,10 +65,10 @@ class QuizServiceTest {
     @BeforeEach
     void setUp() {
         service = new QuizService(
-                getDailyQuizUseCase, submitQuizAnswersUseCase, getFlashcardsUseCase,
-                rateFlashcardUseCase, quizAnswerRecordRepository, quizQuestionResultRepository,
-                avatarRepository, wikiRepository, flashcardRepository, flashcardGenerator,
-                answerKeyRepository);
+                getDailyQuizUseCase, submitQuizAnswersUseCase, quizIdempotencyRepository,
+                getFlashcardsUseCase, rateFlashcardUseCase, quizAnswerRecordRepository,
+                quizQuestionResultRepository, avatarRepository, wikiRepository,
+                flashcardRepository, flashcardGenerator, answerKeyRepository);
     }
 
     @Test
@@ -157,5 +162,74 @@ class QuizServiceTest {
 
         // Availability over secrecy on a rare write failure: still gradable.
         assertThat(served.get(0).correctIndex()).isEqualTo(1);
+    }
+
+    // ── #5 quiz-submit idempotency ───────────────────────────────────────────
+
+    private com.pally.domain.quiz.dto.SubmitAnswersRequest reqWithKey(String key) {
+        return new com.pally.domain.quiz.dto.SubmitAnswersRequest(
+                Map.of("q1", 0), Map.of("q1", 0), Map.of(), Map.of(), 30, key);
+    }
+
+    private com.pally.domain.quiz.QuizResult sampleResult(int xp) {
+        return new com.pally.domain.quiz.QuizResult("s1", 1, 1, xp, 5, false, 2);
+    }
+
+    @Test
+    void submitAnswers_replayAfterCompletion_returnsStoredResult_withoutRegrading() {
+        var stored = sampleResult(20);
+        when(quizIdempotencyRepository.findResult(USER, "k1")).thenReturn(Optional.of(stored));
+
+        var result = service.submitAnswers(USER, AVATAR, reqWithKey("k1"));
+
+        assertThat(result).isSameAs(stored);
+        // The grader is never invoked on a replay → no double XP / duplicate rows.
+        verify(submitQuizAnswersUseCase, never())
+                .executeWithIdempotency(any(), any(), any(), any(), anyInt(), anyString());
+        verify(submitQuizAnswersUseCase, never()).execute(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void submitAnswers_concurrentLoser_returnsWinnersStoredResult() {
+        var winner = sampleResult(20);
+        // First check: not yet present. After the claim race is lost, the winner's
+        // committed result is present.
+        when(quizIdempotencyRepository.findResult(USER, "k2"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
+        when(submitQuizAnswersUseCase.executeWithIdempotency(
+                any(), any(), any(), any(), anyInt(), eq("k2")))
+                .thenThrow(new com.pally.domain.quiz.DuplicateSubmissionException(USER, "k2"));
+
+        var result = service.submitAnswers(USER, AVATAR, reqWithKey("k2"));
+
+        assertThat(result).isSameAs(winner);
+    }
+
+    @Test
+    void submitAnswers_firstSubmitWithKey_gradesOnceViaIdempotentPath() {
+        var graded = sampleResult(20);
+        when(quizIdempotencyRepository.findResult(USER, "k3")).thenReturn(Optional.empty());
+        when(submitQuizAnswersUseCase.executeWithIdempotency(
+                any(), any(), any(), any(), anyInt(), eq("k3"))).thenReturn(graded);
+
+        var result = service.submitAnswers(USER, AVATAR, reqWithKey("k3"));
+
+        assertThat(result).isSameAs(graded);
+        verify(submitQuizAnswersUseCase, never()).execute(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void submitAnswers_noKey_gradesViaLegacyPath() {
+        var graded = sampleResult(20);
+        when(submitQuizAnswersUseCase.execute(any(), any(), any(), any(), anyInt()))
+                .thenReturn(graded);
+
+        var result = service.submitAnswers(USER, AVATAR, reqWithKey(null));
+
+        assertThat(result).isSameAs(graded);
+        // No key → never touches the idempotency store or the idempotent path.
+        verify(submitQuizAnswersUseCase, never())
+                .executeWithIdempotency(any(), any(), any(), any(), anyInt(), anyString());
     }
 }
