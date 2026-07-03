@@ -471,9 +471,62 @@ public class ModuleContentGenerator {
         return item;
     }
 
+    /// Non-empty fallback for the STAGE generators (LEARN/TEST) — mirrors
+    /// fallbackProveItem so NO stage can ship empty and strand the student on a
+    /// transient model failure/truncation. Enforced by ModuleStageFallbackGuardTest.
+    ModuleContentItem fallbackStageItem(String moduleId, ModuleStage stage,
+            ContentItemType type, String content, int sortOrder) {
+        String concept = summarizeForFallback(content);
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId(IdGenerator.newId());
+        item.setModuleId(moduleId);
+        item.setStage(stage.name());
+        item.setType(type.name());
+        item.setSortOrder(sortOrder);
+        item.setTierRequired("FREE");
+        item.setCreatedAt(Instant.now());
+        try {
+            switch (type) {
+                case MICRO_CARD -> item.setContentJson(objectMapper.writeValueAsString(Map.of(
+                        "title", "Key idea", "body", concept, "keyTerms", List.of())));
+                case HOT_TAKE -> {
+                    item.setContentJson(objectMapper.writeValueAsString(Map.of(
+                            "statement", "This lesson is about: " + concept)));
+                    item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
+                            "isTrue", true, "explanation", "Review the material above.")));
+                }
+                case SPOT_MISTAKE -> {
+                    item.setContentJson(objectMapper.writeValueAsString(Map.of(
+                            "problem", "Review this idea and check your understanding.",
+                            "wrongSolution", concept)));
+                    item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
+                            "errorDescription", "Re-read the notes to confirm this.",
+                            "correctSolution", concept)));
+                }
+                case CHALLENGE -> {
+                    item.setContentJson(objectMapper.writeValueAsString(Map.of(
+                            "question", "In your own words, explain: " + concept,
+                            "difficulty", "easy")));
+                    item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
+                            "answer", concept, "explanation", "See the notes above.")));
+                }
+                default -> item.setContentJson("{}");
+            }
+        } catch (Exception e) {
+            item.setContentJson("{}");
+        }
+        return item;
+    }
+
+    private static String summarizeForFallback(String content) {
+        if (content == null || content.isBlank()) return "this topic";
+        String c = content.strip().replaceAll("\\s+", " ");
+        return c.length() <= 140 ? c : c.substring(0, 140) + "…";
+    }
+
     // ── LEARN: micro-cards ───────────────────────────────────────────────
 
-    private List<ModuleContentItem> generateMicroCards(
+    List<ModuleContentItem> generateMicroCards(
             String moduleId, String content, String level, String subject, String tier) {
         int n = "CENTRE".equals(tier) ? 6 : 4;
 
@@ -508,17 +561,21 @@ public class ModuleContentGenerator {
                 item.setCreatedAt(Instant.now());
                 items.add(item);
             }
-            return items;
+            return items.isEmpty()
+                    ? List.of(fallbackStageItem(moduleId, ModuleStage.LEARN,
+                            ContentItemType.MICRO_CARD, content, 0))
+                    : items;
         } catch (Exception e) {
-            log.error("[Module] Failed to generate micro-cards for module={}",
+            log.error("[Module] Failed to generate micro-cards for module={} — using fallback",
                     moduleId, e);
-            return List.of();
+            return List.of(fallbackStageItem(moduleId, ModuleStage.LEARN,
+                    ContentItemType.MICRO_CARD, content, 0));
         }
     }
 
     // ── TEST: hot takes ──────────────────────────────────────────────────
 
-    private List<ModuleContentItem> generateHotTakes(
+    List<ModuleContentItem> generateHotTakes(
             String moduleId, String content, String level, String subject, String tier) {
         int n = "CENTRE".equals(tier) ? 3 : 2;
 
@@ -554,17 +611,21 @@ public class ModuleContentGenerator {
                 item.setCreatedAt(Instant.now());
                 items.add(item);
             }
-            return items;
+            return items.isEmpty()
+                    ? List.of(fallbackStageItem(moduleId, ModuleStage.TEST,
+                            ContentItemType.HOT_TAKE, content, 100))
+                    : items;
         } catch (Exception e) {
-            log.error("[Module] Failed to generate hot takes for module={}",
+            log.error("[Module] Failed to generate hot takes for module={} — using fallback",
                     moduleId, e);
-            return List.of();
+            return List.of(fallbackStageItem(moduleId, ModuleStage.TEST,
+                    ContentItemType.HOT_TAKE, content, 100));
         }
     }
 
     // ── TEST: spot the mistake ───────────────────────────────────────────
 
-    private List<ModuleContentItem> generateSpotMistake(
+    List<ModuleContentItem> generateSpotMistake(
             String moduleId, String content, String level, String subject) {
 
         String prompt = """
@@ -597,15 +658,16 @@ public class ModuleContentGenerator {
             item.setCreatedAt(Instant.now());
             return List.of(item);
         } catch (Exception e) {
-            log.error("[Module] Failed to generate spot-mistake for module={}",
+            log.error("[Module] Failed to generate spot-mistake for module={} — using fallback",
                     moduleId, e);
-            return List.of();
+            return List.of(fallbackStageItem(moduleId, ModuleStage.TEST,
+                    ContentItemType.SPOT_MISTAKE, content, 200));
         }
     }
 
     // ── TEST: challenges ─────────────────────────────────────────────────
 
-    private List<ModuleContentItem> generateChallenges(
+    List<ModuleContentItem> generateChallenges(
             String moduleId, String content, String level, String subject, String tier) {
         int n = "CENTRE".equals(tier) ? 3 : 1;
 
@@ -642,11 +704,15 @@ public class ModuleContentGenerator {
                 item.setCreatedAt(Instant.now());
                 items.add(item);
             }
-            return items;
+            return items.isEmpty()
+                    ? List.of(fallbackStageItem(moduleId, ModuleStage.TEST,
+                            ContentItemType.CHALLENGE, content, 300))
+                    : items;
         } catch (Exception e) {
-            log.error("[Module] Failed to generate challenges for module={}",
+            log.error("[Module] Failed to generate challenges for module={} — using fallback",
                     moduleId, e);
-            return List.of();
+            return List.of(fallbackStageItem(moduleId, ModuleStage.TEST,
+                    ContentItemType.CHALLENGE, content, 300));
         }
     }
 
