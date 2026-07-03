@@ -16,6 +16,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -164,5 +165,29 @@ class ContentReviewServiceTest {
         Map<String, Object> result = service.examReadiness(USER, ORG_ID, CLASS_ID);
 
         assertThat(result).isEqualTo(readiness);
+    }
+
+    // ── Module preview (teacher-scoped, read-only) ─────────────────────────────
+
+    @Test
+    void previewModule_authorized_delegatesToModuleService() {
+        when(orgClassRepository.findOrganizationIdByClassId(CLASS_ID)).thenReturn(Optional.of(ORG_ID));
+        List<Map<String, Object>> items = List.of(Map.of("id", "i1", "stage", "LEARN"));
+        when(moduleService.getModulePreview("mod-1", CLASS_ID)).thenReturn(items);
+
+        List<Map<String, Object>> result = service.previewModule(USER, ORG_ID, CLASS_ID, "mod-1");
+
+        assertThat(result).isEqualTo(items);
+        verify(centreAccessService).ensureStaff(USER, ORG_ID); // reused auth, not hand-rolled
+    }
+
+    @Test
+    void previewModule_nonStaff_denied_neverFetchesModule() {
+        doThrow(new BusinessException("Forbidden", 403))
+                .when(centreAccessService).ensureStaff(USER, ORG_ID);
+
+        assertThatThrownBy(() -> service.previewModule(USER, ORG_ID, CLASS_ID, "mod-1"))
+                .isInstanceOf(BusinessException.class);
+        verify(moduleService, never()).getModulePreview(any(), any());
     }
 }

@@ -464,6 +464,41 @@ class ModuleProgressionServiceTest {
         assertThat(ModuleStage.COMPLETE.next()).isNull();
     }
 
+    @Test
+    void getModulePreview_moduleInDifferentClass_throws404_andNeverReadsItems() {
+        LearningModule module = buildModule("mod-p", "LEARN");
+        module.setClassId("class-A");
+        when(moduleRepository.findById("mod-p")).thenReturn(java.util.Optional.of(module));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.getModulePreview("mod-p", "class-B"))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
+        verify(itemRepository, never()).findByModuleIdOrderBySortOrder(anyString());
+    }
+
+    @Test
+    void getModulePreview_returnsOrderedItems_withoutAnswerKeys() {
+        LearningModule module = buildModule("mod-p", "LEARN");
+        module.setClassId("class-A");
+        when(moduleRepository.findById("mod-p")).thenReturn(java.util.Optional.of(module));
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("i1");
+        item.setStage("LEARN");
+        item.setType("MICRO_CARD");
+        item.setContentJson("{\"title\":\"x\"}");
+        item.setAnswerJson("{\"secret\":\"answer-key\"}");
+        item.setSortOrder(0);
+        when(itemRepository.findByModuleIdOrderBySortOrder("mod-p")).thenReturn(List.of(item));
+
+        List<Map<String, Object>> out = service.getModulePreview("mod-p", "class-A");
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0)).containsKeys("id", "stage", "type", "contentJson", "sortOrder");
+        // A preview must NEVER leak gradeable answer keys.
+        assertThat(out.get(0)).doesNotContainKey("answerJson");
+        assertThat(out.get(0).get("contentJson")).isEqualTo("{\"title\":\"x\"}");
+    }
+
     private LearningModule buildModule(String id, String stage) {
         LearningModule m = new LearningModule();
         m.setId(id);

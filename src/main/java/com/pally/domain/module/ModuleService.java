@@ -37,6 +37,11 @@ public class ModuleService {
         return progressionService.getModuleDetail(moduleId, userId);
     }
 
+    /** Teacher-scoped read-only preview (no answer keys). Auth is the caller's job. */
+    public List<Map<String, Object>> getModulePreview(String moduleId, String classId) {
+        return progressionService.getModulePreview(moduleId, classId);
+    }
+
     public Map<String, Object> startModule(String moduleId, String userId) {
         return progressionService.startModule(moduleId, userId);
     }

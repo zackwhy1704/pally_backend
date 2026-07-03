@@ -52,6 +52,18 @@ public class ContentReviewService {
         return reviewPort.findDraftItemsByClass(classId);
     }
 
+    /**
+     * Teacher READ-ONLY preview of a generated module's content (LEARN/TEST/PROVE),
+     * so a teacher can see what a student will get BEFORE assigning it. Reuses the
+     * SAME staff+class authorization as the rest of this service (never hand-rolled),
+     * then delegates to a class-scoped module fetch that omits answer keys.
+     */
+    public List<Map<String, Object>> previewModule(
+            String userId, String orgId, String classId, String moduleId) {
+        assertAccess(userId, orgId, classId);
+        return moduleService.getModulePreview(moduleId, classId);
+    }
+
     // ── Update content item ──────────────────────────────────────────────────
 
     @Transactional

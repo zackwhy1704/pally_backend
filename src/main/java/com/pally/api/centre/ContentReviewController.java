@@ -30,6 +30,20 @@ public class ContentReviewController {
     private final CentreRegenerateService centreRegenerateService;
 
     /**
+     * Read-only teacher preview of a generated module's content (LEARN/TEST/PROVE)
+     * before assigning it. Staff+class authorized; no answer keys returned.
+     */
+    @GetMapping("/modules/{moduleId}/preview")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> previewModule(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String orgId,
+            @PathVariable String classId,
+            @PathVariable String moduleId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(contentReviewService.previewModule(userId, orgId, classId, moduleId)));
+    }
+
+    /**
      * List content items with DRAFT status for review.
      */
     @GetMapping("/content/review")

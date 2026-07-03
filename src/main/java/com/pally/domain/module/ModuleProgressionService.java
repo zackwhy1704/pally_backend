@@ -17,6 +17,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -76,6 +77,34 @@ public class ModuleProgressionService {
             result.add(m);
         }
         return result;
+    }
+
+    /**
+     * Read-only TEACHER preview of a module's items — a faithful student view
+     * WITHOUT answer keys. The caller MUST have authorized the teacher (see
+     * ContentReviewService.assertAccess); this method only enforces that the
+     * module belongs to the given class — a cross-class/cross-org guard so a
+     * staff member of one org cannot read another org's module by guessing its id.
+     * answerJson is deliberately omitted (teachers preview the experience, and a
+     * preview must never leak gradeable answer keys).
+     */
+    public List<Map<String, Object>> getModulePreview(String moduleId, String classId) {
+        LearningModule module = moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new BusinessException("Module not found", 404));
+        if (classId == null || !classId.equals(module.getClassId())) {
+            throw new BusinessException("Module not found", 404); // wrong class → 404, no existence leak
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (ModuleContentItem item : itemRepository.findByModuleIdOrderBySortOrder(moduleId)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", item.getId());
+            m.put("stage", item.getStage());
+            m.put("type", item.getType());
+            m.put("contentJson", item.getContentJson());
+            m.put("sortOrder", item.getSortOrder());
+            out.add(m); // NO answerJson
+        }
+        return out;
     }
 
     /**
