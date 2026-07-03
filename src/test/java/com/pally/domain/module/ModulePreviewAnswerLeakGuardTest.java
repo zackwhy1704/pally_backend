@@ -65,24 +65,43 @@ class ModulePreviewAnswerLeakGuardTest {
         }
     }
 
+    /** Companion invariant: the answer MUST live in answerJson — else the client reveal
+     * (which now reads answerJson) renders blank. Generator + guard + renderer stay in sync. */
+    private void assertAnswerInAnswerJson(List<ModuleContentItem> items, String... expectedKeys) throws Exception {
+        for (ModuleContentItem item : items) {
+            assertThat(item.getAnswerJson())
+                    .as("%s must populate answerJson (the reveal reads it)", item.getType())
+                    .isNotNull();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> answer = mapper.readValue(item.getAnswerJson(), Map.class);
+            assertThat(answer.keySet()).contains(expectedKeys);
+        }
+    }
+
     @Test
     void hotTakes_keepIsTrueAndExplanationOutOfContentJson() throws Exception {
         when(gemini.complete(anyInt(), any(), any())).thenReturn(
                 "[{\"statement\":\"Plants eat soil\",\"isTrue\":false,\"explanation\":\"They photosynthesise\"}]");
-        assertNoAnswerLeak(gen.generateHotTakes("m", "content", "P5", "Science", "FREE"));
+        List<ModuleContentItem> items = gen.generateHotTakes("m", "content", "P5", "Science", "FREE");
+        assertNoAnswerLeak(items);
+        assertAnswerInAnswerJson(items, "isTrue", "explanation");
     }
 
     @Test
     void spotMistake_keepsErrorAndCorrectSolutionOutOfContentJson() throws Exception {
         when(gemini.complete(anyInt(), any(), any())).thenReturn(
                 "{\"problem\":\"2+2\",\"wrongSolution\":\"5\",\"errorDescription\":\"added wrong\",\"correctSolution\":\"4\"}");
-        assertNoAnswerLeak(gen.generateSpotMistake("m", "content", "P5", "Science"));
+        List<ModuleContentItem> items = gen.generateSpotMistake("m", "content", "P5", "Science");
+        assertNoAnswerLeak(items);
+        assertAnswerInAnswerJson(items, "errorDescription", "correctSolution");
     }
 
     @Test
     void challenges_keepAnswerAndExplanationOutOfContentJson() throws Exception {
         when(gemini.complete(anyInt(), any(), any())).thenReturn(
                 "[{\"question\":\"What is 2+2?\",\"answer\":\"4\",\"explanation\":\"add\",\"difficulty\":\"easy\"}]");
-        assertNoAnswerLeak(gen.generateChallenges("m", "content", "P5", "Science", "FREE"));
+        List<ModuleContentItem> items = gen.generateChallenges("m", "content", "P5", "Science", "FREE");
+        assertNoAnswerLeak(items);
+        assertAnswerInAnswerJson(items, "answer", "explanation");
     }
 }
