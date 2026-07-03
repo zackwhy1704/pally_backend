@@ -64,6 +64,34 @@ public class AuthController {
     @Value("${auth.apple.client-ids:}")
     private String appleClientIds;
 
+    /**
+     * Bearer→cookie bridge. For a request authenticated by a valid Bearer JWT, re-issue
+     * the SAME httpOnly auth cookie the login path sets — so a legacy web session (bearer
+     * in localStorage, no cookie) establishes the cookie on boot, and the future edge
+     * middleware never locks out a mid-migration session (no forced re-login).
+     *
+     * <p>This route is NOT in the permitAll list, so the security filter rejects anything
+     * without a valid bearer/cookie (401) before we get here. We set the cookie from the
+     * SAME token that authenticated this request — never a body/query token, never a fresh
+     * token (no lifetime extension). No-op unless AUTH_COOKIE_DOMAIN is set.
+     */
+    @PostMapping("/cookie-bridge")
+    public ResponseEntity<Void> cookieBridge(HttpServletRequest request, HttpServletResponse response) {
+        String token = bearerToken(request);
+        if (token == null) {
+            token = AuthCookieService.readAuthCookie(request); // authenticated via an existing cookie
+        }
+        if (token != null) {
+            authCookieService.setAuthCookie(response, token);
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    private static String bearerToken(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        return (header != null && header.startsWith("Bearer ")) ? header.substring(7) : null;
+    }
+
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request,
