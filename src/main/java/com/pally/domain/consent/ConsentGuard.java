@@ -192,12 +192,16 @@ public class ConsentGuard {
         if (!userAgeService.isUnder13(user)) {
             return true; // established 13+ → self-consent
         }
-        boolean parentLinked = user.getParentId() != null && !user.getParentId().isBlank();
-        boolean parentApproved = consentRepository
+        // Under-13: PDPA requires actual, VERIFIED parental CONSENT (the email
+        // approval) before the child's data is processed / sent overseas to a
+        // model — NOT merely a claimed parent link. A parent claiming the link
+        // code is neither consent nor verification, so parentId alone must NOT
+        // clear ingress (that contradicted this method's own javadoc). Require the
+        // APPROVED consent record; a PENDING child gets the consent-pending path.
+        return consentRepository
                 .findLatestRequestByChildUserIdAndStatus(
                         user.getId(), ConsentRepository.ConsentRequest.STATUS_APPROVED)
                 .isPresent();
-        return parentLinked || parentApproved;
     }
 
     /**
