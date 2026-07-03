@@ -117,9 +117,18 @@ public class ReferralService {
             return;
         }
 
-        r.setStatus(ReferralJpaEntity.STATUS_ACTIVATED);
-        r.setActivatedAt(Instant.now());
-        referralRepo.save(r);
+        // Atomic once-only gate: only the winner of a concurrent race (double-tap,
+        // or quiz-submit + verify-email firing together) flips pending→activated and
+        // pays. A loser sees 0 rows affected and returns WITHOUT paying — closing the
+        // check-then-act double-payout (there was no lock/version/unique constraint).
+        int flipped = referralRepo.activateIfPending(
+                r.getId(), ReferralJpaEntity.STATUS_PENDING,
+                ReferralJpaEntity.STATUS_ACTIVATED, Instant.now());
+        if (flipped == 0) {
+            log.info("[Referral] referee={} already activated concurrently — skip payout",
+                    refereeUserId);
+            return;
+        }
 
         // Pay both sides through the standard XP/stars path so it shows
         // in activity_log and triggers level-up celebrations.

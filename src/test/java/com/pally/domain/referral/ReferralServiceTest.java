@@ -13,6 +13,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +59,7 @@ class ReferralServiceTest {
     void onFirstQuizAnswer_crossingTier_paysFlatRewardBothSides_plusReferrerMilestone() {
         when(referralRepo.findByRefereeUserId(REFEREE)).thenReturn(Optional.of(pendingReferral()));
         stubVerifiedReferee();
+        when(referralRepo.activateIfPending(any(), any(), any(), any())).thenReturn(1); // won the flip
         when(referralRepo.countByReferrerUserIdAndStatus(REFERRER, ReferralJpaEntity.STATUS_ACTIVATED))
                 .thenReturn(3L); // this activation is the 3rd → tier 1
 
@@ -72,6 +76,7 @@ class ReferralServiceTest {
     void onFirstQuizAnswer_notCrossingTier_paysNoMilestoneBonus() {
         when(referralRepo.findByRefereeUserId(REFEREE)).thenReturn(Optional.of(pendingReferral()));
         stubVerifiedReferee();
+        when(referralRepo.activateIfPending(any(), any(), any(), any())).thenReturn(1); // won the flip
         when(referralRepo.countByReferrerUserIdAndStatus(REFERRER, ReferralJpaEntity.STATUS_ACTIVATED))
                 .thenReturn(2L); // not a tier
 
@@ -80,6 +85,19 @@ class ReferralServiceTest {
         verify(userRepo).addXpAndStars(REFERRER, 50, 25);
         verify(userRepo).addXpAndStars(REFEREE, 50, 25);
         verify(userRepo, never()).addXpAndStars(REFERRER, 0, 100);
+    }
+
+    @Test
+    void onFirstQuizAnswer_concurrentLoser_paysNothing() {
+        // Both racers pass the stale status read; the atomic flip returns 0 rows for
+        // the loser (another tx already activated) → it must NOT pay a second reward.
+        when(referralRepo.findByRefereeUserId(REFEREE)).thenReturn(Optional.of(pendingReferral()));
+        stubVerifiedReferee();
+        when(referralRepo.activateIfPending(any(), any(), any(), any())).thenReturn(0); // lost the race
+
+        service.onFirstQuizAnswer(REFEREE);
+
+        verify(userRepo, never()).addXpAndStars(anyString(), anyInt(), anyInt());
     }
 
     @Test
