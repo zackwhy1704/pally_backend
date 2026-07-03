@@ -17,4 +17,7 @@ public class BiometricRegistrationJpaEntity {
     @Column(name = "registered_at", nullable = false) private Instant registeredAt;
     @Column(name = "last_used_at") private Instant lastUsedAt;
     @Column(name = "is_active", nullable = false) private boolean active;
+    /// SHA-256 hex of the device's proof-of-possession secret (issued at register,
+    /// required at verify). NULL for legacy rows → those must re-register.
+    @Column(name = "secret_hash", length = 64) private String secretHash;
 }

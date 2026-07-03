@@ -67,7 +67,7 @@ public class BiometricAuthService {
     }
 
     @Transactional
-    public Map<String, Object> verifyBiometric(String userId, String deviceId) {
+    public Map<String, Object> verifyBiometric(String userId, String deviceId, String deviceSecret) {
         if (userId == null || deviceId == null) {
             throw new BusinessException("userId and deviceId are required", 400);
         }
@@ -79,11 +79,25 @@ public class BiometricAuthService {
             throw new BusinessException("Account temporarily locked due to too many failed attempts", 423);
         }
 
-        registrationRepo.findByUserIdAndDeviceIdAndActiveTrue(userId, deviceId)
+        BiometricRegistrationJpaEntity reg = registrationRepo
+                .findByUserIdAndDeviceIdAndActiveTrue(userId, deviceId)
                 .orElseThrow(() -> {
                     incrementFailedAttempts(user);
                     return new BusinessException("Device not registered for biometric auth", 401);
                 });
+
+        // PROOF-OF-POSSESSION: (userId, deviceId) are non-secret, so they alone must
+        // NOT mint a token. Require the device secret issued at register time (stored
+        // only in the device's secure storage) and constant-time compare its hash.
+        // A legacy row with no secret fails closed → the device must re-register.
+        if (reg.getSecretHash() == null
+                || deviceSecret == null
+                || !MessageDigest.isEqual(
+                        sha256Hex(deviceSecret).getBytes(StandardCharsets.UTF_8),
+                        reg.getSecretHash().getBytes(StandardCharsets.UTF_8))) {
+            incrementFailedAttempts(user);
+            throw new BusinessException("Biometric verification failed", 401);
+        }
 
         user.setBiometricFailedAttempts(0);
         user.setBiometricLockedUntil(null);
@@ -98,14 +112,23 @@ public class BiometricAuthService {
         );
     }
 
+    /// Registers (or re-registers) a device and returns a fresh, high-entropy
+    /// device SECRET — returned ONCE, over the authenticated register call. The
+    /// client stores it in the device's secure storage and presents it at verify;
+    /// only its SHA-256 hash is kept here. Re-register rotates the secret.
     @Transactional
-    public void registerDevice(String userId, String deviceId, String deviceName) {
+    public String registerDevice(String userId, String deviceId, String deviceName) {
         if (deviceId == null || deviceId.isBlank()) {
             throw new BusinessException("deviceId is required", 400);
         }
 
         userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
+
+        byte[] secretBytes = new byte[CHALLENGE_BYTES];
+        secureRandom.nextBytes(secretBytes);
+        String secret = Base64.getUrlEncoder().withoutPadding().encodeToString(secretBytes);
+        String secretHash = sha256Hex(secret);
 
         BiometricRegistrationJpaEntity existing = registrationRepo
                 .findByUserIdAndDeviceId(userId, deviceId)
@@ -115,6 +138,7 @@ public class BiometricAuthService {
             existing.setDeviceName(deviceName);
             existing.setActive(true);
             existing.setRegisteredAt(Instant.now());
+            existing.setSecretHash(secretHash);
             registrationRepo.save(existing);
             log.info("[Biometric] Re-registered device={} for user={}", deviceId, userId);
         } else {
@@ -125,9 +149,11 @@ public class BiometricAuthService {
             entity.setDeviceName(deviceName);
             entity.setRegisteredAt(Instant.now());
             entity.setActive(true);
+            entity.setSecretHash(secretHash);
             registrationRepo.save(entity);
             log.info("[Biometric] Registered new device={} for user={}", deviceId, userId);
         }
+        return secret;
     }
 
     private void incrementFailedAttempts(UserJpaEntity user) {

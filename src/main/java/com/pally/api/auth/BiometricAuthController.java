@@ -27,7 +27,7 @@ public class BiometricAuthController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> verify(
             @RequestBody Map<String, String> request) {
         var result = biometricAuthService.verifyBiometric(
-                request.get("userId"), request.get("deviceId"));
+                request.get("userId"), request.get("deviceId"), request.get("deviceSecret"));
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -35,8 +35,13 @@ public class BiometricAuthController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> register(
             @AuthenticationPrincipal String userId,
             @RequestBody Map<String, String> request) {
-        biometricAuthService.registerDevice(userId, request.get("deviceId"), request.get("deviceName"));
-        return ResponseEntity.ok(ApiResponse.success(
-                Map.of("registered", true, "deviceId", request.get("deviceId"))));
+        String deviceSecret = biometricAuthService.registerDevice(
+                userId, request.get("deviceId"), request.get("deviceName"));
+        // The secret is returned ONCE here (authenticated call) — the client stores
+        // it in secure storage and presents it at verify.
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "registered", true,
+                "deviceId", request.get("deviceId"),
+                "deviceSecret", deviceSecret)));
     }
 }
