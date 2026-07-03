@@ -7,12 +7,14 @@ import com.pally.api.auth.dto.RegisterRequest;
 import com.pally.api.auth.dto.SetupRequest;
 import com.pally.api.auth.dto.SocialAuthRequest;
 import com.pally.domain.centre.CentreInviteService;
+import com.pally.infrastructure.auth.AuthCookieService;
 import com.pally.infrastructure.auth.AuthService;
 import com.pally.infrastructure.auth.SocialTokenVerifier;
 import com.pally.infrastructure.ratelimit.SlidingWindowRateLimiter;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +53,7 @@ public class AuthController {
     private final CentreInviteService inviteService;
     private final SlidingWindowRateLimiter rateLimiter;
     private final SocialTokenVerifier socialTokenVerifier;
+    private final AuthCookieService authCookieService;
 
     // Client IDs for audience validation — set in Railway Variables.
     // Comma-separated for multi-platform (iOS + Android may have different client IDs).
@@ -63,18 +66,22 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
-            @Valid @RequestBody RegisterRequest request
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletResponse response
     ) {
         AuthResponse result = authService.register(
                 request.email(), request.password(), request.displayName(),
                 request.role(), request.birthYear(), request.parentEmail());
+        // Web cookie-auth (no-op unless AUTH_COOKIE_DOMAIN is set); body token unchanged for mobile.
+        authCookieService.setAuthCookie(response, result.token());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(result));
     }
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request,
-            HttpServletRequest http
+            HttpServletRequest http,
+            HttpServletResponse response
     ) {
         // IP+email key — one IP can't spray many accounts, one account
         // can't be hammered from many IPs. Failed-attempts only: we
@@ -92,6 +99,7 @@ public class AuthController {
             // Success: clear the counter so the next session isn't
             // throttled by their earlier fat-fingered tries.
             rateLimiter.reset(key);
+            authCookieService.setAuthCookie(response, result.token());
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (RuntimeException e) {
             // Failure leaves the hit recorded — the counter walks toward
@@ -106,7 +114,8 @@ public class AuthController {
      */
     @PostMapping("/google")
     public ResponseEntity<ApiResponse<AuthResponse>> googleSignIn(
-            @RequestBody SocialAuthRequest request
+            @RequestBody SocialAuthRequest request,
+            HttpServletResponse response
     ) {
         try {
             List<String> audiences = parseClientIds(googleClientIds);
@@ -117,6 +126,7 @@ public class AuthController {
                         .body(ApiResponse.error("Google token missing email claim", 400));
             }
             AuthResponse result = authService.signInWithSocial(claims.email(), claims.name());
+            authCookieService.setAuthCookie(response, result.token());
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (SecurityException e) {
             log.warn("[Auth] Google token verification failed: {}", e.getMessage());

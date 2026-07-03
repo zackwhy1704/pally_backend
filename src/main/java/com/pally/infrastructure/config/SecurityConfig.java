@@ -109,11 +109,13 @@ public class SecurityConfig {
     public CorsConfigurationSource corsSource() {
         CorsConfiguration config = new CorsConfiguration();
         // Explicit allow-list (supports the *.vercel.app wildcard) instead of "*".
-        // Auth is JWT-in-header, not cookies, so credentials stay disabled.
+        // allowCredentials(true) lets the browser send the httpOnly auth cookie on
+        // cross-origin API calls from apalchi.com; it's compatible with
+        // setAllowedOriginPatterns (unlike "*") and additive for header-auth clients.
         config.setAllowedOriginPatterns(allowedOrigins);
         config.addAllowedMethod("*");
         config.addAllowedHeader("*");
-        config.setAllowCredentials(false);
+        config.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);
         source.registerCorsConfiguration("/actuator/**", config);

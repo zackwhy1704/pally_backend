@@ -32,14 +32,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
 
+        // Bearer header takes precedence (mobile + legacy web are unaffected); fall
+        // back to the httpOnly auth cookie for the web cookie-auth path. Reading an
+        // absent cookie is a no-op, so this is safe even before the cookie feature is on.
         String authHeader = request.getHeader("Authorization");
+        String token;
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+        } else {
+            token = AuthCookieService.readAuthCookie(request);
+        }
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        if (token == null || token.isBlank()) {
             filterChain.doFilter(request, response);
             return;
         }
-
-        String token = authHeader.substring(7);
 
         try {
             String userId = jwtService.extractUserId(token);
