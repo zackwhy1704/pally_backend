@@ -114,13 +114,18 @@ class GuardianGateTest {
     }
 
     @Test
-    void under13_withLinkedParent_isAllowed() {
+    void under13_linkedParentButNotApproved_isBLOCKED() {
+        // PDPA: a claimed parent link is NOT consent — only the APPROVED email
+        // consent clears ingress. Previously this passed (parentLinked || approved);
+        // now a linked-but-unapproved under-13 must be blocked.
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user(sgYear() - 10, "parent-1")));
-        lenient().when(consentRepo.findLatestRequestByChildUserIdAndStatus(USER_ID, "APPROVED"))
+        when(consentRepo.findLatestRequestByChildUserIdAndStatus(USER_ID, "APPROVED"))
                 .thenReturn(Optional.empty());
+        when(consentService.resendInfo(USER_ID))
+                .thenReturn(new ConsentService.ResendInfo("j***@gmail.com", false, 42));
 
-        assertThatCode(() -> guard().requireChildDataIngressConsent(USER_ID))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> guard().requireChildDataIngressConsent(USER_ID))
+                .isInstanceOf(ParentalConsentPendingException.class);
     }
 
     @Test
