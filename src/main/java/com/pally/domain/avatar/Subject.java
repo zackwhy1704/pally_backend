@@ -35,4 +35,17 @@ public enum Subject {
             case GENERAL              -> "General";
         };
     }
+
+    /**
+     * Whether "is this content on-topic for the subject?" is a coherent question.
+     * GENERAL has no single topic, so topic-relevance scoring is meaningless for it —
+     * it scores educational-but-off-"topic" content (a sales book, an accounting doc)
+     * as irrelevant and false-blocks it. A topically-UNBOUNDED subject bypasses the
+     * topic-relevance gate but STILL keeps the study-material floor. Written as a
+     * predicate, not {@code == GENERAL}, so a future free-text/unbounded subject
+     * degrades correctly (treat unknown/unbounded like GENERAL).
+     */
+    public boolean isTopicallyBounded() {
+        return this != GENERAL;
+    }
 }

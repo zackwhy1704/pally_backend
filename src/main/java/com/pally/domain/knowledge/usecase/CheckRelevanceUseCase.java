@@ -52,9 +52,17 @@ public class CheckRelevanceUseCase {
         RelevanceScore response =
                 relevancePort.check(avatar.getSubject().name(), wikiSummary, contentSample);
 
-        boolean relevant = response.isRelevant();
-        log.info("Relevance check avatarId={} score={} relevant={} studyMaterial={} reason={}",
-                avatarId, response.value(), relevant, response.studyMaterial(), response.reason());
+        // Topic-relevance only gates topically-BOUNDED subjects. GENERAL (and any future
+        // unbounded subject) has no topic to be off-topic from — scoring against the literal
+        // "General" false-blocks educational-but-off-"topic" content (a sales book at 0.25).
+        // Bypass the topic score for unbounded subjects; the studyMaterial floor still applies
+        // (it flows through unchanged for the client's isRelevant && studyMaterial gate).
+        boolean relevant = avatar.getSubject().isTopicallyBounded()
+                ? response.isRelevant()
+                : true;
+        log.info("Relevance check avatarId={} subject={} topicBounded={} score={} relevant={} studyMaterial={} reason={}",
+                avatarId, avatar.getSubject(), avatar.getSubject().isTopicallyBounded(),
+                response.value(), relevant, response.studyMaterial(), response.reason());
 
         return new RelevanceResult(response.value(), response.reason(), relevant, response.studyMaterial());
     }

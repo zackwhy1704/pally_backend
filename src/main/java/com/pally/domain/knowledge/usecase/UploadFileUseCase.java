@@ -309,10 +309,17 @@ public class UploadFileUseCase {
                 rel = new RelevanceScore(1.0, "Check unavailable");
             }
 
-            if (rel.value() < RELEVANCE_THRESHOLD) {
+            // Topically-BOUNDED subjects gate on the topic score; GENERAL (unbounded) has
+            // no topic to be off-topic from, so it bypasses the topic score and gates on the
+            // study-material floor instead (reject a receipt/selfie, accept any study material).
+            boolean irrelevant = avatar.getSubject().isTopicallyBounded()
+                    ? rel.value() < RELEVANCE_THRESHOLD
+                    : !rel.studyMaterial();
+            if (irrelevant) {
                 kf.markIrrelevant();
                 knowledgeRepository.save(kf);
-                log.info("File fileId={} marked irrelevant score={}", fileId, rel.value());
+                log.info("File fileId={} marked irrelevant subject={} score={} studyMaterial={}",
+                        fileId, avatar.getSubject(), rel.value(), rel.studyMaterial());
                 return new UploadResult.RelevanceWarning(fileId, rel.value(), rel.reason());
             }
         } else {

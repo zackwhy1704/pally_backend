@@ -70,6 +70,54 @@ class CheckRelevanceUseCaseTest {
     }
 
     @Test
+    void execute_generalSubject_offTopicButStudyMaterial_isRelevant() {
+        // GENERAL has no topic to be off-topic from. A sales book scores low on TOPIC
+        // (0.25) but IS study material → must NOT be blocked (it was false-blocked before,
+        // since 0.25 < 0.45). This is the load-bearing GENERAL-bypass test.
+        Avatar avatar = Avatar.create(USER_ID, "Robo", Subject.GENERAL, CharacterType.BYTE);
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(avatar));
+        when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(relevancePort.check(anyString(), anyString(), anyString()))
+                .thenReturn(new RelevanceScore(0.25, "off-topic for General but educational", true));
+
+        CheckRelevanceUseCase.RelevanceResult result = useCase.execute(AVATAR_ID, "The Sales Game...");
+
+        assertThat(result.relevant()).isTrue();       // topic score bypassed for GENERAL
+        assertThat(result.studyMaterial()).isTrue();  // study-material floor preserved
+        assertThat(result.score()).isEqualTo(0.25);   // raw score still reported honestly
+    }
+
+    @Test
+    void execute_generalSubject_notStudyMaterial_keepsFloor() {
+        // GENERAL + a receipt: topic bypassed (relevant), but the studyMaterial floor stays
+        // false so the client still warns/blocks obvious non-educational content.
+        Avatar avatar = Avatar.create(USER_ID, "Robo", Subject.GENERAL, CharacterType.BYTE);
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(avatar));
+        when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(relevancePort.check(anyString(), anyString(), anyString()))
+                .thenReturn(new RelevanceScore(0.05, "a shopping receipt", false));
+
+        CheckRelevanceUseCase.RelevanceResult result = useCase.execute(AVATAR_ID, "TOTAL $12.40");
+
+        assertThat(result.relevant()).isTrue();        // topic bypassed for GENERAL
+        assertThat(result.studyMaterial()).isFalse();  // floor intact
+    }
+
+    @Test
+    void execute_boundedSubject_offTopic_staysNotRelevant() {
+        // No regression: a topically-bounded subject (MATHS) still blocks a low topic score.
+        Avatar avatar = Avatar.create(USER_ID, "Robo", Subject.MATHS, CharacterType.BYTE);
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(avatar));
+        when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(relevancePort.check(anyString(), anyString(), anyString()))
+                .thenReturn(new RelevanceScore(0.25, "a sales book, not maths", true));
+
+        CheckRelevanceUseCase.RelevanceResult result = useCase.execute(AVATAR_ID, "The Sales Game...");
+
+        assertThat(result.relevant()).isFalse();       // bounded subject still gates on topic
+    }
+
+    @Test
     void execute_withOffTopicContent_returnsLowScore() {
         Avatar avatar = makeAvatar();
         when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(avatar));
