@@ -10,7 +10,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,5 +77,73 @@ class ModuleStageFallbackGuardTest {
     @Test
     void everyStage_survivesTruncatedJson() {
         assertEveryStageNonEmpty("```json\n[{\"title\":\"Photosynthesis\",\"body\":\"It conv");
+    }
+
+    // ── B-4 STRENGTHENED (the durable fix) ──────────────────────────────────────
+    // A non-empty COUNT is not enough: a blank-but-present item (a SPOT_MISTAKE with
+    // problem="" from a single-object generator reading getOrDefault off an empty/partial
+    // map) is still ONE item, so the count guard above passes while shipping a broken card.
+    // Assert the type's REQUIRED fields are present and SUBSTANTIVE (non-blank) — for BOTH
+    // single-object spot-mistake sites (main + centre-regen). This is what catches a
+    // blank-item regression regardless of which generator family a future author adds.
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    private Map<String, Object> json(String raw) throws Exception {
+        return raw == null ? Map.of() : mapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+    }
+
+    private void assertField(Map<String, Object> m, String type, String field) {
+        assertThat(m.get(field) instanceof String s && !s.isBlank())
+                .as("%s item field '%s' is blank/missing — a broken (blank) card shipped", type, field)
+                .isTrue();
+    }
+
+    private void assertSubstantive(ModuleContentItem item) throws Exception {
+        Map<String, Object> c = json(item.getContentJson());
+        Map<String, Object> a = json(item.getAnswerJson());
+        String t = item.getType();
+        switch (ContentItemType.valueOf(t)) {
+            case MICRO_CARD -> { assertField(c, t, "title"); assertField(c, t, "body"); }
+            case HOT_TAKE -> {
+                assertField(c, t, "statement");
+                assertThat(a.get("isTrue")).as("HOT_TAKE missing isTrue").isNotNull();
+                assertField(a, t, "explanation");
+            }
+            case SPOT_MISTAKE -> {
+                assertField(c, t, "problem"); assertField(c, t, "wrongSolution");
+                assertField(a, t, "errorDescription"); assertField(a, t, "correctSolution");
+            }
+            case CHALLENGE -> {
+                assertField(c, t, "question");
+                assertField(a, t, "answer"); assertField(a, t, "explanation");
+            }
+            default -> { /* PROVE has its own generator test */ }
+        }
+    }
+
+    private void assertEveryStageSubstantive(String modelReply) throws Exception {
+        when(gemini.complete(anyInt(), any(), any())).thenReturn(modelReply);
+        String content = "Photosynthesis converts light into chemical energy in chloroplasts.";
+        for (Supplier<List<ModuleContentItem>> g : allStageGenerators()) {
+            for (ModuleContentItem item : g.get()) assertSubstantive(item);
+        }
+        // SECOND single-object site: the teacher "Regenerate this module" spot-mistake path.
+        for (ModuleContentItem item : gen.generateSpotMistakeDraft("m1", content, "P5", "Science", "")) {
+            assertSubstantive(item);
+        }
+    }
+
+    @Test
+    void everyStage_emptyModel_shipsSubstantiveContent_notBlankItems() throws Exception {
+        assertEveryStageSubstantive("");
+    }
+
+    @Test
+    void spotMistake_partialParse_fallsBackInsteadOfHalfBlankCard() throws Exception {
+        // A PARTIAL parse: a problem with NO answer half. The map is NOT empty, so an
+        // isEmpty()-only guard would let it ship a card with no answer to reveal (the
+        // answer-split failure class). Pins the FIELD-level guard on BOTH spot-mistake sites.
+        assertEveryStageSubstantive("{\"problem\":\"only a problem, no answer half\"}");
     }
 }

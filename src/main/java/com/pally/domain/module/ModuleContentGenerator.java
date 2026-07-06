@@ -268,7 +268,9 @@ public class ModuleContentGenerator {
         }
     }
 
-    private List<ModuleContentItem> generateSpotMistakeDraft(
+    // Package-private so ModuleStageFallbackGuardTest can pin the SECOND single-object
+    // spot-mistake site (the teacher "Regenerate this module" path), not just the main one.
+    List<ModuleContentItem> generateSpotMistakeDraft(
             String moduleId, String content, String level, String subject, String guidanceSection) {
         String prompt = """
                 Write ONE plausible but WRONG worked solution for a problem from this content.
@@ -283,6 +285,11 @@ public class ModuleContentGenerator {
 
         try {
             Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt, "centre-regen-spotmistake");
+            // Same single-object guard as generateSpotMistake: a total/partial parse must
+            // NOT ship a blank card to the teacher's regen preview.
+            if (!hasNonBlank(parsed, "problem", "wrongSolution", "errorDescription", "correctSolution")) {
+                return List.of(spotMistakeFallbackDraft(moduleId, content));
+            }
             String contentJson = objectMapper.writeValueAsString(Map.of(
                     "problem", parsed.getOrDefault("problem", ""),
                     "wrongSolution", parsed.getOrDefault("wrongSolution", "")));
@@ -293,8 +300,19 @@ public class ModuleContentGenerator {
                     ContentItemType.SPOT_MISTAKE.name(), contentJson, answerJson, 200));
         } catch (Exception e) {
             log.error("[CentreRegen] spot-mistake failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of();
+            // A real fallback draft item, NOT List.of() — teacher regen must never yield a
+            // blank card or nothing.
+            return List.of(spotMistakeFallbackDraft(moduleId, content));
         }
+    }
+
+    /// Draft-path spot-mistake fallback: a substantive (non-blank) fallback item wrapped as
+    /// a draft, so the centre "Regenerate" preview always shows a usable card.
+    private ModuleContentItem spotMistakeFallbackDraft(String moduleId, String content) {
+        ModuleContentItem fb = fallbackStageItem(moduleId, ModuleStage.TEST,
+                ContentItemType.SPOT_MISTAKE, content, 200);
+        return buildDraftItem(moduleId, ModuleStage.TEST.name(),
+                ContentItemType.SPOT_MISTAKE.name(), fb.getContentJson(), fb.getAnswerJson(), 200);
     }
 
     private List<ModuleContentItem> generateChallengesDraft(
@@ -550,6 +568,9 @@ public class ModuleContentGenerator {
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
+                // Drop wrong-shape/blank cards: a non-empty salvage can still yield an object
+                // missing title/body → a blank micro-card. Skip; empty-after-skip → fallback below.
+                if (!hasNonBlank(parsed.get(i), "title", "body")) continue;
                 ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(moduleId);
@@ -596,6 +617,8 @@ public class ModuleContentGenerator {
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 100; // hot takes start at sort_order 100
             for (int i = 0; i < parsed.size(); i++) {
+                // Skip wrong-shape/blank statements (non-empty salvage missing the fields).
+                if (!hasNonBlank(parsed.get(i), "statement", "explanation")) continue;
                 ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(moduleId);
@@ -641,6 +664,12 @@ public class ModuleContentGenerator {
 
         try {
             Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt, "module-spotmistake-gen");
+            // Single-object guard: a total OR partial parse would build a blank/half-blank
+            // SPOT_MISTAKE (getOrDefault→""). Require all four fields; else a real fallback.
+            if (!hasNonBlank(parsed, "problem", "wrongSolution", "errorDescription", "correctSolution")) {
+                return List.of(fallbackStageItem(moduleId, ModuleStage.TEST,
+                        ContentItemType.SPOT_MISTAKE, content, 200));
+            }
 
             ModuleContentItem item = new ModuleContentItem();
             item.setId(IdGenerator.newId());
@@ -688,6 +717,8 @@ public class ModuleContentGenerator {
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 300; // challenges start at sort_order 300
             for (int i = 0; i < parsed.size(); i++) {
+                // Skip wrong-shape/blank questions (non-empty salvage missing the fields).
+                if (!hasNonBlank(parsed.get(i), "question", "answer", "explanation")) continue;
                 ModuleContentItem item = new ModuleContentItem();
                 item.setId(IdGenerator.newId());
                 item.setModuleId(moduleId);
@@ -786,6 +817,21 @@ public class ModuleContentGenerator {
             log.warn("[Module] {} produced no parseable JSON object (attempt {}/2)", label, attempt);
         }
         return Map.of();
+    }
+
+    /// Field-level guard for SINGLE-OBJECT generators. robustJsonObject returns Map.of()
+    /// on total failure AND can return a PARTIAL map (some keys present, others missing —
+    /// e.g. a spot-mistake with a problem but a blank answer half). A map-level isEmpty()
+    /// check misses the partial case and would persist a structurally-complete-but-blank
+    /// item (a card with no answer to reveal). Require every listed field be present and a
+    /// non-blank String before building the real item; otherwise route to a fallback.
+    private static boolean hasNonBlank(Map<String, Object> m, String... keys) {
+        for (String k : keys) {
+            if (!(m.get(k) instanceof String s) || s.isBlank()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// Parse a JSON array of objects; if the array is truncated (the common Gemini
