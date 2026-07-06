@@ -283,16 +283,29 @@ public class WikiRecompileScheduler {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void reconcileOnStartup() {
-        // Reset any avatars stuck in COMPILING (they crashed mid-compile)
+        // RESUME avatars left mid-compile by a crash/redeploy (brainState=COMPILING when the
+        // instance died). The compile is idempotent — executeBatched skips already-compiled
+        // files (compiled_by set) and ModuleGenerationService skips built modules — so
+        // re-triggering RESUMES from where it stopped instead of giving up (the old markReady,
+        // which stranded partial content: pages exist so findAvatarIdsNeedingRecompile below
+        // misses it, and the uncompiled files never get compiled). This makes a redeploy
+        // mid-compile a non-event rather than lost work needing a manual retry.
         List<String> stuck = avatarRepository.findIdsByBrainState(
                 Avatar.BrainState.COMPILING.name());
         if (!stuck.isEmpty()) {
-            log.info("[Debounce] Startup: resetting {} COMPILING-stuck avatars", stuck.size());
+            log.info("[Debounce] Startup: resuming {} avatars left mid-compile", stuck.size());
             stuck.forEach(id -> {
                 try {
-                    brainStateService.markReady(id);
+                    requestRecompile(id); // resume (idempotent), not markReady (give up)
                 } catch (Exception e) {
-                    log.warn("[Debounce] Could not reset stuck avatar={}: {}", id, e.getMessage());
+                    // Queue full / transient — don't leave it wedged in COMPILING forever.
+                    log.warn("[Debounce] Could not resume stuck avatar={}: {} — marking ready",
+                            id, e.getMessage());
+                    try {
+                        brainStateService.markReady(id);
+                    } catch (Exception ignored) {
+                        // best-effort
+                    }
                 }
             });
         }

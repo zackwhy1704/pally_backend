@@ -301,4 +301,29 @@ class WikiRecompileSchedulerTest {
         // B must never have been compiled
         verify(compileWikiUseCase, never()).execute(avatarB);
     }
+
+    // ── Auto-resume-on-startup ───────────────────────────────────────────────
+    // A crash/redeploy that killed an in-flight compile leaves the avatar in COMPILING.
+    // Startup must RESUME it (idempotent — executeBatched/module-gen skip done work), not
+    // markReady/give-up. The old give-up stranded partial content: pages exist, so
+    // findAvatarIdsNeedingRecompile misses it, and the uncompiled files never compile.
+
+    @Test
+    void reconcileOnStartup_resumesAvatarLeftMidCompile_ratherThanGivingUp() {
+        String stuckId = "avatar-stuck-mid-compile";
+        when(avatarRepository.findIdsByBrainState(Avatar.BrainState.COMPILING.name()))
+                .thenReturn(List.of(stuckId));
+        // No timestamp-stale avatars — isolate the stuck-resume path.
+        when(wikiRepository.findAvatarIdsNeedingRecompile()).thenReturn(List.of());
+        // 0 active pages → first-upload-immediate path resumes on the executor synchronously-ish.
+        when(wikiRepository.countActiveByAvatarId(stuckId)).thenReturn(0);
+
+        scheduler.reconcileOnStartup();
+
+        // The compile is RE-RUN (resumed). The OLD code only markReady'd the stuck avatar and
+        // NEVER re-ran the compile — so this verify FAILS against the give-up behaviour.
+        Awaitility.await()
+                .atMost(2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute(stuckId));
+    }
 }
