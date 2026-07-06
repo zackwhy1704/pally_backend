@@ -207,7 +207,8 @@ public class ModuleContentGenerator {
         }
     }
 
-    private List<ModuleContentItem> generateMicroCardsDraft(
+    // Package-private so the fallback guard test can pin the teacher-regen (DRAFT) twin too.
+    List<ModuleContentItem> generateMicroCardsDraft(
             String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
         int n = "CENTRE".equals(tier) ? 6 : 4;
         String prompt = """
@@ -225,17 +226,22 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-learn");
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
+                // Skip wrong-shape/blank cards (mirrors generateMicroCards) so teacher regen
+                // never previews a blank card; empty-after-skip → fallback below.
+                if (!hasNonBlank(parsed.get(i), "title", "body")) continue;
                 items.add(buildDraftItem(moduleId, ModuleStage.LEARN.name(), ContentItemType.MICRO_CARD.name(),
                         objectMapper.writeValueAsString(parsed.get(i)), null, i));
             }
-            return items;
+            return items.isEmpty()
+                    ? List.of(stageFallbackDraft(moduleId, ModuleStage.LEARN, ContentItemType.MICRO_CARD, content, 0))
+                    : items;
         } catch (Exception e) {
             log.error("[CentreRegen] micro-cards failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of();
+            return List.of(stageFallbackDraft(moduleId, ModuleStage.LEARN, ContentItemType.MICRO_CARD, content, 0));
         }
     }
 
-    private List<ModuleContentItem> generateHotTakesDraft(
+    List<ModuleContentItem> generateHotTakesDraft(
             String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
         int n = "CENTRE".equals(tier) ? 3 : 2;
         String prompt = """
@@ -253,6 +259,8 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-hottake");
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
+                // Skip wrong-shape/blank statements (mirrors generateHotTakes).
+                if (!hasNonBlank(parsed.get(i), "statement", "explanation")) continue;
                 String contentJson = objectMapper.writeValueAsString(
                         Map.of("statement", parsed.get(i).getOrDefault("statement", "")));
                 String answerJson = objectMapper.writeValueAsString(Map.of(
@@ -261,10 +269,12 @@ public class ModuleContentGenerator {
                 items.add(buildDraftItem(moduleId, ModuleStage.TEST.name(), ContentItemType.HOT_TAKE.name(),
                         contentJson, answerJson, 100 + i));
             }
-            return items;
+            return items.isEmpty()
+                    ? List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.HOT_TAKE, content, 100))
+                    : items;
         } catch (Exception e) {
             log.error("[CentreRegen] hot-takes failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of();
+            return List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.HOT_TAKE, content, 100));
         }
     }
 
@@ -306,16 +316,22 @@ public class ModuleContentGenerator {
         }
     }
 
-    /// Draft-path spot-mistake fallback: a substantive (non-blank) fallback item wrapped as
-    /// a draft, so the centre "Regenerate" preview always shows a usable card.
-    private ModuleContentItem spotMistakeFallbackDraft(String moduleId, String content) {
-        ModuleContentItem fb = fallbackStageItem(moduleId, ModuleStage.TEST,
-                ContentItemType.SPOT_MISTAKE, content, 200);
-        return buildDraftItem(moduleId, ModuleStage.TEST.name(),
-                ContentItemType.SPOT_MISTAKE.name(), fb.getContentJson(), fb.getAnswerJson(), 200);
+    /// Draft-path fallback for ANY stage generator: a substantive (non-blank) fallback item
+    /// wrapped as a draft, so the centre "Regenerate" preview never shows a blank/empty card.
+    /// Mirrors fallbackStageItem (the LIVE student path) — the teacher-regen twins must guard
+    /// blanks the same way the student path does (they diverged: af26659 guarded LIVE only).
+    private ModuleContentItem stageFallbackDraft(String moduleId, ModuleStage stage,
+            ContentItemType type, String content, int sortOrder) {
+        ModuleContentItem fb = fallbackStageItem(moduleId, stage, type, content, sortOrder);
+        return buildDraftItem(moduleId, stage.name(), type.name(),
+                fb.getContentJson(), fb.getAnswerJson(), sortOrder);
     }
 
-    private List<ModuleContentItem> generateChallengesDraft(
+    private ModuleContentItem spotMistakeFallbackDraft(String moduleId, String content) {
+        return stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.SPOT_MISTAKE, content, 200);
+    }
+
+    List<ModuleContentItem> generateChallengesDraft(
             String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
         int n = "CENTRE".equals(tier) ? 3 : 1;
         String prompt = """
@@ -333,6 +349,8 @@ public class ModuleContentGenerator {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-challenges");
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
+                // Skip wrong-shape/blank questions (mirrors generateChallenges).
+                if (!hasNonBlank(parsed.get(i), "question", "answer", "explanation")) continue;
                 String contentJson = objectMapper.writeValueAsString(Map.of(
                         "question", parsed.get(i).getOrDefault("question", ""),
                         "difficulty", parsed.get(i).getOrDefault("difficulty", "easy")));
@@ -342,10 +360,12 @@ public class ModuleContentGenerator {
                 items.add(buildDraftItem(moduleId, ModuleStage.TEST.name(),
                         ContentItemType.CHALLENGE.name(), contentJson, answerJson, 300 + i));
             }
-            return items;
+            return items.isEmpty()
+                    ? List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.CHALLENGE, content, 300))
+                    : items;
         } catch (Exception e) {
             log.error("[CentreRegen] challenges failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of();
+            return List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.CHALLENGE, content, 300));
         }
     }
 

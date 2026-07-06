@@ -128,8 +128,19 @@ class ModuleStageFallbackGuardTest {
         for (Supplier<List<ModuleContentItem>> g : allStageGenerators()) {
             for (ModuleContentItem item : g.get()) assertSubstantive(item);
         }
-        // SECOND single-object site: the teacher "Regenerate this module" spot-mistake path.
+        // The teacher "Regenerate this module" (DRAFT) twins must guard blanks the SAME way
+        // the student (LIVE) generators do. af26659 fixed LIVE + spot-mistake-draft but MISSED
+        // the micro-card / hot-take / challenge draft twins — this pins the whole draft family.
         for (ModuleContentItem item : gen.generateSpotMistakeDraft("m1", content, "P5", "Science", "")) {
+            assertSubstantive(item);
+        }
+        for (ModuleContentItem item : gen.generateMicroCardsDraft("m1", content, "P5", "Science", "FREE", "")) {
+            assertSubstantive(item);
+        }
+        for (ModuleContentItem item : gen.generateHotTakesDraft("m1", content, "P5", "Science", "FREE", "")) {
+            assertSubstantive(item);
+        }
+        for (ModuleContentItem item : gen.generateChallengesDraft("m1", content, "P5", "Science", "FREE", "")) {
             assertSubstantive(item);
         }
     }
