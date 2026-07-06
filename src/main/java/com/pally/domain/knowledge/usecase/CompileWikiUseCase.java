@@ -84,9 +84,9 @@ public class CompileWikiUseCase {
     /// {@link RejectedExecutionException} → {@link BusinessException}, which
     /// the client treats as "try again in a moment".
     public CompileResult executeBounded(String avatarId) {
+        Future<CompileResult> future = null;
         try {
-            Future<CompileResult> future =
-                    aiTaskExecutor.submit(() -> execute(avatarId));
+            future = aiTaskExecutor.submit(() -> execute(avatarId));
             // Cap the wait so a stuck queue can't park the request thread
             // forever. Matches the Claude stream/idle ceiling.
             return future.get(4, TimeUnit.MINUTES);
@@ -95,6 +95,17 @@ public class CompileWikiUseCase {
                     "Mochi's busy compiling other brains — try again in a moment.",
                     503);
         } catch (TimeoutException e) {
+            // Best-effort cleanup: signal the timed-out compile to stop so it doesn't
+            // keep running orphaned past the 504. This is NOT a guaranteed kill — the
+            // Claude call is a WebClient/Netty request with its own 180s response
+            // timeout, so the interrupt unblocks the executor thread while the in-flight
+            // HTTP call self-limits. Stacked compiles are ALREADY prevented upstream by
+            // the caller's per-avatar single-flight gate (KnowledgeService →
+            // WikiRecompileScheduler.tryBeginExternalCompile / inFlight); this is
+            // orphan cleanup, not the stacking guard.
+            if (future != null) {
+                future.cancel(true);
+            }
             throw new BusinessException(
                     "Compile took too long. Please retry.", 504);
         } catch (InterruptedException e) {
