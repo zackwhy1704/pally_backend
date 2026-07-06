@@ -522,8 +522,10 @@ public class ModuleContentGenerator {
                             "correctSolution", concept)));
                 }
                 case CHALLENGE -> {
+                    // Generic stem — do NOT present a raw content slice as the question
+                    // (Bug 3: a fallback showed a truncated markdown fragment as the stem).
                     item.setContentJson(objectMapper.writeValueAsString(Map.of(
-                            "question", "In your own words, explain: " + concept,
+                            "question", "In your own words, explain the key idea from your notes for this lesson.",
                             "difficulty", "easy")));
                     item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
                             "answer", concept, "explanation", "See the notes above.")));
@@ -536,10 +538,24 @@ public class ModuleContentGenerator {
         return item;
     }
 
-    private static String summarizeForFallback(String content) {
+    /// Clean a raw wiki-content slice into a student-safe fallback summary: strip markdown
+    /// artifacts (so `* **`, `#`, backticks, links never render as a question stem / card
+    /// body) and truncate at a WORD boundary, never mid-word. Package-private for testing.
+    static String summarizeForFallback(String content) {
         if (content == null || content.isBlank()) return "this topic";
-        String c = content.strip().replaceAll("\\s+", " ");
-        return c.length() <= 140 ? c : c.substring(0, 140) + "…";
+        String c = content
+                .replaceAll("[*_`>#~\\[\\]]", " ") // markdown emphasis/heading/quote/code/link syntax
+                .replaceAll("\\s+", " ")
+                .strip();
+        if (c.isBlank()) return "this topic";
+        if (c.length() <= 140) return c;
+        // Truncate at the last word boundary within the window, not mid-word.
+        String cut = c.substring(0, 140);
+        int lastSpace = cut.lastIndexOf(' ');
+        if (lastSpace > 80) {
+            cut = cut.substring(0, lastSpace);
+        }
+        return cut.strip() + "…";
     }
 
     // ── LEARN: micro-cards ───────────────────────────────────────────────
