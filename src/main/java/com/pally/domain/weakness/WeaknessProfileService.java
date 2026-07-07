@@ -111,12 +111,14 @@ public class WeaknessProfileService {
      * when the pilot is off). Empty lists when off / no profile.
      */
     public Map<String, Object> focusFor(String userId, Subject subject) {
+        // Read the REAL per-student weak signal (weakSlugsFor), same as the teacher roster
+        // view — NOT weaknessPagesFor (which returns the weakness-profile avatar's ALL pages
+        // and listed everything as a "focus area"). Consistent signal across both surfaces.
         List<Map<String, Object>> areas = new ArrayList<>();
-        for (WikiPage p : weaknessPagesFor(userId, subject)) {
+        for (String slug : weakSlugsFor(userId, subject)) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("title", p.getTitle());
-            String c = p.getContent() == null ? "" : p.getContent();
-            m.put("summary", c.length() > 200 ? c.substring(0, 200) + "…" : c);
+            m.put("title", WeaknessTopics.label(slug));
+            m.put("summary", "");
             areas.add(m);
         }
         Map<String, Object> out = new LinkedHashMap<>();

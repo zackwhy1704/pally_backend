@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -221,5 +222,18 @@ class WeaknessProfileServiceTest {
         when(stateStore.find("user-1", Subject.MATHS))
                 .thenReturn(Optional.of(new WeaknessState("", "")));
         assertThat(service.weakSlugsFor("user-1", Subject.MATHS)).isEmpty();
+    }
+
+    @Test
+    void focusFor_showsRealWeakTopicsAsLabels_notAllPages() {
+        // The fix: focusFor reads the live weakSlugs signal, not weaknessPagesFor (all pages).
+        ReflectionTestUtils.setField(service, "enabled", true);
+        when(stateStore.find("user-1", Subject.MATHS))
+                .thenReturn(Optional.of(new WeaknessState("dividing-fractions,decimals", "")));
+        var out = service.focusFor("user-1", Subject.MATHS);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> areas = (List<Map<String, Object>>) out.get("focusAreas");
+        assertThat(areas).extracting(a -> a.get("title"))
+                .containsExactly("Dividing Fractions", "Decimals");
     }
 }
