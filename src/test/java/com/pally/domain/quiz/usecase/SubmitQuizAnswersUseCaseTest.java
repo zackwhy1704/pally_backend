@@ -304,6 +304,33 @@ class SubmitQuizAnswersUseCaseTest {
         assertThat(byQuestion.get("q2")).isFalse(); // tampered map could not flip this
     }
 
+    @Test
+    void noServerKey_fallsBackToClientMap_theKnownLegacyGap_pinnedExplicitly() {
+        // AUDIT B6: pins the residual keyless fallback (SubmitQuizAnswersUseCase:187).
+        // The serve chokepoint persists a key for EVERY current quiz, so this path is
+        // unreachable within the 7-day answer-key retention window — only a quiz
+        // served, abandoned, and submitted >7 days later (after the reaper deletes
+        // the key) reaches it. When it does, grading falls back to the client map.
+        // Pinned so any change to (or closure of) this gap is deliberate, not silent.
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(24, 12, false, 1.0));
+
+        // No server key (reaped) → the client map is the only grader available.
+        when(answerKeyRepository.findByQuestionIds(any())).thenReturn(Map.of());
+
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 1));
+        Map<String, Integer> clientMap = Map.of("q1", 1); // client says index 1 is correct
+
+        QuizResult result = useCase.execute(sub, clientMap);
+
+        // Documents the fallback: with no server key, the client map is trusted.
+        assertThat(result.score()).isEqualTo(1);
+        assertThat(result.total()).isEqualTo(1);
+    }
+
     // ── POST-SUBMIT FEEDBACK: the correct answer is revealed only after submit
     //    (the served teacher-graded question withheld it) ────────────────────
 
