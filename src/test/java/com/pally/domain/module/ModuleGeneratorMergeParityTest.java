@@ -1,20 +1,31 @@
 package com.pally.domain.module;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pally.domain.avatar.Avatar;
+import com.pally.domain.avatar.CharacterType;
+import com.pally.domain.avatar.Subject;
+import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.groundedness.GroundednessVerifier;
+import com.pally.domain.module.LearningModule;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /// Phase 1 (8→4 a/b generator merge) parity guard. The ONE merged generator must produce
@@ -86,5 +97,35 @@ class ModuleGeneratorMergeParityTest {
         assertSameStructure(student, teacher);
         assertThat(student.get(0).getType()).isEqualTo("CHALLENGE");
         assertThat(student.get(0).getSortOrder()).isEqualTo(300);
+    }
+
+    /// The invariant this merge most endangered: teacher-regenerate previews must be marked
+    /// DRAFT, or they leak into LIVE student content. The merged generators are DRAFT-neutral
+    /// (LIVE); regenerateAsDraft MUST apply DRAFT. Nothing else tests this — CentreRegenerate-
+    /// ServiceTest mocks the generator away — so it lives here, next to the student→LIVE side.
+    @Test
+    void regenerateAsDraft_marksEveryItemDraft_soPreviewsNeverLeakLive() {
+        when(gemini.complete(anyInt(), any(), any())).thenReturn(
+                "[{\"title\":\"Fractions\",\"body\":\"parts of a whole\",\"keyTerms\":[]}]");
+        lenient().when(premiumService.resolveTier(any())).thenReturn(SubscriptionTier.FREE);
+
+        Avatar avatar = Avatar.reconstitute("cav", "teacher-1", "P4 Maths",
+                Subject.MATHS, CharacterType.MOCHI, 5, Instant.now());
+        WikiPage page = WikiPage.reconstitute("p1", "cav", "fractions", "Fractions",
+                "Fractions are parts of a whole.", WikiPage.Certainty.INFERRED, Instant.now());
+        LearningModule module = new LearningModule();
+        module.setId("mod1");
+
+        gen.regenerateAsDraft(avatar, page, module, "focus on word problems");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ModuleContentItem>> captor = ArgumentCaptor.forClass(List.class);
+        verify(moduleWriter).replaceItems(eq("mod1"), captor.capture());
+        List<ModuleContentItem> persisted = captor.getValue();
+        assertThat(persisted).isNotEmpty();
+        assertThat(persisted).allSatisfy(item ->
+                assertThat(item.getStatus())
+                        .as("every regenerated item must be DRAFT (else it leaks into live content)")
+                        .isEqualTo("DRAFT"));
     }
 }
