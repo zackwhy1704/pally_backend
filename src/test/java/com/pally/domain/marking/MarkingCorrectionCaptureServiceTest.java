@@ -29,10 +29,11 @@ import static org.mockito.Mockito.when;
 class MarkingCorrectionCaptureServiceTest {
 
     @Mock MarkingCorrectionRepository repository;
+    @Mock org.springframework.context.ApplicationEventPublisher events;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private MarkingCorrectionCaptureService service() {
-        return new MarkingCorrectionCaptureService(repository, mapper, 15);
+        return new MarkingCorrectionCaptureService(repository, mapper, events, 15);
     }
 
     private String draft(String suggestedGrade, String feedback) {

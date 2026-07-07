@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.homework.HomeworkSubmission;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -33,6 +34,7 @@ public class MarkingCorrectionCaptureService {
 
     private final MarkingCorrectionRepository repository;
     private final ObjectMapper mapper;
+    private final ApplicationEventPublisher events;
 
     /// If the teacher's feedback merely EXTENDS the AI's by at most this many chars
     /// (added praise/punctuation), it's embellishment, not a redirect — capture
@@ -45,9 +47,11 @@ public class MarkingCorrectionCaptureService {
     public MarkingCorrectionCaptureService(
             MarkingCorrectionRepository repository,
             ObjectMapper mapper,
+            ApplicationEventPublisher events,
             @Value("${marking.correction.embellish-max-chars:15}") int embellishMaxChars) {
         this.repository = repository;
         this.mapper = mapper;
+        this.events = events;
         this.embellishMaxChars = embellishMaxChars;
     }
 
@@ -76,6 +80,9 @@ public class MarkingCorrectionCaptureService {
                     aiGrade, teacherGrade, aiFeedback, teacherFeedback));
             log.info("[Marking] captured correction={} class={} submission={} gradeDelta={}->{}",
                     saved.id(), submission.getClassId(), submission.getId(), aiGrade, teacherGrade);
+            // FEED trigger (Part 3): the compiler reacts async + debounced, so this
+            // never waits on a marking-wiki recompile.
+            events.publishEvent(new MarkingCorrectionCapturedEvent(submission.getClassId()));
         } catch (Exception e) {
             // HARD invariant: capture never affects the release.
             log.warn("[Marking] correction capture failed (non-fatal) submission={}: {}",
