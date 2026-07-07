@@ -38,7 +38,7 @@ class ModuleContentGeneratorTest {
     void setUp() {
         generator = new ModuleContentGenerator(
                 geminiCompletion, objectMapper, premiumService, groundednessVerifier,
-                new ModuleWriter(moduleRepository, itemRepository));
+                new ModuleWriter(moduleRepository, itemRepository, new com.pally.domain.content.PassThroughOutputValidator()));
         // Default: FREE tier for personal avatars
         lenient().when(premiumService.resolveTier(anyString()))
                 .thenReturn(SubscriptionTier.FREE);

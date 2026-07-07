@@ -30,7 +30,7 @@ class ModuleWriterTest {
 
     @BeforeEach
     void setUp() {
-        writer = new ModuleWriter(moduleRepo, itemRepo);
+        writer = new ModuleWriter(moduleRepo, itemRepo, new com.pally.domain.content.PassThroughOutputValidator());
     }
 
     private static ModuleContentItem item(String id) {

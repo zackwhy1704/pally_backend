@@ -37,7 +37,7 @@ class ModuleContentGeneratorTierTest {
     void setUp() {
         generator = new ModuleContentGenerator(
                 geminiCompletion, new ObjectMapper(), premiumService, groundednessVerifier,
-                new ModuleWriter(moduleRepository, itemRepository));
+                new ModuleWriter(moduleRepository, itemRepository, new com.pally.domain.content.PassThroughOutputValidator()));
     }
 
     @Test
