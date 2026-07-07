@@ -1,11 +1,13 @@
 package com.pally.domain.quiz.usecase;
 
+import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
 import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.quiz.QuizQuestion;
 import com.pally.domain.quiz.port.QuizGeneratorPort;
+import com.pally.domain.weakness.WeaknessProfileService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,8 +16,10 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +44,7 @@ public class GetDailyQuizUseCase {
     private final WikiRepository wikiRepository;
     private final QuizGeneratorPort quizGeneratorPort;
     private final AvatarSlotGuard avatarSlotGuard;
+    private final WeaknessProfileService weaknessProfileService;
 
     /// In-memory daily quiz cache: avatarId → (date → questions).
     /// Single Railway instance → no distributed state needed. Cache evicts
@@ -99,14 +104,14 @@ public class GetDailyQuizUseCase {
                         + "generating independently", avatarId, e.getMessage());
                 // Fall through: generate ourselves rather than fail the request.
                 // We are NOT the leader, so we never touch the leader's future.
-                return generateAndCache(avatarId, today, avatarCache);
+                return generateAndCache(avatarId, userId, today, avatarCache);
             }
         }
 
         // We are the leader: own the in-flight slot, generate, hand the result to
         // any followers, then release the slot regardless of outcome.
         try {
-            List<QuizQuestion> questions = generateAndCache(avatarId, today, avatarCache);
+            List<QuizQuestion> questions = generateAndCache(avatarId, userId, today, avatarCache);
             mine.complete(questions);
             return questions;
         } catch (RuntimeException e) {
@@ -121,7 +126,7 @@ public class GetDailyQuizUseCase {
     /// the server answer key, and cache the questions. Extracted so the
     /// single-flight in {@link #execute} wraps exactly one generation.
     private List<QuizQuestion> generateAndCache(
-            String avatarId, LocalDate today,
+            String avatarId, String userId, LocalDate today,
             Map<LocalDate, List<QuizQuestion>> avatarCache) {
         // A CENTRE_CLASS student avatar has NO wiki of its own — it reads the
         // shared class corpus (Avatar.corpusAvatarId), the same way
@@ -129,10 +134,15 @@ public class GetDailyQuizUseCase {
         // student's daily quiz is always empty (the content lives on the corpus).
         // The quiz instance still belongs to the STUDENT avatar (keys, cache,
         // submission, results) — only the page SOURCE resolves to the corpus.
-        String wikiSourceId = avatarRepository.findById(avatarId)
-                .map(a -> a.getCorpusAvatarId() != null && !a.getCorpusAvatarId().isBlank()
-                        ? a.getCorpusAvatarId() : avatarId)
-                .orElse(avatarId);
+        // NB: because the quiz avatar is per-student (owned 1:1 by userId), this
+        // whole generation — cache, single-flight, answer key — is already
+        // per-user; the weak-first bias below can therefore use THIS student's
+        // own weak signal directly, with no cross-student contamination.
+        Avatar avatar = avatarRepository.findById(avatarId).orElse(null);
+        String wikiSourceId =
+                (avatar != null && avatar.getCorpusAvatarId() != null
+                        && !avatar.getCorpusAvatarId().isBlank())
+                        ? avatar.getCorpusAvatarId() : avatarId;
         List<WikiPage> allPages = wikiRepository.findByAvatarId(wikiSourceId);
         List<WikiPage> pages = allPages.stream()
                 .filter(p -> p.getStatus() == WikiPage.Status.ACTIVE)
@@ -150,13 +160,42 @@ public class GetDailyQuizUseCase {
             return List.of();
         }
 
-        // R3 — bias toward the student's weak spots and under-tested material.
+        // R3 — bias the pool toward the student's weak spots and under-tested
+        // material, THEN close the weakness loop: pages the student is actually
+        // weak on (from their own quiz history) sort to the FRONT so the day's
+        // quiz targets their weak topics. weakSlugsFor is per-(userId, subject)
+        // and returns [] when the pilot flag is off or the student has no profile
+        // yet — in which case the primary key is constant and this degrades to the
+        // exact certainty/coverage order below (behaviour-identical for new
+        // students / prod). The stable sort preserves that order within each group.
+        //
+        // CROSS-REPO CONTRACT (no backend test can guard this): weak slugs match a
+        // page only when weakSlugs ∋ WikiPage.getSlug(). Those slugs originate as
+        // QuizQuestionResult.topicSlug, which the Flutter client fills on submit as
+        // topicMap[q.id] = q.sourcePage (quiz_view_model.dart), i.e. the question's
+        // sourcePageSlug == the WikiPage slug it was generated from. If the client
+        // ever stops populating topicMap from sourcePage, the slugs stop matching
+        // and this loop SILENTLY no-ops (no reorder, no error). Test 4 guards the
+        // backend half (exact-slug match, not fuzzy); the client half is uncovered
+        // here — keep the two sides coupled.
+        Set<String> weakSlugs = new HashSet<>(
+                avatar != null && avatar.getSubject() != null
+                        ? weaknessProfileService.weakSlugsFor(userId, avatar.getSubject())
+                        : List.of());
+        Comparator<WikiPage> coverageOrder = Comparator
+                .comparingDouble(WikiPage::getCertaintyScore)
+                .thenComparingInt(WikiPage::getQuizUseCount);
+        Comparator<WikiPage> weakFirst = Comparator
+                .comparingInt((WikiPage p) -> weakSlugs.contains(p.getSlug()) ? 0 : 1)
+                .thenComparing(coverageOrder);
         List<WikiPage> prioritised = pages.stream()
-                .sorted(Comparator
-                        .comparingDouble(WikiPage::getCertaintyScore)
-                        .thenComparingInt(WikiPage::getQuizUseCount))
+                .sorted(weakFirst)
                 .limit(MAX_PAGES_PER_QUIZ)
                 .toList();
+
+        log.info("[Pipeline:Quiz] weak-first bias avatarId={} weakSlugs={} matchedInPool={}",
+                avatarId, weakSlugs.size(),
+                pages.stream().filter(p -> weakSlugs.contains(p.getSlug())).count());
 
         log.info("[Pipeline:Quiz] Generating from {} pages: slugs={}",
                 prioritised.size(), prioritised.stream().map(WikiPage::getSlug).toList());
