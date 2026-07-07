@@ -187,6 +187,31 @@ public class WeaknessProfileService {
     }
 
     /**
+     * The student's current weak-topic SLUGS — the REAL per-student weakness signal, read
+     * from the persisted {@link WeaknessState} (written on every quiz submission via
+     * {@link #onMasteryUpdated}). This is the signal that should shape what a student sees.
+     *
+     * <p>NB: {@link #weaknessPagesFor} above does NOT reflect these slugs — it returns the
+     * SEPARATE weakness-profile avatar's compiled pages (for chat grounding), so it can't be
+     * used to know which topics a student is weak on. Consumers that adapt to weakness (the
+     * daily quiz, the teacher "weak areas" view) must read THIS.
+     *
+     * <p>Ordered as stored (sorted, comma-joined). Empty when the flag is off or the student
+     * has no profile yet (first quiz) — callers fall back to their default behaviour.
+     */
+    public List<String> weakSlugsFor(String userId, Subject subject) {
+        if (!enabled) return List.of();
+        return stateStore.find(userId, subject)
+                .map(WeaknessState::weakSlugs)
+                .filter(s -> s != null && !s.isBlank())
+                .map(s -> Arrays.stream(s.split(","))
+                        .map(String::strip)
+                        .filter(slug -> !slug.isBlank())
+                        .toList())
+                .orElseGet(List::of);
+    }
+
+    /**
      * Finds the student's WEAKNESS_PROFILE avatar for the subject, creating it
      * lazily. (A rare concurrent double-create is harmless for this dormant
      * pilot — both would compile to the same pages; add a unique constraint if

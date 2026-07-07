@@ -190,4 +190,36 @@ class WeaknessProfileServiceTest {
         assertThat((List<?>) out.get("focusAreas")).isEmpty();
         assertThat((List<?>) out.get("recentWins")).isEmpty();
     }
+
+    // ── weakSlugsFor: the REAL per-student weakness signal (what should shape content) ──
+
+    @Test
+    void weakSlugsFor_parsesTheStoredCommaJoinedSlugs() {
+        ReflectionTestUtils.setField(service, "enabled", true);
+        when(stateStore.find("user-1", Subject.MATHS))
+                .thenReturn(Optional.of(new WeaknessState("fractions,decimals-place", "")));
+        assertThat(service.weakSlugsFor("user-1", Subject.MATHS))
+                .containsExactly("fractions", "decimals-place");
+    }
+
+    @Test
+    void weakSlugsFor_returnsEmptyWhenDisabled() {
+        ReflectionTestUtils.setField(service, "enabled", false);
+        assertThat(service.weakSlugsFor("user-1", Subject.MATHS)).isEmpty();
+    }
+
+    @Test
+    void weakSlugsFor_returnsEmptyWhenNoProfileYet() {
+        ReflectionTestUtils.setField(service, "enabled", true);
+        when(stateStore.find("user-1", Subject.MATHS)).thenReturn(Optional.empty());
+        assertThat(service.weakSlugsFor("user-1", Subject.MATHS)).isEmpty();
+    }
+
+    @Test
+    void weakSlugsFor_blankSignatureIsEmpty_notAListWithOneBlankSlug() {
+        ReflectionTestUtils.setField(service, "enabled", true);
+        when(stateStore.find("user-1", Subject.MATHS))
+                .thenReturn(Optional.of(new WeaknessState("", "")));
+        assertThat(service.weakSlugsFor("user-1", Subject.MATHS)).isEmpty();
+    }
 }

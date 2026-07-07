@@ -3,7 +3,6 @@ package com.pally.domain.weakness;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.centre.CentreAccessService;
 import com.pally.domain.centre.OrgClassRepository;
-import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
 import com.pally.shared.exception.BusinessException;
@@ -58,9 +57,12 @@ public class TeacherWeaknessService {
                         (a, b) -> a));
 
         List<Map<String, Object>> students = roster.stream().map(sid -> {
-            List<String> areas = weaknessProfileService.weaknessPagesFor(sid, subject).stream()
-                    .map(WikiPage::getTitle)
+            // Show the student's REAL weak topics (from the per-user weakSlugs signal), not
+            // every page. weaknessPagesFor returned the weakness-profile avatar's ALL pages,
+            // so the "weak areas" column listed everything — a lie the method name hid.
+            List<String> areas = weaknessProfileService.weakSlugsFor(sid, subject).stream()
                     .limit(MAX_AREAS_PER_STUDENT)
+                    .map(TeacherWeaknessService::slugToLabel)
                     .toList();
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("studentId", sid);
@@ -71,6 +73,16 @@ public class TeacherWeaknessService {
 
         out.put("students", students);
         return out;
+    }
+
+    /** "fractions-division-step" -> "Fractions Division Step" for the teacher-facing display. */
+    static String slugToLabel(String slug) {
+        String s = slug.replace('-', ' ').replace('_', ' ').strip();
+        if (s.isEmpty()) return slug;
+        return java.util.Arrays.stream(s.split(" "))
+                .filter(w -> !w.isBlank())
+                .map(w -> Character.toUpperCase(w.charAt(0)) + w.substring(1))
+                .collect(Collectors.joining(" "));
     }
 
     /** Defensive parse of the stored class subject (enum name or label). */

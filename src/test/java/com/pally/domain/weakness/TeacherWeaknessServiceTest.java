@@ -44,9 +44,9 @@ class TeacherWeaknessServiceTest {
         User u1 = mock(User.class); when(u1.getId()).thenReturn("s1"); when(u1.getDisplayName()).thenReturn("Aisha");
         User u2 = mock(User.class); when(u2.getId()).thenReturn("s2"); when(u2.getDisplayName()).thenReturn("Ben");
         when(userRepository.findAllByIds(any())).thenReturn(List.of(u1, u2));
-        WikiPage p = mock(WikiPage.class); when(p.getTitle()).thenReturn("Dividing fractions");
-        when(weaknessProfileService.weaknessPagesFor("s1", Subject.MATHS)).thenReturn(List.of(p));
-        when(weaknessProfileService.weaknessPagesFor("s2", Subject.MATHS)).thenReturn(List.of());
+        // Real weak signal now = weakSlugsFor (slugs), rendered to labels for display.
+        when(weaknessProfileService.weakSlugsFor("s1", Subject.MATHS)).thenReturn(List.of("dividing-fractions"));
+        when(weaknessProfileService.weakSlugsFor("s2", Subject.MATHS)).thenReturn(List.of());
 
         Map<String, Object> out = service.perStudentWeakness("teacher-1", "class-1");
 
@@ -60,7 +60,7 @@ class TeacherWeaknessServiceTest {
         List<String> areas0 = (List<String>) students.get(0).get("weakAreas");
         @SuppressWarnings("unchecked")
         List<String> areas1 = (List<String>) students.get(1).get("weakAreas");
-        assertThat(areas0).containsExactly("Dividing fractions");
+        assertThat(areas0).containsExactly("Dividing Fractions"); // slug "dividing-fractions" → label
         assertThat(areas1).isEmpty();
     }
 
