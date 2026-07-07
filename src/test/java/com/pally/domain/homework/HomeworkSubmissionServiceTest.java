@@ -41,6 +41,7 @@ class HomeworkSubmissionServiceTest {
     @Mock private WikiRepository wikiRepository;
     @Mock private FcmService fcmService;
     @Mock private com.pally.domain.marking.MarkingCorpusService markingCorpusService;
+    @Mock private com.pally.domain.marking.MarkingCorrectionCaptureService markingCorrectionCapture;
 
     private HomeworkSubmissionService service;
 
@@ -48,7 +49,8 @@ class HomeworkSubmissionServiceTest {
     void setUp() {
         service = new HomeworkSubmissionService(
                 submissionRepository, storagePort, textExtractor, feedbackGenerator,
-                orgClassRepository, wikiRepository, fcmService, markingCorpusService);
+                orgClassRepository, wikiRepository, fcmService, markingCorpusService,
+                markingCorrectionCapture);
         // save() echoes its argument back, like a real repository round-trip.
         // Lenient: the validation/failure tests deliberately never reach save().
         lenient().when(submissionRepository.save(any())).thenAnswer(i -> i.getArgument(0));

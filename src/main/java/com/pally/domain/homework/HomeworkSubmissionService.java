@@ -44,6 +44,9 @@ public class HomeworkSubmissionService {
     private final WikiRepository wikiRepository;
     private final FcmService fcmService;
     private final com.pally.domain.marking.MarkingCorpusService markingCorpusService;
+    // Marking feedback loop (WRITE side): captures a substantive teacher correction
+    // at release. Best-effort — it never affects the release (see release()).
+    private final com.pally.domain.marking.MarkingCorrectionCaptureService markingCorrectionCapture;
 
     // ── Create (student submits, or teacher uploads on a student's behalf) ──────
 
@@ -149,6 +152,16 @@ public class HomeworkSubmissionService {
         }
         HomeworkSubmission saved = submissionRepository.save(submission);
         notifyReleased(saved);
+        // Marking feedback loop: capture a substantive AI-vs-teacher correction.
+        // Best-effort AND double-guarded — release is the human-sign-off hot path
+        // and MUST NOT be blocked or failed by capture (the captureOnRelease method
+        // already swallows its own errors; this is belt-and-suspenders).
+        try {
+            markingCorrectionCapture.captureOnRelease(saved);
+        } catch (Exception e) {
+            log.warn("[Homework] correction capture threw despite best-effort (ignored): {}",
+                    e.toString());
+        }
         return saved;
     }
 
