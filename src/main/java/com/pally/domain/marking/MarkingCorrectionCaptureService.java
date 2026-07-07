@@ -3,8 +3,8 @@ package com.pally.domain.marking;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.homework.HomeworkSubmission;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -28,16 +28,28 @@ import java.util.Map;
  * </ul>
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class MarkingCorrectionCaptureService {
 
-    /// If one feedback string merely EXTENDS the other by at most this many chars,
-    /// treat it as embellishment (cosmetic), not a redirection.
-    private static final int EMBELLISH_MAX_CHARS = 15;
-
     private final MarkingCorrectionRepository repository;
     private final ObjectMapper mapper;
+
+    /// If the teacher's feedback merely EXTENDS the AI's by at most this many chars
+    /// (added praise/punctuation), it's embellishment, not a redirect — capture
+    /// nothing. A tunable dial, not a semantic judgment: raise it to treat longer
+    /// additions as embellishment, lower it to capture more. Over-capture isn't
+    /// free — it drives Part 3's marking-wiki recompiles — so it's deliberately
+    /// conservative and externally tunable without a redeploy.
+    private final int embellishMaxChars;
+
+    public MarkingCorrectionCaptureService(
+            MarkingCorrectionRepository repository,
+            ObjectMapper mapper,
+            @Value("${marking.correction.embellish-max-chars:15}") int embellishMaxChars) {
+        this.repository = repository;
+        this.mapper = mapper;
+        this.embellishMaxChars = embellishMaxChars;
+    }
 
     /**
      * Best-effort capture. Never throws. Persists a correction only when the
@@ -80,27 +92,30 @@ public class MarkingCorrectionCaptureService {
     private boolean gradeChanged(String aiGrade, String teacherGrade) {
         String ai = norm(aiGrade);
         String teacher = norm(teacherGrade);
-        if (teacher.isEmpty()) return false;          // teacher set no grade → no grade signal
-        if (ai.isEmpty()) return true;                // AI suggested none, teacher graded → a change
+        // A correction needs TWO opinions that disagree. If the AI suggested no
+        // grade (draft failure / partial draft) the teacher isn't CORRECTING a
+        // judgment — they're doing the primary grading. No AI opinion → no delta.
+        if (ai.isEmpty() || teacher.isEmpty()) return false;
         return !ai.equals(teacher);
     }
 
     /**
      * The teacher's feedback REDIRECTS the AI's (a real correction) rather than
-     * merely embellishing it. Cosmetic: identical after normalisation, or one is
-     * the other plus ≤ EMBELLISH_MAX_CHARS of extra text (added praise/punctuation).
+     * merely embellishing it. Requires two opinions: if the AI wrote no feedback,
+     * the teacher's feedback isn't correcting an AI judgment — nothing to redirect.
+     * Cosmetic = identical after normalisation, OR the teacher EXTENDED the AI's
+     * feedback by ≤ embellishMaxChars (added praise/punctuation). Note the
+     * containment is DIRECTIONAL (teacher-extends-AI only): a teacher who TRIMS the
+     * AI's feedback (dropping "Wrong…") is softening a judgment — a real redirect,
+     * not embellishment — so it is NOT silently dropped.
      */
     private boolean feedbackRedirects(String aiFeedback, String teacherFeedback) {
-        String teacher = norm(teacherFeedback);
-        if (teacher.isEmpty()) return false;          // no teacher feedback → no signal here
         String ai = norm(aiFeedback);
-        if (ai.isEmpty()) return true;                // teacher wrote substance where AI had none
-        if (ai.equals(teacher)) return false;         // identical → cosmetic
-        // One contains the other with only a small addition → embellishment, not a redirect.
-        String longer = teacher.length() >= ai.length() ? teacher : ai;
-        String shorter = teacher.length() >= ai.length() ? ai : teacher;
-        if (longer.contains(shorter) && (longer.length() - shorter.length()) <= EMBELLISH_MAX_CHARS) {
-            return false;
+        String teacher = norm(teacherFeedback);
+        if (ai.isEmpty() || teacher.isEmpty()) return false; // need both opinions
+        if (ai.equals(teacher)) return false;                // identical → cosmetic
+        if (teacher.contains(ai) && (teacher.length() - ai.length()) <= embellishMaxChars) {
+            return false;                                    // teacher merely extended AI → embellishment
         }
         return true;
     }

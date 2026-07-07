@@ -32,7 +32,7 @@ class MarkingCorrectionCaptureServiceTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private MarkingCorrectionCaptureService service() {
-        return new MarkingCorrectionCaptureService(repository, mapper);
+        return new MarkingCorrectionCaptureService(repository, mapper, 15);
     }
 
     private String draft(String suggestedGrade, String feedback) {
@@ -91,6 +91,42 @@ class MarkingCorrectionCaptureServiceTest {
         // Teacher marked manually (no AI draft) — nothing was suggested to correct.
         service().captureOnRelease(released(null, "A", "Nice job"));
         verify(repository, never()).save(any());
+    }
+
+    // ── Audit fix 1: AI-silent is NOT a correction (needs two opinions) ────────────
+    @Test
+    void aiSuggestedNoGrade_teacherGrades_capturesNothing() {
+        // Partial/failed draft: AI produced no grade. The teacher assigning one is
+        // primary grading, not correcting a judgment — no delta to learn.
+        service().captureOnRelease(released(draft("", "Good"), "A", "Good"));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void aiWroteNoFeedback_teacherWritesFeedback_sameGrade_capturesNothing() {
+        // AI gave a grade the teacher kept, but no feedback. The teacher's feedback
+        // isn't redirecting an AI opinion that never existed.
+        service().captureOnRelease(released(draft("B", ""), "B", "Check your working."));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void aiDraftEntirelyEmptyFields_capturesNothing() {
+        service().captureOnRelease(released(draft("", ""), "A", "Nice job"));
+        verify(repository, never()).save(any());
+    }
+
+    // ── Audit fix 2: a teacher TRIM of the AI's feedback is a redirect, not dropped ─
+    @Test
+    void teacherTrimsAiFeedback_droppingTheJudgment_isCapturedNotSilentlyDropped() {
+        // AI: "Wrong, you divided instead of multiplied here"; teacher softens to
+        // "you divided instead of multiplied" (drops "Wrong"). Same grade. The old
+        // symmetric containment check wrongly treated this as embellishment.
+        when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
+        service().captureOnRelease(released(
+                draft("B", "Wrong, you divided instead of multiplied here"),
+                "B", "you divided instead of multiplied"));
+        verify(repository).save(any());
     }
 
     @Test
