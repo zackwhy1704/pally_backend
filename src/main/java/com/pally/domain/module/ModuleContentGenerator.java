@@ -75,10 +75,10 @@ public class ModuleContentGenerator {
         List<ModuleContentItem> allItems = new ArrayList<>();
 
         // ── AI work — NO transaction held across these ──────────────────────
-        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier)); // LEARN
-        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier));   // TEST
-        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject));
-        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier));
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, "")); // LEARN
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, ""));    // TEST
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, ""));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, ""));
         tagGroundedness(page, allItems);
 
         // ── Short transactional persist ─────────────────────────────────────
@@ -111,10 +111,14 @@ public class ModuleContentGenerator {
 
         // ── AI work — NO transaction held across these ──────────────────────
         List<ModuleContentItem> allItems = new ArrayList<>();
-        allItems.addAll(generateMicroCardsDraft(module.getId(), content, level, subject, tier, guidanceSection));
-        allItems.addAll(generateHotTakesDraft(module.getId(), content, level, subject, tier, guidanceSection));
-        allItems.addAll(generateSpotMistakeDraft(module.getId(), content, level, subject, guidanceSection));
-        allItems.addAll(generateChallengesDraft(module.getId(), content, level, subject, tier, guidanceSection));
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, guidanceSection));
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, guidanceSection));
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, guidanceSection));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, guidanceSection));
+        // The merged generators build LIVE-style items; the teacher regenerate path marks them
+        // DRAFT here (previously buildDraftItem set status="DRAFT" per item), so a regen preview
+        // is never persisted as live content.
+        allItems.forEach(i -> i.setStatus("DRAFT"));
         tagGroundedness(page, allItems);
 
         // ── Short transactional replace (delete old + insert new, atomic) ───
@@ -207,184 +211,6 @@ public class ModuleContentGenerator {
         }
     }
 
-    // Package-private so the fallback guard test can pin the teacher-regen (DRAFT) twin too.
-    List<ModuleContentItem> generateMicroCardsDraft(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
-        int n = "CENTRE".equals(tier) ? 6 : 4;
-        String prompt = """
-                Split this educational content into %d bite-size concept cards for a %s student studying %s.
-                Each card covers ONE concept, under 60 words, with key terms in bold.%s
-
-                Content:
-                %s
-
-                Reply ONLY with a JSON array:
-                [{"title":"...","body":"...","keyTerms":["..."]}]
-                """.formatted(n, level, subject, guidanceSection, content);
-
-        try {
-            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-learn");
-            List<ModuleContentItem> items = new ArrayList<>();
-            for (int i = 0; i < parsed.size(); i++) {
-                // Skip wrong-shape/blank cards (mirrors generateMicroCards) so teacher regen
-                // never previews a blank card; empty-after-skip → fallback below.
-                if (!hasNonBlank(parsed.get(i), "title", "body")) continue;
-                items.add(buildDraftItem(moduleId, ModuleStage.LEARN.name(), ContentItemType.MICRO_CARD.name(),
-                        objectMapper.writeValueAsString(parsed.get(i)), null, i));
-            }
-            return items.isEmpty()
-                    ? List.of(stageFallbackDraft(moduleId, ModuleStage.LEARN, ContentItemType.MICRO_CARD, content, 0))
-                    : items;
-        } catch (Exception e) {
-            log.error("[CentreRegen] micro-cards failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of(stageFallbackDraft(moduleId, ModuleStage.LEARN, ContentItemType.MICRO_CARD, content, 0));
-        }
-    }
-
-    List<ModuleContentItem> generateHotTakesDraft(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
-        int n = "CENTRE".equals(tier) ? 3 : 2;
-        String prompt = """
-                Generate %d true/false statements about this content for a %s student.
-                At least one must be a common misconception (false).%s
-
-                Content:
-                %s
-
-                Reply ONLY with a JSON array:
-                [{"statement":"...","isTrue":true,"explanation":"..."}]
-                """.formatted(n, level, guidanceSection, content);
-
-        try {
-            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-hottake");
-            List<ModuleContentItem> items = new ArrayList<>();
-            for (int i = 0; i < parsed.size(); i++) {
-                // Skip wrong-shape/blank statements (mirrors generateHotTakes).
-                if (!hasNonBlank(parsed.get(i), "statement", "explanation")) continue;
-                String contentJson = objectMapper.writeValueAsString(
-                        Map.of("statement", parsed.get(i).getOrDefault("statement", "")));
-                String answerJson = objectMapper.writeValueAsString(Map.of(
-                        "isTrue", parsed.get(i).getOrDefault("isTrue", true),
-                        "explanation", parsed.get(i).getOrDefault("explanation", "")));
-                items.add(buildDraftItem(moduleId, ModuleStage.TEST.name(), ContentItemType.HOT_TAKE.name(),
-                        contentJson, answerJson, 100 + i));
-            }
-            return items.isEmpty()
-                    ? List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.HOT_TAKE, content, 100))
-                    : items;
-        } catch (Exception e) {
-            log.error("[CentreRegen] hot-takes failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.HOT_TAKE, content, 100));
-        }
-    }
-
-    // Package-private so ModuleStageFallbackGuardTest can pin the SECOND single-object
-    // spot-mistake site (the teacher "Regenerate this module" path), not just the main one.
-    List<ModuleContentItem> generateSpotMistakeDraft(
-            String moduleId, String content, String level, String subject, String guidanceSection) {
-        String prompt = """
-                Write ONE plausible but WRONG worked solution for a problem from this content.
-                Introduce a common %s-student misconception. The student must find the error.%s
-
-                Content:
-                %s
-
-                Reply ONLY with JSON:
-                {"problem":"...","wrongSolution":"...","errorDescription":"...","correctSolution":"..."}
-                """.formatted(level, guidanceSection, content);
-
-        try {
-            Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt, "centre-regen-spotmistake");
-            // Same single-object guard as generateSpotMistake: a total/partial parse must
-            // NOT ship a blank card to the teacher's regen preview.
-            if (!hasNonBlank(parsed, "problem", "wrongSolution", "errorDescription", "correctSolution")) {
-                return List.of(spotMistakeFallbackDraft(moduleId, content));
-            }
-            String contentJson = objectMapper.writeValueAsString(Map.of(
-                    "problem", parsed.getOrDefault("problem", ""),
-                    "wrongSolution", parsed.getOrDefault("wrongSolution", "")));
-            String answerJson = objectMapper.writeValueAsString(Map.of(
-                    "errorDescription", parsed.getOrDefault("errorDescription", ""),
-                    "correctSolution", parsed.getOrDefault("correctSolution", "")));
-            return List.of(buildDraftItem(moduleId, ModuleStage.TEST.name(),
-                    ContentItemType.SPOT_MISTAKE.name(), contentJson, answerJson, 200));
-        } catch (Exception e) {
-            log.error("[CentreRegen] spot-mistake failed moduleId={}: {}", moduleId, e.getMessage());
-            // A real fallback draft item, NOT List.of() — teacher regen must never yield a
-            // blank card or nothing.
-            return List.of(spotMistakeFallbackDraft(moduleId, content));
-        }
-    }
-
-    /// Draft-path fallback for ANY stage generator: a substantive (non-blank) fallback item
-    /// wrapped as a draft, so the centre "Regenerate" preview never shows a blank/empty card.
-    /// Mirrors fallbackStageItem (the LIVE student path) — the teacher-regen twins must guard
-    /// blanks the same way the student path does (they diverged: af26659 guarded LIVE only).
-    private ModuleContentItem stageFallbackDraft(String moduleId, ModuleStage stage,
-            ContentItemType type, String content, int sortOrder) {
-        ModuleContentItem fb = fallbackStageItem(moduleId, stage, type, content, sortOrder);
-        return buildDraftItem(moduleId, stage.name(), type.name(),
-                fb.getContentJson(), fb.getAnswerJson(), sortOrder);
-    }
-
-    private ModuleContentItem spotMistakeFallbackDraft(String moduleId, String content) {
-        return stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.SPOT_MISTAKE, content, 200);
-    }
-
-    List<ModuleContentItem> generateChallengesDraft(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
-        int n = "CENTRE".equals(tier) ? 3 : 1;
-        String prompt = """
-                Generate %d application questions that test whether a %s student can USE these concepts.
-                Include word problems where possible.%s
-
-                Content:
-                %s
-
-                Reply ONLY with a JSON array:
-                [{"question":"...","answer":"...","explanation":"...","difficulty":"easy"}]
-                """.formatted(n, level, guidanceSection, content);
-
-        try {
-            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "centre-regen-challenges");
-            List<ModuleContentItem> items = new ArrayList<>();
-            for (int i = 0; i < parsed.size(); i++) {
-                // Skip wrong-shape/blank questions (mirrors generateChallenges).
-                if (!hasNonBlank(parsed.get(i), "question", "answer", "explanation")) continue;
-                String contentJson = objectMapper.writeValueAsString(Map.of(
-                        "question", parsed.get(i).getOrDefault("question", ""),
-                        "difficulty", parsed.get(i).getOrDefault("difficulty", "easy")));
-                String answerJson = objectMapper.writeValueAsString(Map.of(
-                        "answer", parsed.get(i).getOrDefault("answer", ""),
-                        "explanation", parsed.get(i).getOrDefault("explanation", "")));
-                items.add(buildDraftItem(moduleId, ModuleStage.TEST.name(),
-                        ContentItemType.CHALLENGE.name(), contentJson, answerJson, 300 + i));
-            }
-            return items.isEmpty()
-                    ? List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.CHALLENGE, content, 300))
-                    : items;
-        } catch (Exception e) {
-            log.error("[CentreRegen] challenges failed moduleId={}: {}", moduleId, e.getMessage());
-            return List.of(stageFallbackDraft(moduleId, ModuleStage.TEST, ContentItemType.CHALLENGE, content, 300));
-        }
-    }
-
-    private ModuleContentItem buildDraftItem(
-            String moduleId, String stage, String type,
-            String contentJson, String answerJson, int sortOrder) {
-        ModuleContentItem item = new ModuleContentItem();
-        item.setId(com.pally.shared.util.IdGenerator.newId());
-        item.setModuleId(moduleId);
-        item.setStage(stage);
-        item.setType(type);
-        item.setContentJson(contentJson);
-        item.setAnswerJson(answerJson);
-        item.setSortOrder(sortOrder);
-        item.setTierRequired("FREE");
-        item.setCreatedAt(java.time.Instant.now());
-        item.setStatus("DRAFT");
-        return item;
-    }
 
     /**
      * Generates adaptive PROVE questions based on TEST results.
@@ -580,27 +406,31 @@ public class ModuleContentGenerator {
 
     // ── LEARN: micro-cards ───────────────────────────────────────────────
 
+    // MERGED student(LIVE)+teacher(DRAFT) generator. guidanceSection is "" for the student
+    // path (reproduces the old main prompt byte-for-byte) and the teacher-guidance block for
+    // the centre regenerate path. Items are identical either way (draft-ness lives in the
+    // persist path, not the item), so one method replaces the old a/b twins.
     List<ModuleContentItem> generateMicroCards(
-            String moduleId, String content, String level, String subject, String tier) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
         int n = "CENTRE".equals(tier) ? 6 : 4;
 
         String prompt = """
                 Split this educational content into %d bite-size concept cards for a %s student studying %s.
-                Each card covers ONE concept, under 60 words, with key terms in bold.
+                Each card covers ONE concept, under 60 words, with key terms in bold.%s
 
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
                 [{"title":"...","body":"...","keyTerms":["..."]}]
-                """.formatted(n, level, subject, content);
+                """.formatted(n, level, subject, guidanceSection, content);
 
         try {
             // B2: higher token budget + lenient salvage of complete elements before a
             // truncation point + one retry — so a truncated response no longer drops
             // the entire LEARN batch (module shipping without its micro-cards).
-            List<Map<String, Object>> parsed =
-                    robustJsonArray(MICRO_CARD_TOKENS, prompt, "module-learn-gen");
+            List<Map<String, Object>> parsed = robustJsonArray(MICRO_CARD_TOKENS, prompt,
+                    guidanceSection.isBlank() ? "module-learn-gen" : "centre-regen-learn");
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
@@ -633,22 +463,23 @@ public class ModuleContentGenerator {
     // ── TEST: hot takes ──────────────────────────────────────────────────
 
     List<ModuleContentItem> generateHotTakes(
-            String moduleId, String content, String level, String subject, String tier) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
         int n = "CENTRE".equals(tier) ? 3 : 2;
 
         String prompt = """
                 Generate %d true/false statements about this content for a %s student.
-                At least one must be a common misconception (false).
+                At least one must be a common misconception (false).%s
 
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
                 [{"statement":"...","isTrue":true,"explanation":"..."}]
-                """.formatted(n, level, content);
+                """.formatted(n, level, guidanceSection, content);
 
         try {
-            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-hottake-gen");
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt,
+                    guidanceSection.isBlank() ? "module-hottake-gen" : "centre-regen-hottake");
 
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 100; // hot takes start at sort_order 100
@@ -685,21 +516,22 @@ public class ModuleContentGenerator {
     // ── TEST: spot the mistake ───────────────────────────────────────────
 
     List<ModuleContentItem> generateSpotMistake(
-            String moduleId, String content, String level, String subject) {
+            String moduleId, String content, String level, String subject, String guidanceSection) {
 
         String prompt = """
                 Write ONE plausible but WRONG worked solution for a problem from this content.
-                Introduce a common %s-student misconception. The student must find the error.
+                Introduce a common %s-student misconception. The student must find the error.%s
 
                 Content:
                 %s
 
                 Reply ONLY with JSON:
                 {"problem":"...","wrongSolution":"...","errorDescription":"...","correctSolution":"..."}
-                """.formatted(level, content);
+                """.formatted(level, guidanceSection, content);
 
         try {
-            Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt, "module-spotmistake-gen");
+            Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt,
+                    guidanceSection.isBlank() ? "module-spotmistake-gen" : "centre-regen-spotmistake");
             // Single-object guard: a total OR partial parse would build a blank/half-blank
             // SPOT_MISTAKE (getOrDefault→""). Require all four fields; else a real fallback.
             if (!hasNonBlank(parsed, "problem", "wrongSolution", "errorDescription", "correctSolution")) {
@@ -733,22 +565,23 @@ public class ModuleContentGenerator {
     // ── TEST: challenges ─────────────────────────────────────────────────
 
     List<ModuleContentItem> generateChallenges(
-            String moduleId, String content, String level, String subject, String tier) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
         int n = "CENTRE".equals(tier) ? 3 : 1;
 
         String prompt = """
                 Generate %d application questions that test whether a %s student can USE these concepts.
-                Include word problems where possible.
+                Include word problems where possible.%s
 
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
                 [{"question":"...","answer":"...","explanation":"...","difficulty":"easy"}]
-                """.formatted(n, level, content);
+                """.formatted(n, level, guidanceSection, content);
 
         try {
-            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-challenge-gen");
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt,
+                    guidanceSection.isBlank() ? "module-challenge-gen" : "centre-regen-challenge");
 
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 300; // challenges start at sort_order 300
