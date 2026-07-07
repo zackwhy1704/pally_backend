@@ -40,7 +40,7 @@ class GeminiQuotaAndCooldownTest {
 
     @BeforeEach
     void setUp() {
-        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort);
+        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort, org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class));
         // Set an API key so it doesn't skip to haiku immediately
         ReflectionTestUtils.setField(compiler, "apiKey", "test-key");
         ReflectionTestUtils.setField(compiler, "modelPrimary", "gemini-2.5-flash");

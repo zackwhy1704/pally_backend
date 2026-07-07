@@ -64,6 +64,20 @@ public class ClaudeApiClient {
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final ClaudeMetrics metrics;
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
+
+    /** Map a Claude call's task label to a cost call_type. userId isn't in scope
+     *  at this low-level client, so these rows carry user_id=null (still costed). */
+    private static com.pally.domain.cost.AiCallType callTypeForTask(String task) {
+        String t = task == null ? "" : task.toLowerCase();
+        if (t.contains("relevance")) return com.pally.domain.cost.AiCallType.RELEVANCE;
+        if (t.contains("chat"))      return com.pally.domain.cost.AiCallType.CHAT;
+        if (t.contains("mark") || t.contains("homework") || t.contains("feedback"))
+            return com.pally.domain.cost.AiCallType.MARKING;
+        if (t.contains("compile") || t.contains("haiku") || t.contains("wiki"))
+            return com.pally.domain.cost.AiCallType.COMPILE;
+        return com.pally.domain.cost.AiCallType.OTHER;
+    }
 
     @Value("${claude.api.key}")
     private String apiKey;
@@ -217,6 +231,7 @@ public class ClaudeApiClient {
             long inTok = root.path("usage").path("input_tokens").asLong(0);
             long outTok = root.path("usage").path("output_tokens").asLong(0);
             metrics.recordTokens(task, model, inTok, outTok);
+            aiUsageMeter.record(null, callTypeForTask(task), model, inTok, outTok);
             metrics.stopLatency(sample, task, model);
             log.info("[Claude-{}] RESPONSE {}ms responseChars={} in={} out={}",
                     callId, ms, text.length(), inTok, outTok);
@@ -352,6 +367,7 @@ public class ClaudeApiClient {
                 long inTok = root.path("usage").path("input_tokens").asLong(0);
                 long outTok = root.path("usage").path("output_tokens").asLong(0);
                 metrics.recordTokens(task, modelStr, inTok, outTok);
+                aiUsageMeter.record(null, callTypeForTask(task), modelStr, inTok, outTok);
 
                 if ("end_turn".equals(stopReason) || toolUseBlocks.isEmpty()) {
                     log.info("[Claude-{}] Vision tool loop done after {} iterations", callId, iterations);
@@ -511,6 +527,7 @@ public class ClaudeApiClient {
                 long inTok = root.path("usage").path("input_tokens").asLong(0);
                 long outTok = root.path("usage").path("output_tokens").asLong(0);
                 metrics.recordTokens(task, modelStr, inTok, outTok);
+                aiUsageMeter.record(null, callTypeForTask(task), modelStr, inTok, outTok);
 
                 if ("end_turn".equals(stopReason) || toolUseBlocks.isEmpty()) {
                     log.info("[Claude-{}] Tool loop done after {} iterations", callId, iterations);

@@ -73,6 +73,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     private final ObjectMapper objectMapper;
     private final ClaudeWikiCompiler claudeFallback;
     private final StoragePort storagePort;
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
 
     // Observable counters — exposed via logs so Railway can be dashboarded.
     private final AtomicLong tier1Count = new AtomicLong();
@@ -96,11 +97,23 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             WebClient webClient,
             ObjectMapper objectMapper,
             ClaudeWikiCompiler claudeFallback,
-            StoragePort storagePort) {
+            StoragePort storagePort,
+            com.pally.domain.cost.AiUsageMeter aiUsageMeter) {
         this.webClient = webClient;
         this.objectMapper = objectMapper;
         this.claudeFallback = claudeFallback;
         this.storagePort = storagePort;
+        this.aiUsageMeter = aiUsageMeter;
+    }
+
+    /** Attribute a compile call by the avatar it's for. */
+    private static com.pally.domain.cost.AiCallType callTypeFor(Avatar avatar) {
+        if (avatar == null) return com.pally.domain.cost.AiCallType.COMPILE;
+        return switch (avatar.getKind()) {
+            case WEAKNESS_PROFILE -> com.pally.domain.cost.AiCallType.WEAKNESS_REBUILD;
+            case MARKING_CORPUS   -> com.pally.domain.cost.AiCallType.MARKING;
+            default               -> com.pally.domain.cost.AiCallType.COMPILE;
+        };
     }
 
     // ── package-private for testing ─────────────────────────────────────────
@@ -224,7 +237,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             String prompt = buildPrompt(avatar, files, existingPages);
             log.debug("[Gemini] {} prompt: {} chars (~{} tokens) stemImages={}",
                     modelName, prompt.length(), prompt.length() / 4, stemImages.size());
-            String raw = callGemini(modelName, prompt, stemImages);
+            String raw = callGemini(modelName, prompt, stemImages, avatar);
             drafts = parseResponse(raw);
         }
         log.info("[Gemini] {} done in {}ms: {} pages",
@@ -303,7 +316,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             String chunk = chunks.get(i);
             try {
                 String prompt = buildChunkPrompt(avatar, chunk, i + 1, chunks.size(), existingPages);
-                String raw = callGemini(modelName, prompt);
+                String raw = callGemini(modelName, prompt, avatar);
                 List<WikiPageDraft> chunkDrafts = parseResponse(raw);
                 log.info("[Gemini] {} chunk {}/{}: {} pages", modelName, i + 1, chunks.size(), chunkDrafts.size());
                 for (WikiPageDraft d : chunkDrafts) {
@@ -368,15 +381,15 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     /**
      * Text-only Gemini call (backward-compatible).
      */
-    private String callGemini(String modelName, String prompt) {
-        return callGemini(modelName, prompt, List.of());
+    private String callGemini(String modelName, String prompt, Avatar avatar) {
+        return callGemini(modelName, prompt, List.of(), avatar);
     }
 
     /**
      * Gemini call with optional inline images for STEM subjects.
      * Images are included as {@code inlineData} parts before the text prompt.
      */
-    private String callGemini(String modelName, String prompt, List<ImageData> images) {
+    private String callGemini(String modelName, String prompt, List<ImageData> images, Avatar avatar) {
         // ── Daily quota reset at midnight Asia/Singapore ─────────────────────
         LocalDate today = LocalDate.now(QUOTA_TIMEZONE);
         if (!today.equals(quotaResetDate)) {
@@ -448,6 +461,17 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         // {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
         try {
             JsonNode root = objectMapper.readTree(responseBody);
+
+            // Per-user cost: Gemini returns usageMetadata in this SAME body — it was
+            // being discarded. Extract + meter (best-effort, never throws). This is
+            // the expensive compile path, so it MUST be attributed.
+            JsonNode usage = root.path("usageMetadata");
+            aiUsageMeter.record(
+                    avatar != null ? avatar.getUserId() : null,
+                    callTypeFor(avatar), modelName,
+                    usage.path("promptTokenCount").asLong(0),
+                    usage.path("candidatesTokenCount").asLong(0));
+
             JsonNode text = root
                     .path("candidates").path(0)
                     .path("content").path("parts").path(0)

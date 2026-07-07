@@ -34,7 +34,7 @@ class GeminiStemImageCompileTest {
 
     @BeforeEach
     void setUp() {
-        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort);
+        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort, org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class));
     }
 
     @Test
