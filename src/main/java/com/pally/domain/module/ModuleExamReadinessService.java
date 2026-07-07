@@ -52,9 +52,13 @@ public class ModuleExamReadinessService {
 
             for (ModuleProgress p : proveProgress) {
                 if (p.getTargetConcept() == null) continue;
+                // Skip UNGRADED items (score NULL — not self-assessed / eval error).
+                // An un-assessed concept has NO mastery signal; showing it as 0%
+                // and sorting it "weakest-first" is a false failure claim.
+                if (p.getScore() == null) continue;
                 Map<String, Object> c = new HashMap<>();
                 c.put("concept", p.getTargetConcept());
-                c.put("mastery", p.getScore() != null ? p.getScore().doubleValue() * 100 : 0.0);
+                c.put("mastery", p.getScore().doubleValue() * 100);
                 c.put("lastAttempted", p.getCompletedAt() != null
                         ? p.getCompletedAt().toString() : null);
                 c.put("moduleId", mod.getId());

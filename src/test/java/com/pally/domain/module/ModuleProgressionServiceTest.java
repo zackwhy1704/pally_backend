@@ -576,7 +576,37 @@ class ModuleProgressionServiceTest {
 
         service.submitSelfReport("mod-1", "user-1", "item-1", SelfReport.YES);
 
-        assertThat(module.getMasteryPct()).isEqualByComparingTo(new BigDecimal("25.00"));
+        // SELF_REPORT weight 0.30 x YES(1.0) x 100 = 30.00.
+        assertThat(module.getMasteryPct()).isEqualByComparingTo(new BigDecimal("30.00"));
+    }
+
+    @Test
+    void getResults_proveStageAllUngraded_reportsNullAverage_notFalseZero() {
+        // R4 read-site fix: an all-UNGRADED PROVE stage must report averageScore
+        // null ("not assessed"), never 0.0 (which reads as 0% mastery).
+        LearningModule module = buildModule("mod-1", "COMPLETE");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleProgress p = new ModuleProgress();
+        p.setModuleId("mod-1");
+        p.setUserId("user-1");
+        p.setItemId("item-1");
+        p.setStage("PROVE");
+        p.setScore(null);
+        p.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
+                .thenReturn(List.of(p));
+        when(itemRepository.countByModuleIdAndStage(eq("mod-1"), anyString()))
+                .thenReturn(1);
+
+        Map<String, Object> results = service.getResults("mod-1", "user-1");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> stageSummary =
+                (Map<String, Object>) results.get("stageSummary");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> prove = (Map<String, Object>) stageSummary.get("PROVE");
+        assertThat(prove.get("averageScore")).isNull();
     }
 
     // ── Stage enum ──────────────────────────────────────────────────────

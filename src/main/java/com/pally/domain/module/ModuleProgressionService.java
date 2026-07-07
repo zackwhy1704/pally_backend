@@ -384,9 +384,11 @@ public class ModuleProgressionService {
                     }
                     // Notify parent of module completion
                     try {
-                        double mastery = module.getMasteryPct() != null
+                        // null = no graded signal → notification omits the % (never
+                        // a false "0% mastery" for an unassessed module).
+                        Double mastery = module.getMasteryPct() != null
                                 ? module.getMasteryPct().doubleValue() / 100.0
-                                : 0.0;
+                                : null;
                         milestoneNotifier.onModuleCompleted(
                                 userId, module.getTitle(), mastery);
                     } catch (Exception e) {
@@ -455,15 +457,16 @@ public class ModuleProgressionService {
                     byStage.getOrDefault(s.name(), List.of());
             int total = itemRepository.countByModuleIdAndStage(moduleId, s.name());
             int completed = stageProgress.size();
-            double avgScore = stageProgress.stream()
+            var avg = stageProgress.stream()
                     .filter(p -> p.getScore() != null)
                     .mapToDouble(p -> p.getScore().doubleValue())
-                    .average()
-                    .orElse(0.0);
-            stageSummary.put(s.name(), Map.of(
-                    "total", total,
-                    "completed", completed,
-                    "averageScore", avgScore));
+                    .average();
+            // null = no graded signal (all UNGRADED) — NOT 0%. Never a false 0.
+            Map<String, Object> summary = new HashMap<>();
+            summary.put("total", total);
+            summary.put("completed", completed);
+            summary.put("averageScore", avg.isPresent() ? avg.getAsDouble() : null);
+            stageSummary.put(s.name(), summary);
         }
         result.put("stageSummary", stageSummary);
 

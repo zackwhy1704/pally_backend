@@ -36,7 +36,7 @@ public class MilestoneNotifier {
     /**
      * Notify parent that their child completed a module.
      */
-    public void onModuleCompleted(String childId, String moduleName, double mastery) {
+    public void onModuleCompleted(String childId, String moduleName, Double mastery) {
         Optional<User> childOpt = userRepo.findById(childId);
         if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
 
@@ -46,9 +46,12 @@ public class MilestoneNotifier {
                 : (childOpt.get().getDisplayName() != null
                         ? childOpt.get().getDisplayName() : "Your child");
 
-        int pct = (int) Math.round(mastery * 100);
         String title = childName + " completed a module!";
-        String body = moduleName + " — " + pct + "% mastery";
+        // Omit the mastery % when there's no graded signal (UNGRADED) — never
+        // tell a parent "0% mastery" for a module that simply wasn't assessed.
+        String body = mastery != null
+                ? moduleName + " — " + (int) Math.round(mastery * 100) + "% mastery"
+                : moduleName + " — completed!";
 
         sendPositive(parentId, title, body);
     }

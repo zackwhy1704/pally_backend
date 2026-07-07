@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 public class GradingWeights {
 
     /** Weight of a SELF_REPORT signal relative to DETERMINISTIC (1.0). */
-    private double selfReportWeight = 0.25;
+    private double selfReportWeight = 0.30;
 
     public double getSelfReportWeight() { return selfReportWeight; }
     public void setSelfReportWeight(double w) { this.selfReportWeight = w; }
