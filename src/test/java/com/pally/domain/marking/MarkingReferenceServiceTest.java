@@ -37,7 +37,8 @@ class MarkingReferenceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new MarkingReferenceService(repository, storagePort, textExtractor);
+        service = new MarkingReferenceService(repository, storagePort, textExtractor,
+                new com.pally.domain.content.PassThroughOutputValidator());
         lenient().when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
     }
 

@@ -33,6 +33,10 @@ class ClassReportGeneratorTest {
     @Mock ClaudeApiClient claudeClient;
     @Mock ModelRouter modelRouter;
     @Mock ClassReportStore store;
+    // Real rules validator — these tests use substantive narratives, so it passes them
+    // through; a separate suite (RulesOutputValidatorTest) proves the drop behaviour.
+    @org.mockito.Spy com.pally.domain.content.OutputValidator outputValidator =
+            new com.pally.domain.content.RulesOutputValidator(new com.fasterxml.jackson.databind.ObjectMapper());
 
     @InjectMocks ClassReportGenerator generator;
 
@@ -64,6 +68,22 @@ class ClassReportGeneratorTest {
 
         verify(store).markReady(eq(CLASS), contains("No quiz data yet"), any());
         verify(claudeClient, never()).complete(any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void generate_blankNarrative_isRejectedByValidator_marksFailedNotReady() {
+        // The newly-wired REPORT quality floor: a model that returns empty/near-empty prose
+        // must NOT be persisted as a "ready" report the teacher opens to nothing. Without
+        // the OutputValidator wiring this blank narrative would markReady.
+        stubConcepts();
+        when(modelRouter.getHaikuModel()).thenReturn("haiku");
+        when(claudeClient.complete(eq("haiku"), anyInt(), any(), eq("class-report")))
+                .thenReturn("   ");
+
+        generator.generate(USER, ORG, CLASS);
+
+        verify(store).markFailed(eq(CLASS), any());
+        verify(store, never()).markReady(any(), any(), any());
     }
 
     @Test

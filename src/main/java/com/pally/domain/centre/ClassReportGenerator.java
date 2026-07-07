@@ -34,6 +34,7 @@ public class ClassReportGenerator {
     private final ClaudeApiClient claudeClient;
     private final ModelRouter modelRouter;
     private final ClassReportStore store;
+    private final com.pally.domain.content.OutputValidator outputValidator;
 
     /**
      * Async entry point. Always terminal: persists {@code ready} on success
@@ -44,6 +45,17 @@ public class ClassReportGenerator {
     public void generate(String userId, String orgId, String classId) {
         try {
             String narrative = buildNarrative(userId, orgId, classId);
+            // Quality floor (OutputValidator seam, REPORT): a blank/near-empty narrative is
+            // NOT a valid report — mark it failed (retry) rather than persist empty prose the
+            // teacher can't use. The valid "no quiz data yet" message clears the floor.
+            if (outputValidator.retainValid(java.util.List.of(narrative),
+                    com.pally.domain.content.OutputType.REPORT).isEmpty()) {
+                log.warn("[ClassReport] narrative rejected as non-substantive classId={} chars={}",
+                        classId, narrative.length());
+                store.markFailed(classId,
+                        "Report generation failed — please try again shortly.");
+                return;
+            }
             store.markReady(classId, narrative, Instant.now());
             log.info("[ClassReport] ready classId={} chars={}", classId, narrative.length());
         } catch (Exception e) {

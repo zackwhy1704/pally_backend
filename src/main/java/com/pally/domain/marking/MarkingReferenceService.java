@@ -32,6 +32,7 @@ public class MarkingReferenceService {
     private final MarkingReferenceRepository repository;
     private final StoragePort storagePort;
     private final DocumentTextExtractionPort textExtractor;
+    private final com.pally.domain.content.OutputValidator outputValidator;
 
     // ── Create ──────────────────────────────────────────────────────────────
 
@@ -74,6 +75,16 @@ public class MarkingReferenceService {
                 classId, kind, title.trim(),
                 note == null || note.isBlank() ? null : note.trim(),
                 stored, clamp(extracted.toString(), MAX_EXTRACT_CHARS));
+        // Quality floor (OutputValidator seam, MARKING_REFERENCE): route through the ONE
+        // seam for consistency with the module + report surfaces. A text-less reference with
+        // a stored file is INTENTIONALLY valid (see this method's contract), so in the normal
+        // flow — where a file is required above — this never drops. It is a defensive net
+        // against a future path that would persist a wholly-empty (no text, no file) reference.
+        if (outputValidator.retainValid(List.of(ref),
+                com.pally.domain.content.OutputType.MARKING_REFERENCE).isEmpty()) {
+            throw new BusinessException(
+                    "This reference has no usable content — attach a file or add text.", 422);
+        }
         MarkingReference saved = repository.save(ref);
         log.info("[Marking] created reference={} class={} kind={} files={} chars={}",
                 saved.getId(), classId, kind, stored.size(), saved.getExtractedChars());
