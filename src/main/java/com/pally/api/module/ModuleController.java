@@ -1,6 +1,9 @@
 package com.pally.api.module;
 
 import com.pally.api.module.dto.SubmitModuleAnswersRequest;
+import com.pally.api.module.dto.SelfReportRequest;
+import com.pally.domain.module.SelfReport;
+import com.pally.shared.exception.BusinessException;
 import com.pally.domain.assignment.AssignmentService;
 import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.module.ModuleService;
@@ -124,6 +127,32 @@ public class ModuleController {
                     userId, e.getMessage());
         }
 
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * Self-assessment of an open-ended PROVE answer (Tier 2). The system never
+     * asserts correctness for open-ended work; the student self-reports
+     * YES/PARTLY/NO after seeing the reference answer, recorded as a low-trust
+     * SELF_REPORT signal. Additive + non-blocking (the item already completed on
+     * submit).
+     */
+    @PostMapping("/{moduleId}/items/{itemId}/self-report")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> submitSelfReport(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @PathVariable String moduleId,
+            @PathVariable String itemId,
+            @Valid @RequestBody SelfReportRequest request
+    ) {
+        SelfReport selfReport;
+        try {
+            selfReport = SelfReport.valueOf(request.selfReport().trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("selfReport must be YES, PARTLY, or NO", 400);
+        }
+        Map<String, Object> result = moduleService.submitSelfReport(
+                moduleId, userId, itemId, selfReport);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

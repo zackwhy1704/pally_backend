@@ -45,4 +45,8 @@ public class ModuleProgressJpaEntity {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "signal_type", length = 16)
+    private com.pally.domain.module.GradingSignal signalType;
 }

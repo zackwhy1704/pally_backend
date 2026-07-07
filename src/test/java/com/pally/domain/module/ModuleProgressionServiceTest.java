@@ -51,7 +51,8 @@ class ModuleProgressionServiceTest {
                 moduleRepository, itemRepository, progressRepository,
                 contentGenerator, proveEvaluator, wikiRepository, objectMapper,
                 milestoneNotifier, activityLogService, xpService,
-                avatarRepository, centreAccessService, weaknessProfileService);
+                avatarRepository, centreAccessService, weaknessProfileService,
+                new GradingWeights());
         // Default: caller owns the module's avatar, so the access guard passes.
         // Individual tests override this to exercise the IDOR rejection.
         lenient().when(avatarRepository.existsByIdAndUserId(anyString(), anyString()))
@@ -357,7 +358,7 @@ class ModuleProgressionServiceTest {
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         when(proveEvaluator.evaluateAnswer(eq(item), eq("My answer")))
-                .thenReturn(new ModuleProveEvaluator.ProveResult(
+                .thenReturn(ModuleProveEvaluator.ProveResult.ok(
                         true, List.of("kp1"), List.of(), "Great!", 0.85));
 
         when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(2);
@@ -367,11 +368,22 @@ class ModuleProgressionServiceTest {
         Map<String, Object> result = service.submitAnswers("mod-1", "user-1",
                 List.of(Map.of("itemId", "item-1", "response", "My answer")));
 
+        // Tier 2: open-ended PROVE never returns a system-asserted score. It returns
+        // feedback + the reference answer + a self-assess prompt; the LLM score is
+        // NOT persisted (mastery waits for the student's self-report).
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> results = (List<Map<String, Object>>) result.get("results");
         assertThat(results).hasSize(1);
-        assertThat(results.get(0).get("score")).isEqualTo(0.85);
-        assertThat(results.get(0).get("conceptCovered")).isEqualTo(true);
+        assertThat(results.get(0).get("score")).isNull();
+        assertThat(results.get(0).get("graded")).isEqualTo(false);
+        assertThat(results.get(0).get("selfAssess")).isEqualTo(true);
+        assertThat(results.get(0).get("feedback")).isEqualTo("Great!");
+        // The persisted row is UNGRADED (no false 0 in mastery).
+        org.mockito.ArgumentCaptor<ModuleProgress> cap =
+                org.mockito.ArgumentCaptor.forClass(ModuleProgress.class);
+        verify(progressRepository).save(cap.capture());
+        assertThat(cap.getValue().getScore()).isNull();
+        assertThat(cap.getValue().getSignalType()).isEqualTo(GradingSignal.UNGRADED);
     }
 
     @Test
@@ -424,7 +436,9 @@ class ModuleProgressionServiceTest {
     }
 
     @Test
-    void submitAnswers_proveStage_nudgesWikiCertainty() {
+    void selfReport_strongYes_nudgesWikiCertainty_andRecordsSelfReportSignal() {
+        // The certainty nudge moved OFF the PROVE submit path (which no longer
+        // asserts) onto the student's self-report.
         LearningModule module = buildModule("mod-1", "PROVE");
         module.setAvatarId("avatar-1");
         module.setWikiPageSlug("photosynthesis");
@@ -434,24 +448,135 @@ class ModuleProgressionServiceTest {
         item.setId("item-1");
         item.setStage("PROVE");
         item.setType("PROVE_QUESTION");
-        item.setContentJson("{\"question\":\"Q\",\"targetConcept\":\"C\"}");
-        item.setAnswerJson("{\"expectedKeyPoints\":[\"kp1\"],\"targetConcept\":\"C\"}");
+        item.setAnswerJson("{\"targetConcept\":\"C\"}");
         when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
 
+        ModuleProgress existing = new ModuleProgress();
+        existing.setModuleId("mod-1");
+        existing.setUserId("user-1");
+        existing.setItemId("item-1");
+        existing.setStage("PROVE");
+        existing.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.of(existing));
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.submitSelfReport("mod-1", "user-1", "item-1", SelfReport.YES);
+
+        // SELF_REPORT YES (score 1.0) is a strong signal → +0.05 certainty.
+        assertThat(existing.getSignalType()).isEqualTo(GradingSignal.SELF_REPORT);
+        assertThat(existing.getScore()).isEqualByComparingTo(BigDecimal.ONE);
+
+        verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), 0.05);
+    }
+
+    // ── grading-harness hardening ───────────────────────────────────────
+
+    @Test
+    void submitAnswers_testStage_ignoresClientScore_persistsUngraded_spoofClosed() {
+        // The client-authoritative grading hole: a tampered client posts an
+        // all-correct score. The server must IGNORE it (never persist a client
+        // score) — the row is UNGRADED (score NULL), asserting nothing.
+        LearningModule module = buildModule("mod-1", "TEST");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("item-1");
+        item.setStage("TEST");
+        item.setType("HOT_TAKE");
+        item.setAnswerJson("{\"isTrue\":true}");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
         when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(proveEvaluator.evaluateAnswer(eq(item), eq("My strong answer")))
-                .thenReturn(new ModuleProveEvaluator.ProveResult(
-                        true, List.of("kp1"), List.of(), "Great!", 0.9));
-        when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(2);
-        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "PROVE"))
+        when(itemRepository.countByModuleIdAndStage("mod-1", "TEST")).thenReturn(2);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "TEST"))
                 .thenReturn(1);
 
-        service.submitAnswers("mod-1", "user-1",
-                List.of(Map.of("itemId", "item-1", "response", "My strong answer")));
+        service.submitAnswers("mod-1", "user-1", List.of(Map.of(
+                "itemId", "item-1", "response", "{\"score\":1.0,\"concept\":\"C\"}")));
 
-        verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), 0.05);
+        org.mockito.ArgumentCaptor<ModuleProgress> cap =
+                org.mockito.ArgumentCaptor.forClass(ModuleProgress.class);
+        verify(progressRepository).save(cap.capture());
+        assertThat(cap.getValue().getScore()).isNull();            // client 1.0 IGNORED
+        assertThat(cap.getValue().getSignalType()).isEqualTo(GradingSignal.UNGRADED);
+    }
+
+    @Test
+    void proveStageCompletes_withOnlyUngradedItems_leavesMasteryUnmoved_neverFalseZero() {
+        // Fail-open regression: a PROVE stage that completes with no trustworthy
+        // signal (student hasn't self-assessed) must NOT set mastery to 0 — it
+        // must leave it unchanged (null), so an un-self-assessed module is never
+        // recorded as a 0% failure.
+        LearningModule module = buildModule("mod-1", "PROVE");
+        module.setAvatarId("avatar-1");
+        module.setMasteryPct(null);
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("item-1");
+        item.setStage("PROVE");
+        item.setType("PROVE_QUESTION");
+        item.setContentJson("{\"question\":\"Q\",\"targetConcept\":\"C\"}");
+        item.setAnswerJson("{\"targetConcept\":\"C\"}");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+        when(proveEvaluator.evaluateAnswer(eq(item), any()))
+                .thenReturn(ModuleProveEvaluator.ProveResult.ungraded("eval down"));
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.empty());
+
+        ModuleProgress saved = new ModuleProgress();
+        saved.setStage("PROVE");
+        saved.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        // PROVE stage completes (this was the last item) → updateMastery runs.
+        when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(1);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "PROVE"))
+                .thenReturn(1);
+        when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
+                .thenReturn(List.of(saved));
+        when(weaknessProfileService.isEnabled()).thenReturn(false);
+
+        service.submitAnswers("mod-1", "user-1",
+                List.of(Map.of("itemId", "item-1", "response", "short")));
+
+        // Mastery left UNCHANGED (null) — not a false 0.
+        assertThat(module.getMasteryPct()).isNull();
+    }
+
+    @Test
+    void selfReport_onCompletedModule_appliesSelfReportWeightToMastery() {
+        // SELF_REPORT YES (1.0) at weight 0.25 → 25% mastery (a deterministic 1.0
+        // would be 100%). The trust weight scales the mastery magnitude.
+        LearningModule module = buildModule("mod-1", "COMPLETE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("photosynthesis");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("item-1");
+        item.setStage("PROVE");
+        item.setType("PROVE_QUESTION");
+        item.setAnswerJson("{\"targetConcept\":\"C\"}");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+
+        ModuleProgress p = new ModuleProgress();
+        p.setModuleId("mod-1");
+        p.setUserId("user-1");
+        p.setItemId("item-1");
+        p.setStage("PROVE");
+        p.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.of(p));
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
+                .thenReturn(List.of(p));
+        when(weaknessProfileService.isEnabled()).thenReturn(false);
+
+        service.submitSelfReport("mod-1", "user-1", "item-1", SelfReport.YES);
+
+        assertThat(module.getMasteryPct()).isEqualByComparingTo(new BigDecimal("25.00"));
     }
 
     // ── Stage enum ──────────────────────────────────────────────────────

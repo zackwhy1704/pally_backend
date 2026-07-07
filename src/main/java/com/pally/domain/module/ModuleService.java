@@ -57,6 +57,11 @@ public class ModuleService {
         return progressionService.submitAnswers(moduleId, userId, submissions, durationSeconds);
     }
 
+    public Map<String, Object> submitSelfReport(
+            String moduleId, String userId, String itemId, SelfReport selfReport) {
+        return progressionService.submitSelfReport(moduleId, userId, itemId, selfReport);
+    }
+
     public Map<String, Object> getResults(String moduleId, String userId) {
         return progressionService.getResults(moduleId, userId);
     }

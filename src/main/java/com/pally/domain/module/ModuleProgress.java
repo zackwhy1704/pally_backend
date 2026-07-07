@@ -25,4 +25,10 @@ public class ModuleProgress {
     private BigDecimal score;
     private String targetConcept;
     private Instant completedAt;
+    /**
+     * Trust class of this row's grade. null = legacy (pre-signal-typing, full
+     * weight). UNGRADED rows carry score = null so an ungraded item is never a
+     * false 0 in mastery.
+     */
+    private GradingSignal signalType;
 }

@@ -69,14 +69,14 @@ class ModuleProveEvaluatorTest {
     }
 
     @Test
-    void evaluateAnswer_tooShortAnswer_returnsZeroWithoutCallingLLM() {
+    void evaluateAnswer_tooShortAnswer_returnsUngradedWithoutCallingLLM() {
         ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
 
         ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, "ok");
 
-        assertThat(result.score()).isEqualTo(0.0);
-        assertThat(result.conceptCovered()).isFalse();
+        // Never a false 0 — a non-answer is UNGRADED (no signal), not score 0.0.
+        assertThat(result.graded()).isFalse();
         assertThat(result.feedback()).contains("more");
 
         // LLM should NOT have been called
@@ -84,18 +84,18 @@ class ModuleProveEvaluatorTest {
     }
 
     @Test
-    void evaluateAnswer_nullAnswer_returnsZero() {
+    void evaluateAnswer_nullAnswer_returnsUngraded() {
         ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
 
         ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, null);
 
-        assertThat(result.score()).isEqualTo(0.0);
+        assertThat(result.graded()).isFalse();
         verifyNoInteractions(geminiCompletion);
     }
 
     @Test
-    void evaluateAnswer_llmReturnsInvalidJson_returnsGracefulFallback() throws Exception {
+    void evaluateAnswer_llmReturnsInvalidJson_returnsUngraded_notFalseZero() throws Exception {
         ModuleContentItem item = buildProveItem(
                 "What is gravity?", "gravity", new String[]{"force"});
 
@@ -105,7 +105,8 @@ class ModuleProveEvaluatorTest {
         ModuleProveEvaluator.ProveResult result =
                 evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth");
 
-        assertThat(result.score()).isEqualTo(0.0);
+        // The fail-open bug: a malformed LLM response must NOT become score 0.0.
+        assertThat(result.graded()).isFalse();
         assertThat(result.feedback()).contains("parse");
     }
 

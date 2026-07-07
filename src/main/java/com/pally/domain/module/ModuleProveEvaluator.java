@@ -31,8 +31,21 @@ public class ModuleProveEvaluator {
             List<String> keyPointsHit,
             List<String> keyPointsMissed,
             String feedback,
-            double score
-    ) {}
+            double score,
+            /** false = UNGRADED (eval error/timeout/malformed) — {@code score} is
+             *  meaningless and MUST NOT be persisted as a real grade. */
+            boolean graded
+    ) {
+        /** A real grade produced by the evaluator. */
+        static ProveResult ok(boolean covered, List<String> hit, List<String> missed,
+                              String feedback, double score) {
+            return new ProveResult(covered, hit, missed, feedback, score, true);
+        }
+        /** No trustworthy signal — never asserts a score (so never a false 0). */
+        static ProveResult ungraded(String feedback) {
+            return new ProveResult(false, List.of(), List.of(), feedback, Double.NaN, false);
+        }
+    }
 
     /**
      * Evaluates one PROVE answer against its expected key points.
@@ -43,8 +56,7 @@ public class ModuleProveEvaluator {
      */
     public ProveResult evaluateAnswer(ModuleContentItem proveQuestion, String studentAnswer) {
         if (studentAnswer == null || studentAnswer.trim().length() < 5) {
-            return new ProveResult(false, List.of(), List.of(),
-                    "Try writing a bit more to show what you know!", 0.0);
+            return ProveResult.ungraded("Try writing a bit more to show what you know!");
         }
 
         try {
@@ -84,15 +96,13 @@ public class ModuleProveEvaluator {
         } catch (Exception e) {
             log.error("[Module] PROVE evaluation failed for item={}",
                     proveQuestion.getId(), e);
-            return new ProveResult(false, List.of(), List.of(),
-                    "Could not evaluate your answer. Try again!", 0.0);
+            return ProveResult.ungraded("Could not evaluate your answer. Try again!");
         }
     }
 
     private ProveResult parseResult(String raw) {
         if (raw == null || raw.isBlank()) {
-            return new ProveResult(false, List.of(), List.of(),
-                    "No evaluation returned.", 0.0);
+            return ProveResult.ungraded("No evaluation returned.");
         }
 
         String json = raw.strip();
@@ -101,8 +111,7 @@ public class ModuleProveEvaluator {
         if (first < 0 || last <= first) {
             log.warn("[Module] PROVE eval response not valid JSON: {}",
                     raw.substring(0, Math.min(200, raw.length())));
-            return new ProveResult(false, List.of(), List.of(),
-                    "Could not parse evaluation.", 0.0);
+            return ProveResult.ungraded("Could not parse evaluation.");
         }
         json = json.substring(first, last + 1);
 
@@ -115,11 +124,10 @@ public class ModuleProveEvaluator {
             double score = node.path("score").asDouble(0.0);
             // Clamp score to [0.0, 1.0]
             score = Math.max(0.0, Math.min(1.0, score));
-            return new ProveResult(covered, hit, missed, feedback, score);
+            return ProveResult.ok(covered, hit, missed, feedback, score);
         } catch (Exception e) {
             log.warn("[Module] PROVE eval parse failed: {}", e.getMessage());
-            return new ProveResult(false, List.of(), List.of(),
-                    "Could not parse evaluation.", 0.0);
+            return ProveResult.ungraded("Could not parse evaluation.");
         }
     }
 

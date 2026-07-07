@@ -45,6 +45,7 @@ public class ModuleProgressionService {
     private final AvatarRepository avatarRepository;
     private final CentreAccessService centreAccessService;
     private final com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
+    private final GradingWeights gradingWeights;
 
     /// Flat XP awarded when a module is fully completed (reaches COMPLETE).
     private static final int MODULE_COMPLETE_XP = 25;
@@ -291,53 +292,52 @@ public class ModuleProgressionService {
             itemResult.put("itemId", itemId);
 
             if (currentStage == ModuleStage.PROVE) {
-                // Evaluate PROVE answers
+                // Open-ended (Tier 2): the system NEVER asserts a correctness score.
+                // Run the evaluator for FEEDBACK ONLY; its score does NOT feed
+                // mastery. This row stays UNGRADED (score NULL) — never a false 0 —
+                // until the student self-assesses (a separate low-trust SELF_REPORT
+                // signal via the self-report endpoint).
                 ModuleProveEvaluator.ProveResult evalResult =
                         proveEvaluator.evaluateAnswer(item, response);
-                progress.setScore(BigDecimal.valueOf(evalResult.score()));
+                progress.setScore(null);
+                progress.setSignalType(GradingSignal.UNGRADED);
 
-                // Extract targetConcept from answer_json
+                // Extract targetConcept + reference answer from answer_json (for the
+                // self-assessment display).
+                String referenceAnswer = null;
                 try {
                     var answerNode = objectMapper.readTree(item.getAnswerJson());
-                    // target_concept is an LLM-written label into VARCHAR(255) —
-                    // clamp code-point-safe so a long concept never fails the save.
                     progress.setTargetConcept(com.pally.shared.util.TextClamp.toCodePoints(
                             answerNode.path("targetConcept").asText(null), 255));
+                    referenceAnswer = item.getAnswerJson();
                 } catch (Exception ignored) {
                     // non-critical
                 }
 
-                // IMPROVEMENT 4: a PROVE answer nudges the certaintyScore of the
-                // wiki page this module is built from. A strong answer (>=0.8)
-                // reinforces certainty; a weak one (<=0.3) shakes it; the middle
-                // band leaves it untouched. This compounds independently with the
-                // quiz-driven adjustment in SubmitQuizAnswersUseCase. The JPQL
-                // clamps the result to [0.1, 1.0].
-                adjustCertaintyForProve(module, evalResult.score());
-
-                itemResult.put("score", evalResult.score());
-                itemResult.put("conceptCovered", evalResult.conceptCovered());
-                itemResult.put("keyPointsHit", evalResult.keyPointsHit());
-                itemResult.put("keyPointsMissed", evalResult.keyPointsMissed());
+                itemResult.put("graded", false);            // no system-asserted score
                 itemResult.put("feedback", evalResult.feedback());
+                itemResult.put("referenceAnswer", referenceAnswer);
+                itemResult.put("selfAssess", true);         // client shows Yes/Partly/No
             } else if (currentStage == ModuleStage.TEST) {
-                // For TEST items, the client sends the score directly
-                // (it compares against answer_json client-side for hot-takes/challenges)
+                // The server NEVER trusts a client-computed score (spoofable — it was
+                // the client-authoritative grading hole). We do not yet server-grade
+                // the raw choice for these types, so record NO trustworthy signal
+                // (UNGRADED, score NULL) — an ungraded item asserts nothing and never
+                // becomes a false 0. (Deterministic server-grading of the raw choice
+                // is the Phase-1 follow-up, pending the client raw-choice contract.)
+                progress.setScore(null);
+                progress.setSignalType(GradingSignal.UNGRADED);
                 try {
                     var respNode = objectMapper.readTree(response);
-                    double score = respNode.path("score").asDouble(0.0);
-                    progress.setScore(BigDecimal.valueOf(score));
-                    String concept = com.pally.shared.util.TextClamp.toCodePoints(
-                            respNode.path("concept").asText(null), 255);
-                    progress.setTargetConcept(concept);
+                    progress.setTargetConcept(com.pally.shared.util.TextClamp.toCodePoints(
+                            respNode.path("concept").asText(null), 255));
                 } catch (Exception ignored) {
-                    progress.setScore(BigDecimal.ZERO);
+                    // response may be a plain string, not JSON — fine, no concept.
                 }
-
-                // Include the correct answer so client can show feedback
+                // Reveal the correct answer so the client can show feedback (unchanged).
                 itemResult.put("answerJson", item.getAnswerJson());
             } else {
-                // LEARN: completion marker
+                // LEARN: completion marker (not a graded signal).
                 progress.setScore(BigDecimal.ONE);
             }
 
@@ -578,6 +578,60 @@ public class ModuleProgressionService {
         contentGenerator.generateProveQuestions(module, page, testProgress, module.getTier());
     }
 
+    /**
+     * Records a student's self-assessment (YES/PARTLY/NO) of their open-ended
+     * PROVE answer as a low-trust SELF_REPORT signal. Additive + non-blocking:
+     * the PROVE item already completed on submit (count-based stage advance), so
+     * this only upgrades the mastery signal from UNGRADED → SELF_REPORT. If the
+     * module already completed, mastery is recomputed so the signal is reflected.
+     */
+    @Transactional
+    public Map<String, Object> submitSelfReport(
+            String moduleId, String userId, String itemId, SelfReport selfReport) {
+        LearningModule module = moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new BusinessException("Module not found", 404));
+        assertModuleAccess(module, userId);
+
+        ModuleContentItem item = itemRepository.findById(itemId)
+                .orElseThrow(() -> new BusinessException("Item not found: " + itemId, 404));
+        if (!ModuleStage.PROVE.name().equals(item.getStage())) {
+            throw new BusinessException("Self-assessment is only for PROVE items", 400);
+        }
+
+        ModuleProgress progress = progressRepository
+                .findByModuleIdAndUserIdAndItemId(moduleId, userId, itemId)
+                .orElseThrow(() -> new BusinessException(
+                        "Answer this item before self-assessing", 400));
+
+        progress.setScore(BigDecimal.valueOf(selfReport.score()));
+        progress.setSignalType(GradingSignal.SELF_REPORT);
+        progressRepository.save(progress);
+
+        // The self-report weakly nudges wiki certainty (replaces the removed
+        // system-asserted LLM nudge).
+        adjustCertaintyForProve(module, selfReport.score());
+
+        // If the module already completed (count-based advance), recompute mastery
+        // so the upgraded signal is reflected, and refresh the weakness brain.
+        if (ModuleStage.COMPLETE.name().equals(module.getStage())) {
+            updateMastery(module, userId);
+            moduleRepository.save(module);
+            if (weaknessProfileService.isEnabled()) {
+                try {
+                    weaknessProfileService.onMasteryUpdated(userId, module.getAvatarId());
+                } catch (Exception ignored) {
+                    // best-effort
+                }
+            }
+        }
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("itemId", itemId);
+        res.put("signalType", GradingSignal.SELF_REPORT.name());
+        res.put("recorded", true);
+        return res;
+    }
+
     private void updateMastery(LearningModule module, String userId) {
         List<ModuleProgress> proveProgress =
                 progressRepository.findByModuleIdAndUserId(module.getId(), userId)
@@ -585,18 +639,27 @@ public class ModuleProgressionService {
                         .filter(p -> ModuleStage.PROVE.name().equals(p.getStage()))
                         .toList();
 
-        if (proveProgress.isEmpty()) {
-            module.setMasteryPct(BigDecimal.ZERO);
-            return;
+        // Trust-weighted mastery (Tier 3): only GRADED signals count. An UNGRADED
+        // row (score NULL — eval error / skip / not-yet-self-assessed) contributes
+        // NOTHING, so a failure never becomes a false 0. A SELF_REPORT moves mastery
+        // gradingWeights.selfReportWeight (0.25x) as much as a DETERMINISTIC grade —
+        // normalised by COUNT so the trust weight scales the magnitude, not just the
+        // blend. With NO trustworthy signal, mastery is left UNCHANGED (errors/skips
+        // don't move it at all).
+        double weightedSum = 0;
+        int gradedCount = 0;
+        for (ModuleProgress p : proveProgress) {
+            if (p.getScore() == null || p.getSignalType() == GradingSignal.UNGRADED) continue;
+            double w = gradingWeights.weightFor(p.getSignalType());
+            if (w <= 0) continue;
+            weightedSum += w * p.getScore().doubleValue();
+            gradedCount++;
         }
 
-        double avgScore = proveProgress.stream()
-                .filter(p -> p.getScore() != null)
-                .mapToDouble(p -> p.getScore().doubleValue())
-                .average()
-                .orElse(0.0);
+        if (gradedCount == 0) return; // no trustworthy signal — leave mastery unchanged
 
-        module.setMasteryPct(BigDecimal.valueOf(avgScore * 100)
+        double avg = weightedSum / gradedCount;
+        module.setMasteryPct(BigDecimal.valueOf(avg * 100)
                 .setScale(2, RoundingMode.HALF_UP));
     }
 }

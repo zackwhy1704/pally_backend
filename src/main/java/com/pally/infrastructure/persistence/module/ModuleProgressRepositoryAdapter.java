@@ -58,6 +58,7 @@ public class ModuleProgressRepositoryAdapter implements ModuleProgressRepository
         d.setScore(e.getScore());
         d.setTargetConcept(e.getTargetConcept());
         d.setCompletedAt(e.getCompletedAt());
+        d.setSignalType(e.getSignalType());
         return d;
     }
 
@@ -72,6 +73,7 @@ public class ModuleProgressRepositoryAdapter implements ModuleProgressRepository
         e.setScore(d.getScore());
         e.setTargetConcept(d.getTargetConcept());
         e.setCompletedAt(d.getCompletedAt());
+        e.setSignalType(d.getSignalType());
         return e;
     }
 }
