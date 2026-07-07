@@ -22,10 +22,19 @@ public record Entitlements(
         boolean groups,
         boolean priorityAi,
         boolean quizFlashcards,   // always true for all tiers currently
-        boolean studyPlan         // always true for all tiers currently
+        boolean studyPlan,        // always true for all tiers currently
+        int monthlyUploadCap      // -1 = UNLIMITED; accepted (compile-triggering) uploads / 30d
 ) {
 
     public enum ParentDashboard { NONE, FAMILY_WIDE, PER_STUDENT }
+
+    /**
+     * Default FREE upload cap. The compile (~25c on Gemini) is the expensive op,
+     * so unlimited free uploads bleed cost against zero revenue. This is the
+     * canonical default; {@code subscription.free.upload-cap} tunes it at the
+     * enforcement layer without a deploy.
+     */
+    public static final int DEFAULT_FREE_UPLOAD_CAP = 5;
 
     /**
      * Returns the full set of entitlements for a tier, taking the user's
@@ -34,10 +43,10 @@ public record Entitlements(
      */
     public static Entitlements forTier(SubscriptionTier tier, int userLevel) {
         return switch (tier) {
-            case FREE   -> new Entitlements(20,  LevelRewards.freeTutorCap(userLevel), 1, ParentDashboard.NONE,        false, false, true, true);
-            case PRO    -> new Entitlements(100, 5,                                    1, ParentDashboard.FAMILY_WIDE, true,  false, true, true);
-            case MAX    -> new Entitlements(-1,  -1,                                   1, ParentDashboard.FAMILY_WIDE, true,  true,  true, true);
-            case FAMILY -> new Entitlements(-1,  -1,                                   4, ParentDashboard.FAMILY_WIDE, true,  true,  true, true);
+            case FREE   -> new Entitlements(20,  LevelRewards.freeTutorCap(userLevel), 1, ParentDashboard.NONE,        false, false, true, true, DEFAULT_FREE_UPLOAD_CAP);
+            case PRO    -> new Entitlements(100, 5,                                    1, ParentDashboard.FAMILY_WIDE, true,  false, true, true, 50);
+            case MAX    -> new Entitlements(-1,  -1,                                   1, ParentDashboard.FAMILY_WIDE, true,  true,  true, true, -1);
+            case FAMILY -> new Entitlements(-1,  -1,                                   4, ParentDashboard.FAMILY_WIDE, true,  true,  true, true, -1);
         };
     }
 

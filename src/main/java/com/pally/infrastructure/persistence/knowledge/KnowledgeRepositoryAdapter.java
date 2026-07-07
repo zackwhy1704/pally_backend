@@ -40,4 +40,11 @@ public class KnowledgeRepositoryAdapter implements KnowledgeRepository {
     public void deleteById(String id) {
         fileJpaRepository.deleteById(id);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public int countAcceptedUploadsSince(String userId, java.time.Instant since) {
+        return fileJpaRepository.countByUserIdAndStatusAndCreatedAtAfter(
+                userId, com.pally.domain.knowledge.KnowledgeFile.Status.READY, since);
+    }
 }

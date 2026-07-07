@@ -72,7 +72,8 @@ class OcrFailureMessageTest {
                 avatarRepo, knowledgeRepo, wikiRepo, storageService,
                 ocrPort, pdfTextExtractor, relevancePort, recompileScheduler,
                 activityLogService, badgeService, premiumService,
-                consentGuard, deduplicator, avatarSlotGuard, ocrQualityGate
+                consentGuard, deduplicator, avatarSlotGuard, ocrQualityGate,
+                mock(com.pally.domain.subscription.UploadQuotaGuard.class)
         );
     }
 

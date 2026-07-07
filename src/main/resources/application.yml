@@ -287,3 +287,10 @@ compile:
   # segmentation is impractical (~330 pages); the upload is rejected with a
   # "split by chapter" message. Set 0 to disable the ceiling.
   max-total-chars: 600000
+
+subscription:
+  free:
+    # FREE (SPARK) tier: max ACCEPTED (compile-triggering) uploads per rolling
+    # 30 days. The compile (~25c on Gemini) is the expensive op, so this caps the
+    # cost tap on the free tier. Tune from data without a deploy. -1 = unlimited.
+    upload-cap: 5

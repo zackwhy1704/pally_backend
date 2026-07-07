@@ -9,6 +9,9 @@ public interface KnowledgeFileJpaRepository extends JpaRepository<KnowledgeFileJ
 
     List<KnowledgeFileJpaEntity> findByAvatarId(String avatarId);
 
+    int countByUserIdAndStatusAndCreatedAtAfter(
+            String userId, com.pally.domain.knowledge.KnowledgeFile.Status status, java.time.Instant since);
+
     boolean existsByAvatarIdAndContentHashAndStatusNot(
             String avatarId, String contentHash, KnowledgeFile.Status status);
 }

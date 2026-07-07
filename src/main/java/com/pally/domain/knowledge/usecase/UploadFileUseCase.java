@@ -81,6 +81,7 @@ public class UploadFileUseCase {
     private final ContentDeduplicator deduplicator;
     private final AvatarSlotGuard avatarSlotGuard;
     private final OcrQualityGate ocrQualityGate;
+    private final com.pally.domain.subscription.UploadQuotaGuard uploadQuotaGuard;
 
     /// Hard upper bound on a single file's extracted text — above this, even
     /// within-file compile segmentation is impractical (a whole textbook). ~600k
@@ -103,7 +104,8 @@ public class UploadFileUseCase {
             ConsentGuard consentGuard,
             ContentDeduplicator deduplicator,
             AvatarSlotGuard avatarSlotGuard,
-            OcrQualityGate ocrQualityGate) {
+            OcrQualityGate ocrQualityGate,
+            com.pally.domain.subscription.UploadQuotaGuard uploadQuotaGuard) {
         this.avatarRepository    = avatarRepository;
         this.knowledgeRepository = knowledgeRepository;
         this.wikiRepository      = wikiRepository;
@@ -119,6 +121,7 @@ public class UploadFileUseCase {
         this.deduplicator        = deduplicator;
         this.avatarSlotGuard     = avatarSlotGuard;
         this.ocrQualityGate      = ocrQualityGate;
+        this.uploadQuotaGuard    = uploadQuotaGuard;
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
@@ -135,6 +138,11 @@ public class UploadFileUseCase {
         // Fix 2: Slot guard — locked avatars cannot receive new knowledge.
         // NOTE: DELETE paths are exempt (AvatarSlotGuard Javadoc).
         avatarSlotGuard.requireActive(avatarId, userId);
+
+        // FREE-tier upload cap — the compile is the expensive op, so cap accepted
+        // uploads by tier. Enforced HERE (before storage/OCR) so a capped user
+        // fails fast with a 402 UPGRADE_REQUIRED (the client's paywall shape).
+        uploadQuotaGuard.requireUploadQuota(userId);
 
 
         String contentType = file.getContentType();
