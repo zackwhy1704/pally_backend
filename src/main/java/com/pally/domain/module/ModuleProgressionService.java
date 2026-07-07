@@ -319,23 +319,35 @@ public class ModuleProgressionService {
                 itemResult.put("referenceAnswer", referenceAnswer);
                 itemResult.put("selfAssess", true);         // client shows Yes/Partly/No
             } else if (currentStage == ModuleStage.TEST) {
-                // The server NEVER trusts a client-computed score (spoofable — it was
-                // the client-authoritative grading hole). We do not yet server-grade
-                // the raw choice for these types, so record NO trustworthy signal
-                // (UNGRADED, score NULL) — an ungraded item asserts nothing and never
-                // becomes a false 0. (Deterministic server-grading of the raw choice
-                // is the Phase-1 follow-up, pending the client raw-choice contract.)
-                progress.setScore(null);
-                progress.setSignalType(GradingSignal.UNGRADED);
-                try {
-                    var respNode = objectMapper.readTree(response);
-                    progress.setTargetConcept(com.pally.shared.util.TextClamp.toCodePoints(
-                            respNode.path("concept").asText(null), 255));
-                } catch (Exception ignored) {
-                    // response may be a plain string, not JSON — fine, no concept.
+                // The server NEVER reads a client-supplied score (spoofable — the old
+                // client-authoritative hole). HOT_TAKE is graded DETERMINISTICALLY
+                // from the student's RAW CHOICE (AGREE/DISAGREE) against the persisted
+                // key (answer_json.isTrue). Other TEST types have no discrete key →
+                // UNGRADED (never trust the client). A legacy payload with no usable
+                // raw choice → UNGRADED (no 400 for old clients).
+                BigDecimal score = null;
+                GradingSignal signal = GradingSignal.UNGRADED;
+                if (ContentItemType.HOT_TAKE.name().equals(item.getType())) {
+                    Boolean studentSaysTrue = parseHotTakeChoice(response);
+                    Boolean key = parseHotTakeKey(item.getAnswerJson());
+                    if (studentSaysTrue != null && key != null) {
+                        score = studentSaysTrue.equals(key) ? BigDecimal.ONE : BigDecimal.ZERO;
+                        signal = GradingSignal.DETERMINISTIC;
+                    } else if (key == null) {
+                        log.warn("[Module] HOT_TAKE item={} has no persisted key "
+                                + "(reason=no-key) — UNGRADED", itemId);
+                    } else {
+                        log.info("[Module] HOT_TAKE item={} no usable raw choice "
+                                + "(reason=no-rawChoice, legacy client) — UNGRADED", itemId);
+                    }
                 }
-                // Reveal the correct answer so the client can show feedback (unchanged).
+                progress.setScore(score);
+                progress.setSignalType(signal);
                 itemResult.put("answerJson", item.getAnswerJson());
+                itemResult.put("graded", signal == GradingSignal.DETERMINISTIC);
+                if (signal == GradingSignal.DETERMINISTIC) {
+                    itemResult.put("correct", score.compareTo(BigDecimal.ONE) == 0);
+                }
             } else {
                 // LEARN: completion marker (not a graded signal).
                 progress.setScore(BigDecimal.ONE);
@@ -635,24 +647,54 @@ public class ModuleProgressionService {
         return res;
     }
 
-    private void updateMastery(LearningModule module, String userId) {
-        List<ModuleProgress> proveProgress =
-                progressRepository.findByModuleIdAndUserId(module.getId(), userId)
-                        .stream()
-                        .filter(p -> ModuleStage.PROVE.name().equals(p.getStage()))
-                        .toList();
+    /// Maps a HOT_TAKE raw choice to the student's boolean claim (statement is
+    /// true). AGREE/TRUE → true, DISAGREE/FALSE → false, anything else → null
+    /// (legacy client payload → UNGRADED, never a guess). Never reads a score.
+    private static Boolean parseHotTakeChoice(String response) {
+        if (response == null) return null;
+        String r = response.trim().toUpperCase();
+        if (r.equals("AGREE") || r.equals("TRUE")) return true;
+        if (r.equals("DISAGREE") || r.equals("FALSE")) return false;
+        return null;
+    }
 
-        // Trust-weighted mastery (Tier 3): only GRADED signals count. An UNGRADED
-        // row (score NULL — eval error / skip / not-yet-self-assessed) contributes
-        // NOTHING, so a failure never becomes a false 0. A SELF_REPORT moves mastery
-        // gradingWeights.selfReportWeight (0.25x) as much as a DETERMINISTIC grade —
-        // normalised by COUNT so the trust weight scales the magnitude, not just the
-        // blend. With NO trustworthy signal, mastery is left UNCHANGED (errors/skips
-        // don't move it at all).
+    /// Reads the persisted HOT_TAKE key (answer_json.isTrue). null if absent
+    /// (legacy/blank item → UNGRADED, owned by the reaper).
+    private Boolean parseHotTakeKey(String answerJson) {
+        try {
+            var node = objectMapper.readTree(answerJson);
+            if (node.hasNonNull("isTrue")) return node.path("isTrue").asBoolean();
+        } catch (Exception ignored) {
+            // malformed answer_json → no key
+        }
+        return null;
+    }
+
+    private void updateMastery(LearningModule module, String userId) {
+        // Mastery blends the trustworthy graded signals across TEST + PROVE:
+        // DETERMINISTIC hot-takes (weight 1.0) and PROVE SELF_REPORTs (0.30). LEARN
+        // is excluded (a completion marker, not a grade). Legacy null-signal TEST
+        // rows are the OLD client-authoritative scores → EXCLUDED (never resurrect
+        // the closed spoof hole); legacy null-signal PROVE rows keep full weight so
+        // existing students' mastery is preserved.
+        List<ModuleProgress> graded = progressRepository
+                .findByModuleIdAndUserId(module.getId(), userId).stream()
+                .filter(p -> ModuleStage.PROVE.name().equals(p.getStage())
+                        || ModuleStage.TEST.name().equals(p.getStage()))
+                .filter(p -> p.getScore() != null)
+                .filter(p -> p.getSignalType() != GradingSignal.UNGRADED)
+                .filter(p -> !(p.getSignalType() == null
+                        && ModuleStage.TEST.name().equals(p.getStage())))
+                .toList();
+
+        // Trust-weighted mastery (Tier 3): UNGRADED contributes NOTHING (never a
+        // false 0); a SELF_REPORT moves mastery gradingWeights.selfReportWeight as
+        // much as a DETERMINISTIC grade — normalised by COUNT so the trust weight
+        // scales the magnitude. With NO trustworthy signal, mastery is left
+        // UNCHANGED (errors/skips don't move it at all).
         double weightedSum = 0;
         int gradedCount = 0;
-        for (ModuleProgress p : proveProgress) {
-            if (p.getScore() == null || p.getSignalType() == GradingSignal.UNGRADED) continue;
+        for (ModuleProgress p : graded) {
             double w = gradingWeights.weightFor(p.getSignalType());
             if (w <= 0) continue;
             weightedSum += w * p.getScore().doubleValue();

@@ -580,6 +580,107 @@ class ModuleProgressionServiceTest {
         assertThat(module.getMasteryPct()).isEqualByComparingTo(new BigDecimal("30.00"));
     }
 
+    private void stubHotTakeSubmit(ModuleContentItem item) {
+        when(moduleRepository.findById("mod-1"))
+                .thenReturn(Optional.of(buildModule("mod-1", "TEST")));
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(itemRepository.countByModuleIdAndStage("mod-1", "TEST")).thenReturn(2);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "TEST"))
+                .thenReturn(1);
+    }
+
+    private ModuleContentItem hotTake(String answerJson) {
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("item-1");
+        item.setStage("TEST");
+        item.setType("HOT_TAKE");
+        item.setAnswerJson(answerJson);
+        return item;
+    }
+
+    private ModuleProgress submitHotTake(String rawChoice) {
+        service.submitAnswers("mod-1", "user-1",
+                List.of(Map.of("itemId", "item-1", "response", rawChoice)));
+        org.mockito.ArgumentCaptor<ModuleProgress> cap =
+                org.mockito.ArgumentCaptor.forClass(ModuleProgress.class);
+        verify(progressRepository).save(cap.capture());
+        return cap.getValue();
+    }
+
+    @Test
+    void hotTake_agreeMatchesTrueKey_gradedDeterministicCorrect() {
+        stubHotTakeSubmit(hotTake("{\"isTrue\":true}"));
+        ModuleProgress saved = submitHotTake("AGREE");
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.DETERMINISTIC);
+        assertThat(saved.getScore()).isEqualByComparingTo(BigDecimal.ONE);
+    }
+
+    @Test
+    void hotTake_disagreeAgainstTrueKey_gradedDeterministicIncorrect() {
+        stubHotTakeSubmit(hotTake("{\"isTrue\":true}"));
+        ModuleProgress saved = submitHotTake("DISAGREE");
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.DETERMINISTIC);
+        assertThat(saved.getScore()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void hotTake_oldClientScorePayload_noRawChoice_degradesToUngraded_not400() {
+        stubHotTakeSubmit(hotTake("{\"isTrue\":true}"));
+        // Legacy client posted a computed score, not a raw AGREE/DISAGREE choice.
+        ModuleProgress saved = submitHotTake("{\"score\":1.0}");
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.UNGRADED);
+        assertThat(saved.getScore()).isNull();
+    }
+
+    @Test
+    void hotTake_noPersistedKey_degradesToUngraded_neverGuesses() {
+        stubHotTakeSubmit(hotTake("{}")); // no isTrue key
+        ModuleProgress saved = submitHotTake("AGREE");
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.UNGRADED);
+        assertThat(saved.getScore()).isNull();
+    }
+
+    @Test
+    void mastery_blendsTestDeterministicAndProveSelfReport_atTheirWeights() {
+        // A correct HOT_TAKE (DETERMINISTIC 1.0) + a PROVE self-report YES (0.30)
+        // → (1.0*1.0 + 0.30*1.0) / 2 = 0.65 → 65.00. Proves TEST deterministic
+        // signal now feeds module mastery.
+        LearningModule module = buildModule("mod-1", "COMPLETE");
+        module.setAvatarId("avatar-1");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItem proveItem = new ModuleContentItem();
+        proveItem.setId("prove-1");
+        proveItem.setStage("PROVE");
+        proveItem.setType("PROVE_QUESTION");
+        proveItem.setAnswerJson("{\"targetConcept\":\"C\"}");
+        when(itemRepository.findById("prove-1")).thenReturn(Optional.of(proveItem));
+
+        ModuleProgress testDet = new ModuleProgress();
+        testDet.setStage("TEST");
+        testDet.setScore(BigDecimal.ONE);
+        testDet.setSignalType(GradingSignal.DETERMINISTIC);
+        ModuleProgress prove = new ModuleProgress();
+        prove.setModuleId("mod-1");
+        prove.setUserId("user-1");
+        prove.setItemId("prove-1");
+        prove.setStage("PROVE");
+        prove.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "prove-1"))
+                .thenReturn(Optional.of(prove));
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
+                .thenReturn(List.of(testDet, prove));
+        when(weaknessProfileService.isEnabled()).thenReturn(false);
+
+        service.submitSelfReport("mod-1", "user-1", "prove-1", SelfReport.YES);
+
+        assertThat(module.getMasteryPct()).isEqualByComparingTo(new BigDecimal("65.00"));
+    }
+
     @Test
     void getResults_proveStageAllUngraded_reportsNullAverage_notFalseZero() {
         // R4 read-site fix: an all-UNGRADED PROVE stage must report averageScore
