@@ -48,4 +48,7 @@ public class MarkingCorrectionJpaEntity {
 
     @Column(name = "compiled_at")
     private Instant compiledAt;
+
+    @Column(name = "removed_at")
+    private Instant removedAt;
 }

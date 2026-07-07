@@ -44,7 +44,7 @@ class MarkingCorrectionCompilerTest {
     private MarkingCorrection correction(String id, String aiGrade, String teacherGrade,
                                          String aiFb, String teacherFb, Instant at) {
         return new MarkingCorrection(id, "sub-" + id, CLASS, "MATHS",
-                aiGrade, teacherGrade, aiFb, teacherFb, at, null);
+                aiGrade, teacherGrade, aiFb, teacherFb, at, null, null);
     }
 
     private List<MarkingCorrection> nUncompiled(int n) {

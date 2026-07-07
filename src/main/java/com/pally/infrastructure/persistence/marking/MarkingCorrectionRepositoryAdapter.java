@@ -24,14 +24,21 @@ public class MarkingCorrectionRepositoryAdapter implements MarkingCorrectionRepo
 
     @Override
     @Transactional(readOnly = true)
-    public List<MarkingCorrection> findByClassId(String classId) {
-        return jpa.findByClassIdOrderByCapturedAtDesc(classId).stream().map(this::toDomain).toList();
+    public java.util.Optional<MarkingCorrection> findById(String id) {
+        return jpa.findById(id).map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MarkingCorrection> findActiveByClassId(String classId) {
+        return jpa.findByClassIdAndRemovedAtIsNullOrderByCapturedAtDesc(classId)
+                .stream().map(this::toDomain).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<MarkingCorrection> findUncompiledByClassId(String classId) {
-        return jpa.findByClassIdAndCompiledAtIsNullOrderByCapturedAtAsc(classId)
+        return jpa.findByClassIdAndCompiledAtIsNullAndRemovedAtIsNullOrderByCapturedAtAsc(classId)
                 .stream().map(this::toDomain).toList();
     }
 
@@ -45,6 +52,15 @@ public class MarkingCorrectionRepositoryAdapter implements MarkingCorrectionRepo
                 jpa.save(e);
             });
         }
+    }
+
+    @Override
+    @Transactional
+    public void markRemoved(String id, Instant removedAt) {
+        jpa.findById(id).ifPresent(e -> {
+            e.setRemovedAt(removedAt);
+            jpa.save(e);
+        });
     }
 
     // ── Mapping ─────────────────────────────────────────────────────────────
@@ -61,6 +77,7 @@ public class MarkingCorrectionRepositoryAdapter implements MarkingCorrectionRepo
         e.setTeacherFeedback(c.teacherFeedback());
         e.setCapturedAt(c.capturedAt());
         e.setCompiledAt(c.compiledAt());
+        e.setRemovedAt(c.removedAt());
         return e;
     }
 
@@ -69,6 +86,6 @@ public class MarkingCorrectionRepositoryAdapter implements MarkingCorrectionRepo
                 e.getId(), e.getSubmissionId(), e.getClassId(), e.getSubject(),
                 e.getAiSuggestedGrade(), e.getTeacherGrade(),
                 e.getAiFeedback(), e.getTeacherFeedback(),
-                e.getCapturedAt(), e.getCompiledAt());
+                e.getCapturedAt(), e.getCompiledAt(), e.getRemovedAt());
     }
 }

@@ -24,9 +24,10 @@ public record MarkingCorrection(
         String aiFeedback,
         String teacherFeedback,
         Instant capturedAt,
-        Instant compiledAt) {
+        Instant compiledAt,
+        Instant removedAt) {
 
-    /** A freshly captured (not-yet-compiled) correction. */
+    /** A freshly captured (not-yet-compiled, not-removed) correction. */
     public static MarkingCorrection capture(
             String submissionId, String classId, String subject,
             String aiSuggestedGrade, String teacherGrade,
@@ -34,6 +35,10 @@ public record MarkingCorrection(
         return new MarkingCorrection(
                 IdGenerator.newId(), submissionId, classId, subject,
                 aiSuggestedGrade, teacherGrade, aiFeedback, teacherFeedback,
-                Instant.now(), null);
+                Instant.now(), null, null);
+    }
+
+    public boolean isRemoved() {
+        return removedAt != null;
     }
 }

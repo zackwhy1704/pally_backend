@@ -7,7 +7,8 @@ import java.util.List;
 public interface MarkingCorrectionJpaRepository
         extends JpaRepository<MarkingCorrectionJpaEntity, String> {
 
-    List<MarkingCorrectionJpaEntity> findByClassIdOrderByCapturedAtDesc(String classId);
+    List<MarkingCorrectionJpaEntity> findByClassIdAndRemovedAtIsNullOrderByCapturedAtDesc(String classId);
 
-    List<MarkingCorrectionJpaEntity> findByClassIdAndCompiledAtIsNullOrderByCapturedAtAsc(String classId);
+    List<MarkingCorrectionJpaEntity>
+        findByClassIdAndCompiledAtIsNullAndRemovedAtIsNullOrderByCapturedAtAsc(String classId);
 }
