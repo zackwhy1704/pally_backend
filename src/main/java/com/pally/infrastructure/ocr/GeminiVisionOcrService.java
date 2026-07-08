@@ -58,6 +58,12 @@ public class GeminiVisionOcrService implements OcrPort {
     private final AtomicLong successCount = new AtomicLong();
     private final AtomicLong failCount = new AtomicLong();
 
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
+
+    public GeminiVisionOcrService(com.pally.domain.cost.AiUsageMeter aiUsageMeter) {
+        this.aiUsageMeter = aiUsageMeter;
+    }
+
     @Override
     public String extractText(byte[] fileBytes, String mimeType) {
         if (fileBytes == null || fileBytes.length == 0) return "";
@@ -125,6 +131,16 @@ public class GeminiVisionOcrService implements OcrPort {
             long successes = successCount.incrementAndGet();
             log.info("[GeminiOCR] Extracted {} chars ({}ms, mime={}, totalOk={})",
                     extracted.length(), elapsed, mime, successes);
+
+            // Cost ledger (was a blind spot): meter the OCR call. Gemini returns
+            // usageMetadata in this body; if absent, byte/char-estimate flagged.
+            JsonNode usage = root.path("usageMetadata");
+            boolean measured = !usage.isMissingNode();
+            aiUsageMeter.record(null, null, com.pally.domain.cost.AiCallType.OTHER, "ocr",
+                    com.pally.domain.cost.AiTrigger.COMPILE, VISION_MODEL,
+                    measured ? usage.path("promptTokenCount").asLong(0) : fileBytes.length / 750L,
+                    measured ? usage.path("candidatesTokenCount").asLong(0) : extracted.length() / 4L,
+                    true, !measured);
             return extracted;
 
         } catch (Exception e) {

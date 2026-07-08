@@ -16,7 +16,7 @@ class GeminiVisionOcrServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new GeminiVisionOcrService();
+        service = new GeminiVisionOcrService(org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class));
     }
 
     @Test

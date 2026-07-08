@@ -52,6 +52,12 @@ public class ClaudeVisionOcrService implements OcrPort {
     private final AtomicLong retryCount = new AtomicLong();
     private final AtomicLong failCount = new AtomicLong();
 
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
+
+    public ClaudeVisionOcrService(com.pally.domain.cost.AiUsageMeter aiUsageMeter) {
+        this.aiUsageMeter = aiUsageMeter;
+    }
+
     public String extractText(InputStream inputStream) {
         try {
             return extractText(inputStream.readAllBytes(), "image/jpeg");
@@ -124,6 +130,15 @@ public class ClaudeVisionOcrService implements OcrPort {
             if ("(no text found)".equalsIgnoreCase(text)) text = "";
             log.info("[VisionOCR] Extracted {} chars (mime={})",
                     text.length(), mime);
+
+            // Cost ledger (was a blind spot): Claude returns usage.{input,output}_tokens.
+            JsonNode usage = root.path("usage");
+            boolean measured = !usage.isMissingNode();
+            aiUsageMeter.record(null, null, com.pally.domain.cost.AiCallType.OTHER, "ocr",
+                    com.pally.domain.cost.AiTrigger.COMPILE, model,
+                    measured ? usage.path("input_tokens").asLong(0) : fileBytes.length / 750L,
+                    measured ? usage.path("output_tokens").asLong(0) : text.length() / 4L,
+                    true, !measured);
             return text;
         } catch (Exception e) {
             failCount.incrementAndGet();
