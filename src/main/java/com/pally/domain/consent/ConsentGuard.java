@@ -159,7 +159,12 @@ public class ConsentGuard {
      */
     public void requireAiConsent(String userId) {
         User user = userRepo.findById(userId).orElse(null);
-        if (user == null) return; // user not found → fail open
+        if (user == null) {
+            // FAIL-CLOSED: an authenticated AI action whose user row is missing cannot be
+            // established as 13+/consented. (A valid token implies a real user, so this is
+            // an anomaly — deny rather than ship a child's data to a model.)
+            throw new BusinessException("Account is not active", 403);
+        }
         if (!userAgeService.isUnder13(user)) return; // 13+ → self-consent, no gate
 
         boolean hasConsented = consentRecordRepo.findAll().stream()
@@ -205,7 +210,7 @@ public class ConsentGuard {
      */
     public boolean canIngestChildData(User user) {
         if (user == null) {
-            return true; // auth passed; a missing row is handled downstream
+            return false; // FAIL-CLOSED: no user row → age never established → not cleared
         }
         // Centre operators (owner or active staff) are adult principals — bypass.
         if (isCentreOperator(user.getId())) {
@@ -240,11 +245,15 @@ public class ConsentGuard {
      */
     public void requireChildDataIngressConsent(String userId) {
         User user = userRepo.findById(userId).orElse(null);
+        if (user == null) {
+            // FAIL-CLOSED: authenticated ingress with a missing user row is not cleared.
+            throw new GuardianRequiredException(REASON_AGE_DECLARATION_REQUIRED);
+        }
         // Centre operators (owner or active staff) are adult principals — bypass.
-        if (user != null && isCentreOperator(userId)) {
+        if (isCentreOperator(userId)) {
             return;
         }
-        if (user == null || canIngestChildData(user)) {
+        if (canIngestChildData(user)) {
             return;
         }
         if (user.getBirthYear() == null) {

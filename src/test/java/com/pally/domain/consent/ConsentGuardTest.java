@@ -92,6 +92,27 @@ class ConsentGuardTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    // ── Family sweep: a missing user row is DENIED on every gate (fail-closed) ──
+
+    @Test
+    void requireAiConsent_userNotFound_failsClosed() {
+        when(userRepo.findById("ghost")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> guard.requireAiConsent("ghost"))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void canIngestChildData_nullUser_isFalse() {
+        assertThat(guard.canIngestChildData(null)).isFalse();
+    }
+
+    @Test
+    void requireChildDataIngressConsent_userNotFound_failsClosed() {
+        when(userRepo.findById("ghost")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> guard.requireChildDataIngressConsent("ghost"))
+                .isInstanceOf(com.pally.shared.exception.GuardianRequiredException.class);
+    }
+
     private User under13(boolean linked) {
         User u = new User();
         u.setId("c1");

@@ -278,7 +278,15 @@ field-name bug fixed; backend write + serialization clamp). Lesson: a bug you ca
 a screenshot but that has no ledger line is a hole in the ledger's own preface — file
 the entry the moment a defect is known, not after it's fixed.
 
-### Age fail-safe inversion — BUILT on a branch, HELD pending human confirm (CONSENT)
+### Age fail-safe inversion — INTEGRATED into feat/auth-hardening-a (was standalone HELD)
+The isUnder13(null)→true inversion now sits ON TOP of Auth Hardening A (Phases 1–4), which
+removed the lockout risk that held it: birthYear is required at register, social sign-in
+creates PENDING_PROFILE + a DOB step, legacy null accounts get the complete-profile
+re-prompt, and the ConsentGuard family fails closed. Full suite passes WITH the inversion
+active (the earlier 61-failure blast radius is gone). Still merge-held on that branch —
+see "Auth Hardening A" below. The standalone feat/age-fail-safe branch is superseded.
+
+### (historical) Age fail-safe inversion — original standalone HELD note
 The `isUnder13(null)` fail-open (`UserAgeService.java:50` returns FALSE) is a compliance
 bug. The inversion CANNOT ship alone: social sign-in never collects birthYear
 (`SocialAuthRequest` has no field; `signInWithSocial` never sets it) and the email
@@ -294,3 +302,29 @@ user out of AI. Held work before this can merge:
 - Family sweep: `UserAgeService:40,50`, `ConsentGuard:99,137,182,222`, `AuthService:79`,
   social — harden or accept each (the closed model is `ConsentGuard:189,225`).
 Merge waits on explicit confirm AND the count.
+
+## Auth Hardening A (feat/auth-hardening-a) — merge-held; deferred follow-ups
+
+The branch closes the signup-upsert takeover, social auto-link takeover, email
+normalization, fail-closed status, sub-keying, linking challenges, real forgot-password,
+birthYear collection, and the age inversion. Merge waits on **explicit human confirm +
+the prod null-birthYear count** (`SELECT COUNT(*) FROM users WHERE birth_year IS NULL;`).
+Deferred from the auth research, NOT in this pass — each with a one-line why:
+
+- **Breach-password screening (HIBP k-anonymity)** — reject known-breached passwords at
+  register/reset. Deferred: net-new external call + UX; not a takeover fix.
+- **Refresh-token rotation** — auth is stateless JWT with a session-epoch kill switch; a
+  true short-lived-access + rotating-refresh model is a larger redesign. Deferred.
+- **Login/verify rate-limiting + attestation** — login is rate-limited; per-endpoint
+  limits on link/verify-code beyond the challenge attempt-cap, and device attestation,
+  are hardening, not correctness. Deferred.
+- **Email verification at register** — we don't block app use on unverified email (kids
+  start fast); a verification gate is a separate product call. Deferred.
+- **Keychain/secure-storage wipe on logout/reset** — client-side hygiene; the server
+  epoch already invalidates the session. Deferred to a client pass.
+- **Apple full-name capture on first authorization** — Apple sends the name only in the
+  first-auth `user` payload (not the JWT); the client must forward it. Backend persists
+  email on first auth; name-forwarding is a client change. Deferred.
+- **Prompt B review blockers** — out of scope for Prompt A; tracked separately.
+- **UNIQUE lower(email) index upgrade** — V114 added a NON-unique index; the UNIQUE
+  upgrade is gated on the prod case-variant duplicate count (dedup is a human call).
