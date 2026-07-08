@@ -418,7 +418,12 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 )),
                 "generationConfig", Map.of(
                         "maxOutputTokens", 16384,
-                        "temperature", 0.2
+                        "temperature", 0.2,
+                        // Thinking disabled (cost): thinking tokens bill at the output
+                        // rate. This is the one content-generation task where thinking
+                        // *might* aid quality — spot-check a compiled wiki after this;
+                        // revert by removing this one line if quality drops.
+                        "thinkingConfig", Map.of("thinkingBudget", 0)
                 )
         );
 
@@ -472,7 +477,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                     callTypeFor(avatar), "wiki-compile",
                     com.pally.domain.cost.AiTrigger.COMPILE, modelName,
                     usage.path("promptTokenCount").asLong(0),
-                    usage.path("candidatesTokenCount").asLong(0), true, false);
+                    // include thinking tokens (billed as output, separate field)
+                    usage.path("candidatesTokenCount").asLong(0)
+                            + usage.path("thoughtsTokenCount").asLong(0), true, false);
 
             JsonNode text = root
                     .path("candidates").path(0)

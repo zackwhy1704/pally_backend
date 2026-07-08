@@ -103,7 +103,14 @@ public class GeminiCompletionService {
                 )),
                 "generationConfig", Map.of(
                         "maxOutputTokens", maxTokens,
-                        "temperature", 0.1   // low temp for classify/summarise tasks
+                        "temperature", 0.1,  // low temp for classify/summarise tasks
+                        // gemini-2.5-flash has THINKING on by default; at these low
+                        // token caps the thinking tokens EAT the output budget →
+                        // empty text → the throw below → fallback to (10x pricier)
+                        // Haiku. These are structured extraction/classify tasks, not
+                        // reasoning — disable thinking: reliable output + no billed
+                        // thinking tokens (Google's surprise-expensive line item).
+                        "thinkingConfig", Map.of("thinkingBudget", 0)
                 )
         );
 
@@ -139,7 +146,13 @@ public class GeminiCompletionService {
         JsonNode usage = root.path("usageMetadata");
         boolean measured = !usage.isMissingNode();
         long inTok = measured ? usage.path("promptTokenCount").asLong(0) : prompt.length() / 4L;
-        long outTok = measured ? usage.path("candidatesTokenCount").asLong(0) : out.length() / 4L;
+        // THINKING tokens are billed at the OUTPUT rate but arrive in a SEPARATE
+        // field (thoughtsTokenCount) that candidatesTokenCount excludes — omitting
+        // them under-counted Google output ~3x (320k ledgered vs ~1M on the
+        // dashboard). Count them so the ledger matches the invoice.
+        long thoughtsTok = measured ? usage.path("thoughtsTokenCount").asLong(0) : 0L;
+        long outTok = (measured ? usage.path("candidatesTokenCount").asLong(0) : out.length() / 4L)
+                + thoughtsTok;
         aiUsageMeter.record(null, avatarId, com.pally.domain.cost.AiCallType.fromLabel(task),
                 task, com.pally.domain.cost.AiTrigger.OTHER, COMPLETION_MODEL,
                 inTok, outTok, true, !measured);
