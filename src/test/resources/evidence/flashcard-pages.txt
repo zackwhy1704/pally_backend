@@ -1,0 +1,40 @@
+# Evidence-gate corpus for the flashcard model comparison.
+# Format: each page starts with a line "=== TITLE ===", then the page body.
+# THESE ARE PLACEHOLDER PAGES so the gate RUNS out of the box. For a TRUSTWORTHY
+# verdict, replace them with ~20 REAL compiled wiki pages from a mixed-subject
+# avatar (export their content), or point EVIDENCE_PAGES_FILE at your own file.
+
+=== Photosynthesis ===
+Photosynthesis is how green plants make food. Chlorophyll in the chloroplasts
+absorbs sunlight. The plant takes in carbon dioxide through stomata and water
+through the roots. Using light energy, it converts these into glucose and
+oxygen. The word equation: carbon dioxide + water -> glucose + oxygen (in the
+presence of light and chlorophyll). Glucose is used for energy or stored as
+starch. Oxygen is released as a by-product.
+
+=== The Water Cycle ===
+The water cycle moves water around Earth. Evaporation turns liquid water into
+vapour using heat from the Sun. Condensation forms clouds as vapour cools.
+Precipitation is rain, snow, or hail falling from clouds. Collection gathers
+water in rivers, lakes, and oceans, where it evaporates again. Transpiration is
+water vapour released from plant leaves.
+
+=== Fractions ===
+A fraction shows part of a whole. The numerator (top) is how many parts you
+have; the denominator (bottom) is the total equal parts. 3/4 means three of four
+equal parts. Equivalent fractions have the same value: 1/2 = 2/4 = 4/8. To add
+fractions with the same denominator, add the numerators and keep the
+denominator. To compare, use a common denominator.
+
+=== Forces and Motion ===
+A force is a push or a pull, measured in newtons (N). Balanced forces cancel out
+and an object stays still or moves at constant speed. Unbalanced forces change
+speed or direction. Friction is a force that opposes motion between surfaces.
+Gravity pulls objects toward Earth. Newton's first law: an object stays at rest
+or in uniform motion unless acted on by a resultant force.
+
+=== The Roman Empire ===
+The Roman Empire began in 27 BC when Augustus became the first emperor. It grew
+around the Mediterranean Sea. Romans built roads, aqueducts to carry water, and
+public baths. The army was organised into legions. Latin was the official
+language. The empire split into West and East; the Western Empire fell in AD 476.
