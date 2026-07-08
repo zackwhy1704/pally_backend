@@ -23,6 +23,7 @@ public class UpgradeRequiredException extends PallyException {
         return switch (feature) {
             case "CREATE_TUTOR" -> "create more tutors";
             case "UPLOAD_DOC" -> "upload more documents";
+            case "CHUNK_COMPILE" -> "compile more chapters this month";
             case "CHAT_DAILY" -> "chat past the daily free limit";
             case "PARENT_DASHBOARD" -> "open the parent dashboard";
             case "CURRICULUM" -> "follow the curriculum journey";

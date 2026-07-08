@@ -14,6 +14,20 @@ public interface KnowledgeRepository {
 
     List<KnowledgeFile> findByAvatarId(String avatarId);
 
+    /** Child chunks of a SEGMENTED parent (picker + locked-chapter list). */
+    List<KnowledgeFile> findByParentFileId(String parentFileId);
+
+    /** Has this file already been segmented into child chunks? Used by the sweep
+     *  guard so an oversized parent is segmented exactly once (idempotent). */
+    boolean hasChunks(String parentFileId);
+
+    /**
+     * Count a user's SUCCESSFUL chunk compiles since {@code since} — child chunks
+     * (parent_file_id set) whose compile completed (compiled_at stamped). Success-
+     * based so a failed compile never burns allowance. Used by the chunk-compile gate.
+     */
+    int countChunkCompilesSince(String userId, java.time.Instant since);
+
     void deleteById(String id);
 
     /**

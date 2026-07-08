@@ -58,7 +58,8 @@ class CompileWikiOrphanPruneTest {
         useCase = new CompileWikiUseCase(
                 avatarRepository, knowledgeRepository, wikiRepository,
                 wikiCompiler, cacheInvalidationService, cacheKeepAliveService,
-                persistenceService, wikiPageSourceRepo, compileJobStore, executor);
+                persistenceService, wikiPageSourceRepo, compileJobStore,
+                org.mockito.Mockito.mock(DocumentSegmentationService.class), executor);
         ReflectionTestUtils.setField(useCase, "maxSyncChars", 50000);
     }
 

@@ -51,12 +51,16 @@ public class CompileWikiUseCase {
     private final WikiPagePersistenceService persistenceService;
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
     private final CompileJobStore compileJobStore;
+    private final DocumentSegmentationService segmentationService;
 
     @Qualifier(AiTaskExecutorConfig.AI_TASK_EXECUTOR)
     private final ThreadPoolExecutor aiTaskExecutor;
 
     @Value("${compile.max-sync-chars:50000}")
     private int maxSyncChars;
+
+    @Value("${compile.segment-trigger-chars:50000}")
+    private int segmentTriggerChars;
 
     public record CompileResult(
             int pagesCreated,
@@ -283,7 +287,7 @@ public class CompileWikiUseCase {
         // "done" — else they're skipped forever with an empty wiki (silent loss).
         if (outcome.created() + outcome.updated() > 0) {
             for (KnowledgeFile f : newFiles) {
-                f.setCompiledBy(tierServed);
+                f.markCompiled(tierServed);   // stamps compiled_by + compiled_at
                 knowledgeRepository.save(f);
             }
         } else {
@@ -379,6 +383,15 @@ public class CompileWikiUseCase {
         List<KnowledgeFile> newFiles = readyFiles.stream()
                 .filter(f -> f.getCompiledBy() == null)
                 .toList();
+
+        // LEGACY-FILE SWEEP GUARD — the total money-leak fix. A pre-existing oversized
+        // READY file (uploaded before chunking, or any top-level file that slipped past
+        // the upload-time split) must NEVER compile WHOLE here — that would eagerly burn
+        // the whole-file cost (~$2+) before anyone ever sees a picker. Segment it into
+        // PENDING_CHUNK children instead; the parent becomes SEGMENTED and drops out of
+        // this sweep, so nothing compiles until a chunk is picked. Idempotent (a file
+        // that already has children is skipped) and children-only (parentFileId==null).
+        newFiles = segmentOversizedLegacyFiles(avatarId, newFiles);
 
         if (newFiles.isEmpty()) {
             return new CompileResult(0, 0, List.of(), "skipped-all-compiled", 0, 0);
@@ -490,7 +503,7 @@ public class CompileWikiUseCase {
                 zeroPage++;
                 continue; // produced 0 pages (soft-empty) → NOT "done", stays re-compilable
             }
-            f.setCompiledBy(lastTier);
+            f.markCompiled(lastTier);   // stamps compiled_by + compiled_at
             knowledgeRepository.save(f);
         }
         if (incomplete > 0 || zeroPage > 0) {
@@ -538,6 +551,44 @@ public class CompileWikiUseCase {
     /// Overlap carried into the next segment so a fact spanning a boundary isn't
     /// lost (the merge/dedup machinery collapses the resulting duplicate).
     static final int SEGMENT_OVERLAP = 800;
+
+    /**
+     * Legacy-file sweep guard: convert any oversized top-level READY file WITH NO
+     * CHILDREN into PERSISTED PENDING_CHUNK children (parent → SEGMENTED), removing
+     * it from the compile set. This is the retroactive half of the money-leak fix —
+     * a file uploaded before chunking, or one that slipped past the upload-time
+     * split, is never compiled whole; it becomes pickable chapters instead. Returns
+     * the files that should still compile now (the sub-trigger ones), unchanged.
+     */
+    private List<KnowledgeFile> segmentOversizedLegacyFiles(String avatarId, List<KnowledgeFile> newFiles) {
+        List<KnowledgeFile> compilable = new ArrayList<>();
+        for (KnowledgeFile f : newFiles) {
+            String text = f.getExtractedText();
+            boolean oversizedTopLevel = f.getParentFileId() == null
+                    && text != null && text.length() > segmentTriggerChars
+                    && !knowledgeRepository.hasChunks(f.getId());
+            if (!oversizedTopLevel) {
+                compilable.add(f);
+                continue;
+            }
+            List<com.pally.domain.knowledge.Segment> segs = segmentationService.segmentFromText(text);
+            if (segs.size() < 2) {          // can't meaningfully split → let it compile
+                compilable.add(f);
+                continue;
+            }
+            f.markSegmented();
+            knowledgeRepository.save(f);
+            for (com.pally.domain.knowledge.Segment seg : segs) {
+                int pages = Math.max(1, seg.pageTo() - seg.pageFrom() + 1);
+                knowledgeRepository.save(KnowledgeFile.createChunk(
+                        f, seg.title(), seg.pageFrom(), seg.pageTo(), pages, seg.text()));
+            }
+            log.info("[Pipeline:BatchCompile] avatarId={} legacy oversized fileId={} SEGMENTED into "
+                    + "{} chunks instead of compiling whole", avatarId, f.getId(), segs.size());
+            // dropped from the compile set — nothing compiles until a chunk is picked
+        }
+        return compilable;
+    }
 
     /**
      * Expands any file whose extracted text exceeds {@code maxChars} into ordered

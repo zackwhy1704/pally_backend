@@ -73,7 +73,8 @@ class OcrFailureMessageTest {
                 ocrPort, pdfTextExtractor, relevancePort, recompileScheduler,
                 activityLogService, badgeService, premiumService,
                 consentGuard, deduplicator, avatarSlotGuard, ocrQualityGate,
-                mock(com.pally.domain.subscription.UploadQuotaGuard.class)
+                mock(com.pally.domain.subscription.UploadQuotaGuard.class),
+                mock(DocumentSegmentationService.class)
         );
     }
 

@@ -46,6 +46,7 @@ import java.util.Map;
 public class KnowledgeService {
 
     private final UploadFileUseCase uploadFileUseCase;
+    private final com.pally.domain.knowledge.usecase.CompileChunkUseCase compileChunkUseCase;
     private final DeleteFileUseCase deleteFileUseCase;
     private final CheckRelevanceUseCase checkRelevanceUseCase;
     private final CompileWikiUseCase compileWikiUseCase;
@@ -79,6 +80,12 @@ public class KnowledgeService {
                                    boolean skipRelevance) {
         assertMaterialMutable(avatarId, userId);
         return uploadFileUseCase.execute(avatarId, userId, file, skipRelevance);
+    }
+
+    /** Pick one chapter chunk to compile (the chunked-flow paid action). */
+    public com.pally.domain.knowledge.usecase.CompileChunkUseCase.Result compileChunk(
+            String userId, String avatarId, String chunkId) {
+        return compileChunkUseCase.execute(userId, avatarId, chunkId);
     }
 
     public List<KnowledgeFileResponse> listFiles(String userId, String avatarId) {

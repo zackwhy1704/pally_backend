@@ -75,6 +75,9 @@ public class KnowledgeController {
             case UploadResult.Success s -> ResponseEntity
                     .status(HttpStatus.CREATED)
                     .body(ApiResponse.created(s));
+            case UploadResult.Segmented seg -> ResponseEntity
+                    .status(HttpStatus.CREATED)
+                    .body(ApiResponse.created(seg));   // client shows the chapter picker (has `chunks`)
             case UploadResult.RelevanceWarning w -> ResponseEntity
                     .ok(ApiResponse.success(w));
             case UploadResult.Failure f -> ResponseEntity
@@ -89,6 +92,18 @@ public class KnowledgeController {
             @PathVariable String avatarId
     ) {
         return ResponseEntity.ok(ApiResponse.success(knowledgeService.listFiles(userId, avatarId)));
+    }
+
+    /** Pick one chapter chunk to compile. 402 CHUNK_COMPILE when over the monthly
+     *  allowance (same paywall shape as the upload cap). */
+    @PostMapping("/files/{chunkId}/compile")
+    public ResponseEntity<ApiResponse<com.pally.domain.knowledge.usecase.CompileChunkUseCase.Result>> compileChunk(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @PathVariable String chunkId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                knowledgeService.compileChunk(userId, avatarId, chunkId)));
     }
 
     @DeleteMapping("/files/{fileId}")

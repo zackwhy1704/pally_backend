@@ -55,7 +55,8 @@ class CompileResumeTest {
         useCase = new CompileWikiUseCase(
                 avatarRepository, knowledgeRepository, wikiRepository,
                 wikiCompiler, cacheInvalidationService, cacheKeepAliveService,
-                persistenceService, wikiPageSourceRepo, compileJobStore, executor);
+                persistenceService, wikiPageSourceRepo, compileJobStore,
+                org.mockito.Mockito.mock(DocumentSegmentationService.class), executor);
         // Small window so a 5000-char file segments into several batches.
         ReflectionTestUtils.setField(useCase, "maxSyncChars", 2000);
     }

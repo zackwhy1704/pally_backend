@@ -82,7 +82,9 @@ class KnowledgeServiceTest {
     @BeforeEach
     void setUp() {
         service = new KnowledgeService(
-                uploadFileUseCase, deleteFileUseCase, checkRelevanceUseCase, compileWikiUseCase,
+                uploadFileUseCase,
+                org.mockito.Mockito.mock(com.pally.domain.knowledge.usecase.CompileChunkUseCase.class),
+                deleteFileUseCase, checkRelevanceUseCase, compileWikiUseCase,
                 compileJobStore, durableCompileStatusStore, recompileScheduler, knowledgeRepository,
                 knowledgeMapper, wikiRepository, avatarRepository, avatarSlotGuard, wikiPageSourceRepo);
         ownerAvatar = Avatar.create(OWNER_USER, "Zap", Subject.SCIENCE, CharacterType.ZAP);

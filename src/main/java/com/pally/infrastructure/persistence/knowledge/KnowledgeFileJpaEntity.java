@@ -57,6 +57,21 @@ public class KnowledgeFileJpaEntity {
     @Column(name = "compiled_by", length = 30)
     private String compiledBy;
 
+    @Column(name = "compiled_at")
+    private Instant compiledAt;
+
+    @Column(name = "parent_file_id", length = 36)
+    private String parentFileId;
+
+    @Column(name = "page_from")
+    private Integer pageFrom;
+
+    @Column(name = "page_to")
+    private Integer pageTo;
+
+    @Column(name = "chunk_title", length = 255)
+    private String chunkTitle;
+
     public static KnowledgeFileJpaEntity fromDomain(KnowledgeFile kf) {
         KnowledgeFileJpaEntity e = new KnowledgeFileJpaEntity();
         e.id = kf.getId();
@@ -72,6 +87,11 @@ public class KnowledgeFileJpaEntity {
         e.contentHash   = kf.getContentHash();
         e.ocrEngine     = kf.getOcrEngine();
         e.compiledBy    = kf.getCompiledBy();
+        e.compiledAt    = kf.getCompiledAt();
+        e.parentFileId  = kf.getParentFileId();
+        e.pageFrom      = kf.getPageFrom();
+        e.pageTo        = kf.getPageTo();
+        e.chunkTitle    = kf.getChunkTitle();
         return e;
     }
 
@@ -82,6 +102,11 @@ public class KnowledgeFileJpaEntity {
         kf.setContentHash(contentHash);
         kf.setOcrEngine(ocrEngine);
         kf.setCompiledBy(compiledBy);
+        kf.setCompiledAt(compiledAt);
+        kf.setParentFileId(parentFileId);
+        kf.setPageFrom(pageFrom);
+        kf.setPageTo(pageTo);
+        kf.setChunkTitle(chunkTitle);
         return kf;
     }
 

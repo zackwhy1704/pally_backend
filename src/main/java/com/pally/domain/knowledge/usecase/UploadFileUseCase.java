@@ -28,6 +28,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import com.pally.domain.knowledge.Segment;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -82,12 +84,20 @@ public class UploadFileUseCase {
     private final AvatarSlotGuard avatarSlotGuard;
     private final OcrQualityGate ocrQualityGate;
     private final com.pally.domain.subscription.UploadQuotaGuard uploadQuotaGuard;
+    private final DocumentSegmentationService segmentationService;
 
-    /// Hard upper bound on a single file's extracted text — above this, even
-    /// within-file compile segmentation is impractical (a whole textbook). ~600k
-    /// chars ≈ 330 pages. Rejected loudly at upload with a "split by chapter" hint.
-    @org.springframework.beans.factory.annotation.Value("${compile.max-total-chars:600000}")
-    private int maxTotalChars;
+    /// Segment TRIGGER — a valid document above this extracted-char size is split
+    /// into pickable chapter chunks instead of compiling whole (the quality unit,
+    /// ~25 pages). Below it, byte-identical to the pre-chunking behaviour.
+    @org.springframework.beans.factory.annotation.Value("${compile.segment-trigger-chars:50000}")
+    private int segmentTriggerChars;
+
+    /// Pathological-file SAFETY bound — NOT a quality ceiling. Only a genuinely
+    /// broken/adversarial file (~2500 pages) is rejected here; a large-but-real
+    /// document is segmented, never rejected for size. (The old 600k ceiling was a
+    /// quality unit wearing a safety hat; those two jobs are now separated.)
+    @org.springframework.beans.factory.annotation.Value("${compile.upload-reject-chars:5000000}")
+    private int uploadRejectChars;
 
     public UploadFileUseCase(
             AvatarRepository avatarRepository,
@@ -105,7 +115,8 @@ public class UploadFileUseCase {
             ContentDeduplicator deduplicator,
             AvatarSlotGuard avatarSlotGuard,
             OcrQualityGate ocrQualityGate,
-            com.pally.domain.subscription.UploadQuotaGuard uploadQuotaGuard) {
+            com.pally.domain.subscription.UploadQuotaGuard uploadQuotaGuard,
+            DocumentSegmentationService segmentationService) {
         this.avatarRepository    = avatarRepository;
         this.knowledgeRepository = knowledgeRepository;
         this.wikiRepository      = wikiRepository;
@@ -122,6 +133,7 @@ public class UploadFileUseCase {
         this.avatarSlotGuard     = avatarSlotGuard;
         this.ocrQualityGate      = ocrQualityGate;
         this.uploadQuotaGuard    = uploadQuotaGuard;
+        this.segmentationService = segmentationService;
     }
 
     public UploadResult execute(String avatarId, String userId, MultipartFile file) {
@@ -244,20 +256,19 @@ public class UploadFileUseCase {
             return new UploadResult.Failure(ocrFailMsg, null);
         }
 
-        // Hard ceiling: even with within-file compile segmentation, a document
-        // far larger than a normal set of notes (≈ a whole textbook) produces so
-        // many segments that the compile is slow + fragile. Reject LOUDLY here —
-        // with the page estimate — so the user splits it, rather than accepting a
-        // job that will grind for many minutes. Tunable via compile.max-total-chars.
-        if (maxTotalChars > 0 && extractedText.length() > maxTotalChars) {
+        // Pathological-file SAFETY bound only (not a quality/size ceiling). A large-
+        // but-real document is NOT rejected here — it is segmented into pickable
+        // chapters further down. This reject fires only for a genuinely broken or
+        // adversarial file that would blow extraction memory/storage.
+        if (uploadRejectChars > 0 && extractedText.length() > uploadRejectChars) {
             int estPages = Math.max(1, extractedText.length() / 1800); // ~1800 chars/page
-            log.warn("[Upload] REJECTED fileId={} — {} chars (~{} pages) exceeds ceiling {}",
-                    fileId, extractedText.length(), estPages, maxTotalChars);
+            log.warn("[Upload] REJECTED fileId={} — {} chars (~{} pages) exceeds hard bound {}",
+                    fileId, extractedText.length(), estPages, uploadRejectChars);
             kf.markFailed();
             knowledgeRepository.save(kf);
             return new UploadResult.Failure(
-                    "This document is very large (~" + estPages + " pages) — please split it by "
-                    + "chapter or topic and upload each part. That keeps Mochi accurate and fast.", null);
+                    "This file is extremely large (~" + estPages + " pages) and can't be processed. "
+                    + "Please upload a smaller document.", null);
         }
 
         // ── OCR Quality Gate (image uploads only) ───────────────────────────
@@ -332,6 +343,43 @@ public class UploadFileUseCase {
             }
         } else {
             log.info("Skipping relevance check for fileId={} (user override)", fileId);
+        }
+
+        // ── Chapter-chunking ────────────────────────────────────────────────
+        // A large-but-valid document is SPLIT into pickable chapter chunks instead
+        // of compiling whole. The parent becomes SEGMENTED (holds the full text,
+        // compile-ignored); each child is PENDING_CHUNK (compile-ignored) until the
+        // student PICKS it. Nothing compiles here — no recompile is scheduled — so an
+        // unpicked chunk costs only its share of the one-time extraction. Children are
+        // created programmatically (they bypass the dedup gate by construction) and
+        // carry their OWN text slice + hash, so siblings can never collide.
+        if (extractedText.length() > segmentTriggerChars) {
+            List<Segment> segments = segmentationService.segment(
+                    fileBytes, uploadType, extractedText, pageCount, avatarId);
+            if (segments.size() >= 2) {
+                kf.markReady(pageCount);   // set page count, then move out of the compile sweep
+                kf.markSegmented();
+                knowledgeRepository.save(kf);
+
+                List<UploadResult.ChunkInfo> chunkInfos = new ArrayList<>();
+                for (Segment seg : segments) {
+                    int chunkPages = Math.max(1, seg.pageTo() - seg.pageFrom() + 1);
+                    KnowledgeFile child = KnowledgeFile.createChunk(
+                            kf, seg.title(), seg.pageFrom(), seg.pageTo(), chunkPages, seg.text());
+                    child.setContentHash(deduplicator.computeHash(seg.text()));
+                    KnowledgeFile saved = knowledgeRepository.save(child);
+                    chunkInfos.add(new UploadResult.ChunkInfo(
+                            saved.getId(), seg.title(), seg.pageFrom(), seg.pageTo(), chunkPages));
+                }
+
+                activityLogService.log(userId, avatarId, ActivityLogService.TYPE_UPLOAD, 0, 0);
+                badgeService.grantFirstAction(userId, BadgeService.BadgeType.FIRST_UPLOAD);
+                log.info("[Upload] SEGMENTED fileId={} into {} chunks — no eager compile", fileId,
+                        chunkInfos.size());
+                return new UploadResult.Segmented(fileId, chunkInfos);
+            }
+            // <2 segments (e.g. one dense chapter) → not worth a picker; compile whole.
+            log.info("[Upload] fileId={} over trigger but produced <2 segments — compiling whole", fileId);
         }
 
         kf.markReady(pageCount);

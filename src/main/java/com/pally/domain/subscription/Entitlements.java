@@ -23,7 +23,8 @@ public record Entitlements(
         boolean priorityAi,
         boolean quizFlashcards,   // always true for all tiers currently
         boolean studyPlan,        // always true for all tiers currently
-        int monthlyUploadCap      // -1 = UNLIMITED; accepted (compile-triggering) uploads / 30d
+        int monthlyUploadCap,     // -1 = UNLIMITED; accepted (compile-triggering) uploads / 30d
+        int monthlyChunkCompiles  // -1 = UNLIMITED; chapter-chunk compiles / 30d (successful)
 ) {
 
     public enum ParentDashboard { NONE, FAMILY_WIDE, PER_STUDENT }
@@ -37,16 +38,25 @@ public record Entitlements(
     public static final int DEFAULT_FREE_UPLOAD_CAP = 5;
 
     /**
+     * Default FREE chapter-chunk compile cap per rolling 30d. Each chunk compile is
+     * the same expensive op an upload triggers, so FREE gets a small allowance and
+     * the picker's return loop nudges upgrades. Config-tunable at the guard via
+     * {@code subscription.free.chunk-compile-cap}. Centre-source students inherit a
+     * PAID tier server-side, so B2B lands on the unlimited arm — same guard code path.
+     */
+    public static final int DEFAULT_FREE_CHUNK_COMPILE_CAP = 5;
+
+    /**
      * Returns the full set of entitlements for a tier, taking the user's
      * level into account for the FREE (SPARK) tier's Mochi cap.
      * For paid tiers, level is ignored.
      */
     public static Entitlements forTier(SubscriptionTier tier, int userLevel) {
         return switch (tier) {
-            case FREE   -> new Entitlements(20,  LevelRewards.freeTutorCap(userLevel), 1, ParentDashboard.NONE,        false, false, true, true, DEFAULT_FREE_UPLOAD_CAP);
-            case PRO    -> new Entitlements(100, 5,                                    1, ParentDashboard.FAMILY_WIDE, true,  false, true, true, 50);
-            case MAX    -> new Entitlements(-1,  -1,                                   1, ParentDashboard.FAMILY_WIDE, true,  true,  true, true, -1);
-            case FAMILY -> new Entitlements(-1,  -1,                                   4, ParentDashboard.FAMILY_WIDE, true,  true,  true, true, -1);
+            case FREE   -> new Entitlements(20,  LevelRewards.freeTutorCap(userLevel), 1, ParentDashboard.NONE,        false, false, true, true, DEFAULT_FREE_UPLOAD_CAP, DEFAULT_FREE_CHUNK_COMPILE_CAP);
+            case PRO    -> new Entitlements(100, 5,                                    1, ParentDashboard.FAMILY_WIDE, true,  false, true, true, 50,  100);
+            case MAX    -> new Entitlements(-1,  -1,                                   1, ParentDashboard.FAMILY_WIDE, true,  true,  true, true, -1,  -1);
+            case FAMILY -> new Entitlements(-1,  -1,                                   4, ParentDashboard.FAMILY_WIDE, true,  true,  true, true, -1,  -1);
         };
     }
 

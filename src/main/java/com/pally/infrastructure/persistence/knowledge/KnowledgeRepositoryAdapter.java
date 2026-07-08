@@ -36,6 +36,20 @@ public class KnowledgeRepositoryAdapter implements KnowledgeRepository {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<KnowledgeFile> findByParentFileId(String parentFileId) {
+        return fileJpaRepository.findByParentFileId(parentFileId).stream()
+                .map(KnowledgeFileJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasChunks(String parentFileId) {
+        return fileJpaRepository.existsByParentFileId(parentFileId);
+    }
+
+    @Override
     @Transactional
     public void deleteById(String id) {
         fileJpaRepository.deleteById(id);
@@ -44,7 +58,18 @@ public class KnowledgeRepositoryAdapter implements KnowledgeRepository {
     @Override
     @Transactional(readOnly = true)
     public int countAcceptedUploadsSince(String userId, java.time.Instant since) {
-        return fileJpaRepository.countByUserIdAndStatusAndCreatedAtAfter(
-                userId, com.pally.domain.knowledge.KnowledgeFile.Status.READY, since);
+        // "Accepted upload" = a TOP-LEVEL doc (not a chunk) that reached an accepted
+        // terminal state. A SEGMENTED parent counts as the one document uploaded;
+        // picked child chunks (which become READY) must NOT inflate the doc cap.
+        return fileJpaRepository.countAcceptedUploadsSince(
+                userId,
+                java.util.List.of(KnowledgeFile.Status.READY, KnowledgeFile.Status.SEGMENTED),
+                since);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public int countChunkCompilesSince(String userId, java.time.Instant since) {
+        return fileJpaRepository.countChunkCompilesSince(userId, since);
     }
 }
