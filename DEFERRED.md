@@ -69,3 +69,54 @@ accepted risk, and what closes it.
 - Device-verify the weakness loop on real hardware (wrong hot-takes → mastery moves →
   weak concept → weak-first next quiz).
 - Store submission, manual QA pass, DPIA.
+
+## Cost / fan-out control — deferred (2026-07, from the AI-cost-ledger pass)
+
+Shipped this pass: Teach EVAL_FAILED, the content-change fan-out gate (2.4/2.3),
+the ai_usage ledger extension + GeminiCompletionService metering (P1), and the
+flashcard auto-gen threshold CTA (2.2). Deferred, deliberately, from data not guesses:
+
+### Async flashcard generation job (2.1)
+- **What:** POST returns a job id; client polls (reuse CompileJobStore +
+  DurableCompileStatusStore + the /wiki/compile status pattern). Kills the
+  synchronous all-pages loop entirely; survives navigation.
+- **Why deferred:** the heavy piece. The 2.2 threshold CTA is the interim shield.
+- **Accepted risk:** a *confirmed* large-corpus generate still runs synchronously
+  (behind the CTA, so it's a chosen wait, not a surprise hang).
+
+### Config caps (2.5) — BOTH halves
+- **What:** max new cards/day to a student (Anki-style due+N-new queue) + a
+  per-avatar daily LLM-call budget with a "resumes tomorrow" state.
+- **Why deferred:** caps chosen before ledger data are guesses. The new-cards/day
+  cap is pedagogy UX that belongs with the flashcard page-picker pass; the
+  per-avatar LLM budget is redundant while the account-level AI Studio spend cap
+  exists (SET THAT — 2 min, $0). Decide both from ai_usage data.
+
+### pally flashcard page/topic picker (2.6)
+- **What:** filter by sourceSlug (column exists) so a kid with 2000 cards studies
+  the chapter they chose; default view = due-today + today's new allotment.
+- **Why deferred:** ships with the new-cards/day cap (2.5) as one UX pass.
+
+### Lazy module generation — decide after 2 weeks of ledger data
+- **What:** don't generate a page's Learn/Test modules until a student opens that
+  topic (PROVE is ALREADY adaptive — generateProveItemsAdaptively at TEST
+  completion — so only LEARN+TEST are eager).
+- **Why deferred (blocker, not a wrinkle):** assignment resolution SNAPSHOTS a
+  student's module set at start; lazy gen would put a 5-call latency storm in the
+  student's critical path (30 kids opening an assigned topic at 7pm = 150
+  simultaneous generations) and make teacher previews empty. It's a design split,
+  not a flag flip: **eager for class/assigned avatars, lazy LEARN+TEST for B2C
+  self-study.** Decide from the ledger — if it shows N% of pages never opened,
+  lazy is a data-backed win with a known dollar value.
+
+### Ledger blind spots still open (P1 covered the completion services)
+- OCR (GeminiVisionOcrService, ClaudeVisionOcrService — direct HTTP) and streaming
+  chat + keepalive (ClaudeApiClient streaming) bypass the metered completion
+  clients → still unmeter'd. The ledger will show them as gaps; the corpus-∝ chat
+  streaming is the likely home of the rest of the spike (the fan-out fixes meter
+  but don't reduce it). Meter these next.
+
+### RelevanceChecker fail-open inconsistency (ledger-grade, from the family sweep)
+- `ClaudeRelevanceChecker:120` parse-error → 0.0 (reject) vs `:46` exception → 1.0
+  (accept). Inconsistent, but relevance is a soft warning (not a hard gate), so
+  low-priority. Make the parse-error path match the accept-on-failure behaviour.
