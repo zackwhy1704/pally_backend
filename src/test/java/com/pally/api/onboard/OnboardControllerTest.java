@@ -48,22 +48,23 @@ class OnboardControllerTest {
         assertThat(result.getBody().data().avatarId()).isEqualTo("avatar-id-1");
     }
 
+    /// Signup with an existing email is now a 409 from the service — the controller
+    /// propagates it (the global handler maps it to a 409 body with no token). This
+    /// replaces the old "existing user → 201 login upsert" behavior (the incident).
     @Test
-    void quickOnboard_existingUserCorrectPassword_returns201_withNewAvatar() {
+    void quickOnboard_existingEmail_propagates409() {
         QuickOnboardRequest request = new QuickOnboardRequest(
                 "existing@example.com", "password123", null, Subject.SCIENCE, null, null, null, null);
 
         when(quickOnboardService.execute(
                 eq("existing@example.com"), eq("password123"), eq(null),
                 eq(Subject.SCIENCE), eq(null), eq(null), eq(null), eq(null)))
-                .thenReturn(new QuickOnboardService.QuickOnboardResult(
-                        "jwt-existing", "user-existing", "avatar-new"));
+                .thenThrow(new BusinessException("Email already registered", 409));
 
-        ResponseEntity<ApiResponse<QuickOnboardResponse>> result = controller.quickOnboard(request);
-
-        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(result.getBody().data().userId()).isEqualTo("user-existing");
-        assertThat(result.getBody().data().avatarId()).isEqualTo("avatar-new");
+        assertThatThrownBy(() -> controller.quickOnboard(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Email already registered")
+                .extracting(e -> ((BusinessException) e).getHttpStatus()).isEqualTo(409);
     }
 
     /// Under-13 plumbing: a parentEmail in the request body must bind on the DTO
@@ -90,18 +91,4 @@ class OnboardControllerTest {
         assertThat(result.getBody().data().userId()).isEqualTo("user-child");
     }
 
-    @Test
-    void quickOnboard_wrongPassword_throwsBusiness401() {
-        QuickOnboardRequest request = new QuickOnboardRequest(
-                "existing@example.com", "wrong-pass", null, Subject.ENGLISH, null, null, null, null);
-
-        when(quickOnboardService.execute(
-                eq("existing@example.com"), eq("wrong-pass"), eq(null),
-                eq(Subject.ENGLISH), eq(null), eq(null), eq(null), eq(null)))
-                .thenThrow(new BusinessException("Invalid email or password", 401));
-
-        assertThatThrownBy(() -> controller.quickOnboard(request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("Invalid email or password");
-    }
 }

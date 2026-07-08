@@ -8,6 +8,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.infrastructure.auth.AuthService;
+import com.pally.infrastructure.auth.DuplicateSignupNotifier;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,12 +31,13 @@ class QuickOnboardServiceTest {
 
     @Mock private AuthService authService;
     @Mock private AvatarRepository avatarRepository;
+    @Mock private DuplicateSignupNotifier duplicateSignupNotifier;
 
     private QuickOnboardService service;
 
     @BeforeEach
     void setUp() {
-        service = new QuickOnboardService(authService, avatarRepository);
+        service = new QuickOnboardService(authService, avatarRepository, duplicateSignupNotifier);
     }
 
     @Test
@@ -88,51 +90,27 @@ class QuickOnboardServiceTest {
         assertThat(parentEmailCaptor.getValue()).isEqualTo("parent@test.com");
     }
 
+    /// THE HEADLINE INCIDENT PIN. Signup with an already-registered email must 409 —
+    /// NEVER log in, NEVER issue a token, NEVER create an avatar. This was a
+    /// register-OR-login upsert: an existing email was silently logged in (tokens
+    /// issued for that account), so "signup" behaved as "login" — the pre-account-
+    /// takeover failure. The endpoint must be indistinguishable from /auth/register.
     @Test
-    void execute_existingUser_loginAndCreatesAvatar() {
+    void execute_existingEmail_returns409_neverLogsIn_neverIssuesToken() {
         when(authService.emailExists("kid@test.com")).thenReturn(true);
-        when(authService.login("kid@test.com", "pass1234"))
-                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, AccountType.SOLO));
-        when(avatarRepository.save(any(Avatar.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
-
-        QuickOnboardService.QuickOnboardResult result =
-                service.execute("kid@test.com", "pass1234", null, Subject.SCIENCE, null);
-
-        assertThat(result.token()).isEqualTo("tok-2");
-        assertThat(result.userId()).isEqualTo("user-existing");
-
-        verify(authService).login("kid@test.com", "pass1234");
-    }
-
-    /// Regression: existing-user onboard must NOT call register(). register() is
-    /// @Transactional; a 409 thrown across its boundary marks the shared
-    /// transaction rollback-only, which made the commit fail with
-    /// UnexpectedRollbackException (a 500) on every existing-user re-onboard.
-    @Test
-    void execute_existingUser_doesNotCallRegister() {
-        when(authService.emailExists("kid@test.com")).thenReturn(true);
-        when(authService.login("kid@test.com", "pass1234"))
-                .thenReturn(new AuthResponse("user-existing", "tok-2", false, true, AccountType.SOLO));
-        when(avatarRepository.save(any(Avatar.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
-
-        service.execute("kid@test.com", "pass1234", null, Subject.SCIENCE, null);
-
-        verify(authService, never())
-                .register(anyString(), anyString(), any(), any(), any(), any());
-    }
-
-    @Test
-    void execute_wrongPassword_throwsBusinessException() {
-        when(authService.emailExists("kid@test.com")).thenReturn(true);
-        when(authService.login("kid@test.com", "wrong"))
-                .thenThrow(new BusinessException("Invalid email or password", 401));
 
         assertThatThrownBy(() ->
-                service.execute("kid@test.com", "wrong", "Kid", Subject.ENGLISH, null))
+                service.execute("kid@test.com", "pass1234", "Kid", Subject.SCIENCE, null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Invalid email or password");
+                .hasMessage("Email already registered")
+                .extracting(e -> ((BusinessException) e).getHttpStatus()).isEqualTo(409);
+
+        // The invariant, asserted as absences: no login, no register, no avatar, no token path.
+        verify(authService, never()).login(anyString(), anyString());
+        verify(authService, never()).register(anyString(), anyString(), any(), any(), any(), any());
+        verify(avatarRepository, never()).save(any(Avatar.class));
+        // The OWNER (not the requester) is notified of the duplicate attempt.
+        verify(duplicateSignupNotifier).notifyOwner("kid@test.com");
     }
 
     @Test

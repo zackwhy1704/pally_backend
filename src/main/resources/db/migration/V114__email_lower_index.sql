@@ -1,0 +1,18 @@
+-- AUTH HARDENING A (Phase 1.1) — canonical-email lookups.
+--
+-- Email uniqueness was case-SENSITIVE (a plain UNIQUE on the raw column, V3) with no
+-- functional lower() index, and the app normalizes lookups inconsistently. Application
+-- code now canonicalizes (trim+lowercase) every auth lookup/store (EmailNormalizer), so
+-- new rows are canonical and duplicates are rejected at the app layer.
+--
+-- This adds a NON-UNIQUE lower(email) index to make those canonical lookups efficient.
+-- It is intentionally NOT unique: pre-existing case-variant duplicates (e.g. User@x.com
+-- + user@x.com from before normalization) would make a UNIQUE index creation FAIL at
+-- deploy. Deduping those is a HUMAN decision — run the count first:
+--
+--   SELECT lower(email) AS canon, count(*) FROM users
+--   GROUP BY lower(email) HAVING count(*) > 1;
+--
+-- Once that returns zero rows (or after a deliberate dedup), a follow-up migration can
+-- upgrade this to a UNIQUE index for DB-level enforcement.
+CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email));

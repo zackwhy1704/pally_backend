@@ -11,6 +11,7 @@ import com.pally.infrastructure.persistence.organization.OrganizationJpaReposito
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
+import com.pally.shared.util.EmailNormalizer;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,7 @@ public class AuthService {
     private final PremiumService premiumService;
     private final com.pally.domain.consent.UserAgeService userAgeService;
     private final com.pally.domain.consent.ConsentService consentService;
+    private final DuplicateSignupNotifier duplicateSignupNotifier;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -61,7 +63,13 @@ public class AuthService {
     public AuthResponse register(
             String email, String password, String displayName, String role,
             Integer birthYear, String parentEmail) {
+        // Canonical email is the uniqueness key for EVERY lookup/store (trim+lowercase).
+        email = EmailNormalizer.canonical(email);
         if (userRepo.existsByEmail(email)) {
+            // INVARIANT: an account-creating endpoint NEVER issues a token for a
+            // pre-existing account. Reject (409, no token) and notify the OWNER, not
+            // the requester (generic error, no enumeration).
+            duplicateSignupNotifier.notifyOwner(email);
             throw new BusinessException("Email already registered", 409);
         }
 
@@ -128,12 +136,12 @@ public class AuthService {
      */
     @Transactional(readOnly = true)
     public boolean emailExists(String email) {
-        return userRepo.existsByEmail(email);
+        return userRepo.existsByEmail(EmailNormalizer.canonical(email));
     }
 
     @Transactional
     public AuthResponse login(String email, String password) {
-        UserJpaEntity user = userRepo.findByEmail(email)
+        UserJpaEntity user = userRepo.findByEmail(EmailNormalizer.canonical(email))
                 .orElseThrow(() -> new BusinessException("Invalid email or password", 401));
 
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
