@@ -97,17 +97,24 @@ flashcard auto-gen threshold CTA (2.2). Deferred, deliberately, from data not gu
   the chapter they chose; default view = due-today + today's new allotment.
 - **Why deferred:** ships with the new-cards/day cap (2.5) as one UX pass.
 
-### Lazy module generation — decide after 2 weeks of ledger data
+### Lazy module generation — PARTIALLY RESOLVED structurally by chapter-chunking
 - **What:** don't generate a page's Learn/Test modules until a student opens that
   topic (PROVE is ALREADY adaptive — generateProveItemsAdaptively at TEST
   completion — so only LEARN+TEST are eager).
-- **Why deferred (blocker, not a wrinkle):** assignment resolution SNAPSHOTS a
-  student's module set at start; lazy gen would put a 5-call latency storm in the
-  student's critical path (30 kids opening an assigned topic at 7pm = 150
-  simultaneous generations) and make teacher previews empty. It's a design split,
-  not a flag flip: **eager for class/assigned avatars, lazy LEARN+TEST for B2C
-  self-study.** Decide from the ledger — if it shows N% of pages never opened,
-  lazy is a data-backed win with a known dollar value.
+- **RESHAPED by chunked compile (shipped ca40cea):** the biggest waste this entry
+  targeted — an entire textbook's pages generated eagerly when few are studied — is
+  now gone at the SOURCE: an oversized upload no longer compiles whole, so modules
+  are only ever generated for pages of chunks the student PICKED. Generation follows
+  compiled chunks; a never-picked chapter produces no pages → no module fan-out
+  (verified: all three generators iterate wiki pages, not KnowledgeFiles).
+- **What REMAINS (narrower):** WITHIN a compiled chunk, LEARN+TEST are still eager
+  for every page. That's a much smaller surface (~25 pages, deliberately picked, so
+  high open-probability) — the "N% of pages never opened" argument is weak here. The
+  original blocker still holds for the residue: assignment resolution SNAPSHOTS the
+  module set, and lazy gen would put a 5-call latency storm in the student's path.
+  Decide from the ledger whether within-chunk laziness is still worth the design
+  split (eager for class/assigned, lazy LEARN+TEST for B2C self-study) — but the
+  headline dollar win this entry chased is already banked by chunking.
 
 ### Ledger blind spots still open (P1 covered the completion services)
 - OCR (GeminiVisionOcrService, ClaudeVisionOcrService — direct HTTP) and streaming
@@ -209,18 +216,33 @@ so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
   exceeds the split baseline. `ModuleGeneratorMergeParityTest` already exists — build
   on it. Do NOT rush at the tail of a long session.
 
-### Page-based upload quota — BILLING migration, Phase 0 DONE (start here)
-- **Replaces** the shipped doc-count cap (UploadQuotaGuard + Entitlements.monthlyUploadCap,
-  FREE 5/30d) with PAGES (extracted chars / 2000). Two limits/tier: rolling-30d page
-  budget + per-doc page ceiling. Doc-count removed (pages subsume it).
-- **Phase 0 findings (verbatim, so the next session starts warm):**
+### Page-based upload quota — LARGELY SUPERSEDED by chapter-chunking (shipped ca40cea)
+- **UPDATE (chunked compile shipped):** the two problems this entry was designed to
+  solve are now handled a different way, so most of it is moot:
+  - **The 600k "split by chapter" reject is DISSOLVED.** That ceiling conflated a
+    quality unit with a safety bound; both jobs are now separated. Upload segments at
+    50k (`compile.segment-trigger-chars`) into pickable chapters and rejects only at
+    5M (`compile.upload-reject-chars`, pathological-file safety). A 500-page textbook
+    is INGESTED (chunked), not rejected — the "split by chapter" hint now points at a
+    capability that exists by default. **Verified: the parent extraction path has NO
+    600k trap** — the old reject was retired, and PDFBox extracts the whole file; only
+    a genuinely broken 5M+-char file is refused.
+  - **The per-doc page ceiling is SUPERSEDED.** A big doc no longer needs a per-doc
+    cap — it's split into ≤25-page chunks, each compiled individually.
+  - **The cost gate this entry chased already exists** as the chunk-compile allowance
+    (`Entitlements.monthlyChunkCompiles` + `ChunkCompileGuard`, FREE 5 / PRO 100 /
+    unlimited), which caps the EXPENSIVE op (compile) directly, per rolling 30d, same
+    guard code path for B2C and centre-resolved B2B.
+- **What could still be worth doing (much narrower):** a rolling-30d *page-volume*
+  budget on top of the doc-count + chunk-compile caps, IF the ledger shows a few
+  users uploading enormous corpora and compiling everything. Decide from data; it's
+  no longer a launch item. Original scoping kept below for reference.
+- **Original scoping (for reference — mostly moot now):**
   - Chokepoint: enforce at the TOP of UploadFileUseCase (same place the doc-count
     guard + preflight already sit), BEFORE OCR/extraction.
-  - 600k ceiling (UploadFileUseCase:88-90, compile.max-total-chars:600000, ~330 pages):
-    a ~1M-char/500-page file is REJECTED LOUDLY with a "split by chapter" hint —
-    NOT truncated, NOT split. So a tier-aware higher ceiling (MAX/CENTRE) requires
-    verifying the chunked compile handles ~1.2M chars before advertising it (else the
-    DOC_TOO_LARGE copy must state the true limit — never advertise pages it can't compile).
+  - 600k ceiling — DISSOLVED (see UPDATE above). The old note read: a ~1M-char/500-page
+    file was REJECTED LOUDLY with a "split by chapter" hint. Chunking makes that the
+    default behaviour instead of a reject.
   - Charge model: preflight ESTIMATE (PDF metadata pages / image count / ceil(chars/2000)
     / ceil(bytes/3500) flagged) to REJECT only; CHARGE AT READY on ACTUAL extracted chars.
     Prefer a stored extracted_chars column set at READY (one migration) over len()-per-check.
@@ -230,6 +252,6 @@ so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
     ORG_CLASS pooling → DEFERRED (decide from ledger data, same date as lazy-modules).
   - Tiers/limits config live in Entitlements.forTier + application.yml (join, don't
     rebuild). Migration must warn on the stale subscription.free.upload-cap key.
-- **Why deferred:** billing/entitlements migration + 2-client copy (pally + memoly) —
-  a gated area (needs explicit push confirm) that shouldn't be rushed at hour-N. It's
-  fully scoped above; it's the right immediate next focused session.
+- **Status:** largely SUPERSEDED by chapter-chunking (backend + both clients shipped).
+  Any residual page-volume budget is now a data-driven maybe, not a launch item — the
+  expensive-op gate (compile) is already covered by the chunk-compile allowance.
