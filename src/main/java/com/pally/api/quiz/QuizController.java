@@ -56,10 +56,12 @@ public class QuizController {
     @PostMapping("/flashcards/generate")
     public ResponseEntity<ApiResponse<Map<String, Object>>> generateFlashcards(
             @AuthenticationPrincipal String userId,
-            @PathVariable String avatarId) {
+            @PathVariable String avatarId,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false")
+                    boolean confirmed) {
         consentGuard.requireAiAllowed(userId); // PDPA/PDPC: gate AI flashcard generation
         return ResponseEntity.ok(
-                ApiResponse.success(quizService.generateFlashcards(userId, avatarId)));
+                ApiResponse.success(quizService.generateFlashcards(userId, avatarId, confirmed)));
     }
 
     @PostMapping("/flashcards/{cardId}/rate")

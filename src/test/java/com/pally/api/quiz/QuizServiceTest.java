@@ -34,6 +34,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.times;
 
 /**
  * Unit tests for {@link QuizService} — the ownership guard on error-patterns,
@@ -101,10 +103,43 @@ class QuizServiceTest {
     void generateFlashcards_noWikiPages_returnsZeroAndHasWikiFalse() {
         when(wikiRepository.findByAvatarId(AVATAR)).thenReturn(List.of());
 
-        Map<String, Object> result = service.generateFlashcards(USER, AVATAR);
+        Map<String, Object> result = service.generateFlashcards(USER, AVATAR, true);
 
         assertThat(result.get("hasWikiPages")).isEqualTo(false);
         assertThat(result.get("generated")).isEqualTo(0);
+    }
+
+    @Test
+    void generateFlashcards_largeCorpus_autoBackfill_defersToCta_generatesNothing() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "autoGenMaxPages", 15);
+        when(wikiRepository.findByAvatarId(AVATAR)).thenReturn(manyPages(20));
+
+        // confirmed=false = auto-backfill on screen open → must NOT run the loop.
+        Map<String, Object> result = service.generateFlashcards(USER, AVATAR, false);
+
+        assertThat(result.get("needsConfirmation")).isEqualTo(true);
+        assertThat(result.get("pageCount")).isEqualTo(20);
+        verifyNoInteractions(flashcardGenerator); // no synchronous all-pages hang
+    }
+
+    @Test
+    void generateFlashcards_largeCorpus_confirmed_generates() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "autoGenMaxPages", 15);
+        when(wikiRepository.findByAvatarId(AVATAR)).thenReturn(manyPages(20));
+
+        Map<String, Object> result = service.generateFlashcards(USER, AVATAR, true);
+
+        assertThat(result.get("needsConfirmation")).isEqualTo(false);
+        verify(flashcardGenerator, times(20)).generateAndSaveForPage(eq(AVATAR), any());
+    }
+
+    private List<com.pally.domain.knowledge.WikiPage> manyPages(int n) {
+        List<com.pally.domain.knowledge.WikiPage> pages = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            pages.add(com.pally.domain.knowledge.WikiPage.create(
+                    AVATAR, "slug-" + i, "Title " + i, "Content " + i));
+        }
+        return pages;
     }
 
     // ── Serving chokepoint: key persistence + exposure split ──────────────────

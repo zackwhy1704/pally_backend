@@ -288,6 +288,11 @@ compile:
   # "split by chapter" message. Set 0 to disable the ceiling.
   max-total-chars: 600000
 
+flashcard:
+  # Above this many wiki pages, flashcard auto-generate-on-open becomes an
+  # explicit CTA (avoids the synchronous all-pages generation hang).
+  auto-generate-max-pages: 15
+
 subscription:
   free:
     # FREE (SPARK) tier: max ACCEPTED (compile-triggering) uploads per rolling

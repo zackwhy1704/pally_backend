@@ -40,6 +40,11 @@ import java.util.Map;
 @Slf4j
 public class QuizService {
 
+    /// Above this many wiki pages, flashcard auto-generate-on-open is replaced by
+    /// an explicit CTA (avoids the synchronous all-pages hang). Tunable.
+    @org.springframework.beans.factory.annotation.Value("${flashcard.auto-generate-max-pages:15}")
+    private int autoGenMaxPages;
+
     private final GetDailyQuizUseCase getDailyQuizUseCase;
     private final SubmitQuizAnswersUseCase submitQuizAnswersUseCase;
     private final QuizIdempotencyRepository quizIdempotencyRepository;
@@ -136,10 +141,22 @@ public class QuizService {
     /// On-demand (re)generate flashcards from the avatar's compiled wiki pages.
     /// Returns the count generated and whether wiki pages exist. Idempotent:
     /// existing cards for each slug are deleted before regenerating.
-    public Map<String, Object> generateFlashcards(String userId, String avatarId) {
+    /// {@code confirmed=false} is an auto-backfill (screen open). For a large
+    /// corpus we do NOT run the synchronous all-pages loop unprompted — it hangs
+    /// the screen — and instead return the scope so the client shows an explicit
+    /// "Generate cards (~N pages)" CTA. A confirmed call (the CTA) proceeds.
+    /// (Interim shield until flashcard generation goes async — see DEFERRED.md.)
+    public Map<String, Object> generateFlashcards(String userId, String avatarId, boolean confirmed) {
         List<WikiPage> pages = wikiRepository.findByAvatarId(avatarId);
         boolean hasWikiPages = !pages.isEmpty();
         int totalGenerated = 0;
+
+        if (hasWikiPages && !confirmed && pages.size() > autoGenMaxPages) {
+            log.info("[Flashcard] Auto-gen deferred to CTA user={} avatar={} pages={} (> cap {})",
+                    userId, avatarId, pages.size(), autoGenMaxPages);
+            return Map.of("generated", 0, "hasWikiPages", true,
+                    "needsConfirmation", true, "pageCount", pages.size());
+        }
 
         if (hasWikiPages) {
             log.info("[Flashcard] Manual generate user={} avatar={} pages={}",
@@ -157,7 +174,8 @@ public class QuizService {
             log.info("[Flashcard] Generate complete avatar={} total={}", avatarId, totalGenerated);
         }
 
-        return Map.of("generated", totalGenerated, "hasWikiPages", hasWikiPages);
+        return Map.of("generated", totalGenerated, "hasWikiPages", hasWikiPages,
+                "needsConfirmation", false, "pageCount", pages.size());
     }
 
     public FlashcardResponse rateFlashcard(
