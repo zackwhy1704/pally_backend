@@ -28,13 +28,14 @@ class UserAgeServiceTest {
     }
 
     @Test
-    void nullBirthYear_treatedAs13Plus() {
-        assertThat(service.isUnder13((Integer) null)).isFalse();
+    void nullBirthYear_failsClosed_treatedAsUnder13() {
+        // INVERTED (compliance): unknown age = child until an age is collected.
+        assertThat(service.isUnder13((Integer) null)).isTrue();
     }
 
     @Test
-    void nullUser_treatedAs13Plus() {
-        assertThat(service.isUnder13((User) null)).isFalse();
+    void nullUser_failsClosed_treatedAsUnder13() {
+        assertThat(service.isUnder13((User) null)).isTrue();
     }
 
     @Test
