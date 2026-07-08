@@ -64,7 +64,7 @@ public class ModuleProgressionService {
             m.put("wikiSlug", module.getWikiPageSlug());
             m.put("stage", module.getStage());
             m.put("tier", module.getTier());
-            m.put("masteryPct", module.getMasteryPct());
+            m.put("masteryPct", clampPct(module.getMasteryPct()));
 
             Map<String, Integer> counts = new HashMap<>();
             counts.put("learn", itemRepository.countByModuleIdAndStage(
@@ -131,7 +131,7 @@ public class ModuleProgressionService {
         result.put("title", module.getTitle());
         result.put("wikiSlug", module.getWikiPageSlug());
         result.put("stage", module.getStage());
-        result.put("masteryPct", module.getMasteryPct());
+        result.put("masteryPct", clampPct(module.getMasteryPct()));
         result.put("tier", module.getTier());
 
         List<Map<String, Object>> itemList = new ArrayList<>();
@@ -402,7 +402,8 @@ public class ModuleProgressionService {
                                 ? module.getMasteryPct().doubleValue() / 100.0
                                 : null;
                         milestoneNotifier.onModuleCompleted(
-                                userId, module.getTitle(), mastery);
+                                userId, module.getTitle(), mastery,
+                                isSelfReportOnly(moduleId, userId));
                     } catch (Exception e) {
                         log.warn("[Module] push notification failed module={}: {}",
                                 moduleId, e.getMessage());
@@ -457,7 +458,7 @@ public class ModuleProgressionService {
         result.put("moduleId", module.getId());
         result.put("title", module.getTitle());
         result.put("stage", module.getStage());
-        result.put("masteryPct", module.getMasteryPct());
+        result.put("masteryPct", clampPct(module.getMasteryPct()));
         result.put("completedAt", module.getCompletedAt());
         result.put("conceptMastery", conceptMastery);
 
@@ -704,7 +705,32 @@ public class ModuleProgressionService {
         if (gradedCount == 0) return; // no trustworthy signal — leave mastery unchanged
 
         double avg = weightedSum / gradedCount;
-        module.setMasteryPct(BigDecimal.valueOf(avg * 100)
-                .setScale(2, RoundingMode.HALF_UP));
+        // Clamp to the 0–100 contract at the WRITE so no row can ever store >100
+        // (a bad weighting could otherwise persist a value that renders >100% client-side).
+        double pct = Math.max(0.0, Math.min(100.0, avg * 100));
+        module.setMasteryPct(BigDecimal.valueOf(pct).setScale(2, RoundingMode.HALF_UP));
+    }
+
+    /**
+     * True when the module's mastery is backed ONLY by self-assessment (every graded
+     * signal is SELF_REPORT, none DETERMINISTIC). Drives the parent notification's
+     * "self-assessed" state instead of showing a low-trust % as if it were graded.
+     */
+    private boolean isSelfReportOnly(String moduleId, String userId) {
+        var graded = progressRepository.findByModuleIdAndUserId(moduleId, userId).stream()
+                .filter(p -> p.getSignalType() != null
+                        && p.getSignalType() != GradingSignal.UNGRADED)
+                .toList();
+        return !graded.isEmpty()
+                && graded.stream().allMatch(p -> p.getSignalType() == GradingSignal.SELF_REPORT);
+    }
+
+    /**
+     * Defensive serialization clamp: masteryPct is a 0–100 contract. Clamp on the way
+     * out so no legacy/miswritten row can ever render >100% (the 2600% bug class).
+     */
+    static BigDecimal clampPct(BigDecimal v) {
+        if (v == null || v.signum() < 0) return BigDecimal.ZERO;
+        return v.compareTo(BigDecimal.valueOf(100)) > 0 ? BigDecimal.valueOf(100) : v;
     }
 }

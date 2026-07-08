@@ -67,7 +67,7 @@ class MilestoneNotifierTest {
         User child = childWithParent("child-1", "parent-1", "Bob");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
-        notifier.onModuleCompleted("child-1", "Photosynthesis", 0.92);
+        notifier.onModuleCompleted("child-1", "Photosynthesis", 0.92, false);
 
         verify(fcmService).sendToUser(
                 eq("parent-1"),
@@ -76,11 +76,25 @@ class MilestoneNotifierTest {
     }
 
     @Test
+    void onModuleCompleted_selfReportOnly_rendersStateNotPercent() {
+        // The only signal was a self-assessment → parent copy is a STATE, not a
+        // low-trust % dressed up as graded (ledger item 4).
+        User child = childWithParent("child-1", "parent-1", "Bob");
+        when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
+
+        notifier.onModuleCompleted("child-1", "Photosynthesis", 0.30, true);
+
+        verify(fcmService).sendToUser(
+                eq("parent-1"), anyString(),
+                argThat(body -> body.contains("self-assessed") && !body.contains("%")));
+    }
+
+    @Test
     void onModuleCompleted_childHasNoParent_noOp() {
         User child = childWithoutParent("child-1");
         when(userRepo.findById("child-1")).thenReturn(Optional.of(child));
 
-        notifier.onModuleCompleted("child-1", "Math Basics", 0.85);
+        notifier.onModuleCompleted("child-1", "Math Basics", 0.85, false);
 
         verifyNoInteractions(fcmService);
     }

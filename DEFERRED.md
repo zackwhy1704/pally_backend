@@ -42,28 +42,28 @@ accepted risk, and what closes it.
 - **Closes it:** either convert SPOT_MISTAKE to a keyed (multiple-choice) format, or
   route CHALLENGE through the PROVE self-assessment path.
 
-## 4. Display-as-state for self-report-only modules (product decision)
-- **What:** a module whose only signal is a self-report renders a trust-weighted
-  percentage (e.g. YES → 30%). Exam-readiness is now weighted + labelled with
-  `signalType` (consistent with module mastery), so the adjacent-surface CONTRADICTION
-  is fixed. The remaining question is whether a **30% to a parent notification** for a
-  self-assessed module should instead read as a STATE ("completed — self-assessed").
-- **Why deferred:** product/UX call, not a correctness bug (the numbers are now
-  consistent). The `signalType` label is already emitted so the UI can switch to a
-  state rendering without further backend work.
-- **Decision:** DEFER, recommend rendering self-report-only as a state label in the
-  parent notification + exam-readiness; deterministic-bearing modules keep the %.
-- **Closes it:** UI reads `signalType` and renders "self-assessed" instead of a % when
-  no deterministic signal is present.
+## 4. Display-as-state for self-report-only modules — PARENT-NOTIFICATION DONE; exam-readiness UI remains
+- **What:** a module whose only signal is a self-report should render a STATE, not a
+  trust-weighted % (30%) as if graded.
+- **Parent notification — DONE (2026-07):** the ledger's old claim that `signalType`
+  was already emitted here was WRONG — `MilestoneNotifier.onModuleCompleted` had no
+  such param. Now plumbed: `ModuleProgressionService.isSelfReportOnly` derives it and
+  the notifier renders "completed (self-assessed)" (no %). Pinned by
+  `MilestoneNotifierTest.onModuleCompleted_selfReportOnly_rendersStateNotPercent`.
+- **Exam-readiness UI (pally) — REMAINS:** the backend DTO DOES emit `signalType`
+  (`ModuleExamReadinessService.java:67`), but the pally exam-prep concept model doesn't
+  parse it, so the % still shows for SELF_REPORT concepts. Small: add `signalType` to
+  the concept model + a "self-assessed" label on `exam_prep_screen`. Deferred to the
+  next focused pass (not a store blocker; the numbers are now scale-correct).
 
-## 5. Generation validator: keyless deterministic item (generation session)
+## 5. Generation validator: keyless deterministic item — CLOSED
 - **What:** a deterministic-type item (HOT_TAKE) generated WITHOUT its key
   (`answer_json.isTrue`) should fail generation validation, not persist.
-- **Why deferred / where:** belongs to the generation/reaper session, not the grading
-  harness. The server already degrades a keyless HOT_TAKE to UNGRADED, so this is a
-  quality gate, not a correctness gate.
-- **Accepted risk:** a keyless HOT_TAKE produces no signal (UNGRADED) until the
-  generation session adds the validator + reaper regenerates it.
+- **RESOLVED (verified):** `RulesOutputValidator.isValidModuleItem` at
+  `RulesOutputValidator.java:75` already enforces it —
+  `case HOT_TAKE -> nonBlank(c,"statement") && a.get("isTrue") != null && nonBlank(a,"explanation")`.
+  A HOT_TAKE without its `isTrue` key fails validation and never persists. Closed by
+  the store-blockers audit (2026-07).
 
 ## Off-keyboard (not code)
 - Device-verify the weakness loop on real hardware (wrong hot-takes → mastery moves →
@@ -265,3 +265,32 @@ so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
 - **Closes it:** bump the Flyway version (via the Spring Boot BOM override or an explicit
   `org.flywaydb:flyway-core`/`flyway-database-postgresql` version) to one that lists PG18,
   then re-run the Testcontainers migration suite to confirm no runner behavior change.
+
+## Store-release blockers pass (2026-07)
+
+### Mastery scale went unledgered for weeks — the lesson (unledgered ≠ tracked)
+A 0–1 vs 0–100 contract mismatch rendered "2600% mastery" on the mobile module list,
+home banner, exam-prep, and the web exam-readiness/modules tabs — a FAMILY bug that
+sat in shipped code without a DEFERRED entry, so it wasn't "tracked", it was invisible.
+FIXED this pass (canonical 0–100 documented on `LearningModule.masteryPct`; clients use
+`masteryDisplayPct`/`masteryFraction`; web helper de-×100'd + the `avgMastery`→`masteryPct`
+field-name bug fixed; backend write + serialization clamp). Lesson: a bug you can see on
+a screenshot but that has no ledger line is a hole in the ledger's own preface — file
+the entry the moment a defect is known, not after it's fixed.
+
+### Age fail-safe inversion — BUILT on a branch, HELD pending human confirm (CONSENT)
+The `isUnder13(null)` fail-open (`UserAgeService.java:50` returns FALSE) is a compliance
+bug. The inversion CANNOT ship alone: social sign-in never collects birthYear
+(`SocialAuthRequest` has no field; `signInWithSocial` never sets it) and the email
+`signUpWithEmail` client path sends none — so every social account is null-birthYear.
+Flipping the default without age-collection + a re-prompt would 403-lock every social
+user out of AI. Held work before this can merge:
+- Client re-prompt for existing null-birthYear accounts (route through the consent-gate
+  surfaces on next open, before consent-gated features — `consent_gate_guard.dart`).
+- birthYear collection on social sign-in (add the field + an age step) and required on
+  the email register path.
+- Run the null-birthYear count (`SELECT COUNT(*) FROM users WHERE birth_year IS NULL;`)
+  against Railway to size the re-prompt population.
+- Family sweep: `UserAgeService:40,50`, `ConsentGuard:99,137,182,222`, `AuthService:79`,
+  social — harden or accept each (the closed model is `ConsentGuard:189,225`).
+Merge waits on explicit confirm AND the count.

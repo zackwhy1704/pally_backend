@@ -35,8 +35,15 @@ public class MilestoneNotifier {
 
     /**
      * Notify parent that their child completed a module.
+     *
+     * @param mastery        0–1 mastery, or null when there was no graded signal.
+     * @param selfReportOnly true when the ONLY signal feeding mastery was the
+     *                       student's own self-assessment (SELF_REPORT). Then we render
+     *                       a STATE ("self-assessed"), not a trust-weighted %, so a
+     *                       parent is never shown a low-trust number as if it were graded.
      */
-    public void onModuleCompleted(String childId, String moduleName, Double mastery) {
+    public void onModuleCompleted(String childId, String moduleName, Double mastery,
+                                  boolean selfReportOnly) {
         Optional<User> childOpt = userRepo.findById(childId);
         if (childOpt.isEmpty() || childOpt.get().getParentId() == null) return;
 
@@ -47,11 +54,16 @@ public class MilestoneNotifier {
                         ? childOpt.get().getDisplayName() : "Your child");
 
         String title = childName + " completed a module!";
-        // Omit the mastery % when there's no graded signal (UNGRADED) — never
-        // tell a parent "0% mastery" for a module that simply wasn't assessed.
-        String body = mastery != null
-                ? moduleName + " — " + (int) Math.round(mastery * 100) + "% mastery"
-                : moduleName + " — completed!";
+        final String body;
+        if (selfReportOnly) {
+            body = moduleName + " — completed (self-assessed)";
+        } else if (mastery != null) {
+            // Omit the % only when there's no graded signal (UNGRADED) — never tell a
+            // parent "0% mastery" for a module that simply wasn't assessed.
+            body = moduleName + " — " + (int) Math.round(mastery * 100) + "% mastery";
+        } else {
+            body = moduleName + " — completed!";
+        }
 
         sendPositive(parentId, title, body);
     }
