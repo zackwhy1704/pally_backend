@@ -2,8 +2,8 @@ package com.pally.evidence;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,8 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>HOW TO RUN (~10 min):
  * <pre>
- *   export ANTHROPIC_API_KEY=sk-ant-...      # your Claude key
- *   export GEMINI_API_KEY=AIza...            # your Google AI Studio / Gemini key
+ *   export CLAUDE_API_KEY=sk-ant-...          # same name your backend/Railway uses
+ *   export GEMINI_API_KEY=AIza...            # same name your backend/Railway uses
  *   # optional: export CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001  (defaults below)
  *   # optional: export EVIDENCE_PAGES_FILE=/path/to/your/20-real-pages.txt
  *   ./gradlew test --tests com.pally.evidence.FlashcardModelEvidenceGate
@@ -52,8 +52,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   and route ClaudeFlashcardGenerator through GeminiCompletionService for that
  *   purpose (config-driven, revertible). See DEFERRED.md "Flashcard model lever".
  */
-@EnabledIfEnvironmentVariable(named = "ANTHROPIC_API_KEY", matches = ".+")
-@EnabledIfEnvironmentVariable(named = "GEMINI_API_KEY", matches = ".+")
 class FlashcardModelEvidenceGate {
 
     /** Flash may not be MORE than this many points below Haiku (the hard gate). */
@@ -73,8 +71,15 @@ class FlashcardModelEvidenceGate {
 
     @Test
     void flashPassRateWithinToleranceOfHaiku() throws Exception {
-        String claudeKey = System.getenv("ANTHROPIC_API_KEY");
+        // Read the SAME env var names the backend/Railway use (CLAUDE_API_KEY,
+        // GEMINI_API_KEY); ANTHROPIC_API_KEY accepted as an alias. Skips (not
+        // fails) when absent, so CI/normal test runs never touch a paid API.
+        String claudeKey = firstNonBlank(System.getenv("CLAUDE_API_KEY"),
+                System.getenv("ANTHROPIC_API_KEY"));
         String geminiKey = System.getenv("GEMINI_API_KEY");
+        Assumptions.assumeTrue(claudeKey != null && !claudeKey.isBlank()
+                        && geminiKey != null && !geminiKey.isBlank(),
+                "Evidence gate skipped — set CLAUDE_API_KEY and GEMINI_API_KEY to run it.");
         String haikuModel = System.getenv().getOrDefault("CLAUDE_HAIKU_MODEL",
                 "claude-haiku-4-5-20251001");
 
@@ -214,6 +219,11 @@ class FlashcardModelEvidenceGate {
         if (res.statusCode() != 200) throw new RuntimeException("Gemini " + res.statusCode() + ": " + res.body());
         return mapper.readTree(res.body())
                 .path("candidates").path(0).path("content").path("parts").path(0).path("text").asText("");
+    }
+
+    private static String firstNonBlank(String... vals) {
+        for (String v : vals) if (v != null && !v.isBlank()) return v;
+        return null;
     }
 
     private interface Call { List<String[]> get() throws Exception; }
