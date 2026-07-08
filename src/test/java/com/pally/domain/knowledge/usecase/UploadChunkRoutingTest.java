@@ -43,6 +43,7 @@ class UploadChunkRoutingTest {
     private KnowledgeRepository knowledgeRepo;
     private WikiRecompileScheduler recompileScheduler;
     private DocumentSegmentationService segmentationService;
+    private ContentDeduplicator deduplicator;
 
     @BeforeEach
     void setUp() {
@@ -58,7 +59,7 @@ class UploadChunkRoutingTest {
         BadgeService badgeService = mock(BadgeService.class);
         PremiumService premiumService = mock(PremiumService.class);
         ConsentGuard consentGuard = mock(ConsentGuard.class);
-        ContentDeduplicator deduplicator = mock(ContentDeduplicator.class);
+        deduplicator = mock(ContentDeduplicator.class);
         AvatarSlotGuard avatarSlotGuard = mock(AvatarSlotGuard.class);
         UploadQuotaGuard uploadQuotaGuard = mock(UploadQuotaGuard.class);
         segmentationService = mock(DocumentSegmentationService.class);
@@ -128,6 +129,11 @@ class UploadChunkRoutingTest {
             assertThat(c.getCompiledBy()).isNull();
         });
         assertThat(children.get(0).getExtractedText()).isNotEqualTo(children.get(1).getExtractedText());
+
+        // Dedup bypass (intentional): the near-dup gate runs ONCE, on the parent —
+        // never per-child. Siblings share provenance by construction, so re-checking
+        // them (adjacent chapters are legitimately similar) would wrongly reject them.
+        verify(deduplicator, times(1)).check(anyString(), anyString(), anyString());
     }
 
     @Test

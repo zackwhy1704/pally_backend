@@ -364,6 +364,15 @@ public class UploadFileUseCase {
                 List<UploadResult.ChunkInfo> chunkInfos = new ArrayList<>();
                 for (Segment seg : segments) {
                     int chunkPages = Math.max(1, seg.pageTo() - seg.pageFrom() + 1);
+                    // INTENTIONAL dedup bypass: children are created programmatically
+                    // and NEVER routed through deduplicator.check() (the exact/Jaccard
+                    // near-dup gate that ran on the parent above). Siblings share the
+                    // parent's provenance by construction, so re-checking them against
+                    // each other is wrong: adjacent chapters (windowed at overlap=0)
+                    // are legitimately similar at their shared boundary and MUST NOT be
+                    // rejected as duplicates. We still store a per-chunk content_hash
+                    // (of the chunk's own slice) so the downstream content-change gate
+                    // works per-chunk — distinct slices hash distinctly, no collision.
                     KnowledgeFile child = KnowledgeFile.createChunk(
                             kf, seg.title(), seg.pageFrom(), seg.pageTo(), chunkPages, seg.text());
                     child.setContentHash(deduplicator.computeHash(seg.text()));

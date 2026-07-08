@@ -5,6 +5,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.domain.knowledge.WikiPage;
+import com.pally.domain.knowledge.util.TextWindower;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.infrastructure.ai.CacheInvalidationService;
@@ -403,7 +404,7 @@ public class CompileWikiUseCase {
         // of sequential AI calls and the job times out. Segmenting into
         // ~maxSyncChars windows keeps every compile call bounded AND lets the loop
         // persist after each segment, so progress is saved incrementally.
-        List<KnowledgeFile> units = segmentOversizedFiles(newFiles, maxSyncChars);
+        List<KnowledgeFile> units = windowOversizedFiles(newFiles, maxSyncChars);
         List<List<KnowledgeFile>> batches = splitIntoBatches(units, maxSyncChars);
         log.info("[Pipeline:BatchCompile] avatarId={} totalFiles={} units(after-segmenting)={} batches={}",
                 avatarId, newFiles.size(), units.size(), batches.size());
@@ -548,9 +549,11 @@ public class CompileWikiUseCase {
         return batches;
     }
 
-    /// Overlap carried into the next segment so a fact spanning a boundary isn't
-    /// lost (the merge/dedup machinery collapses the resulting duplicate).
-    static final int SEGMENT_OVERLAP = 800;
+    /// Overlap carried into the next compiler WINDOW so a fact spanning a boundary
+    /// isn't lost (the windows share one fileId and merge by slug, so the overlap
+    /// never double-counts). NB: this is compiler token-limit windowing, distinct
+    /// from the picker's chapter SEGMENTING (which uses overlap=0 — see TextWindower).
+    static final int WINDOW_OVERLAP = 800;
 
     /**
      * Legacy-file sweep guard: convert any oversized top-level READY file WITH NO
@@ -580,6 +583,11 @@ public class CompileWikiUseCase {
             knowledgeRepository.save(f);
             for (com.pally.domain.knowledge.Segment seg : segs) {
                 int pages = Math.max(1, seg.pageTo() - seg.pageFrom() + 1);
+                // INTENTIONAL dedup bypass (same as the upload path): these child
+                // chunks are created programmatically, never through the dedup gate.
+                // Adjacent chapters tile at overlap=0 so they don't even share
+                // boundary text — but the bypass is what makes sibling similarity a
+                // non-issue in principle, not the overlap value.
                 knowledgeRepository.save(KnowledgeFile.createChunk(
                         f, seg.title(), seg.pageFrom(), seg.pageTo(), pages, seg.text()));
             }
@@ -592,12 +600,15 @@ public class CompileWikiUseCase {
 
     /**
      * Expands any file whose extracted text exceeds {@code maxChars} into ordered
-     * segment VARIANTS — each carries the SAME fileId (so provenance / re-upload
-     * dedup are preserved) but a sliced text window and a "(part k/N)" name.
-     * Files within budget pass through unchanged. Segment variants are transient:
+     * WINDOW variants — each carries the SAME fileId (so provenance / re-upload
+     * dedup are preserved) but a bounded text window and a "(part k/N)" name.
+     * Files within budget pass through unchanged. Window variants are transient:
      * they are fed to the compiler but never persisted back to the file store.
+     *
+     * <p>This is compiler token-limit WINDOWING (overlap {@link #WINDOW_OVERLAP}) —
+     * distinct from the picker's chapter SEGMENTING; both share {@link TextWindower}.
      */
-    static List<KnowledgeFile> segmentOversizedFiles(List<KnowledgeFile> files, int maxChars) {
+    static List<KnowledgeFile> windowOversizedFiles(List<KnowledgeFile> files, int maxChars) {
         List<KnowledgeFile> out = new ArrayList<>();
         for (KnowledgeFile f : files) {
             String text = f.getExtractedText();
@@ -605,59 +616,16 @@ public class CompileWikiUseCase {
                 out.add(f);
                 continue;
             }
-            List<String> segments = segmentText(text, maxChars, SEGMENT_OVERLAP);
-            for (int i = 0; i < segments.size(); i++) {
+            List<String> windows = TextWindower.window(text, maxChars, WINDOW_OVERLAP);
+            for (int i = 0; i < windows.size(); i++) {
                 out.add(KnowledgeFile.reconstitute(
                         f.getId(), f.getAvatarId(), f.getUserId(),
-                        f.getFileName() + " (part " + (i + 1) + "/" + segments.size() + ")",
+                        f.getFileName() + " (part " + (i + 1) + "/" + windows.size() + ")",
                         f.getStorageKey(), f.getPageCount(), f.getUploadType(),
-                        f.getStatus(), f.getCreatedAt(), segments.get(i)));
+                        f.getStatus(), f.getCreatedAt(), windows.get(i)));
             }
         }
         return out;
-    }
-
-    /**
-     * Splits {@code text} into windows of at most {@code maxChars}, backing each
-     * window off to a natural boundary (paragraph → sentence → space) so segments
-     * don't cut mid-word/mid-sentence, and carrying {@code overlap} chars into the
-     * next window for cross-boundary context.
-     */
-    static List<String> segmentText(String text, int maxChars, int overlap) {
-        // Cap overlap so each window always advances by ≥75% of maxChars — else a
-        // misconfigured overlap ≥ maxChars would make `start` crawl and explode the
-        // segment count. (Prod: 800 overlap vs 50k window — far below this cap.)
-        int effOverlap = Math.max(0, Math.min(overlap, maxChars / 4));
-        List<String> segs = new ArrayList<>();
-        int n = text.length();
-        int start = 0;
-        while (start < n) {
-            int end = Math.min(start + maxChars, n);
-            if (end < n) {
-                int floor = start + (maxChars * 9 / 10); // don't back off more than ~10%
-                int b = lastBoundary(text, Math.max(floor, start + 1), end);
-                if (b > start) {
-                    end = b;
-                }
-            }
-            segs.add(text.substring(start, end));
-            if (end >= n) {
-                break;
-            }
-            start = Math.max(end - effOverlap, start + 1);
-        }
-        return segs;
-    }
-
-    /** Last natural boundary in [floor, end): paragraph break, else newline, else sentence end. */
-    private static int lastBoundary(String text, int floor, int end) {
-        int para = text.lastIndexOf("\n\n", end - 1);
-        if (para >= floor) return para + 2;
-        int nl = text.lastIndexOf('\n', end - 1);
-        if (nl >= floor) return nl + 1;
-        int dot = text.lastIndexOf(". ", end - 1);
-        if (dot >= floor) return dot + 2;
-        return end;
     }
 
 }

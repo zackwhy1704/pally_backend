@@ -111,4 +111,37 @@ class DocumentSegmentationServiceTest {
         assertThat(segs.get(2).text().length()).isEqualTo(20_000);
         verifyNoInteractions(pdf);
     }
+
+    @Test
+    void textFallback_backsOffToSentenceBoundary_notMidWord() {
+        // A sentence boundary ". " sits just before the 50k mark, then a long unbroken
+        // run crosses it. The OLD naive fixed-stride slice cut at exactly 50000 (mid-
+        // word, inside the "b" run); the shared boundary-aware windower backs off to
+        // the ". ". This assertion FAILS against the old uniformCharWindows loop.
+        String text = "a".repeat(49_900) + ". " + "b".repeat(20_000);
+        List<Segment> segs = svc.segment(null, KnowledgeFile.UploadType.TEXT, text, 1, "av1");
+
+        assertThat(segs).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(segs.get(0).text()).endsWith(". ");           // real boundary, not mid-word
+        assertThat(segs.get(0).text()).doesNotEndWith("b");      // did NOT cut inside the run
+    }
+
+    @Test
+    void chunkFallback_adjacentChunksShareNoText_andHashDistinctly() {
+        // overlap=0 → chapters tile as distinct ranges. Concatenation reproduces the
+        // input (no shared boundary text), and adjacent slices hash distinctly, so the
+        // per-chunk content_hash can never collide siblings (0.3's downstream concern).
+        String text = ("Alpha beta gamma. " + "word ".repeat(300)).repeat(80); // > 50k, has boundaries
+        List<Segment> segs = svc.segment(null, KnowledgeFile.UploadType.TEXT, text, 1, "av1");
+        assertThat(segs).hasSizeGreaterThanOrEqualTo(2);
+
+        assertThat(segs.stream().map(Segment::text).reduce("", String::concat)).isEqualTo(text);
+
+        var dedup = new com.pally.domain.knowledge.ContentDeduplicator(
+                org.mockito.Mockito.mock(
+                        com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaRepository.class));
+        String h0 = dedup.computeHash(segs.get(0).text());
+        String h1 = dedup.computeHash(segs.get(1).text());
+        assertThat(h0).isNotEqualTo(h1); // distinct slices → distinct hash → no exact-dup
+    }
 }

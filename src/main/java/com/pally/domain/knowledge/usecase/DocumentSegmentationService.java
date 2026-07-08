@@ -3,6 +3,7 @@ package com.pally.domain.knowledge.usecase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.Segment;
+import com.pally.domain.knowledge.util.TextWindower;
 import com.pally.infrastructure.ai.GeminiCompletionService;
 import com.pally.infrastructure.ocr.PdfTextExtractor;
 import com.pally.shared.json.JsonExtraction;
@@ -208,13 +209,20 @@ public class DocumentSegmentationService {
     private List<Segment> uniformCharWindows(String text) {
         List<Segment> out = new ArrayList<>();
         if (text == null || text.isBlank()) return out;
-        int len = text.length();
-        for (int from = 0; from < len; from += CHUNK_MAX_CHARS) {
-            int end = Math.min(from + CHUNK_MAX_CHARS, len);
-            int pageFrom = from / CHARS_PER_PAGE + 1;
+        // Boundary-aware windowing (shared with the compiler via TextWindower) with
+        // overlap=0. overlap=0 is REQUIRED here, not a default: these windows become
+        // DISTINCT persisted chapters compiled into separate wiki pages — any shared
+        // text would duplicate brain content and make the "Pages X–Y" labels lie.
+        // The old naive fixed-stride slice cut mid-word; this backs off to a real
+        // boundary. Page numbers derive from the CUMULATIVE offset, which is exact
+        // because overlap=0 tiles the windows contiguously (start_{i+1} == end_i).
+        int offset = 0;
+        for (String window : TextWindower.window(text, CHUNK_MAX_CHARS, 0)) {
+            int end = offset + window.length();
+            int pageFrom = offset / CHARS_PER_PAGE + 1;
             int pageTo = Math.max(pageFrom, (end - 1) / CHARS_PER_PAGE + 1);
-            out.add(new Segment("Pages " + pageFrom + "–" + pageTo, pageFrom, pageTo,
-                    text.substring(from, end)));
+            out.add(new Segment("Pages " + pageFrom + "–" + pageTo, pageFrom, pageTo, window));
+            offset = end;
         }
         return out;
     }

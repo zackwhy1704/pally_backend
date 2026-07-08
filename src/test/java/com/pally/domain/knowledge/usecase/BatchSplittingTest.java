@@ -98,12 +98,12 @@ class BatchSplittingTest {
     // ── Within-file segmentation (the fix for a single huge file timing out) ──
 
     @Test
-    void segmentOversizedFiles_splitsBigFile_allSegmentsShareOneFileId() {
+    void windowOversizedFiles_splitsBigFile_allSegmentsShareOneFileId() {
         KnowledgeFile big = makeFile("book.pdf", 120_000);
         String id = big.getId();
 
         List<KnowledgeFile> units =
-                CompileWikiUseCase.segmentOversizedFiles(List.of(big), 50_000);
+                CompileWikiUseCase.windowOversizedFiles(List.of(big), 50_000);
 
         assertThat(units.size()).isGreaterThanOrEqualTo(3); // 120k → 3+ windows
         assertThat(units).allSatisfy(u -> {
@@ -114,10 +114,10 @@ class BatchSplittingTest {
     }
 
     @Test
-    void segmentOversizedFiles_smallFilePassesThroughUnchanged() {
+    void windowOversizedFiles_smallFilePassesThroughUnchanged() {
         KnowledgeFile small = makeFile("notes.pdf", 10_000);
         List<KnowledgeFile> units =
-                CompileWikiUseCase.segmentOversizedFiles(List.of(small), 50_000);
+                CompileWikiUseCase.windowOversizedFiles(List.of(small), 50_000);
         assertThat(units).containsExactly(small); // same instance, not segmented
     }
 
@@ -127,23 +127,23 @@ class BatchSplittingTest {
         // (→ compile timeout). After segmenting it becomes several.
         KnowledgeFile big = makeFile("book.pdf", 120_000);
         List<KnowledgeFile> units =
-                CompileWikiUseCase.segmentOversizedFiles(List.of(big), 50_000);
+                CompileWikiUseCase.windowOversizedFiles(List.of(big), 50_000);
         List<List<KnowledgeFile>> batches =
                 CompileWikiUseCase.splitIntoBatches(units, 50_000);
         assertThat(batches.size()).isGreaterThan(1);
     }
 
     @Test
-    void segmentText_coversText_eachWithinBudget() {
-        List<String> segs = CompileWikiUseCase.segmentText("x".repeat(130_000), 50_000, 800);
+    void windowText_coversText_eachWithinBudget() {
+        List<String> segs = com.pally.domain.knowledge.util.TextWindower.window("x".repeat(130_000), 50_000, 800);
         assertThat(segs.size()).isGreaterThanOrEqualTo(3);
         assertThat(segs).allSatisfy(s -> assertThat(s.length()).isLessThanOrEqualTo(50_000));
     }
 
     @Test
-    void segmentText_backsOffToParagraphBoundary() {
+    void windowText_backsOffToParagraphBoundary() {
         String text = "a".repeat(49_500) + "\n\n" + "b".repeat(20_000);
-        List<String> segs = CompileWikiUseCase.segmentText(text, 50_000, 800);
+        List<String> segs = com.pally.domain.knowledge.util.TextWindower.window(text, 50_000, 800);
         assertThat(segs.get(0)).endsWith("\n\n"); // split on the boundary, not mid-run
     }
 
