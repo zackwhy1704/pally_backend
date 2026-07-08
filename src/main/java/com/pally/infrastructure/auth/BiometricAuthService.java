@@ -103,7 +103,7 @@ public class BiometricAuthService {
         user.setBiometricLockedUntil(null);
         userRepo.save(user);
 
-        String token = jwtService.generateToken(userId);
+        String token = jwtService.generateToken(userId, JwtService.DEFAULT_ROLE, user.getSessionEpoch());
         log.info("[Biometric] Verification success for user={} device={}", userId, deviceId);
         return Map.of(
                 "token", token,

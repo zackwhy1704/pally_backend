@@ -25,6 +25,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final RevokedTokenJpaRepository revokedTokenRepo;
+    private final com.pally.infrastructure.persistence.progress.UserJpaRepository userRepo;
 
     @Override
     protected void doFilterInternal(
@@ -62,6 +63,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     log.debug("[JWT] Token for user={} has no jti — cannot revoke; treating as valid", userId);
                 } else if (revokedTokenRepo.existsById(jti)) {
                     log.warn("[JWT] Rejected revoked token jti={} user={}", jti, userId);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                // All-session invalidation: reject any token minted under an epoch below
+                // the user's current one (bumped on account link / password reset). Costs
+                // one user read per authenticated request — acceptable for the security
+                // guarantee that a linked/reset account's old sessions die immediately.
+                int tokenEpoch = jwtService.extractEpoch(token);
+                Integer currentEpoch = userRepo.findById(userId)
+                        .map(u -> u.getSessionEpoch()).orElse(0);
+                if (tokenEpoch < currentEpoch) {
+                    log.warn("[JWT] Rejected stale-epoch token user={} tokenEpoch={} current={}",
+                            userId, tokenEpoch, currentEpoch);
                     filterChain.doFilter(request, response);
                     return;
                 }

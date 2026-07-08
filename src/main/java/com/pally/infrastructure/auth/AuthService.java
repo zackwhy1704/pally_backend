@@ -125,7 +125,7 @@ public class AuthService {
             // 7-day cardless trial immediately for new 13+ accounts.
             premiumService.grantTrial(user.getId());
         }
-        String token = jwtService.generateToken(user.getId(), user.getRole());
+        String token = jwtService.generateToken(user.getId(), user.getRole(), user.getSessionEpoch());
         return new AuthResponse(user.getId(), token, true, false, user.getAccountType());
     }
 
@@ -161,7 +161,7 @@ public class AuthService {
 
         log.info("[Auth] Login success id={} streak={}",
                 user.getId(), user.getStreakDays());
-        String token = jwtService.generateToken(user.getId(), user.getRole());
+        String token = jwtService.generateToken(user.getId(), user.getRole(), user.getSessionEpoch());
         return new AuthResponse(user.getId(), token, false, user.isSetupComplete(), user.getAccountType());
     }
 
@@ -190,24 +190,45 @@ public class AuthService {
 
     @Transactional
     public AuthResponse signInWithSocial(String email, boolean emailVerified, String displayName,
-                                         String provider) {
+                                         String provider, String providerSub) {
         String canonical = EmailNormalizer.canonical(email);
         UserJpaEntity user = null;
 
-        // Match an existing account by email ONLY when the provider VERIFIED it. An
-        // unverified (attacker-controllable) email must never match/link — it can only
-        // ever mint a standalone account.
-        if (canonical != null && emailVerified) {
+        // 1. SUB-KEY first — the stable identity. A returning social user matches here
+        //    regardless of an email change or a relay/real-email switch.
+        if (provider != null && providerSub != null) {
+            var bySub = userRepo.findByProviderAndProviderSub(provider, providerSub);
+            if (bySub.isPresent()) user = bySub.get();
+        }
+
+        // 2. No sub match → the VERIFIED email path (legacy backfill + collision policy).
+        //    Only a provider-VERIFIED email may match (an unverified email is
+        //    attacker-controllable → never match/link).
+        if (user == null && canonical != null && emailVerified) {
             var existing = userRepo.findByEmail(canonical);
             if (existing.isPresent()) {
                 UserJpaEntity u = existing.get();
                 if (u.getPasswordHash() != null) {
-                    // DIFFERENT credential type (password). Do NOT auto-link (the takeover
-                    // vector: a social token with a victim's email logged into their
-                    // password account) and do NOT duplicate — require explicit linking.
+                    // DIFFERENT credential type (password). NEVER auto-link (the takeover
+                    // vector) and NEVER duplicate — require explicit password linking.
                     throw new LinkRequiredException("PASSWORD", provider);
                 }
-                user = u; // passwordless (social) account, same verified email → returning user
+                boolean sameOrUnkeyedProvider =
+                        u.getProviderSub() == null
+                        && (u.getProvider() == null || provider == null || provider.equals(u.getProvider()));
+                if (sameOrUnkeyedProvider) {
+                    // LAZY BACKFILL: a legacy social row matched by verified email once →
+                    // stamp (provider, sub); sub-keyed on every future sign-in.
+                    u.setProvider(provider);
+                    u.setProviderSub(providerSub);
+                    user = userRepo.save(u);
+                } else if (provider != null && provider.equals(u.getProvider())) {
+                    user = u; // already keyed to this provider
+                } else {
+                    // A social account of a DIFFERENT provider shares this email →
+                    // require explicit (email-code) linking, never a silent merge.
+                    throw new LinkRequiredException("EMAIL_CODE", provider);
+                }
             }
         }
 
@@ -215,6 +236,8 @@ public class AuthService {
             UserJpaEntity u = new UserJpaEntity();
             u.setId(IdGenerator.newId());
             u.setEmail(canonical);
+            u.setProvider(provider);
+            u.setProviderSub(providerSub);
             u.setDisplayName(displayName != null ? displayName : "Player");
             u.setStars(0);
             u.setXp(0);
@@ -243,7 +266,7 @@ public class AuthService {
 
         log.info("[Auth] Social sign-in id={} new={} streak={}",
                 user.getId(), isNew, user.getStreakDays());
-        String token = jwtService.generateToken(user.getId(), user.getRole());
+        String token = jwtService.generateToken(user.getId(), user.getRole(), user.getSessionEpoch());
         return new AuthResponse(user.getId(), token, isNew, user.isSetupComplete(), user.getAccountType());
     }
 
@@ -310,7 +333,7 @@ public class AuthService {
         userRepo.save(user);
 
         log.info("[Auth] Setup complete id={}", userId);
-        String token = jwtService.generateToken(userId, user.getRole());
+        String token = jwtService.generateToken(userId, user.getRole(), user.getSessionEpoch());
         return new AuthResponse(userId, token, false, true, user.getAccountType());
     }
 }

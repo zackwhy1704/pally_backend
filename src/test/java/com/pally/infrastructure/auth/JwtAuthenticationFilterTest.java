@@ -28,10 +28,11 @@ class JwtAuthenticationFilterTest {
 
     @Mock JwtService jwtService;
     @Mock RevokedTokenJpaRepository revokedTokenRepo;
+    @Mock com.pally.infrastructure.persistence.progress.UserJpaRepository userRepo;
     @Mock FilterChain chain;
 
     private JwtAuthenticationFilter filter() {
-        return new JwtAuthenticationFilter(jwtService, revokedTokenRepo);
+        return new JwtAuthenticationFilter(jwtService, revokedTokenRepo, userRepo);
     }
 
     @AfterEach

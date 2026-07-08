@@ -154,7 +154,7 @@ public class AuthController {
                         .body(ApiResponse.error("Google token missing email claim", 400));
             }
             AuthResponse result = authService.signInWithSocial(
-                    claims.email(), claims.emailVerified(), claims.name(), claims.provider());
+                    claims.email(), claims.emailVerified(), claims.name(), claims.provider(), claims.subject());
             authCookieService.setAuthCookie(response, result.token());
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (SecurityException e) {
@@ -184,7 +184,7 @@ public class AuthController {
                     ? claims.email()
                     : claims.subject() + "@privaterelay.appleid.com";
             AuthResponse result = authService.signInWithSocial(
-                    email, claims.emailVerified() || !hasRealEmail, null, claims.provider());
+                    email, claims.emailVerified() || !hasRealEmail, null, claims.provider(), claims.subject());
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (SecurityException e) {
             log.warn("[Auth] Apple token verification failed: {}", e.getMessage());

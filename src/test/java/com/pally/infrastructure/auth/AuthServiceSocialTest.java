@@ -3,11 +3,15 @@ package com.pally.infrastructure.auth;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.LinkRequiredException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -16,19 +20,17 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 /**
- * 3a-core: social sign-in must NEVER silently auto-link to an existing PASSWORD account
- * (the account-takeover vector — a social token bearing a victim's email logged into
- * their password account). And an UNVERIFIED provider email is attacker-controllable, so
- * it must never match/link at all.
+ * Social sign-in security + sub-keying. Never silently auto-link to a PASSWORD account
+ * (the takeover vector); an unverified email is attacker-controllable so it never matches;
+ * sub-keying is the stable identity, with a one-time lazy backfill of legacy email rows.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -40,6 +42,15 @@ class AuthServiceSocialTest {
     @Mock com.pally.domain.progress.BadgeService badgeService;
     @Mock com.pally.domain.progress.StreakService streakService;
     @InjectMocks AuthService authService;
+
+    @BeforeEach
+    void noSubMatchByDefault() {
+        lenient().when(userRepo.findByProviderAndProviderSub(anyString(), anyString()))
+                .thenReturn(Optional.empty());
+        lenient().when(jwtService.generateToken(anyString(), any(), anyInt())).thenReturn("tok");
+        lenient().when(streakService.recordActiveDay(anyString()))
+                .thenReturn(new com.pally.domain.progress.StreakService.StreakUpdateResult(0, 0, 0, 0));
+    }
 
     private UserJpaEntity passwordAccount(String email) {
         UserJpaEntity u = new UserJpaEntity();
@@ -65,42 +76,68 @@ class AuthServiceSocialTest {
         when(userRepo.findByEmail("victim@x.com")).thenReturn(Optional.of(passwordAccount("victim@x.com")));
 
         assertThatThrownBy(() ->
-                authService.signInWithSocial("victim@x.com", true, "Attacker", "google"))
+                authService.signInWithSocial("victim@x.com", true, "Attacker", "google", "goog-sub-1"))
                 .isInstanceOf(LinkRequiredException.class)
                 .satisfies(e -> {
                     assertThat(((LinkRequiredException) e).getChallenge()).isEqualTo("PASSWORD");
                     assertThat(((LinkRequiredException) e).getProvider()).isEqualTo("google");
                 });
 
-        verify(jwtService, never()).generateToken(anyString(), any()); // NO token minted
-        verify(userRepo, never()).save(any());                          // NO account created
+        verify(jwtService, never()).generateToken(anyString(), any(), anyInt()); // NO token
+        verify(userRepo, never()).save(any());                                    // NO account
     }
 
     @Test
     void unverifiedEmail_neverMatches_doesNotLinkToPasswordAccount() {
-        // email_verified=false → must NOT even look at the existing account: no takeover.
         when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(jwtService.generateToken(anyString(), any())).thenReturn("tok");
-        when(streakService.recordActiveDay(anyString()))
-                .thenReturn(new com.pally.domain.progress.StreakService.StreakUpdateResult(0, 0, 0, 0));
         lenient().when(userRepo.findByEmail(anyString()))
                 .thenReturn(Optional.of(passwordAccount("victim@x.com")));
 
-        // Does not throw LinkRequired and does not log into the victim — creates standalone.
-        authService.signInWithSocial("victim@x.com", false, "Someone", "google");
+        // email_verified=false → must NOT match the victim; creates a standalone account.
+        authService.signInWithSocial("victim@x.com", false, "Someone", "google", "goog-sub-2");
 
-        verify(userRepo).save(any()); // a NEW standalone account, not the victim's
+        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
+        verify(userRepo).save(saved.capture());
+        assertThat(saved.getValue().getId()).isNotEqualTo("owner-1"); // NOT the victim
     }
 
     @Test
-    void verifiedEmailMatchesSocialAccount_logsInReturningUser() {
-        when(userRepo.findByEmail("returning@x.com")).thenReturn(Optional.of(socialAccount("returning@x.com")));
-        when(jwtService.generateToken(anyString(), any())).thenReturn("tok-return");
+    void subKeyMatch_logsInReturningUser_withoutEmailLookup() {
+        UserJpaEntity social = socialAccount("returning@x.com");
+        when(userRepo.findByProviderAndProviderSub("google", "goog-sub-3"))
+                .thenReturn(Optional.of(social));
 
-        var res = authService.signInWithSocial("returning@x.com", true, null, "google");
+        var res = authService.signInWithSocial("changed@x.com", true, null, "google", "goog-sub-3");
 
         assertThat(res.userId()).isEqualTo("social-1");
-        assertThat(res.token()).isEqualTo("tok-return");
-        verify(userRepo, never()).save(any()); // returning user — no new account
+        verify(userRepo, never()).findByEmail(anyString()); // sub is the key — email irrelevant
+        verify(userRepo, never()).save(any());
+    }
+
+    @Test
+    void legacyEmailRow_noSub_isLazilyBackfilled_thenSubKeyed() {
+        UserJpaEntity legacy = socialAccount("legacy@x.com"); // provider/sub null
+        when(userRepo.findByEmail("legacy@x.com")).thenReturn(Optional.of(legacy));
+        when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        authService.signInWithSocial("legacy@x.com", true, null, "google", "goog-sub-4");
+
+        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
+        verify(userRepo).save(saved.capture()); // stamped
+        assertThat(saved.getValue().getProvider()).isEqualTo("google");
+        assertThat(saved.getValue().getProviderSub()).isEqualTo("goog-sub-4");
+    }
+
+    @Test
+    void newSocialUser_isCreatedSubKeyed() {
+        when(userRepo.findByEmail("fresh@x.com")).thenReturn(Optional.empty());
+        when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        authService.signInWithSocial("fresh@x.com", true, "Fresh", "google", "goog-sub-5");
+
+        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
+        verify(userRepo).save(saved.capture());
+        assertThat(saved.getValue().getProvider()).isEqualTo("google");
+        assertThat(saved.getValue().getProviderSub()).isEqualTo("goog-sub-5");
     }
 }

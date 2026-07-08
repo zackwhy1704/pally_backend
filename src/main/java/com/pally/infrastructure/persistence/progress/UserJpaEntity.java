@@ -62,6 +62,18 @@ public class UserJpaEntity {
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
+    /// Social identity key: (provider, providerSub). Null for password-only accounts and
+    /// for legacy social rows not yet lazily backfilled. See AuthService.signInWithSocial.
+    @Column(name = "provider", length = 20)
+    private String provider;
+
+    @Column(name = "provider_sub", length = 255)
+    private String providerSub;
+
+    /// Bumped to invalidate ALL outstanding sessions (account link, password reset).
+    @Column(name = "session_epoch", nullable = false)
+    private int sessionEpoch;
+
     @Column(name = "biometric_failed_attempts", nullable = false)
     private int biometricFailedAttempts;
 

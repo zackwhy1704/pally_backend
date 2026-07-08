@@ -99,7 +99,7 @@ class BiometricAuthServiceTest {
         when(userRepo.findById("u1")).thenReturn(Optional.of(user()));
         when(registrationRepo.findByUserIdAndDeviceIdAndActiveTrue("u1", "d1"))
                 .thenReturn(Optional.of(reg(sha256Hex("the-real-secret"))));
-        when(jwtService.generateToken("u1")).thenReturn("TOKEN");
+        when(jwtService.generateToken(eq("u1"), anyString(), anyInt())).thenReturn("TOKEN");
 
         var result = svc.verifyBiometric("u1", "d1", "the-real-secret");
 

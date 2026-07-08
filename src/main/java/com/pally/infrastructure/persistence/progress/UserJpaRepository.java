@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> {
     Optional<UserJpaEntity> findByEmail(String email);
     boolean existsByEmail(String email);
+    Optional<UserJpaEntity> findByProviderAndProviderSub(String provider, String providerSub);
 
     /// Admin user lookup — case-insensitive substring match on email OR
     /// display name, across the whole table (not just the loaded page).

@@ -32,10 +32,20 @@ public class JwtService {
     }
 
     public String generateToken(String userId, String role) {
+        return generateToken(userId, role, 0);
+    }
+
+    /**
+     * @param sessionEpoch the user's current session epoch, embedded so the auth filter
+     *   can reject the token once the epoch is bumped (account link / password reset →
+     *   "invalidate all sessions"). New accounts start at 0.
+     */
+    public String generateToken(String userId, String role, int sessionEpoch) {
         return Jwts.builder()
                 .subject(userId)
                 .claim("role",
                         role == null || role.isBlank() ? DEFAULT_ROLE : role)
+                .claim("epoch", sessionEpoch)
                 // jti (JWT ID) is used for revocation on account deletion.
                 // Tokens minted before this change have no jti — they are
                 // treated as non-revocable (backward compat) with a warning log.
@@ -68,6 +78,14 @@ public class JwtService {
     /// Returns the token expiration as an Instant.
     public java.time.Instant extractExpiration(String token) {
         return parse(token).getExpiration().toInstant();
+    }
+
+    /// Reads the session-epoch claim. Legacy tokens minted before it existed → 0, so a
+    /// user whose epoch was bumped to ≥1 has all such tokens rejected.
+    public int extractEpoch(String token) {
+        Object raw = parse(token).get("epoch");
+        if (raw instanceof Number n) return n.intValue();
+        return 0;
     }
 
     private Claims parse(String token) {
