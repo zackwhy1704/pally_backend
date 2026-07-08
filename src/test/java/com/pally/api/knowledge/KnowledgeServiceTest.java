@@ -84,6 +84,7 @@ class KnowledgeServiceTest {
         service = new KnowledgeService(
                 uploadFileUseCase,
                 org.mockito.Mockito.mock(com.pally.domain.knowledge.usecase.CompileChunkUseCase.class),
+                org.mockito.Mockito.mock(com.pally.domain.knowledge.usecase.GetChaptersUseCase.class),
                 deleteFileUseCase, checkRelevanceUseCase, compileWikiUseCase,
                 compileJobStore, durableCompileStatusStore, recompileScheduler, knowledgeRepository,
                 knowledgeMapper, wikiRepository, avatarRepository, avatarSlotGuard, wikiPageSourceRepo);

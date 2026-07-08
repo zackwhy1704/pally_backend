@@ -94,6 +94,15 @@ public class KnowledgeController {
         return ResponseEntity.ok(ApiResponse.success(knowledgeService.listFiles(userId, avatarId)));
     }
 
+    /** List chapter chunks (picker + locked-chapter surface) + the compile allowance. */
+    @GetMapping("/chapters")
+    public ResponseEntity<ApiResponse<com.pally.domain.knowledge.usecase.GetChaptersUseCase.ChaptersResult>> chapters(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(knowledgeService.chapters(userId, avatarId)));
+    }
+
     /** Pick one chapter chunk to compile. 402 CHUNK_COMPILE when over the monthly
      *  allowance (same paywall shape as the upload cap). */
     @PostMapping("/files/{chunkId}/compile")

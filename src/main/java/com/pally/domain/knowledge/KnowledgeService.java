@@ -47,6 +47,7 @@ public class KnowledgeService {
 
     private final UploadFileUseCase uploadFileUseCase;
     private final com.pally.domain.knowledge.usecase.CompileChunkUseCase compileChunkUseCase;
+    private final com.pally.domain.knowledge.usecase.GetChaptersUseCase getChaptersUseCase;
     private final DeleteFileUseCase deleteFileUseCase;
     private final CheckRelevanceUseCase checkRelevanceUseCase;
     private final CompileWikiUseCase compileWikiUseCase;
@@ -86,6 +87,13 @@ public class KnowledgeService {
     public com.pally.domain.knowledge.usecase.CompileChunkUseCase.Result compileChunk(
             String userId, String avatarId, String chunkId) {
         return compileChunkUseCase.execute(userId, avatarId, chunkId);
+    }
+
+    /** List an avatar's chapter chunks + the chunk-compile allowance (picker +
+     *  locked-chapter surface read). */
+    public com.pally.domain.knowledge.usecase.GetChaptersUseCase.ChaptersResult chapters(
+            String userId, String avatarId) {
+        return getChaptersUseCase.execute(userId, avatarId);
     }
 
     public List<KnowledgeFileResponse> listFiles(String userId, String avatarId) {
