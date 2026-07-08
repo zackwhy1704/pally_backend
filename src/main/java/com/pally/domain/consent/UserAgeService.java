@@ -19,8 +19,12 @@ import org.springframework.stereotype.Service;
  *   <li>A child who turns 13 at some point in the current year
  *       ({@code birthYear == currentYear - 13}) yields {@code 13}, which is
  *       NOT {@code < 13} → treated as 13+. They self-consent.</li>
- *   <li>A null {@code birthYear} (pre-gate accounts, or a student who skipped
- *       the optional field) is treated as 13+ — never silently blocked.</li>
+ *   <li>A null/unknown {@code birthYear} is treated as UNDER-13 — fail-CLOSED.
+ *       Unknown age = a child until proven otherwise (PDPC/COPPA-safe). The old
+ *       fail-OPEN default (unknown = adult) was a compliance bug: every social
+ *       sign-in and every birthYear-less register minted an adult account with no
+ *       age check. Callers must collect an age (register + social) and re-prompt
+ *       existing null accounts before consent-gated features.</li>
  * </ul>
  */
 @Service
@@ -33,22 +37,23 @@ public class UserAgeService {
     public static final int CONSENT_AGE = 13;
 
     /**
-     * True only when the user has a birth year that places them strictly under 13
-     * this calendar year (Singapore time). Null birth year → false (treated 13+).
+     * True when the user is under 13 this calendar year (Singapore time). A null
+     * user or null birth year → TRUE (fail-CLOSED: unknown age = child).
      */
     public boolean isUnder13(User user) {
         if (user == null) {
-            return false;
+            return true; // fail-closed — no user, no proof of age
         }
         return isUnder13(user.getBirthYear());
     }
 
     /**
-     * Year-only under-13 check. Null → false (conservative: not under 13).
+     * Year-only under-13 check. Null → TRUE (fail-CLOSED: unknown age = child until
+     * an age is collected). Inverted from the old fail-open default (a compliance bug).
      */
     public boolean isUnder13(Integer birthYear) {
         if (birthYear == null) {
-            return false;
+            return true;
         }
         int currentYear = Year.now(SG).getValue();
         return (currentYear - birthYear) < CONSENT_AGE;
