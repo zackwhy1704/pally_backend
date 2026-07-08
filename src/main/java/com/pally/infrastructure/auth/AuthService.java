@@ -43,6 +43,11 @@ public class AuthService {
     private final com.pally.domain.consent.UserAgeService userAgeService;
     private final com.pally.domain.consent.ConsentService consentService;
     private final DuplicateSignupNotifier duplicateSignupNotifier;
+    private final AuthChallengeService authChallengeService;
+    private final com.pally.infrastructure.email.EmailService emailService;
+
+    @org.springframework.beans.factory.annotation.Value("${app.web-base-url:https://apalchi.com}")
+    private String webBaseUrl;
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -158,6 +163,7 @@ public class AuthService {
         try {
             badgeService.checkAndGrantMilestonesIsolated(user.getId());
         } catch (Exception ignored) {}
+        // fall through to token mint below
 
         log.info("[Auth] Login success id={} streak={}",
                 user.getId(), user.getStreakDays());
@@ -186,6 +192,103 @@ public class AuthService {
             log.info("[Auth] Streak day {} → +{} XP",
                     result.streakDays(), bonus);
         }
+    }
+
+    // ── Account linking (resolves LinkRequiredException) ─────────────────────
+
+    /** Challenge A: verify the account password, then link the social provider sub. */
+    @Transactional
+    public AuthResponse linkSocialByPassword(String email, boolean emailVerified, String provider,
+                                             String providerSub, String password) {
+        UserJpaEntity u = userRepo.findByEmail(EmailNormalizer.canonical(email)).orElse(null);
+        // Generic failure — never reveal whether the account/credential type exists.
+        if (u == null || !emailVerified || u.getPasswordHash() == null
+                || !passwordEncoder.matches(password, u.getPasswordHash())) {
+            throw new BusinessException("Invalid email or password", 401);
+        }
+        return linkAndFreshSession(u, provider, providerSub);
+    }
+
+    /** Challenge B step 1: email a 6-digit code to a passwordless account's owner. */
+    @Transactional
+    public void requestSocialLinkCode(String email, boolean emailVerified, String provider,
+                                      String providerSub) {
+        if (!emailVerified) return; // never act on an unverified email
+        String canonical = EmailNormalizer.canonical(email);
+        var u = userRepo.findByEmail(canonical);
+        if (u.isEmpty() || u.get().getPasswordHash() != null) return; // generic silence
+        String code = authChallengeService.createLinkCode(u.get().getId(), provider, providerSub);
+        try {
+            emailService.sendHtml(canonical, "Your Apalchi sign-in code",
+                    "<p>Enter this code to link " + provider + " sign-in to your account:</p>"
+                    + "<p style=\"font-size:24px;font-weight:bold\">" + code + "</p>"
+                    + "<p>It expires in 10 minutes. If you didn't request this, ignore this email.</p>");
+        } catch (Exception e) {
+            log.warn("[Auth] link-code email failed (ignored): {}", e.getMessage());
+        }
+    }
+
+    /** Challenge B step 2: verify the emailed code, then link the social provider sub. */
+    @Transactional
+    public AuthResponse linkSocialByCode(String email, boolean emailVerified, String provider,
+                                         String code) {
+        UserJpaEntity u = userRepo.findByEmail(EmailNormalizer.canonical(email))
+                .orElseThrow(() -> new BusinessException("Invalid or expired code", 401));
+        var consumed = authChallengeService.consumeLinkCode(u.getId(), provider, code);
+        if (consumed.isEmpty()) {
+            throw new BusinessException("Invalid or expired code", 401);
+        }
+        return linkAndFreshSession(u, provider, consumed.get().providerSub());
+    }
+
+    /** Stamp the provider sub, INVALIDATE all existing sessions (epoch bump), fresh token. */
+    private AuthResponse linkAndFreshSession(UserJpaEntity u, String provider, String providerSub) {
+        u.setProvider(provider);
+        u.setProviderSub(providerSub);
+        u.setSessionEpoch(u.getSessionEpoch() + 1); // every prior session/token now invalid
+        userRepo.save(u);
+        String token = jwtService.generateToken(u.getId(), u.getRole(), u.getSessionEpoch());
+        return new AuthResponse(u.getId(), token, false, u.isSetupComplete(), u.getAccountType());
+    }
+
+    // ── Password reset (real; replaces the no-op stub) ───────────────────────
+
+    /** Best-effort: if the email owns an account, email a single-use reset link (≤1h). */
+    @Transactional
+    public void requestPasswordReset(String email) {
+        String canonical = EmailNormalizer.canonical(email);
+        var u = userRepo.findByEmail(canonical);
+        if (u.isEmpty()) return; // generic — no account enumeration
+        String token = authChallengeService.createResetToken(u.get().getId());
+        String url = webBaseUrl + "/reset-password?token=" + token;
+        try {
+            emailService.sendHtml(canonical, "Reset your Apalchi password",
+                    "<p>Tap the link to set a new password (expires in 1 hour):</p>"
+                    + "<p><a href=\"" + url + "\">Reset my password</a></p>"
+                    + "<p>If you didn't request this, ignore this email — nothing changed.</p>");
+        } catch (Exception e) {
+            log.warn("[Auth] reset email failed (ignored): {}", e.getMessage());
+        }
+    }
+
+    /** Consume a reset token, set the new password, invalidate all sessions, notify. No auto-login. */
+    @Transactional
+    public void resetPassword(String token, String newPassword) {
+        String userId = authChallengeService.consumeResetToken(token)
+                .orElseThrow(() -> new BusinessException("This reset link is invalid or has expired", 400));
+        UserJpaEntity u = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("This reset link is invalid or has expired", 400));
+        u.setPasswordHash(passwordEncoder.encode(newPassword));
+        u.setSessionEpoch(u.getSessionEpoch() + 1); // kill all existing sessions after a reset
+        userRepo.save(u);
+        try {
+            emailService.sendHtml(u.getEmail(), "Your Apalchi password was changed",
+                    "<p>Your password was just changed. If this wasn't you, reset it again "
+                    + "immediately and contact support.</p>");
+        } catch (Exception e) {
+            log.warn("[Auth] reset-notify email failed (ignored): {}", e.getMessage());
+        }
+        // Deliberately NO token returned — the user signs in fresh.
     }
 
     @Transactional

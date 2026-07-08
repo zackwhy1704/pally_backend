@@ -4,6 +4,8 @@ import com.pally.domain.auth.dto.AuthResponse;
 import com.pally.api.auth.dto.ForgotPasswordRequest;
 import com.pally.api.auth.dto.LoginRequest;
 import com.pally.api.auth.dto.RegisterRequest;
+import com.pally.api.auth.dto.ResetPasswordRequest;
+import com.pally.api.auth.dto.LinkSocialRequest;
 import com.pally.api.auth.dto.SetupRequest;
 import com.pally.api.auth.dto.SocialAuthRequest;
 import com.pally.domain.centre.CentreInviteService;
@@ -227,12 +229,73 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success(Map.of(
                     "message", "If an account exists, a reset link has been sent")));
         }
-        // Never log the email. AuthService handles the actual lookup +
-        // dispatch; we keep the response identical regardless of whether
-        // the account exists (user-enumeration guard).
+        // Never log the email. requestPasswordReset does the lookup + dispatch and is a
+        // no-op for a non-existent account; the response is identical either way
+        // (user-enumeration guard).
         log.info("[Auth] Forgot-password request received");
+        authService.requestPasswordReset(request.email());
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("message", "If an account exists, a reset link has been sent")));
+    }
+
+    /// Complete a password reset from the emailed single-use token. Invalidates all
+    /// existing sessions and does NOT auto-login (the user signs in fresh).
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Map<String, String>>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request
+    ) {
+        authService.resetPassword(request.token(), request.newPassword());
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("message", "Your password has been reset. Please sign in.")));
+    }
+
+    /// Link a social provider to an existing PASSWORD account (challenge A): verify the
+    /// password, then attach the provider sub + issue a fresh session.
+    @PostMapping("/link/password")
+    public ResponseEntity<ApiResponse<AuthResponse>> linkByPassword(
+            @Valid @RequestBody LinkSocialRequest request,
+            HttpServletResponse response
+    ) {
+        SocialTokenVerifier.VerifiedClaims claims = verifySocial(request);
+        AuthResponse result = authService.linkSocialByPassword(
+                claims.email(), claims.emailVerified(), claims.provider(),
+                claims.subject(), request.password());
+        authCookieService.setAuthCookie(response, result.token());
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /// Challenge B step 1: email a 6-digit link code to a passwordless account's owner.
+    @PostMapping("/link/request-code")
+    public ResponseEntity<ApiResponse<Map<String, String>>> requestLinkCode(
+            @Valid @RequestBody LinkSocialRequest request
+    ) {
+        SocialTokenVerifier.VerifiedClaims claims = verifySocial(request);
+        authService.requestSocialLinkCode(
+                claims.email(), claims.emailVerified(), claims.provider(), claims.subject());
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("message", "If that account exists, a code has been sent")));
+    }
+
+    /// Challenge B step 2: verify the emailed code, attach the provider sub, fresh session.
+    @PostMapping("/link/verify-code")
+    public ResponseEntity<ApiResponse<AuthResponse>> verifyLinkCode(
+            @Valid @RequestBody LinkSocialRequest request,
+            HttpServletResponse response
+    ) {
+        SocialTokenVerifier.VerifiedClaims claims = verifySocial(request);
+        AuthResponse result = authService.linkSocialByCode(
+                claims.email(), claims.emailVerified(), claims.provider(), request.code());
+        authCookieService.setAuthCookie(response, result.token());
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /// Verify the social token on a link request — same JWKS verification as sign-in.
+    private SocialTokenVerifier.VerifiedClaims verifySocial(LinkSocialRequest request) {
+        if ("apple".equalsIgnoreCase(request.provider())) {
+            String token = request.identityToken() != null ? request.identityToken() : request.idToken();
+            return socialTokenVerifier.verifyApple(token, parseClientIds(appleClientIds));
+        }
+        return socialTokenVerifier.verifyGoogle(request.idToken(), parseClientIds(googleClientIds));
     }
 
     /// Best-effort client IP. Railway sets X-Forwarded-For; fall back to
