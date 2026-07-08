@@ -249,6 +249,28 @@ gemini:
       primary: ${GEMINI_MODEL_PRIMARY:gemini-2.5-flash}
       secondary: ${GEMINI_MODEL_SECONDARY:gemini-2.5-flash-lite}
     base-url: https://generativelanguage.googleapis.com
+  # Per-purpose thinking budget (cost lever, GeminiThinkingBudgetConfig). A purpose
+  # listed with 0 disables gemini-2.5-flash thinking (thinking tokens bill at the
+  # output rate and, at low output caps, cause silent empties → Haiku fallback —
+  # proven by FlashcardModelEvidenceGate). EXTRACTION / classify / structured-
+  # generation purposes are listed → 0. The REASONING evals (teach-eval,
+  # module-prove-eval) are deliberately ABSENT → provider default (thinking ON),
+  # until the evidence gate proves a flip is safe (DEFERRED). Revert any single
+  # purpose by removing its line (→ provider default). Keys are the purpose_label.
+  thinking-budget:
+    topic-router: 0
+    summarizer: 0
+    class-brief: 0
+    wiki-compile: 0
+    module-learn-gen: 0
+    module-hottake-gen: 0
+    module-spotmistake-gen: 0
+    module-challenge-gen: 0
+    module-prove-gen: 0
+    centre-regen-learn: 0
+    centre-regen-hottake: 0
+    centre-regen-spotmistake: 0
+    centre-regen-challenge: 0
 
 # Storage defaults to s3 (Cloudflare R2) so production needs no per-deploy flag.
 # Local dev / CI override via STORAGE_TYPE=local (tests force local in

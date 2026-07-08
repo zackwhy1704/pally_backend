@@ -37,6 +37,7 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
     private final AvatarRepository avatarRepo;
     private final WikiRepository wikiRepo;
     private final ModelRouter modelRouter;
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
 
     private final Map<String, ScheduledFuture<?>> activeTasks = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler =
@@ -123,6 +124,14 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
             List<Map<String, String>> messages = List.of(Map.of("role", "user", "content", "ping"));
             claudeClient.streamResponseWithCacheAndModel(modelRouter.forCacheKeepalive(), 1, systemBlocks, messages)
                     .blockLast(Duration.ofSeconds(10));
+
+            // Cost ledger: this scheduled ping was unmetered. Its whole point is to
+            // hit the WARM cache, so bill the corpus as a cache-READ (0.1x effective)
+            // + 1 output token. Estimated (we discard the stream's usage), flagged.
+            aiUsageMeter.record(avatar.getUserId(), avatarId,
+                    com.pally.domain.cost.AiCallType.OTHER, "cache-keepalive",
+                    com.pally.domain.cost.AiTrigger.SCHEDULED, modelRouter.forCacheKeepalive(),
+                    Math.round(estimatedTokens * 0.10), 1, true, true);
 
             log.debug("[CacheKeepalive] Ping sent for avatar={} (~{}t)", avatarId, estimatedTokens);
 

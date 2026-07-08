@@ -130,7 +130,7 @@ class MarkingCompilerPromptTest {
         ClaudeWikiCompiler claude =
                 new ClaudeWikiCompiler(mock(ClaudeApiClient.class), new ObjectMapper(), mock(ModelRouter.class));
         GeminiWikiCompiler gemini =
-                new GeminiWikiCompiler(mock(WebClient.class), new ObjectMapper(), claude, mock(StoragePort.class), org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class));
+                new GeminiWikiCompiler(mock(WebClient.class), new ObjectMapper(), claude, mock(StoragePort.class), org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class), new GeminiThinkingBudgetConfig());
 
         Avatar a = mock(Avatar.class);
         when(a.getSubject()).thenReturn(Subject.MATHS);

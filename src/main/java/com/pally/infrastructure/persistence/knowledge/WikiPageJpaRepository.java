@@ -97,13 +97,27 @@ public interface WikiPageJpaRepository extends JpaRepository<WikiPageJpaEntity, 
     /// A3 — find avatarIds where the newest knowledge_file.created_at is
     /// newer than the newest wiki_page.updated_at, OR files exist but 0
     /// active wiki pages. Uses a native query for the cross-table check.
+    ///
+    /// ZOMBIE GUARD: the "0 active pages" branch must ALSO require an
+    /// uncompiled READY file (compiled_by IS NULL). Without it, an avatar whose
+    /// READY files are ALL already compiled but yielded 0 active pages (compile
+    /// produced none / all archived / all irrelevant) re-flagged EVERY startup —
+    /// yet executeBatched skips already-compiled files (compiled_by set), so the
+    /// recompile is a guaranteed no-op that re-flags again next restart forever.
+    /// Only flag zero-page avatars when there is genuinely uncompiled work to do;
+    /// never force a blind recompile of files that already ran (compiled_by exists
+    /// for a reason). The "file newer than pages" branch is the normal incremental
+    /// case and is left untouched.
     @Query(value =
            "SELECT DISTINCT kf.avatar_id " +
            "FROM knowledge_files kf " +
            "WHERE kf.status = 'READY' " +
            "  AND ( " +
-           "    (SELECT COUNT(*) FROM wiki_pages wp " +
-           "     WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE') = 0 " +
+           "    ( (SELECT COUNT(*) FROM wiki_pages wp " +
+           "       WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE') = 0 " +
+           "      AND EXISTS (SELECT 1 FROM knowledge_files kfu " +
+           "                  WHERE kfu.avatar_id = kf.avatar_id " +
+           "                    AND kfu.status = 'READY' AND kfu.compiled_by IS NULL) ) " +
            "    OR " +
            "    kf.created_at > (SELECT MAX(wp2.updated_at) FROM wiki_pages wp2 " +
            "                     WHERE wp2.avatar_id = kf.avatar_id AND wp2.status = 'ACTIVE') " +

@@ -34,7 +34,9 @@ class GeminiStemImageCompileTest {
 
     @BeforeEach
     void setUp() {
-        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort, org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class));
+        GeminiThinkingBudgetConfig thinkingCfg = new GeminiThinkingBudgetConfig();
+        thinkingCfg.setThinkingBudget(java.util.Map.of("wiki-compile", 0));
+        compiler = new GeminiWikiCompiler(webClient, new ObjectMapper(), claudeFallback, storagePort, org.mockito.Mockito.mock(com.pally.domain.cost.AiUsageMeter.class), thinkingCfg);
     }
 
     @Test

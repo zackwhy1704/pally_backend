@@ -143,19 +143,60 @@ so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
   flashcard prompt through a Gemini path that sets thinkingBudget=0 + robustJsonArray-
   style retry/salvage (Flash empties must be retried, never silently dropped).
 
-### Gemini thinking-mode starves low-token calls (production lead, from the gate)
-- **What:** production `GeminiCompletionService:104-106` sets generationConfig WITHOUT
-  thinkingConfig → gemini-2.5-flash runs thinking ON for teach (700 tok), module gen
-  (1500), PROVE, routing. The gate PROVED thinking-on + low cap → empty outputs; in
-  prod that means silent empties → robustJsonArray RETRIES (2× calls + latency) or
-  fallback items (the B-4 blank-content risk) — a cost AND reliability tax in the exact
-  paths the cost work touched.
-- **Proven for:** the raw flashcard prompt (40% empties → 0 with thinking off). NOT yet
-  traced in prod for teach/module — needs a log check or a targeted test.
-- **Why not a blanket flip:** thinking-off is strictly good for EXTRACTION (flashcards,
-  micro-cards) but may HELP reasoning tasks (teach eval, spot-mistake, challenge). Gate
-  any thinking change PER TASK TYPE (extraction → off; reasoning → measure first), don't
-  disable globally. Likely a real cost win on the extraction calls — worth its own pass.
+### Gemini thinking-mode starves low-token calls — MOSTLY RESOLVED (per-purpose config)
+- **What it was:** `GeminiCompletionService`/`GeminiWikiCompiler` set generationConfig
+  WITHOUT thinkingConfig → gemini-2.5-flash ran thinking ON at low token caps → thinking
+  ate the output budget → silent empties → robustJsonArray retries (2× calls) or Haiku
+  fallback (10×). The flashcard gate proved the mechanism (~40% empties → 0 with
+  thinkingBudget=0).
+- **RESOLVED:** thinking is now a PER-PURPOSE config (`GeminiThinkingBudgetConfig`,
+  `gemini.thinking-budget.<purpose>` in application.yml). EXTRACTION / classify /
+  structured-generation purposes (topic-router, summarizer, class-brief, wiki-compile,
+  all module LEARN/TEST/PROVE-**gen** + centre-regen-*) → `thinkingBudget=0`. A purpose
+  ABSENT from the map OMITS thinkingConfig → provider default (thinking ON). Revert any
+  single purpose by deleting its yml line. NOTE: an earlier blanket hardcode (15bb23c)
+  had wrongly set 0 on the two REASONING evals too — the config restores thinking-ON
+  there.
+- **STILL GATED (the only remaining piece):** the two REASONING purposes `teach-eval`
+  and `module-prove-eval` are deliberately UNLISTED (thinking ON). Flipping them to 0
+  needs the teach-eval evidence-gate variant (parse-rate + AgreementScorer sanity,
+  thinking on vs off) run with live keys — same 10-min protocol as the flashcard gate.
+  No flip without it. To flip after the gate passes: add `teach-eval: 0` /
+  `module-prove-eval: 0` to `gemini.thinking-budget`.
+- **Failure-path metering (DONE this pass):** the empty-text branch in BOTH Gemini
+  services now records a ledger row with `success=false` + the usageMetadata tokens
+  (Google billed the call) BEFORE throwing, with `finishReason` in the purpose_label
+  suffix (`<task>:EMPTY:MAX_TOKENS` vs `:SAFETY`) — no migration. The wiki compiler used
+  to record such empties as `success=true`; fixed.
+
+### Zombie recompile reconciler — RESOLVED (four affected avatars: run diagnostic in prod)
+- **What it was:** `findAvatarIdsNeedingRecompile()` flagged any avatar with READY files
+  and 0 ACTIVE wiki pages EVERY startup — even when all its files were already compiled
+  (`compiled_by` set). executeBatched then skips every file (idempotent) → guaranteed
+  no-op → re-flags again next restart, forever.
+- **RESOLVED:** the "0 active pages" branch now also requires an uncompiled READY file
+  (`compiled_by IS NULL`) — genuine work. The "file newer than pages" incremental branch
+  is untouched. Pinned by `ZombieRecompileReconcilerTest` (real Postgres).
+- **REMAINING (prod forensics, do NOT blind-recompile):** identify WHY the four known
+  avatars have 0 pages (compile produced none / all archived / all irrelevant). Run
+  against prod, then decide per-avatar (reaper vs leave):
+  ```sql
+  SELECT kf.avatar_id,
+         COUNT(*)                                         AS ready_files,
+         COUNT(*) FILTER (WHERE kf.compiled_by IS NOT NULL) AS compiled_files,
+         (SELECT COUNT(*) FROM wiki_pages wp
+           WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE')   AS active_pages,
+         (SELECT COUNT(*) FROM wiki_pages wp
+           WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ARCHIVED') AS archived_pages
+    FROM knowledge_files kf
+   WHERE kf.status = 'READY'
+   GROUP BY kf.avatar_id
+  HAVING (SELECT COUNT(*) FROM wiki_pages wp
+           WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE') = 0;
+  ```
+  archived_pages > 0 → content existed then was archived (investigate why). archived = 0
+  and active = 0 → compile genuinely produced nothing (extraction/relevance drop — check
+  extracted_chars). These are now unflagged by the reconciler either way (no more churn).
 
 ### Module-gen batching (Phase 2) — the launch-blocker-prone harness
 - **What:** merge the 3 TEST calls (HOT_TAKE+SPOT_MISTAKE+CHALLENGE) → 1 (target

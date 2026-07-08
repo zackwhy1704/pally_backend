@@ -74,6 +74,7 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
     private final ClaudeWikiCompiler claudeFallback;
     private final StoragePort storagePort;
     private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
+    private final GeminiThinkingBudgetConfig thinkingConfig;
 
     // Observable counters — exposed via logs so Railway can be dashboarded.
     private final AtomicLong tier1Count = new AtomicLong();
@@ -98,12 +99,14 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             ObjectMapper objectMapper,
             ClaudeWikiCompiler claudeFallback,
             StoragePort storagePort,
-            com.pally.domain.cost.AiUsageMeter aiUsageMeter) {
+            com.pally.domain.cost.AiUsageMeter aiUsageMeter,
+            GeminiThinkingBudgetConfig thinkingConfig) {
         this.webClient = webClient;
         this.objectMapper = objectMapper;
         this.claudeFallback = claudeFallback;
         this.storagePort = storagePort;
         this.aiUsageMeter = aiUsageMeter;
+        this.thinkingConfig = thinkingConfig;
     }
 
     /** Attribute a compile call by the avatar it's for. */
@@ -412,19 +415,24 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         }
         parts.add(Map.of("text", prompt));
 
+        // Thinking control via config (GeminiThinkingBudgetConfig): "wiki-compile" is
+        // listed → 0 (thinking OFF — thinking tokens bill at the output rate). This is
+        // the one content-generation task where thinking *might* aid quality — spot-
+        // check a compiled wiki, and revert by removing the wiki-compile line from
+        // gemini.thinking-budget (→ provider default) if quality drops.
+        Map<String, Object> generationConfig = new java.util.HashMap<>();
+        generationConfig.put("maxOutputTokens", 16384);
+        generationConfig.put("temperature", 0.2);
+        Integer compileBudget = thinkingConfig.budgetFor("wiki-compile");
+        if (compileBudget != null) {
+            generationConfig.put("thinkingConfig", Map.of("thinkingBudget", compileBudget));
+        }
+
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
                         "parts", parts
                 )),
-                "generationConfig", Map.of(
-                        "maxOutputTokens", 16384,
-                        "temperature", 0.2,
-                        // Thinking disabled (cost): thinking tokens bill at the output
-                        // rate. This is the one content-generation task where thinking
-                        // *might* aid quality — spot-check a compiled wiki after this;
-                        // revert by removing this one line if quality drops.
-                        "thinkingConfig", Map.of("thinkingBudget", 0)
-                )
+                "generationConfig", generationConfig
         );
 
         log.debug("[Gemini] POST {} (promptChars={})", url.replaceAll("key=.*", "key=[REDACTED]"), prompt.length());
@@ -471,28 +479,38 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             // being discarded. Extract + meter (best-effort, never throws). This is
             // the expensive compile path, so it MUST be attributed.
             JsonNode usage = root.path("usageMetadata");
-            aiUsageMeter.record(
-                    avatar != null ? avatar.getUserId() : null,
-                    avatar != null ? avatar.getId() : null,
-                    callTypeFor(avatar), "wiki-compile",
-                    com.pally.domain.cost.AiTrigger.COMPILE, modelName,
-                    usage.path("promptTokenCount").asLong(0),
-                    // include thinking tokens (billed as output, separate field)
-                    usage.path("candidatesTokenCount").asLong(0)
-                            + usage.path("thoughtsTokenCount").asLong(0), true, false);
-
             JsonNode text = root
                     .path("candidates").path(0)
                     .path("content").path("parts").path(0)
                     .path("text");
-            if (text.isMissingNode() || text.asText().isBlank()) {
-                JsonNode finishReason = root.path("candidates").path(0).path("finishReason");
+            boolean empty = text.isMissingNode() || text.asText().isBlank();
+            String finishReason = empty
+                    ? root.path("candidates").path(0).path("finishReason").asText("unknown")
+                    : null;
+
+            // Meter EVERY billed call — success OR empty. On an empty compile Google
+            // still billed the prompt + thinking tokens; recording it as success=true
+            // (as this used to) hid the exact spend you most need visible. success=false
+            // + a finishReason suffix (MAX_TOKENS vs SAFETY) in the purpose_label
+            // distinguishes budget-exhaustion from a content refusal without a migration.
+            aiUsageMeter.record(
+                    avatar != null ? avatar.getUserId() : null,
+                    avatar != null ? avatar.getId() : null,
+                    callTypeFor(avatar),
+                    empty ? "wiki-compile:EMPTY:" + finishReason : "wiki-compile",
+                    com.pally.domain.cost.AiTrigger.COMPILE, modelName,
+                    usage.path("promptTokenCount").asLong(0),
+                    // include thinking tokens (billed as output, separate field)
+                    usage.path("candidatesTokenCount").asLong(0)
+                            + usage.path("thoughtsTokenCount").asLong(0), !empty, false);
+
+            if (empty) {
                 JsonNode promptFeedback = root.path("promptFeedback");
                 log.warn("[Gemini] Empty text response. finishReason={} promptFeedback={}",
-                        finishReason.asText("unknown"), promptFeedback);
+                        finishReason, promptFeedback);
                 log.warn("[Gemini] Full response (first 800 chars): {}",
                         responseBody.substring(0, Math.min(800, responseBody.length())));
-                throw new RuntimeException("Gemini returned empty text, finishReason=" + finishReason.asText());
+                throw new RuntimeException("Gemini returned empty text, finishReason=" + finishReason);
             }
             String textStr = text.asText();
             log.debug("[Gemini] Extracted text length={} preview={}",

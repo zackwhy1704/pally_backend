@@ -44,18 +44,21 @@ public class GeminiCompletionService {
     private final ClaudeApiClient haikuFallback;
     private final ModelRouter modelRouter;
     private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
+    private final GeminiThinkingBudgetConfig thinkingConfig;
 
     public GeminiCompletionService(
             WebClient webClient,
             ObjectMapper objectMapper,
             ClaudeApiClient haikuFallback,
             ModelRouter modelRouter,
-            com.pally.domain.cost.AiUsageMeter aiUsageMeter) {
+            com.pally.domain.cost.AiUsageMeter aiUsageMeter,
+            GeminiThinkingBudgetConfig thinkingConfig) {
         this.webClient = webClient;
         this.objectMapper = objectMapper;
         this.haikuFallback = haikuFallback;
         this.modelRouter = modelRouter;
         this.aiUsageMeter = aiUsageMeter;
+        this.thinkingConfig = thinkingConfig;
     }
 
     /**
@@ -97,21 +100,25 @@ public class GeminiCompletionService {
                 + "/v1beta/models/" + COMPLETION_MODEL
                 + ":generateContent?key=" + apiKey;
 
+        // Per-purpose thinking control (GeminiThinkingBudgetConfig): extraction /
+        // classify / structured-generation purposes are configured to 0 (thinking
+        // OFF — reliable output, no billed thinking tokens); REASONING purposes
+        // (teach-eval, module-prove-eval) are UNLISTED → we omit thinkingConfig so
+        // the provider default (thinking ON) stands until an evidence gate proves a
+        // flip is safe. Never a blanket flip across task types.
+        Map<String, Object> generationConfig = new java.util.HashMap<>();
+        generationConfig.put("maxOutputTokens", maxTokens);
+        generationConfig.put("temperature", 0.1);  // low temp for classify/summarise tasks
+        Integer budget = thinkingConfig.budgetFor(task);
+        if (budget != null) {
+            generationConfig.put("thinkingConfig", Map.of("thinkingBudget", budget));
+        }
+
         Map<String, Object> body = Map.of(
                 "contents", List.of(Map.of(
                         "parts", List.of(Map.of("text", prompt))
                 )),
-                "generationConfig", Map.of(
-                        "maxOutputTokens", maxTokens,
-                        "temperature", 0.1,  // low temp for classify/summarise tasks
-                        // gemini-2.5-flash has THINKING on by default; at these low
-                        // token caps the thinking tokens EAT the output budget →
-                        // empty text → the throw below → fallback to (10x pricier)
-                        // Haiku. These are structured extraction/classify tasks, not
-                        // reasoning — disable thinking: reliable output + no billed
-                        // thinking tokens (Google's surprise-expensive line item).
-                        "thinkingConfig", Map.of("thinkingBudget", 0)
-                )
+                "generationConfig", generationConfig
         );
 
         String responseBody = webClient.post()
@@ -127,6 +134,9 @@ public class GeminiCompletionService {
         }
 
         JsonNode root = objectMapper.readTree(responseBody);
+        // usageMetadata rides in this SAME body on BOTH the success and the empty-text
+        // path — hoist it so a failed call is metered, not discarded (Google billed it).
+        JsonNode usage = root.path("usageMetadata");
         JsonNode text = root
                 .path("candidates").path(0)
                 .path("content").path("parts").path(0)
@@ -135,28 +145,38 @@ public class GeminiCompletionService {
         if (text.isMissingNode() || text.asText().isBlank()) {
             String finishReason = root.path("candidates").path(0)
                     .path("finishReason").asText("unknown");
+            // Google STILL BILLED this call — the thinking/prompt tokens were consumed
+            // even though the output came back empty (typically MAX_TOKENS: thinking ate
+            // the budget; or SAFETY: a content refusal). Record success=false WITH the
+            // usageMetadata tokens BEFORE throwing — failed calls are exactly the spend
+            // you most need visible. finishReason rides in the purpose_label suffix
+            // (MAX_TOKENS vs SAFETY distinguishes budget-exhaustion from a refusal), so
+            // it needs no schema migration and reverts by deleting one string.
+            meter(avatarId, task + ":EMPTY:" + finishReason, prompt, "", usage, false);
             throw new RuntimeException("Empty text from Gemini, finishReason=" + finishReason);
         }
         String out = text.asText();
+        meter(avatarId, task, prompt, out, usage, true);
+        return out;
+    }
 
-        // Cost ledger: Gemini returns usageMetadata in this SAME body — meter it
-        // (was discarded). No user/avatar in scope at this seam → null; the fine
-        // task is the purpose_label. Char-estimate (chars/4) only if the provider
-        // omitted usage, flagged via `estimated`. Best-effort, never throws.
-        JsonNode usage = root.path("usageMetadata");
+    /**
+     * Cost ledger for one Gemini call. No user/avatar in scope at this seam → null;
+     * the fine {@code task} is the purpose_label. Char-estimate (chars/4) only if the
+     * provider omitted usage, flagged via {@code estimated}. THINKING tokens are billed
+     * at the OUTPUT rate but arrive in a SEPARATE field (thoughtsTokenCount) that
+     * candidatesTokenCount excludes — folding them in stops the ~3x output under-count
+     * (320k ledgered vs ~1M on Google's dashboard). Best-effort — record() never throws.
+     */
+    private void meter(String avatarId, String label, String prompt, String out,
+                       JsonNode usage, boolean success) {
         boolean measured = !usage.isMissingNode();
         long inTok = measured ? usage.path("promptTokenCount").asLong(0) : prompt.length() / 4L;
-        // THINKING tokens are billed at the OUTPUT rate but arrive in a SEPARATE
-        // field (thoughtsTokenCount) that candidatesTokenCount excludes — omitting
-        // them under-counted Google output ~3x (320k ledgered vs ~1M on the
-        // dashboard). Count them so the ledger matches the invoice.
         long thoughtsTok = measured ? usage.path("thoughtsTokenCount").asLong(0) : 0L;
         long outTok = (measured ? usage.path("candidatesTokenCount").asLong(0) : out.length() / 4L)
                 + thoughtsTok;
-        aiUsageMeter.record(null, avatarId, com.pally.domain.cost.AiCallType.fromLabel(task),
-                task, com.pally.domain.cost.AiTrigger.OTHER, COMPLETION_MODEL,
-                inTok, outTok, true, !measured);
-
-        return out;
+        aiUsageMeter.record(null, avatarId, com.pally.domain.cost.AiCallType.fromLabel(label),
+                label, com.pally.domain.cost.AiTrigger.OTHER, COMPLETION_MODEL,
+                inTok, outTok, success, !measured);
     }
 }
