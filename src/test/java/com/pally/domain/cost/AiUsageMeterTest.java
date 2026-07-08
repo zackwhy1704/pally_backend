@@ -22,6 +22,30 @@ class AiUsageMeterTest {
     private AiUsageMeter meter() { return new AiUsageMeter(repository, rates); }
 
     @Test
+    void record_full_persistsAllAttributionFields() {
+        when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
+        meter().record("u1", "av1", AiCallType.COMPILE, "module-learn",
+                AiTrigger.PAGE_UPDATE, "gemini-2.5-flash", 1000, 500, true, true);
+
+        ArgumentCaptor<AiUsage> cap = ArgumentCaptor.forClass(AiUsage.class);
+        verify(repository).save(cap.capture());
+        AiUsage u = cap.getValue();
+        assertThat(u.avatarId()).isEqualTo("av1");
+        assertThat(u.purposeLabel()).isEqualTo("module-learn");
+        assertThat(u.trigger()).isEqualTo(AiTrigger.PAGE_UPDATE);
+        assertThat(u.success()).isTrue();
+        assertThat(u.estimated()).isTrue();      // char-estimate flagged
+    }
+
+    @Test
+    void fromLabel_mapsFineLabelToCoarseCategory() {
+        assertThat(AiCallType.fromLabel("teach-eval")).isEqualTo(AiCallType.COMPILE);
+        assertThat(AiCallType.fromLabel("module-learn")).isEqualTo(AiCallType.COMPILE);
+        assertThat(AiCallType.fromLabel("relevance-check")).isEqualTo(AiCallType.RELEVANCE);
+        assertThat(AiCallType.fromLabel("topic-router")).isEqualTo(AiCallType.OTHER);
+    }
+
+    @Test
     void record_computesEstCostFromRates_andSavesTheRow() {
         when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
         // gemini-2.5-flash: input $0.075/M, output $0.30/M.

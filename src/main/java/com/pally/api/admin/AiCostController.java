@@ -25,6 +25,22 @@ import java.util.Map;
  * Deliberately minimal: one aggregate, no charts, no per-request drill-down.
  * est_cost is a RELATIVE estimate (tokens x rates), not a provider-invoice
  * reconciliation.
+ *
+ * <p>Two documented psql queries answer "what's expensive" straight off the
+ * {@code ai_usage} ledger (COALESCE reconciles old rows that predate purpose_label):
+ * <pre>
+ * -- Cost by purpose_label by day (fine label; falls back to coarse call_type):
+ * SELECT date_trunc('day', created_at) AS day,
+ *        COALESCE(purpose_label, call_type::text) AS purpose,
+ *        SUM(est_cost_micros)/1e6 AS usd, COUNT(*) AS calls,
+ *        SUM(CASE WHEN estimated THEN 1 ELSE 0 END) AS estimated_rows
+ * FROM ai_usage GROUP BY 1,2 ORDER BY day DESC, usd DESC;
+ *
+ * -- Cost by user (who to look at):
+ * SELECT user_id, SUM(est_cost_micros)/1e6 AS usd, COUNT(*) AS calls
+ * FROM ai_usage WHERE created_at &gt; now() - interval '7 days'
+ * GROUP BY user_id ORDER BY usd DESC NULLS LAST;
+ * </pre>
  */
 @RestController
 @RequestMapping("/api/v1/admin/ai-cost")

@@ -468,9 +468,11 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
             JsonNode usage = root.path("usageMetadata");
             aiUsageMeter.record(
                     avatar != null ? avatar.getUserId() : null,
-                    callTypeFor(avatar), modelName,
+                    avatar != null ? avatar.getId() : null,
+                    callTypeFor(avatar), "wiki-compile",
+                    com.pally.domain.cost.AiTrigger.COMPILE, modelName,
                     usage.path("promptTokenCount").asLong(0),
-                    usage.path("candidatesTokenCount").asLong(0));
+                    usage.path("candidatesTokenCount").asLong(0), true, false);
 
             JsonNode text = root
                     .path("candidates").path(0)

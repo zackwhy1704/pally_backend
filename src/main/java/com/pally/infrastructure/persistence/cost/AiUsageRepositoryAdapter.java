@@ -22,11 +22,16 @@ public class AiUsageRepositoryAdapter implements AiUsageRepository {
         AiUsageJpaEntity e = new AiUsageJpaEntity();
         e.setId(u.id());
         e.setUserId(u.userId());
+        e.setAvatarId(u.avatarId());
         e.setCallType(u.callType());
+        e.setPurposeLabel(u.purposeLabel());
+        e.setTrigger(u.trigger());
         e.setModel(u.model());
         e.setInputTokens(u.inputTokens());
         e.setOutputTokens(u.outputTokens());
         e.setEstCostMicros(u.estCostMicros());
+        e.setSuccess(u.success());
+        e.setEstimated(u.estimated());
         e.setCreatedAt(u.createdAt());
         jpa.save(e);
         return u;

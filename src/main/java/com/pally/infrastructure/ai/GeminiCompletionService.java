@@ -43,16 +43,19 @@ public class GeminiCompletionService {
     private final ObjectMapper objectMapper;
     private final ClaudeApiClient haikuFallback;
     private final ModelRouter modelRouter;
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
 
     public GeminiCompletionService(
             WebClient webClient,
             ObjectMapper objectMapper,
             ClaudeApiClient haikuFallback,
-            ModelRouter modelRouter) {
+            ModelRouter modelRouter,
+            com.pally.domain.cost.AiUsageMeter aiUsageMeter) {
         this.webClient = webClient;
         this.objectMapper = objectMapper;
         this.haikuFallback = haikuFallback;
         this.modelRouter = modelRouter;
+        this.aiUsageMeter = aiUsageMeter;
     }
 
     /**
@@ -71,7 +74,7 @@ public class GeminiCompletionService {
 
         long start = System.currentTimeMillis();
         try {
-            String result = callGemini(maxTokens, prompt);
+            String result = callGemini(maxTokens, prompt, task);
             log.debug("[GeminiCompletion] task={} latency={}ms chars={}",
                     task, System.currentTimeMillis() - start, result.length());
             return result;
@@ -82,7 +85,7 @@ public class GeminiCompletionService {
         }
     }
 
-    private String callGemini(int maxTokens, String prompt) throws Exception {
+    private String callGemini(int maxTokens, String prompt, String task) throws Exception {
         String url = baseUrl
                 + "/v1beta/models/" + COMPLETION_MODEL
                 + ":generateContent?key=" + apiKey;
@@ -120,6 +123,20 @@ public class GeminiCompletionService {
                     .path("finishReason").asText("unknown");
             throw new RuntimeException("Empty text from Gemini, finishReason=" + finishReason);
         }
-        return text.asText();
+        String out = text.asText();
+
+        // Cost ledger: Gemini returns usageMetadata in this SAME body — meter it
+        // (was discarded). No user/avatar in scope at this seam → null; the fine
+        // task is the purpose_label. Char-estimate (chars/4) only if the provider
+        // omitted usage, flagged via `estimated`. Best-effort, never throws.
+        JsonNode usage = root.path("usageMetadata");
+        boolean measured = !usage.isMissingNode();
+        long inTok = measured ? usage.path("promptTokenCount").asLong(0) : prompt.length() / 4L;
+        long outTok = measured ? usage.path("candidatesTokenCount").asLong(0) : out.length() / 4L;
+        aiUsageMeter.record(null, null, com.pally.domain.cost.AiCallType.fromLabel(task),
+                task, com.pally.domain.cost.AiTrigger.OTHER, COMPLETION_MODEL,
+                inTok, outTok, true, !measured);
+
+        return out;
     }
 }

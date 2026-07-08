@@ -231,7 +231,7 @@ public class ClaudeApiClient {
             long inTok = root.path("usage").path("input_tokens").asLong(0);
             long outTok = root.path("usage").path("output_tokens").asLong(0);
             metrics.recordTokens(task, model, inTok, outTok);
-            aiUsageMeter.record(null, callTypeForTask(task), model, inTok, outTok);
+            aiUsageMeter.record(null, null, callTypeForTask(task), task, com.pally.domain.cost.AiTrigger.OTHER, model, inTok, outTok, true, false);
             metrics.stopLatency(sample, task, model);
             log.info("[Claude-{}] RESPONSE {}ms responseChars={} in={} out={}",
                     callId, ms, text.length(), inTok, outTok);
@@ -367,7 +367,7 @@ public class ClaudeApiClient {
                 long inTok = root.path("usage").path("input_tokens").asLong(0);
                 long outTok = root.path("usage").path("output_tokens").asLong(0);
                 metrics.recordTokens(task, modelStr, inTok, outTok);
-                aiUsageMeter.record(null, callTypeForTask(task), modelStr, inTok, outTok);
+                aiUsageMeter.record(null, null, callTypeForTask(task), task, com.pally.domain.cost.AiTrigger.OTHER, modelStr, inTok, outTok, true, false);
 
                 if ("end_turn".equals(stopReason) || toolUseBlocks.isEmpty()) {
                     log.info("[Claude-{}] Vision tool loop done after {} iterations", callId, iterations);
@@ -527,7 +527,7 @@ public class ClaudeApiClient {
                 long inTok = root.path("usage").path("input_tokens").asLong(0);
                 long outTok = root.path("usage").path("output_tokens").asLong(0);
                 metrics.recordTokens(task, modelStr, inTok, outTok);
-                aiUsageMeter.record(null, callTypeForTask(task), modelStr, inTok, outTok);
+                aiUsageMeter.record(null, null, callTypeForTask(task), task, com.pally.domain.cost.AiTrigger.OTHER, modelStr, inTok, outTok, true, false);
 
                 if ("end_turn".equals(stopReason) || toolUseBlocks.isEmpty()) {
                     log.info("[Claude-{}] Tool loop done after {} iterations", callId, iterations);
