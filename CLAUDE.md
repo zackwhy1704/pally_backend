@@ -4,6 +4,8 @@
 > Product: **Apalchi** — an AI study tutor for students (B2C) and tuition centres (B2B).
 > Mascot: **Mochi**. Learning loop: **LEARN → TEST → PROVE** (stage-enforced server-side).
 > North star: a study partner that knows the student's OWN uploaded notes, not a generic textbook.
+> **Consciously-deferred gaps live in [`DEFERRED.md`](DEFERRED.md)** — check it before assuming a
+> known hole is unowned, and add new deferrals there (items with no home are how fail-opens survive).
 
 ## Stack
 - Spring Boot 3.3.4, Java 21, PostgreSQL, Flyway, Gradle (Kotlin DSL).

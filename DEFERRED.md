@@ -1,5 +1,8 @@
 # Deferred items — grading harness & trust
 
+> Linked from [`CLAUDE.md`](CLAUDE.md). This is the tracked home for consciously-deferred
+> gaps; when you defer something, add it here (don't leave it "low priority" with no owner).
+
 Consciously-accepted gaps with a home, so "low priority with no owner" never again
 becomes how a fail-open survives for months. Each item: what, why deferred, the
 accepted risk, and what closes it.
