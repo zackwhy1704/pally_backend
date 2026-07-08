@@ -120,3 +120,59 @@ flashcard auto-gen threshold CTA (2.2). Deferred, deliberately, from data not gu
 - `ClaudeRelevanceChecker:120` parse-error → 0.0 (reject) vs `:46` exception → 1.0
   (accept). Inconsistent, but relevance is a soft warning (not a hard gate), so
   low-priority. Make the parse-error path match the accept-on-failure behaviour.
+
+## Cost levers + page quota — deferred (2026-07, from the cost-levers/quota pass)
+
+Shipped this pass: P3 attribution (avatarId threaded through GeminiCompletionService
+callers; commit 78c1927) + P4 OCR metering (both VisionOcrServices; 72a3154). The
+ai_usage ledger is now COMPLETE (completion services + OCR) and avatar-attributed —
+so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
+
+### Flashcard model lever (Phase 1) — BLOCKED on a live evidence run
+- **What:** route flashcard gen Haiku → gemini-2.5-flash (the ~$1.25/upload lever).
+  ClaudeFlashcardGenerator:82 hardcodes getHaikuModel(); ModelRouter has no
+  forFlashcardGeneration(). Add it + a Gemini path.
+- **Why deferred:** the prompt's HARD GATE ("Flash pass-rate within 2 pts of Haiku
+  on ~20 real pages via RulesOutputValidator") requires LIVE Claude+Gemini keys and
+  a real corpus — not available in a sandbox. Cannot ship the switch without it.
+- **The 10-min task (owner: human):** write the evidence-gate script (generate on
+  both models, RulesOutputValidator.retainValid pass-rate each, side-by-side dump,
+  explicit GATE PASSED/FAILED line, README with the one-line ModelRouter flip), run
+  it with keys, paste the verdict. RulesOutputValidator.retainValid(list, OutputType)
+  is the pass-rate seam; reuse ClaudeFlashcardGenerator's front/back prompt.
+
+### Module-gen batching (Phase 2) — the launch-blocker-prone harness
+- **What:** merge the 3 TEST calls (HOT_TAKE+SPOT_MISTAKE+CHALLENGE) → 1 (target
+  ≤2–3/page); batch flashcards 3–5 pages/call with per-member salvage. LEARN
+  separate; PROVE already adaptive.
+- **Why deferred (risk):** this is the generation harness with the B2 launch-blocker
+  history (0 PROVE items → no module could complete). NON-NEGOTIABLE guard: raise
+  token budget per merged call + salvage parser + a per-merge config flag that
+  REVERTS to the split path if the merged call's truncation rate (validator drops)
+  exceeds the split baseline. `ModuleGeneratorMergeParityTest` already exists — build
+  on it. Do NOT rush at the tail of a long session.
+
+### Page-based upload quota — BILLING migration, Phase 0 DONE (start here)
+- **Replaces** the shipped doc-count cap (UploadQuotaGuard + Entitlements.monthlyUploadCap,
+  FREE 5/30d) with PAGES (extracted chars / 2000). Two limits/tier: rolling-30d page
+  budget + per-doc page ceiling. Doc-count removed (pages subsume it).
+- **Phase 0 findings (verbatim, so the next session starts warm):**
+  - Chokepoint: enforce at the TOP of UploadFileUseCase (same place the doc-count
+    guard + preflight already sit), BEFORE OCR/extraction.
+  - 600k ceiling (UploadFileUseCase:88-90, compile.max-total-chars:600000, ~330 pages):
+    a ~1M-char/500-page file is REJECTED LOUDLY with a "split by chapter" hint —
+    NOT truncated, NOT split. So a tier-aware higher ceiling (MAX/CENTRE) requires
+    verifying the chunked compile handles ~1.2M chars before advertising it (else the
+    DOC_TOO_LARGE copy must state the true limit — never advertise pages it can't compile).
+  - Charge model: preflight ESTIMATE (PDF metadata pages / image count / ceil(chars/2000)
+    / ceil(bytes/3500) flagged) to REJECT only; CHARGE AT READY on ACTUAL extracted chars.
+    Prefer a stored extracted_chars column set at READY (one migration) over len()-per-check.
+    Grandfather-ZERO (pre-migration READY files count 0). Bounded concurrent overshoot
+    (< 1 per-doc ceiling) accepted vs reservation complexity — document in guard javadoc.
+  - Scope: USER default; CENTRE budget = -1 (unlimited) so B2B is unaffected; FAMILY/
+    ORG_CLASS pooling → DEFERRED (decide from ledger data, same date as lazy-modules).
+  - Tiers/limits config live in Entitlements.forTier + application.yml (join, don't
+    rebuild). Migration must warn on the stale subscription.free.upload-cap key.
+- **Why deferred:** billing/entitlements migration + 2-client copy (pally + memoly) —
+  a gated area (needs explicit push confirm) that shouldn't be rushed at hour-N. It's
+  fully scoped above; it's the right immediate next focused session.
