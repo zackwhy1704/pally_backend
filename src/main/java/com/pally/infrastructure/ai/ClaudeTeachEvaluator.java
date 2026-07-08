@@ -37,10 +37,8 @@ public class ClaudeTeachEvaluator {
 
     public TeachResponse evaluate(WikiPage page, String explanation) {
         if (explanation == null || explanation.trim().length() < 10) {
-            return new TeachResponse(
-                    0, 0, 0, List.of(), List.of(),
-                    "Try writing a bit more — even one sentence per idea helps!",
-                    "Your explanation was too short to evaluate.");
+            return TeachResponse.evalFailed(
+                    "Try writing a bit more — even one sentence per idea helps!");
         }
 
         String prompt = buildPrompt(page, explanation);
@@ -50,8 +48,7 @@ public class ClaudeTeachEvaluator {
             raw = geminiCompletion.complete(MAX_TOKENS, prompt, "teach-eval");
         } catch (Exception e) {
             log.warn("[Teach] Claude call failed: {}", e.getMessage());
-            return new TeachResponse(0, 0, 0, List.of(), List.of(),
-                    null, "I had trouble evaluating that. Try again in a moment!");
+            return TeachResponse.evalFailed("I had trouble evaluating that. Try again in a moment!");
         }
         log.info("[Teach] evaluated slug={} ms={} chars={}",
                 page.getSlug(), System.currentTimeMillis() - start,
@@ -98,8 +95,7 @@ public class ClaudeTeachEvaluator {
 
     private TeachResponse parseResponse(String raw) {
         if (raw == null || raw.isBlank()) {
-            return new TeachResponse(0, 0, 0, List.of(), List.of(),
-                    null, "No feedback returned — try again.");
+            return TeachResponse.evalFailed("No feedback returned — try again.");
         }
         // Trim common preamble or markdown fences just in case the model
         // adds them despite the prompt.
@@ -109,8 +105,7 @@ public class ClaudeTeachEvaluator {
         if (first < 0 || last <= first) {
             log.warn("[Teach] response not valid JSON: {}",
                     raw.substring(0, Math.min(200, raw.length())));
-            return new TeachResponse(0, 0, 0, List.of(), List.of(),
-                    null, "Could not parse feedback.");
+            return TeachResponse.evalFailed("Could not parse feedback.");
         }
         json = json.substring(first, last + 1);
 
@@ -132,8 +127,7 @@ public class ClaudeTeachEvaluator {
                     feedback);
         } catch (Exception e) {
             log.warn("[Teach] parse failed: {}", e.getMessage());
-            return new TeachResponse(0, 0, 0, List.of(), List.of(),
-                    null, "Could not parse feedback.");
+            return TeachResponse.evalFailed("Could not parse feedback.");
         }
     }
 

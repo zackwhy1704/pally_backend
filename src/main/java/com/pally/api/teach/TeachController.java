@@ -69,6 +69,15 @@ public class TeachController {
         // which exhausted the Hikari pool under concurrent requests.
         TeachResponse result = evaluator.evaluate(page, request.explanation());
 
+        // EVAL_FAILED (parse/blank/exception/too-short): the evaluator produced NO
+        // grade. Persist NOTHING (no certainty signal, no XP) and return the retry
+        // shape — the client shows "try again", never a 0/0 score card.
+        if (result.status() == TeachResponse.Status.EVAL_FAILED) {
+            log.info("[Teach] eval failed user={} avatar={} slug={} — no persistence",
+                    userId, avatarId, request.topicSlug());
+            return ResponseEntity.ok(ApiResponse.success(result));
+        }
+
         // Update wiki certainty based on student mastery.
         // save() is @Transactional in WikiRepositoryAdapter — own short transaction.
         updateWikiCertainty(page, result);

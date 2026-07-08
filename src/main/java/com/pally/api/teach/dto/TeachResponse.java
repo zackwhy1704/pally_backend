@@ -22,21 +22,34 @@ public record TeachResponse(
         String followUpQuestion,
         String feedback,
         boolean levelledUp,
-        int newLevel
+        int newLevel,
+        Status status
 ) {
-    /** Back-compat ctor for the evaluator which doesn't know about leveling. */
+    /** Whether the evaluator actually produced a grade. EVAL_FAILED (parse/blank/
+     *  exception/too-short) must render as a retry, NEVER a 0/0 score card. */
+    public enum Status { OK, EVAL_FAILED }
+
+    /** Back-compat ctor for the evaluator which doesn't know about leveling.
+     *  A plain evaluation is OK. */
     public TeachResponse(int score, int totalConcepts, int xpEarned,
                          List<String> coveredConcepts,
                          List<String> missedConcepts,
                          String followUpQuestion, String feedback) {
         this(score, totalConcepts, xpEarned, coveredConcepts, missedConcepts,
-                followUpQuestion, feedback, false, 0);
+                followUpQuestion, feedback, false, 0, Status.OK);
     }
 
-    /** Returns a copy with the level signals populated. */
+    /** No grade was produced — the client shows a retry, not a score. Nothing
+     *  should persist (no XP: xpEarned is 0; no certainty: totalConcepts is 0). */
+    public static TeachResponse evalFailed(String feedback) {
+        return new TeachResponse(0, 0, 0, List.of(), List.of(), null, feedback,
+                false, 0, Status.EVAL_FAILED);
+    }
+
+    /** Returns a copy with the level signals populated (status preserved). */
     public TeachResponse withLevel(boolean levelledUp, int newLevel) {
         return new TeachResponse(score, totalConcepts, xpEarned,
                 coveredConcepts, missedConcepts, followUpQuestion, feedback,
-                levelledUp, newLevel);
+                levelledUp, newLevel, status);
     }
 }
