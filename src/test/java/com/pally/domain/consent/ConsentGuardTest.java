@@ -14,7 +14,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.Optional;
 
+import com.pally.shared.exception.BusinessException;
+import com.pally.shared.exception.ProfileCompletionRequiredException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -47,6 +52,44 @@ class ConsentGuardTest {
     private void notCentreOperator() {
         lenient().when(staffRepo.existsByUserIdAndStatus(any(), any())).thenReturn(false);
         lenient().when(orgRepo.existsByOwnerUserId(any())).thenReturn(false);
+    }
+
+    private User withStatus(String status) {
+        User u = new User();
+        u.setId("u1");
+        u.setAccountStatus(status);
+        return u;
+    }
+
+    // ── requireActive FAILS CLOSED (allow-list, not per-status enumeration) ──
+
+    @Test
+    void requireActive_activeStatus_allows() {
+        when(userRepo.findById("u1")).thenReturn(Optional.of(withStatus("ACTIVE")));
+        assertThatCode(() -> guard.requireActive("u1", "UPLOAD")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void requireActive_fabricatedStatus_isDeniedEverywhere_failClosed() {
+        // A status the guard has never heard of must NOT slip through as active.
+        when(userRepo.findById("u1")).thenReturn(Optional.of(withStatus("TOTALLY_MADE_UP")));
+        assertThatThrownBy(() -> guard.requireActive("u1", "UPLOAD"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getHttpStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void requireActive_pendingProfile_routesToProfileCompletion() {
+        when(userRepo.findById("u1")).thenReturn(Optional.of(withStatus("PENDING_PROFILE")));
+        assertThatThrownBy(() -> guard.requireActive("u1", "UPLOAD"))
+                .isInstanceOf(ProfileCompletionRequiredException.class);
+    }
+
+    @Test
+    void requireActive_userNotFound_failClosed() {
+        when(userRepo.findById("ghost")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> guard.requireActive("ghost", "UPLOAD"))
+                .isInstanceOf(BusinessException.class);
     }
 
     private User under13(boolean linked) {

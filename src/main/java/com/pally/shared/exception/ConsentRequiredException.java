@@ -32,6 +32,8 @@ public class ConsentRequiredException extends PallyException {
                 "Allow Apalchi to use AI to help answer your questions to continue";
             case "PARENT_LINK_REQUIRED" ->
                 "Ask a grown-up to link your account before you can do this";
+            case "PROFILE_COMPLETION_REQUIRED" ->
+                "Finish setting up your account to continue";
             default            -> "A grown-up needs to approve your account first";
         };
     }

@@ -6,6 +6,7 @@ import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
 import com.pally.shared.exception.GuardianRequiredException;
 import com.pally.shared.exception.ParentalConsentPendingException;
+import com.pally.shared.exception.ProfileCompletionRequiredException;
 import com.pally.shared.exception.OcrUnavailableException;
 import com.pally.shared.exception.PallyException;
 import com.pally.shared.exception.UpgradeRequiredException;
@@ -111,8 +112,19 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>(payload, ex.getMessage(), 403));
     }
 
-    /// Mirrors the UPGRADE_REQUIRED handler — routes the Flutter client to
-    /// the consent-gate sheet instead of a raw 403 error.
+    /// Social-signup profile not finished (PENDING_PROFILE): distinct code
+    /// {@code PROFILE_COMPLETION_REQUIRED} so the client routes to the DOB step. Declared
+    /// before {@link #handleConsentRequired} so this more specific subtype wins.
+    @ExceptionHandler(ProfileCompletionRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleProfileCompletionRequired(
+            ProfileCompletionRequiredException ex) {
+        log.debug("Profile completion required: {}", ex.getReason());
+        Map<String, Object> payload = Map.of(
+                "code", ProfileCompletionRequiredException.CODE,
+                "reason", ex.getReason());
+        return ResponseEntity.status(403).body(new ApiResponse<>(payload, ex.getMessage(), 403));
+    }
+
     @ExceptionHandler(ConsentRequiredException.class)
     public ResponseEntity<ApiResponse<Map<String, Object>>> handleConsentRequired(
             ConsentRequiredException ex) {

@@ -7,6 +7,8 @@ import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.shared.exception.AiConsentRequiredException;
+import com.pally.shared.exception.BusinessException;
+import com.pally.shared.exception.ProfileCompletionRequiredException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.GuardianRequiredException;
 import com.pally.shared.exception.ParentalConsentPendingException;
@@ -41,6 +43,15 @@ public class ConsentGuard {
 
     public static final String STATUS_ACTIVE  = "ACTIVE";
     public static final String STATUS_PENDING = "PENDING_CONSENT";
+    /// Social sign-in that hasn't completed the profile (birth year) step yet.
+    public static final String STATUS_PENDING_PROFILE = "PENDING_PROFILE";
+
+    /// The ALLOW-LIST of active-equivalent statuses. requireActive() FAILS CLOSED:
+    /// a status not in here is blocked. This replaces per-guard enumeration of blocking
+    /// states — a new blocking state (PENDING_PROFILE) is simply "not on the allow-list",
+    /// and a fabricated/unknown status can never slip through as "active".
+    private static final java.util.Set<String> ACTIVE_STATUSES =
+            java.util.Set.of(STATUS_ACTIVE);
 
     /// Reason code for third-party AI data transfer consent (Apple 5.1.2 / PDPA overseas transfer).
     /// Use with {@link #requireAiConsent(String)}.
@@ -88,24 +99,38 @@ public class ConsentGuard {
     }
 
     /**
-     * Throws {@link ConsentRequiredException} if the user's account is PENDING_CONSENT.
-     * Fails open (allows) when the status cannot be determined — never silently blocks
-     * a user who has already been approved.
+     * FAIL-CLOSED account-status gate. A user may proceed only if their status is on the
+     * {@link #ACTIVE_STATUSES} allow-list; every other status blocks. PENDING_CONSENT
+     * gets the rich parental-consent block; PENDING_PROFILE gets a profile-required
+     * block; anything unrecognized (including a fabricated value) is denied generically.
      *
      * @param userId the authenticated user
      * @param reason short code describing the gated action (e.g. "UPLOAD")
      */
     public void requireActive(String userId, String reason) {
-        String status = userRepo.findById(userId)
-                .map(u -> u.getAccountStatus() != null ? u.getAccountStatus() : STATUS_ACTIVE)
-                .orElse(STATUS_ACTIVE); // user not found → let the downstream handle it
+        var userOpt = userRepo.findById(userId);
+        if (userOpt.isEmpty()) {
+            // Fail-closed: an authenticated action whose user row is gone is not active.
+            throw new BusinessException("Account is not active", 403);
+        }
+        String status = userOpt.get().getAccountStatus() != null
+                ? userOpt.get().getAccountStatus() : STATUS_ACTIVE;
+
+        if (ACTIVE_STATUSES.contains(status)) return; // the only allowed path
 
         if (STATUS_PENDING.equals(status)) {
-            log.info("[Consent] PENDING user={} tried gated action={}", userId, reason);
+            log.info("[Consent] PENDING_CONSENT user={} tried gated action={}", userId, reason);
             // Rich PARENTAL_CONSENT_PENDING (masked email + resend) so the client shows
             // the "waiting for your parent" panel consistently on every gated path.
             throw parentalConsentPending(userId);
         }
+        if (STATUS_PENDING_PROFILE.equals(status)) {
+            log.info("[Consent] PENDING_PROFILE user={} tried gated action={}", userId, reason);
+            throw new ProfileCompletionRequiredException();
+        }
+        // Any other (unrecognized/fabricated) status — fail closed.
+        log.warn("[Consent] non-active status='{}' user={} BLOCKED action={}", status, userId, reason);
+        throw new BusinessException("Account is not active", 403);
     }
 
     /**
