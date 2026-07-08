@@ -14,7 +14,7 @@ class AiCostRatesTest {
         // the "claude-haiku" rate, not fall through to zero.
         assertThat(rates.rateFor("claude-haiku-4-5-20251001")).isNotNull();
         assertThat(rates.estCostMicros("claude-haiku-4-5-20251001", 1_000_000, 0))
-                .isEqualTo(800_000); // $0.80/M input
+                .isEqualTo(1_000_000); // $1.00/M input (haiku-4.5)
     }
 
     @Test

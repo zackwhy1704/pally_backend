@@ -36,11 +36,16 @@ public class AiCostRates {
     }
 
     /** Overridable via config; these defaults apply when config is absent. */
+    // Rates verified 2026-07 against the providers' public pricing. gemini-2.5-flash
+    // OUTPUT includes THINKING tokens, billed at the output rate — the ledger was
+    // ~8x low here (0.30) which is why Google was the surprise-expensive side.
+    // claude-haiku is the 4.5 rate (1.00/5.00), not the 3.5 rate (0.80/4.00).
+    // Verify against the live pricing pages when a model version changes.
     private List<ModelRate> rates = List.of(
-            new ModelRate("gemini-2.5-flash-lite", 0.0375, 0.15),
-            new ModelRate("gemini-2.5-flash",      0.075,  0.30),
-            new ModelRate("claude-haiku",          0.80,   4.00),
-            new ModelRate("claude-sonnet",         3.00,   15.00)
+            new ModelRate("gemini-2.5-flash-lite", 0.10,  0.40),
+            new ModelRate("gemini-2.5-flash",      0.30,  2.50),
+            new ModelRate("claude-haiku",          1.00,  5.00),
+            new ModelRate("claude-sonnet",         3.00,  15.00)
     );
 
     /** Estimated cost in micros of USD; 0 for an unknown model. */

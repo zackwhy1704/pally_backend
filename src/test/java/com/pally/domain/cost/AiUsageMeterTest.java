@@ -48,7 +48,7 @@ class AiUsageMeterTest {
     @Test
     void record_computesEstCostFromRates_andSavesTheRow() {
         when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
-        // gemini-2.5-flash: input $0.075/M, output $0.30/M.
+        // gemini-2.5-flash: input $0.30/M, output $2.50/M (real GA rate).
         meter().record("u1", AiCallType.COMPILE, "gemini-2.5-flash", 1_000_000, 100_000);
 
         ArgumentCaptor<AiUsage> cap = ArgumentCaptor.forClass(AiUsage.class);
@@ -57,8 +57,8 @@ class AiUsageMeterTest {
         assertThat(u.userId()).isEqualTo("u1");
         assertThat(u.callType()).isEqualTo(AiCallType.COMPILE);
         assertThat(u.inputTokens()).isEqualTo(1_000_000);
-        // 1e6*0.075 + 1e5*0.30 = 75000 + 30000 = 105000 micros ($0.105).
-        assertThat(u.estCostMicros()).isEqualTo(105_000);
+        // 1e6*0.30 + 1e5*2.50 = 300000 + 250000 = 550000 micros ($0.55).
+        assertThat(u.estCostMicros()).isEqualTo(550_000);
     }
 
     @Test
