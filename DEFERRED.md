@@ -255,3 +255,13 @@ so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
 - **Status:** largely SUPERSEDED by chapter-chunking (backend + both clients shipped).
   Any residual page-volume budget is now a data-driven maybe, not a launch item — the
   expensive-op gate (compile) is already covered by the chunk-compile allowance.
+
+### Flyway version bump for Postgres 18 (advisory, deferred)
+- **What:** boot logs a Flyway "not certified for this database version" advisory on
+  Postgres 18. Advisory ONLY — migrations still apply and run correctly; it's Flyway's
+  compatibility whitelist lagging the PG release, not a functional break.
+- **Why deferred:** a Flyway dependency bump is a build-infra change with its own
+  regression surface (migration-runner behavior), out of scope for the deploy-guards PR.
+- **Closes it:** bump the Flyway version (via the Spring Boot BOM override or an explicit
+  `org.flywaydb:flyway-core`/`flyway-database-postgresql` version) to one that lists PG18,
+  then re-run the Testcontainers migration suite to confirm no runner behavior change.

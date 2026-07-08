@@ -50,13 +50,15 @@ public class SecretsValidator {
     }
 
     private boolean isProd(Environment env) {
-        for (String profile : env.getActiveProfiles()) {
-            if ("prod".equalsIgnoreCase(profile)
-                    || "production".equalsIgnoreCase(profile)) {
-                return true;
-            }
+        // Belt and braces: the prod PROFILE is the normal trigger, but a LIVE Stripe
+        // key (sk_live_) is the backstop — strict secret checks run whenever real
+        // payments are configured, even if the profile was forgotten (the incident).
+        // EnvironmentGuard already refuses to start on sk_live_ + non-prod, so this is
+        // redundant defence; it still matters if that guard is ever disabled/excluded.
+        if (EnvironmentGuard.isLiveStripe(stripeSecretKey)) {
+            return true;
         }
-        return false;
+        return EnvironmentGuard.isProdProfile(env);
     }
 
     private void validateJwt() {

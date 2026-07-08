@@ -85,6 +85,16 @@ never re-implemented inline in handlers.
 ./gradlew bootRun          # local run
 ```
 
+## Deploy verification (run after EVERY Railway deploy — prod once ran ~5 commits stale, silently)
+1. Boot log's first `[Build] commit=<sha> built=<time> profile=<...>` line shows `profile=prod`
+   (NOT `DEFAULT!` — no profile means SecretsValidator skipped strict checks).
+2. That `<sha>` matches the intended release (`git rev-parse origin/main`).
+3. Migration count: the highest `V###__` under `db/migration` matches Flyway's
+   "Successfully applied / up to version ###" boot line (a lower number = stale schema).
+4. `GET /actuator/info` → `deploy.commit` + `build.time` match step 1 (curl the live URL).
+5. No "Using generated security password" line anywhere; a live deploy with
+   `sk_live_` + non-prod profile REFUSES to boot (EnvironmentGuard) — that's expected.
+
 ## Hard-won lessons (enforce these)
 - **Fix the FAMILY, not the instance.** Every parser/prompt/guard fix must be applied to ALL sibling
   methods the same day, and grep for the siblings. History: the robust JSON parser lived only in the LEARN

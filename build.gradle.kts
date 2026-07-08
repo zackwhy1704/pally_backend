@@ -15,6 +15,14 @@ java {
     }
 }
 
+// Deploy observability: generate META-INF/build-info.properties (version + build
+// time) → auto-exposed via /actuator/info and injected as a BuildProperties bean.
+// The commit SHA comes from RAILWAY_GIT_COMMIT_SHA at runtime (see BuildInfoLogger),
+// so this needs no .git at build time — robust on Railway's build context.
+springBoot {
+    buildInfo()
+}
+
 configurations {
     compileOnly {
         extendsFrom(configurations.annotationProcessor.get())
