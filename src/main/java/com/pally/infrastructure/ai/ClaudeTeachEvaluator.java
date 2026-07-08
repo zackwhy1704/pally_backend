@@ -45,7 +45,7 @@ public class ClaudeTeachEvaluator {
         long start = System.currentTimeMillis();
         String raw;
         try {
-            raw = geminiCompletion.complete(MAX_TOKENS, prompt, "teach-eval");
+            raw = geminiCompletion.complete(MAX_TOKENS, prompt, "teach-eval", page.getAvatarId());
         } catch (Exception e) {
             log.warn("[Teach] Claude call failed: {}", e.getMessage());
             return TeachResponse.evalFailed("I had trouble evaluating that. Try again in a moment!");

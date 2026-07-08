@@ -64,7 +64,7 @@ class ModuleContentGeneratorTest {
         WikiPage page = WikiPage.create("av-1", "dividing-fractions", "Dividing Fractions", "keep change flip");
         when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
         when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
-        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen")))
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen"), anyString()))
                 .thenReturn("Sure! Here are the questions:\n```json\n"
                         + "[{\"question\":\"Divide 1/2 by 1/4\",\"targetConcept\":\"dividing fractions\","
                         + "\"expectedKeyPoints\":[\"keep change flip\"],\"difficulty\":\"medium\"}]\n```");
@@ -83,7 +83,7 @@ class ModuleContentGeneratorTest {
         WikiPage page = WikiPage.create("av-1", "dividing-fractions", "Dividing Fractions", "keep change flip");
         when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
         when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
-        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen")))
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen"), anyString()))
                 .thenReturn("The student did great — no questions needed.");
 
         List<ModuleContentItem> items = generator.generateProveQuestions(m, page, List.of(), "FREE");
@@ -103,7 +103,7 @@ class ModuleContentGeneratorTest {
         when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
         // Micro cards response (FREE = 4)
-        when(geminiCompletion.complete(anyInt(), contains("bite-size concept cards"), eq("module-learn-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("bite-size concept cards"), eq("module-learn-gen"), anyString()))
                 .thenReturn("""
                         [
                           {"title":"What is a fraction?","body":"A fraction is...","keyTerms":["fraction"]},
@@ -114,7 +114,7 @@ class ModuleContentGeneratorTest {
                         """);
 
         // Hot takes response (FREE = 2)
-        when(geminiCompletion.complete(anyInt(), contains("true/false statements"), eq("module-hottake-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("true/false statements"), eq("module-hottake-gen"), anyString()))
                 .thenReturn("""
                         [
                           {"statement":"1/2 equals 0.5","isTrue":true,"explanation":"Correct"},
@@ -123,13 +123,13 @@ class ModuleContentGeneratorTest {
                         """);
 
         // Spot mistake response
-        when(geminiCompletion.complete(anyInt(), contains("WRONG worked solution"), eq("module-spotmistake-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("WRONG worked solution"), eq("module-spotmistake-gen"), anyString()))
                 .thenReturn("""
                         {"problem":"Add 1/2 + 1/3","wrongSolution":"2/5","errorDescription":"Added numerators and denominators","correctSolution":"5/6"}
                         """);
 
         // Challenges response (FREE = 1)
-        when(geminiCompletion.complete(anyInt(), contains("application questions"), eq("module-challenge-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("application questions"), eq("module-challenge-gen"), anyString()))
                 .thenReturn("""
                         [{"question":"A pizza has 8 slices...","answer":"3/8","explanation":"3 out of 8","difficulty":"easy"}]
                         """);
@@ -164,7 +164,7 @@ class ModuleContentGeneratorTest {
         when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
         // Centre = 6 micro cards
-        when(geminiCompletion.complete(anyInt(), contains("bite-size concept cards"), eq("module-learn-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("bite-size concept cards"), eq("module-learn-gen"), anyString()))
                 .thenReturn("""
                         [
                           {"title":"A","body":"...","keyTerms":[]},
@@ -177,7 +177,7 @@ class ModuleContentGeneratorTest {
                         """);
 
         // Centre = 3 hot takes
-        when(geminiCompletion.complete(anyInt(), contains("true/false statements"), eq("module-hottake-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("true/false statements"), eq("module-hottake-gen"), anyString()))
                 .thenReturn("""
                         [
                           {"statement":"A","isTrue":true,"explanation":"..."},
@@ -186,13 +186,13 @@ class ModuleContentGeneratorTest {
                         ]
                         """);
 
-        when(geminiCompletion.complete(anyInt(), contains("WRONG worked solution"), eq("module-spotmistake-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("WRONG worked solution"), eq("module-spotmistake-gen"), anyString()))
                 .thenReturn("""
                         {"problem":"Q","wrongSolution":"W","errorDescription":"E","correctSolution":"C"}
                         """);
 
         // Centre = 3 challenges
-        when(geminiCompletion.complete(anyInt(), contains("application questions"), eq("module-challenge-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("application questions"), eq("module-challenge-gen"), anyString()))
                 .thenReturn("""
                         [
                           {"question":"Q1","answer":"A1","explanation":"E1","difficulty":"easy"},
@@ -231,7 +231,7 @@ class ModuleContentGeneratorTest {
         when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
         // FREE = 3 prove questions
-        when(geminiCompletion.complete(anyInt(), contains("prove-it questions"), eq("module-prove-gen")))
+        when(geminiCompletion.complete(anyInt(), contains("prove-it questions"), eq("module-prove-gen"), anyString()))
                 .thenReturn("""
                         [
                           {"question":"Q1","targetConcept":"concept-a","expectedKeyPoints":["kp1"],"difficulty":"easy"},

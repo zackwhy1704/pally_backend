@@ -67,6 +67,13 @@ public class GeminiCompletionService {
      * @return the model's text response, never null
      */
     public String complete(int maxTokens, String prompt, String task) {
+        return complete(maxTokens, prompt, task, null);
+    }
+
+    /** Attribution overload: callers that know the avatar (module gen, teach,
+     *  PROVE eval) pass it so the cost ledger row carries avatar_id — this closes
+     *  the record(null,null) gap for the GeminiCompletionService seam. */
+    public String complete(int maxTokens, String prompt, String task, String avatarId) {
         if (apiKey == null || apiKey.isBlank()) {
             log.debug("[GeminiCompletion] No API key — using Haiku for task={}", task);
             return haikuFallback.complete(modelRouter.getHaikuModel(), maxTokens, prompt, task);
@@ -74,7 +81,7 @@ public class GeminiCompletionService {
 
         long start = System.currentTimeMillis();
         try {
-            String result = callGemini(maxTokens, prompt, task);
+            String result = callGemini(maxTokens, prompt, task, avatarId);
             log.debug("[GeminiCompletion] task={} latency={}ms chars={}",
                     task, System.currentTimeMillis() - start, result.length());
             return result;
@@ -85,7 +92,7 @@ public class GeminiCompletionService {
         }
     }
 
-    private String callGemini(int maxTokens, String prompt, String task) throws Exception {
+    private String callGemini(int maxTokens, String prompt, String task, String avatarId) throws Exception {
         String url = baseUrl
                 + "/v1beta/models/" + COMPLETION_MODEL
                 + ":generateContent?key=" + apiKey;
@@ -133,7 +140,7 @@ public class GeminiCompletionService {
         boolean measured = !usage.isMissingNode();
         long inTok = measured ? usage.path("promptTokenCount").asLong(0) : prompt.length() / 4L;
         long outTok = measured ? usage.path("candidatesTokenCount").asLong(0) : out.length() / 4L;
-        aiUsageMeter.record(null, null, com.pally.domain.cost.AiCallType.fromLabel(task),
+        aiUsageMeter.record(null, avatarId, com.pally.domain.cost.AiCallType.fromLabel(task),
                 task, com.pally.domain.cost.AiTrigger.OTHER, COMPLETION_MODEL,
                 inTok, outTok, true, !measured);
 

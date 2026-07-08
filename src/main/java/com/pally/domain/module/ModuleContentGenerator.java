@@ -75,10 +75,10 @@ public class ModuleContentGenerator {
         List<ModuleContentItem> allItems = new ArrayList<>();
 
         // ── AI work — NO transaction held across these ──────────────────────
-        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, "")); // LEARN
-        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, ""));    // TEST
-        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, ""));
-        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, ""));
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId())); // LEARN
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId()));    // TEST
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId()));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId()));
         tagGroundedness(page, allItems);
 
         // ── Short transactional persist ─────────────────────────────────────
@@ -111,10 +111,10 @@ public class ModuleContentGenerator {
 
         // ── AI work — NO transaction held across these ──────────────────────
         List<ModuleContentItem> allItems = new ArrayList<>();
-        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, guidanceSection));
-        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, guidanceSection));
-        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, guidanceSection));
-        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, guidanceSection));
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId()));
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId()));
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, guidanceSection, avatar.getId()));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId()));
         // The merged generators build LIVE-style items; the teacher regenerate path marks them
         // DRAFT here (previously buildDraftItem set status="DRAFT" per item), so a regen preview
         // is never persisted as live content.
@@ -253,7 +253,7 @@ public class ModuleContentGenerator {
             // Robust parse (retry + salvage from prose/truncation) — the fragile
             // extractJson+readValue path was silently yielding [] on prose output,
             // which stalled module completion.
-            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-prove-gen");
+            List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-prove-gen", page.getAvatarId());
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (Map<String, Object> q : parsed) {
@@ -411,7 +411,7 @@ public class ModuleContentGenerator {
     // the centre regenerate path. Items are identical either way (draft-ness lives in the
     // persist path, not the item), so one method replaces the old a/b twins.
     List<ModuleContentItem> generateMicroCards(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId) {
         int n = "CENTRE".equals(tier) ? 6 : 4;
 
         String prompt = """
@@ -430,7 +430,7 @@ public class ModuleContentGenerator {
             // truncation point + one retry — so a truncated response no longer drops
             // the entire LEARN batch (module shipping without its micro-cards).
             List<Map<String, Object>> parsed = robustJsonArray(MICRO_CARD_TOKENS, prompt,
-                    guidanceSection.isBlank() ? "module-learn-gen" : "centre-regen-learn");
+                    guidanceSection.isBlank() ? "module-learn-gen" : "centre-regen-learn", avatarId);
 
             List<ModuleContentItem> items = new ArrayList<>();
             for (int i = 0; i < parsed.size(); i++) {
@@ -463,7 +463,7 @@ public class ModuleContentGenerator {
     // ── TEST: hot takes ──────────────────────────────────────────────────
 
     List<ModuleContentItem> generateHotTakes(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId) {
         int n = "CENTRE".equals(tier) ? 3 : 2;
 
         String prompt = """
@@ -479,7 +479,7 @@ public class ModuleContentGenerator {
 
         try {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt,
-                    guidanceSection.isBlank() ? "module-hottake-gen" : "centre-regen-hottake");
+                    guidanceSection.isBlank() ? "module-hottake-gen" : "centre-regen-hottake", avatarId);
 
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 100; // hot takes start at sort_order 100
@@ -516,7 +516,7 @@ public class ModuleContentGenerator {
     // ── TEST: spot the mistake ───────────────────────────────────────────
 
     List<ModuleContentItem> generateSpotMistake(
-            String moduleId, String content, String level, String subject, String guidanceSection) {
+            String moduleId, String content, String level, String subject, String guidanceSection, String avatarId) {
 
         String prompt = """
                 Write ONE plausible but WRONG worked solution for a problem from this content.
@@ -531,7 +531,7 @@ public class ModuleContentGenerator {
 
         try {
             Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt,
-                    guidanceSection.isBlank() ? "module-spotmistake-gen" : "centre-regen-spotmistake");
+                    guidanceSection.isBlank() ? "module-spotmistake-gen" : "centre-regen-spotmistake", avatarId);
             // Single-object guard: a total OR partial parse would build a blank/half-blank
             // SPOT_MISTAKE (getOrDefault→""). Require all four fields; else a real fallback.
             if (!hasNonBlank(parsed, "problem", "wrongSolution", "errorDescription", "correctSolution")) {
@@ -565,7 +565,7 @@ public class ModuleContentGenerator {
     // ── TEST: challenges ─────────────────────────────────────────────────
 
     List<ModuleContentItem> generateChallenges(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId) {
         int n = "CENTRE".equals(tier) ? 3 : 1;
 
         String prompt = """
@@ -581,7 +581,7 @@ public class ModuleContentGenerator {
 
         try {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt,
-                    guidanceSection.isBlank() ? "module-challenge-gen" : "centre-regen-challenge");
+                    guidanceSection.isBlank() ? "module-challenge-gen" : "centre-regen-challenge", avatarId);
 
             List<ModuleContentItem> items = new ArrayList<>();
             int offset = 300; // challenges start at sort_order 300
@@ -656,10 +656,11 @@ public class ModuleContentGenerator {
     /// Calls the model and parses a JSON array of objects, tolerating truncation:
     /// the whole-array parse is tried first, then complete top-level objects are
     /// salvaged from a cut-off response. Retries the call ONCE if nothing parsed.
-    private List<Map<String, Object>> robustJsonArray(int tokens, String prompt, String label) {
+    private List<Map<String, Object>> robustJsonArray(int tokens, String prompt, String label,
+                                                      String avatarId) {
         List<Map<String, Object>> last = List.of();
         for (int attempt = 1; attempt <= 2; attempt++) {
-            String raw = geminiCompletion.complete(tokens, prompt, label);
+            String raw = geminiCompletion.complete(tokens, prompt, label, avatarId);
             last = parseJsonObjectsLenient(raw);
             if (!last.isEmpty()) {
                 return last;
@@ -671,9 +672,10 @@ public class ModuleContentGenerator {
 
     /// Single-object sibling of {@link #robustJsonArray}: retries once so a
     /// prose/markdown-wrapped object response doesn't silently yield an empty map.
-    private Map<String, Object> robustJsonObject(int tokens, String prompt, String label) {
+    private Map<String, Object> robustJsonObject(int tokens, String prompt, String label,
+                                                 String avatarId) {
         for (int attempt = 1; attempt <= 2; attempt++) {
-            String raw = geminiCompletion.complete(tokens, prompt, label);
+            String raw = geminiCompletion.complete(tokens, prompt, label, avatarId);
             try {
                 Map<String, Object> parsed = objectMapper.readValue(
                         extractJson(raw, '{', '}'), new TypeReference<>() {});

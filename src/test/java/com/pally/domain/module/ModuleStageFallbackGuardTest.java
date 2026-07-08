@@ -47,10 +47,10 @@ class ModuleStageFallbackGuardTest {
     private List<Supplier<List<ModuleContentItem>>> allStageGenerators() {
         String content = "Photosynthesis converts light into chemical energy in chloroplasts.";
         return List.of(
-                () -> gen.generateMicroCards("m1", content, "P5", "Science", "FREE", ""),   // LEARN
-                () -> gen.generateHotTakes("m1", content, "P5", "Science", "FREE", ""),      // TEST
-                () -> gen.generateSpotMistake("m1", content, "P5", "Science", ""),           // TEST
-                () -> gen.generateChallenges("m1", content, "P5", "Science", "FREE", ""));   // TEST
+                () -> gen.generateMicroCards("m1", content, "P5", "Science", "FREE", "", "av-test"),   // LEARN
+                () -> gen.generateHotTakes("m1", content, "P5", "Science", "FREE", "", "av-test"),      // TEST
+                () -> gen.generateSpotMistake("m1", content, "P5", "Science", "", "av-test"),           // TEST
+                () -> gen.generateChallenges("m1", content, "P5", "Science", "FREE", "", "av-test"));   // TEST
     }
 
     private void assertEveryStageNonEmpty(String modelReply) {
@@ -132,16 +132,16 @@ class ModuleStageFallbackGuardTest {
         // non-empty guidanceSection (post 8→4 merge). Exercise them with guidance so the guard
         // pins both the student (guidance="") and teacher (guidance set) invocations.
         String guidance = "\n\nTeacher guidance to incorporate:\nfocus on the key idea\n";
-        for (ModuleContentItem item : gen.generateSpotMistake("m1", content, "P5", "Science", guidance)) {
+        for (ModuleContentItem item : gen.generateSpotMistake("m1", content, "P5", "Science", guidance, "av-test")) {
             assertSubstantive(item);
         }
-        for (ModuleContentItem item : gen.generateMicroCards("m1", content, "P5", "Science", "FREE", guidance)) {
+        for (ModuleContentItem item : gen.generateMicroCards("m1", content, "P5", "Science", "FREE", guidance, "av-test")) {
             assertSubstantive(item);
         }
-        for (ModuleContentItem item : gen.generateHotTakes("m1", content, "P5", "Science", "FREE", guidance)) {
+        for (ModuleContentItem item : gen.generateHotTakes("m1", content, "P5", "Science", "FREE", guidance, "av-test")) {
             assertSubstantive(item);
         }
-        for (ModuleContentItem item : gen.generateChallenges("m1", content, "P5", "Science", "FREE", guidance)) {
+        for (ModuleContentItem item : gen.generateChallenges("m1", content, "P5", "Science", "FREE", guidance, "av-test")) {
             assertSubstantive(item);
         }
     }

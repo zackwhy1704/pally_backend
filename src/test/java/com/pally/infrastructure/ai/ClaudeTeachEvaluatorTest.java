@@ -37,7 +37,7 @@ class ClaudeTeachEvaluatorTest {
 
     @Test
     void invalidJson_returnsEvalFailed_notZeroZeroScore() throws Exception {
-        when(geminiCompletion.complete(anyInt(), anyString(), eq("teach-eval")))
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("teach-eval"), anyString()))
                 .thenReturn("I can't produce JSON right now, sorry");
 
         TeachResponse r = evaluator().evaluate(page(), "Photosynthesis turns light into sugar in the leaves.");
@@ -49,7 +49,7 @@ class ClaudeTeachEvaluatorTest {
 
     @Test
     void blankResponse_returnsEvalFailed() throws Exception {
-        when(geminiCompletion.complete(anyInt(), anyString(), eq("teach-eval")))
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("teach-eval"), anyString()))
                 .thenReturn("   ");
         TeachResponse r = evaluator().evaluate(page(), "A perfectly long explanation of the topic.");
         assertThat(r.status()).isEqualTo(TeachResponse.Status.EVAL_FAILED);
@@ -64,11 +64,14 @@ class ClaudeTeachEvaluatorTest {
 
     @Test
     void validResponse_returnsOk_withRealScore() throws Exception {
-        when(geminiCompletion.complete(anyInt(), anyString(), eq("teach-eval")))
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("teach-eval"), anyString()))
                 .thenReturn("{\"covered\":[\"light\",\"sugar\"],\"missed\":[],\"feedback\":\"Great!\"}");
         TeachResponse r = evaluator().evaluate(page(), "Photosynthesis turns light into sugar in the leaves.");
         assertThat(r.status()).isEqualTo(TeachResponse.Status.OK);
         assertThat(r.score()).isEqualTo(2);
         assertThat(r.totalConcepts()).isEqualTo(2);
+        // Attribution: the avatar is threaded to the cost seam (record(...avatarId)).
+        org.mockito.Mockito.verify(geminiCompletion)
+                .complete(anyInt(), anyString(), eq("teach-eval"), eq("avatar-1"));
     }
 }
