@@ -12,6 +12,7 @@ import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.LinkRequiredException;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.shared.util.EmailNormalizer;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -90,6 +91,11 @@ public class AuthService {
         }
 
         boolean isParent = "parent".equalsIgnoreCase(role);
+        // Age is REQUIRED for a student account (the age-gate can't fail safe without it).
+        // Parents register without a birth year (they're the guardian, not the data subject).
+        if (!isParent && birthYear == null) {
+            throw new BusinessException("Birth year is required", 400);
+        }
         boolean under13 = !isParent && userAgeService.isUnder13(birthYear);
         // DEFAULT-DENY at the entry: no under-13 account without a parent/guardian email.
         if (under13 && (parentEmail == null || parentEmail.isBlank())) {
@@ -192,6 +198,44 @@ public class AuthService {
             log.info("[Auth] Streak day {} → +{} XP",
                     result.streakDays(), bonus);
         }
+    }
+
+    /**
+     * Complete a PENDING_PROFILE (social) account OR a legacy null-birthYear account:
+     * record the birth year, then flip status by age — under-13 → PENDING_CONSENT + parent
+     * email; 13+ → ACTIVE (+ trial). Fresh session so the new status takes effect. This is
+     * the single "collect the missing age" path for both the social DOB step (4.2) and the
+     * legacy-null re-prompt (4.3).
+     */
+    @Transactional
+    public AuthResponse completeProfile(String userId, Integer birthYear, String parentEmail) {
+        UserJpaEntity u = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("Account not found", 404));
+        if (birthYear == null) {
+            throw new BusinessException("Birth year is required", 400);
+        }
+        int currentYear = Year.now(ZoneId.of("Asia/Singapore")).getValue();
+        if (birthYear < 1950 || birthYear > currentYear) {
+            throw new BusinessException("Birth year must be between 1950 and " + currentYear, 400);
+        }
+        boolean under13 = userAgeService.isUnder13(birthYear);
+        if (under13 && (parentEmail == null || parentEmail.isBlank())) {
+            throw new BusinessException(
+                    "A parent or guardian email is required for a child under 13", 400);
+        }
+        boolean wasPendingProfile = ConsentGuard.STATUS_PENDING_PROFILE.equals(u.getAccountStatus());
+        u.setBirthYear(birthYear);
+        if (under13) {
+            u.setAccountStatus(ConsentGuard.STATUS_PENDING);
+            userRepo.save(u);
+            consentService.requestParentConsent(u.getId(), parentEmail);
+        } else {
+            u.setAccountStatus(ConsentGuard.STATUS_ACTIVE);
+            userRepo.save(u);
+            if (wasPendingProfile) premiumService.grantTrial(u.getId()); // trial starts on completion
+        }
+        String token = jwtService.generateToken(u.getId(), u.getRole(), u.getSessionEpoch());
+        return new AuthResponse(u.getId(), token, false, u.isSetupComplete(), u.getAccountType());
     }
 
     // ── Account linking (resolves LinkRequiredException) ─────────────────────
@@ -348,6 +392,10 @@ public class AuthService {
             u.setStreakDays(0);
             u.setCreatedAt(Instant.now());
             u.setSetupComplete(false);
+            // Social sign-in never collects age → the new account is PENDING_PROFILE:
+            // it can sign in, but every consent-gated action is server-blocked
+            // (ConsentGuard.requireActive) until it completes the DOB step.
+            u.setAccountStatus(ConsentGuard.STATUS_PENDING_PROFILE);
             user = userRepo.save(u);
         }
 

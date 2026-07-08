@@ -141,8 +141,11 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
         // uploading own notes is blocked (AGE_DECLARATION_REQUIRED) — NOT allowed. A
         // child must not bypass the gate by omitting their birth year. (The account is
         // ACTIVE so tutor creation still works; only new-child-data ingestion is gated.)
-        // A genuine NO-birth-year account (registerUser stores none), AI-consented.
+        // A genuine NO-birth-year account. Registration now REQUIRES a birth year, so we
+        // simulate a LEGACY / pre-requirement account by nulling it post-registration —
+        // exactly the population the default-deny guard + the re-prompt (Phase 4.3) target.
         AuthResult user = registerUser("noyear-" + System.nanoTime() + "@test.com", "password123");
+        userRepo.findById(user.userId()).ifPresent(u -> { u.setBirthYear(null); userRepo.save(u); });
         grantAiConsent(user.token());
         avatarId = createAvatar(user.token());
 

@@ -39,6 +39,9 @@ class CentreStaffConsentBypassIntegrationTest extends IntegrationTestBase {
     @Autowired
     private OrgStaffJpaRepository orgStaffJpaRepository;
 
+    @Autowired
+    private com.pally.infrastructure.persistence.progress.UserJpaRepository userJpaRepository;
+
     @BeforeEach
     void stubs() {
         stubModerationPassthrough();
@@ -101,6 +104,10 @@ class CentreStaffConsentBypassIntegrationTest extends IntegrationTestBase {
     void plainUser_noBirthYear_isStillBlocked_defaultDenyHolds() {
         AuthResult user = registerUser(
                 "plain-" + System.nanoTime() + "@test.com", "password123");
+        // Registration now requires a birth year; simulate a LEGACY no-birthYear account
+        // (the population the default-deny gate + Phase 4.3 re-prompt target).
+        userJpaRepository.findById(user.userId())
+                .ifPresent(u -> { u.setBirthYear(null); userJpaRepository.save(u); });
         String avatarId = createAvatar(user.token());
 
         ResponseEntity<Map> upload = uploadFile(user.token(), avatarId,

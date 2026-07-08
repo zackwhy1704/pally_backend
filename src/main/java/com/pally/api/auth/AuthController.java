@@ -6,6 +6,7 @@ import com.pally.api.auth.dto.LoginRequest;
 import com.pally.api.auth.dto.RegisterRequest;
 import com.pally.api.auth.dto.ResetPasswordRequest;
 import com.pally.api.auth.dto.LinkSocialRequest;
+import com.pally.api.auth.dto.CompleteProfileRequest;
 import com.pally.api.auth.dto.SetupRequest;
 import com.pally.api.auth.dto.SocialAuthRequest;
 import com.pally.domain.centre.CentreInviteService;
@@ -212,6 +213,21 @@ public class AuthController {
         authService.updateChildName(userId, request.childName());
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("childName", request.childName() != null ? request.childName() : "")));
+    }
+
+    /// Complete a PENDING_PROFILE (social) or legacy null-birthYear account by recording
+    /// the birth year. Authenticated (the user has a session); NOT consent-gated (this IS
+    /// the step that clears the gate). Under-13 → routes into the parental-consent flow.
+    @PostMapping("/complete-profile")
+    public ResponseEntity<ApiResponse<AuthResponse>> completeProfile(
+            @AuthenticationPrincipal String userId,
+            @Valid @RequestBody CompleteProfileRequest request,
+            HttpServletResponse response
+    ) {
+        AuthResponse result = authService.completeProfile(
+                userId, request.birthYear(), request.parentEmail());
+        authCookieService.setAuthCookie(response, result.token());
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @PostMapping("/forgot-password")

@@ -200,13 +200,16 @@ public abstract class IntegrationTestBase {
      * Registers a user via the auth endpoint and returns the JWT token.
      */
     protected AuthResult registerUser(String email, String password) {
-        Map<String, String> body = Map.of(
+        // birthYear is REQUIRED for a student account (age-gate fail-safe). Seed a 13+
+        // year so the default fixture is an ordinary adult-consent account.
+        Map<String, Object> body = Map.of(
                 "email", email,
                 "password", password,
-                "displayName", "Test User");
+                "displayName", "Test User",
+                "birthYear", java.time.Year.now(java.time.ZoneId.of("Asia/Singapore")).getValue() - 20);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
         ResponseEntity<Map> response = restTemplate.postForEntity(
                 baseUrl() + "/api/v1/auth/register", request, Map.class);
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
