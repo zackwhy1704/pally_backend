@@ -5,6 +5,7 @@ import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
 import com.pally.shared.exception.GuardianRequiredException;
+import com.pally.shared.exception.LinkRequiredException;
 import com.pally.shared.exception.ParentalConsentPendingException;
 import com.pally.shared.exception.ProfileCompletionRequiredException;
 import com.pally.shared.exception.OcrUnavailableException;
@@ -123,6 +124,20 @@ public class GlobalExceptionHandler {
                 "code", ProfileCompletionRequiredException.CODE,
                 "reason", ex.getReason());
         return ResponseEntity.status(403).body(new ApiResponse<>(payload, ex.getMessage(), 403));
+    }
+
+    /// Social sign-in whose verified email matches an existing DIFFERENT-credential
+    /// account: 409 LINK_REQUIRED with the challenge kind + provider, so the client can
+    /// run explicit linking (never a silent auto-link — the takeover vector).
+    @ExceptionHandler(LinkRequiredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleLinkRequired(
+            LinkRequiredException ex) {
+        log.debug("Link required challenge={} provider={}", ex.getChallenge(), ex.getProvider());
+        Map<String, Object> payload = Map.of(
+                "code", LinkRequiredException.CODE,
+                "challenge", ex.getChallenge(),
+                "provider", ex.getProvider());
+        return ResponseEntity.status(409).body(new ApiResponse<>(payload, ex.getMessage(), 409));
     }
 
     @ExceptionHandler(ConsentRequiredException.class)

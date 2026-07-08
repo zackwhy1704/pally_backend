@@ -11,6 +11,7 @@ import com.pally.infrastructure.persistence.organization.OrganizationJpaReposito
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
+import com.pally.shared.exception.LinkRequiredException;
 import com.pally.shared.util.EmailNormalizer;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
@@ -188,11 +189,32 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse signInWithSocial(String email, String displayName) {
-        UserJpaEntity user = userRepo.findByEmail(email).orElseGet(() -> {
+    public AuthResponse signInWithSocial(String email, boolean emailVerified, String displayName,
+                                         String provider) {
+        String canonical = EmailNormalizer.canonical(email);
+        UserJpaEntity user = null;
+
+        // Match an existing account by email ONLY when the provider VERIFIED it. An
+        // unverified (attacker-controllable) email must never match/link — it can only
+        // ever mint a standalone account.
+        if (canonical != null && emailVerified) {
+            var existing = userRepo.findByEmail(canonical);
+            if (existing.isPresent()) {
+                UserJpaEntity u = existing.get();
+                if (u.getPasswordHash() != null) {
+                    // DIFFERENT credential type (password). Do NOT auto-link (the takeover
+                    // vector: a social token with a victim's email logged into their
+                    // password account) and do NOT duplicate — require explicit linking.
+                    throw new LinkRequiredException("PASSWORD", provider);
+                }
+                user = u; // passwordless (social) account, same verified email → returning user
+            }
+        }
+
+        if (user == null) {
             UserJpaEntity u = new UserJpaEntity();
             u.setId(IdGenerator.newId());
-            u.setEmail(email);
+            u.setEmail(canonical);
             u.setDisplayName(displayName != null ? displayName : "Player");
             u.setStars(0);
             u.setXp(0);
@@ -200,8 +222,8 @@ public class AuthService {
             u.setStreakDays(0);
             u.setCreatedAt(Instant.now());
             u.setSetupComplete(false);
-            return userRepo.save(u);
-        });
+            user = userRepo.save(u);
+        }
 
         boolean isNew = user.getCreatedAt().isAfter(Instant.now().minusSeconds(5));
         if (isNew) {

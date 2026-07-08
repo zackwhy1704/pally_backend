@@ -65,7 +65,14 @@ public class SocialTokenVerifier {
         keyRefresher.scheduleAtFixedRate(this::refreshKeys, 12, 12, TimeUnit.HOURS);
     }
 
-    public record VerifiedClaims(String email, String name, String subject) {}
+    /**
+     * @param emailVerified whether the PROVIDER asserts this email is verified. Only a
+     *   verified email may be matched/linked to an existing account — an unverified
+     *   Google email is attacker-controllable, so it must never auto-link (takeover).
+     * @param provider "google" or "apple" — the account key namespace for sub-keying.
+     */
+    public record VerifiedClaims(String email, boolean emailVerified, String name,
+                                 String subject, String provider) {}
 
     /**
      * Verifies a Google idToken. Returns claims on success or throws on failure.
@@ -79,8 +86,17 @@ public class SocialTokenVerifier {
         }
         return new VerifiedClaims(
                 (String) payload.get("email"),
+                parseEmailVerified(payload.get("email_verified")),
                 (String) payload.get("name"),
-                (String) payload.get("sub"));
+                (String) payload.get("sub"),
+                "google");
+    }
+
+    /** Google/Apple may send email_verified as a boolean or the string "true". */
+    private static boolean parseEmailVerified(Object claim) {
+        if (claim instanceof Boolean b) return b;
+        if (claim instanceof String s) return "true".equalsIgnoreCase(s);
+        return false; // absent → NOT verified (fail-closed for email matching)
     }
 
     /**
@@ -93,10 +109,14 @@ public class SocialTokenVerifier {
         if (!APPLE_ISS.equals(iss)) {
             throw new SecurityException("Apple token issuer invalid: " + iss);
         }
+        // Apple only mints an email claim for emails IT verified (real or private-relay),
+        // so an email present in an Apple identity token is verified by construction.
         return new VerifiedClaims(
                 (String) payload.get("email"),
+                parseEmailVerified(payload.getOrDefault("email_verified", true)),
                 null, // Apple doesn't return name after first login
-                (String) payload.get("sub"));
+                (String) payload.get("sub"),
+                "apple");
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────

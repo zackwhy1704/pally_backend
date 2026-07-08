@@ -153,7 +153,8 @@ public class AuthController {
                 return ResponseEntity.badRequest()
                         .body(ApiResponse.error("Google token missing email claim", 400));
             }
-            AuthResponse result = authService.signInWithSocial(claims.email(), claims.name());
+            AuthResponse result = authService.signInWithSocial(
+                    claims.email(), claims.emailVerified(), claims.name(), claims.provider());
             authCookieService.setAuthCookie(response, result.token());
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (SecurityException e) {
@@ -175,11 +176,15 @@ public class AuthController {
             List<String> audiences = parseClientIds(appleClientIds);
             SocialTokenVerifier.VerifiedClaims claims =
                     socialTokenVerifier.verifyApple(token, audiences);
-            // Apple omits email on repeated logins — use sub as the stable identifier.
-            String email = claims.email() != null
+            // Apple omits email on repeated logins — synthesize a stable per-sub relay
+            // address so the same Apple user keys to the same account. That synthetic
+            // address is Apple-controlled and stable, so it counts as verified.
+            boolean hasRealEmail = claims.email() != null;
+            String email = hasRealEmail
                     ? claims.email()
                     : claims.subject() + "@privaterelay.appleid.com";
-            AuthResponse result = authService.signInWithSocial(email, null);
+            AuthResponse result = authService.signInWithSocial(
+                    email, claims.emailVerified() || !hasRealEmail, null, claims.provider());
             return ResponseEntity.ok(ApiResponse.success(result));
         } catch (SecurityException e) {
             log.warn("[Auth] Apple token verification failed: {}", e.getMessage());
