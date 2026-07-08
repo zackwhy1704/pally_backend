@@ -94,6 +94,8 @@ class FlashcardModelEvidenceGate {
             .append("=".repeat(72)).append("\n\n");
 
         int hTotal = 0, hValid = 0, gTotal = 0, gValid = 0;
+        int hZeroPages = 0, gZeroPages = 0;   // pages a model produced NO valid card for
+        int flashDroppedPages = 0;            // pages Haiku covered but Flash returned nothing
         List<Integer> hPer = new ArrayList<>(), gPer = new ArrayList<>();
 
         for (Page p : pages) {
@@ -104,6 +106,9 @@ class FlashcardModelEvidenceGate {
             int hv = countValid(haikuCards), gv = countValid(geminiCards);
             hTotal += haikuCards.size(); hValid += hv; hPer.add(haikuCards.size());
             gTotal += geminiCards.size(); gValid += gv; gPer.add(geminiCards.size());
+            if (hv == 0) hZeroPages++;
+            if (gv == 0) gZeroPages++;
+            if (hv > 0 && gv == 0) flashDroppedPages++;  // the metric hole this gate must not hide
 
             dump.append("### ").append(p.title()).append("\n");
             dump.append("-- HAIKU (").append(hv).append("/").append(haikuCards.size()).append(" valid) --\n");
@@ -116,14 +121,19 @@ class FlashcardModelEvidenceGate {
         ModelScore haiku = new ModelScore(pages.size(), hTotal, hValid, hPer);
         ModelScore gemini = new ModelScore(pages.size(), gTotal, gValid, gPer);
         double delta = gemini.passRatePct() - haiku.passRatePct();
-        boolean passed = delta >= -TOLERANCE_PTS;
+        // The gate is NOT just card-validity rate: a page a model drops to ZERO
+        // cards is 0/0 (invisible in the rate), so gate ALSO on page coverage — a
+        // model that silently produces nothing for a page FAILS regardless of rate.
+        boolean passed = delta >= -TOLERANCE_PTS && flashDroppedPages == 0;
 
         String verdict = String.format(
                 "GATE %s: Flash %.1f%% vs Haiku %.1f%% (delta %+.1f pts; tolerance -%.1f). "
-                + "cards/page Haiku %.1f, Flash %.1f.",
+                + "cards/page Haiku %.1f, Flash %.1f. "
+                + "zero-card pages: Haiku %d, Flash %d (Flash DROPPED %d page(s) Haiku covered).",
                 passed ? "PASSED" : "FAILED",
                 gemini.passRatePct(), haiku.passRatePct(), delta, TOLERANCE_PTS,
-                haiku.avgCardsPerPage(), gemini.avgCardsPerPage());
+                haiku.avgCardsPerPage(), gemini.avgCardsPerPage(),
+                hZeroPages, gZeroPages, flashDroppedPages);
 
         dump.append("=".repeat(72)).append("\n").append(verdict).append("\n");
         Path out = Path.of("build", "evidence", "flashcard-gate.txt");
@@ -134,10 +144,11 @@ class FlashcardModelEvidenceGate {
         System.out.println("Side-by-side dump: " + out.toAbsolutePath()
                 + "  (READ IT — the pass-rate is a floor; your eyeball is the moat)\n");
 
-        assertThat(delta)
-                .as("Flash pass-rate must be within %.1f pts of Haiku (see %s). %s",
+        assertThat(passed)
+                .as("Gate FAILED — either Flash pass-rate >%.1f pts below Haiku, or Flash "
+                        + "dropped a page Haiku covered (see %s). %s",
                         TOLERANCE_PTS, out.toAbsolutePath(), verdict)
-                .isGreaterThanOrEqualTo(-TOLERANCE_PTS);
+                .isTrue();
     }
 
     // ── the EXACT production flashcard prompt (kept in sync with the generator) ──
@@ -208,6 +219,11 @@ class FlashcardModelEvidenceGate {
         var gen = body.putObject("generationConfig");
         gen.put("maxOutputTokens", MAX_TOKENS);
         gen.put("temperature", 0.2);
+        // gemini-2.5-flash has THINKING on by default; at a low token cap the
+        // thinking tokens eat the whole budget and the model returns empty text
+        // (the silent page-drops this gate caught). Disable thinking for a
+        // structured-JSON extraction task — we want cards, not reasoning.
+        gen.putObject("thinkingConfig").put("thinkingBudget", 0);
         String url = "https://generativelanguage.googleapis.com/v1beta/models/"
                 + GEMINI_MODEL + ":generateContent?key=" + key;
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))

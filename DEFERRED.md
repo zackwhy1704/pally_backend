@@ -128,18 +128,34 @@ callers; commit 78c1927) + P4 OCR metering (both VisionOcrServices; 72a3154). Th
 ai_usage ledger is now COMPLETE (completion services + OCR) and avatar-attributed —
 so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
 
-### Flashcard model lever (Phase 1) — BLOCKED on a live evidence run
+### Flashcard model lever (Phase 1) — gate BUILT + run; PASSES with thinking OFF
 - **What:** route flashcard gen Haiku → gemini-2.5-flash (the ~$1.25/upload lever).
   ClaudeFlashcardGenerator:82 hardcodes getHaikuModel(); ModelRouter has no
   forFlashcardGeneration(). Add it + a Gemini path.
-- **Why deferred:** the prompt's HARD GATE ("Flash pass-rate within 2 pts of Haiku
-  on ~20 real pages via RulesOutputValidator") requires LIVE Claude+Gemini keys and
-  a real corpus — not available in a sandbox. Cannot ship the switch without it.
-- **The 10-min task (owner: human):** write the evidence-gate script (generate on
-  both models, RulesOutputValidator.retainValid pass-rate each, side-by-side dump,
-  explicit GATE PASSED/FAILED line, README with the one-line ModelRouter flip), run
-  it with keys, paste the verdict. RulesOutputValidator.retainValid(list, OutputType)
-  is the pass-rate seam; reuse ClaudeFlashcardGenerator's front/back prompt.
+- **Evidence gate:** `FlashcardModelEvidenceGate` (committed, run with CLAUDE_API_KEY
+  + GEMINI_API_KEY via `railway run`). KEY FINDING: gemini-2.5-flash as-is (thinking
+  ON, low token cap) SILENTLY DROPS ~40% of pages (0 cards — the thinking tokens eat
+  the output budget). With `generationConfig.thinkingConfig.thinkingBudget=0` it's
+  reliable: 0 dropped pages, 100% valid, 4.4 vs 5.0 cards/page → GATE PASSED. So the
+  switch is VIABLE **only with thinking disabled**, AND still needs the real 20-page
+  run (the committed run was 5 easy placeholder pages) before flipping.
+- **On flip:** add ModelRouter.forFlashcardGeneration()=gemini-2.5-flash + route the
+  flashcard prompt through a Gemini path that sets thinkingBudget=0 + robustJsonArray-
+  style retry/salvage (Flash empties must be retried, never silently dropped).
+
+### Gemini thinking-mode starves low-token calls (production lead, from the gate)
+- **What:** production `GeminiCompletionService:104-106` sets generationConfig WITHOUT
+  thinkingConfig → gemini-2.5-flash runs thinking ON for teach (700 tok), module gen
+  (1500), PROVE, routing. The gate PROVED thinking-on + low cap → empty outputs; in
+  prod that means silent empties → robustJsonArray RETRIES (2× calls + latency) or
+  fallback items (the B-4 blank-content risk) — a cost AND reliability tax in the exact
+  paths the cost work touched.
+- **Proven for:** the raw flashcard prompt (40% empties → 0 with thinking off). NOT yet
+  traced in prod for teach/module — needs a log check or a targeted test.
+- **Why not a blanket flip:** thinking-off is strictly good for EXTRACTION (flashcards,
+  micro-cards) but may HELP reasoning tasks (teach eval, spot-mistake, challenge). Gate
+  any thinking change PER TASK TYPE (extraction → off; reasoning → measure first), don't
+  disable globally. Likely a real cost win on the extraction calls — worth its own pass.
 
 ### Module-gen batching (Phase 2) — the launch-blocker-prone harness
 - **What:** merge the 3 TEST calls (HOT_TAKE+SPOT_MISTAKE+CHALLENGE) → 1 (target
