@@ -236,6 +236,14 @@ public class WikiPagePersistenceService {
                 wikiConflictService.open(avatarId, slug, oldContent, draft.content(),
                         conflict.note(), conflict.confidence());
             }
+            // Cost gate: did the CONTENT actually change? A metadata-only touch
+            // (prerequisites, context) or a recompile that reproduces identical
+            // content must NOT re-fire the per-page generators — that was the
+            // fan-out bleed (hint-tree + flashcard re-billed on every persist,
+            // and flashcard regen wipes SM-2 review state). oldContent + the new
+            // draft are both in scope here, so normalizedEquals is the gate; no
+            // content-hash column is needed.
+            boolean contentChanged = !normalizedEquals(oldContent, draft.content());
             if (draft.prerequisites() != null
                     && !draft.prerequisites().isEmpty()) {
                 existingPage.setPrerequisiteSlugs(
@@ -245,12 +253,17 @@ public class WikiPagePersistenceService {
                 existingPage.setContext(draft.context());
             }
             savedPage = wikiRepository.save(existingPage);
-            hintTreeGenerator.generateForPage(avatarId, savedPage);
-            try {
-                flashcardGenerator.regenerateForPage(avatarId, savedPage);
-            } catch (Exception e) {
-                log.warn("[Wiki] Flashcard regen failed slug={}: {}",
-                        savedPage.getSlug(), e.getMessage());
+            if (contentChanged) {
+                hintTreeGenerator.generateForPage(avatarId, savedPage);
+                try {
+                    flashcardGenerator.regenerateForPage(avatarId, savedPage);
+                } catch (Exception e) {
+                    log.warn("[Wiki] Flashcard regen failed slug={}: {}",
+                            savedPage.getSlug(), e.getMessage());
+                }
+            } else {
+                log.info("[Wiki] slug={} content unchanged — skipping hint/flashcard "
+                        + "regen (metadata-only touch); SM-2 review state preserved", slug);
             }
             created = false;
         } else {
