@@ -26,6 +26,7 @@ public class ModuleExamReadinessService {
     private final LearningModuleRepository moduleRepository;
     private final ModuleProgressRepository progressRepository;
     private final AvatarRepository avatarRepository;
+    private final GradingWeights gradingWeights;
 
     /**
      * Aggregates per-concept mastery across all COMPLETE modules for an avatar.
@@ -58,7 +59,13 @@ public class ModuleExamReadinessService {
                 if (p.getScore() == null) continue;
                 Map<String, Object> c = new HashMap<>();
                 c.put("concept", p.getTargetConcept());
-                c.put("mastery", p.getScore().doubleValue() * 100);
+                // Trust-WEIGHT the concept mastery so it agrees with module mastery:
+                // a self-report YES is 30% here (not a raw 100%), a DETERMINISTIC
+                // grade is full. Label the source so the UI can show "self-assessed".
+                double weight = gradingWeights.weightFor(p.getSignalType());
+                c.put("mastery", weight * p.getScore().doubleValue() * 100);
+                c.put("signalType",
+                        p.getSignalType() != null ? p.getSignalType().name() : null);
                 c.put("lastAttempted", p.getCompletedAt() != null
                         ? p.getCompletedAt().toString() : null);
                 c.put("moduleId", mod.getId());

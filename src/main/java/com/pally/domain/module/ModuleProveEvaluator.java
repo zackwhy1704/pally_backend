@@ -121,9 +121,18 @@ public class ModuleProveEvaluator {
             List<String> hit = asStringList(node.path("keyPointsHit"));
             List<String> missed = asStringList(node.path("keyPointsMissed"));
             String feedback = node.path("feedback").asText("Keep trying!");
-            double score = node.path("score").asDouble(0.0);
+            // A schema-invalid "success" is an error, not a 0: if the model omitted
+            // the score (or it isn't numeric), we have NO grade — return UNGRADED,
+            // never a graded 0.0. The invariant: a score-absent response can never
+            // yield graded=true (do NOT rely on the caller ignoring the score).
+            JsonNode scoreNode = node.path("score");
+            if (scoreNode.isMissingNode() || !scoreNode.isNumber()) {
+                log.warn("[Module] PROVE eval response missing/invalid score field "
+                        + "— UNGRADED (never a false 0)");
+                return ProveResult.ungraded("Could not parse evaluation.");
+            }
             // Clamp score to [0.0, 1.0]
-            score = Math.max(0.0, Math.min(1.0, score));
+            double score = Math.max(0.0, Math.min(1.0, scoreNode.asDouble()));
             return ProveResult.ok(covered, hit, missed, feedback, score);
         } catch (Exception e) {
             log.warn("[Module] PROVE eval parse failed: {}", e.getMessage());

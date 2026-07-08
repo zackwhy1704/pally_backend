@@ -37,7 +37,8 @@ class ModuleExamReadinessServiceTest {
     @BeforeEach
     void setUp() {
         service = new ModuleExamReadinessService(
-                moduleRepository, progressRepository, avatarRepository);
+                moduleRepository, progressRepository, avatarRepository,
+                new GradingWeights());
     }
 
     @Test
@@ -79,6 +80,35 @@ class ModuleExamReadinessServiceTest {
         assertThat(concepts.get(0).get("concept")).isEqualTo("subtraction");
         assertThat((double) concepts.get(0).get("mastery")).isLessThan(50.0);
         assertThat(concepts.get(1).get("concept")).isEqualTo("addition");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void getExamPrep_selfReportConcept_isTrustWeighted_notRaw100_consistentWithModuleMastery() {
+        // The adjacent-surface inconsistency: a self-report YES (score 1.0) must NOT
+        // show 100% concept mastery here while yielding 30% module mastery. It is
+        // trust-weighted to 30% and labelled as SELF_REPORT.
+        Avatar avatar = Avatar.create("user1", "Test", Subject.MATHS, CharacterType.ZAP);
+        when(avatarRepository.findById(avatar.getId())).thenReturn(Optional.of(avatar));
+
+        LearningModule mod = buildModule("mod-1", "COMPLETE");
+        mod.setAvatarId(avatar.getId());
+        when(moduleRepository.findByAvatarId(avatar.getId())).thenReturn(List.of(mod));
+
+        ModuleProgress selfReport = new ModuleProgress();
+        selfReport.setStage("PROVE");
+        selfReport.setTargetConcept("photosynthesis");
+        selfReport.setScore(BigDecimal.ONE);
+        selfReport.setSignalType(GradingSignal.SELF_REPORT);
+        when(progressRepository.findByModuleIdAndUserId("mod-1", avatar.getUserId()))
+                .thenReturn(List.of(selfReport));
+
+        Map<String, Object> result = service.getExamPrep(avatar.getId());
+        List<Map<String, Object>> concepts =
+                (List<Map<String, Object>>) result.get("concepts");
+
+        assertThat((double) concepts.get(0).get("mastery")).isEqualTo(30.0);
+        assertThat(concepts.get(0).get("signalType")).isEqualTo("SELF_REPORT");
     }
 
     @Test

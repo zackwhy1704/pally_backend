@@ -111,6 +111,37 @@ class ModuleProveEvaluatorTest {
     }
 
     @Test
+    void evaluateAnswer_validJsonButScoreAbsent_returnsUngraded_neverGraded0() throws Exception {
+        // 1b: a schema-invalid "success" — valid JSON with NO score field — must
+        // NOT yield graded=true score 0.0. The invariant is that a score-absent
+        // response can never produce a graded result, regardless of whether the
+        // caller currently reads the score.
+        ModuleContentItem item = buildProveItem(
+                "What is gravity?", "gravity", new String[]{"force"});
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval")))
+                .thenReturn("{\"conceptCovered\":true,\"feedback\":\"nice work\"}");
+
+        ModuleProveEvaluator.ProveResult result =
+                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth");
+
+        assertThat(result.graded()).isFalse();
+    }
+
+    @Test
+    void evaluateAnswer_scoreNotNumeric_returnsUngraded_neverGraded0() throws Exception {
+        // A non-numeric score ("high") is equally schema-invalid → UNGRADED.
+        ModuleContentItem item = buildProveItem(
+                "What is gravity?", "gravity", new String[]{"force"});
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval")))
+                .thenReturn("{\"conceptCovered\":true,\"score\":\"high\",\"feedback\":\"ok\"}");
+
+        ModuleProveEvaluator.ProveResult result =
+                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth");
+
+        assertThat(result.graded()).isFalse();
+    }
+
+    @Test
     void evaluateAnswer_scoreClampedTo0And1() throws Exception {
         ModuleContentItem item = buildProveItem(
                 "Q", "concept", new String[]{"kp"});

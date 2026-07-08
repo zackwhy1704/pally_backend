@@ -6,8 +6,8 @@ import org.springframework.stereotype.Component;
 /**
  * Config-driven trust weights for mastery. DETERMINISTIC is full weight (1.0),
  * UNGRADED contributes nothing (0.0); only SELF_REPORT is tunable
- * ({@code grading.self-report-weight}, default 0.25) so a self-reported answer
- * moves mastery a quarter as much as a server-verified one.
+ * ({@code grading.self-report-weight}, default 0.30) so a self-reported answer
+ * moves mastery roughly a third as much as a server-verified one.
  */
 @Component
 @ConfigurationProperties(prefix = "grading")
