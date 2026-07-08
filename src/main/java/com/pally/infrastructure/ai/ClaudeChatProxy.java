@@ -41,6 +41,7 @@ public class ClaudeChatProxy implements ChatPort {
     private final ClaudeApiClient apiClient;
     private final ObjectMapper objectMapper;
     private final ModelRouter modelRouter;
+    private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
 
     @Override
     public Flux<ChatStreamEvent> streamChat(
@@ -72,8 +73,23 @@ public class ClaudeChatProxy implements ChatPort {
         log.debug("Starting cached chat stream model={} messageCount={} systemBlocks={}",
                 model, messages.size(), systemBlocks.size());
 
+        // Cost ledger: streaming chat was the biggest UNMETERED path (corpus-∝
+        // input, invisible in ai_usage). Meter it from the stream's final usage
+        // block. Effective input folds in cache pricing (read 0.1x, write 1.25x)
+        // so est_cost reflects the discount instead of billing cache reads at full.
+        final String meterModel = model;
+        Consumer<CacheMetrics> meteringMetrics = m -> {
+            long effIn = m.inputTokens()
+                    + Math.round(m.cacheCreationInputTokens() * 1.25)
+                    + Math.round(m.cacheReadInputTokens() * 0.10);
+            aiUsageMeter.record(null, null, com.pally.domain.cost.AiCallType.CHAT, "chat",
+                    com.pally.domain.cost.AiTrigger.USER_ACTION, meterModel,
+                    effIn, m.outputTokens(), true, false);
+            if (onMetrics != null) onMetrics.accept(m);
+        };
+
         return apiClient.streamResponseWithCacheAndModel(model, MAX_TOKENS, systemBlocks, messages)
-                .flatMap(line -> parseEventWithMetrics(line, onMetrics, metricsEmitted, fullText))
+                .flatMap(line -> parseEventWithMetrics(line, meteringMetrics, metricsEmitted, fullText))
                 .onErrorResume(e -> {
                     if (!model.equals(modelRouter.getHaikuModel())) {
                         log.warn("[Chat] Sonnet failed ({}), retrying with Haiku: {}",
@@ -83,7 +99,7 @@ public class ClaudeChatProxy implements ChatPort {
                                         modelRouter.getHaikuModel(), MAX_TOKENS,
                                         systemBlocks, messages)
                                 .flatMap(line -> parseEventWithMetrics(
-                                        line, onMetrics, metricsEmitted, fullText));
+                                        line, meteringMetrics, metricsEmitted, fullText));
                     }
                     log.error("Chat stream error", e);
                     return Flux.just(new ChatStreamEvent.Error(e.getMessage()));

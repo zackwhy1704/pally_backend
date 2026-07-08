@@ -154,6 +154,11 @@ public class ClaudeApiClient {
                 throw new RuntimeException("Empty content array from Claude fast call");
             }
             String text = contentArray.get(0).path("text").asText();
+            // Cost ledger: this fast path was NOT metered (a tracking hole).
+            aiUsageMeter.record(null, null, callTypeForTask(task), task,
+                    com.pally.domain.cost.AiTrigger.OTHER, model,
+                    root.path("usage").path("input_tokens").asLong(0),
+                    root.path("usage").path("output_tokens").asLong(0), true, false);
             log.info("[Claude-{}] FAST RESPONSE {}ms task={}", callId, ms, task);
             return text;
         } catch (Exception e) {
