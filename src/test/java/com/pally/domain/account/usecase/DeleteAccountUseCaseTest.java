@@ -31,6 +31,13 @@ import com.pally.infrastructure.persistence.referral.ReferralJpaRepository;
 import com.pally.infrastructure.persistence.safety.ChatSafetyFlagJpaRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
+import com.pally.infrastructure.persistence.cost.AiUsageJpaRepository;
+import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
+import com.pally.infrastructure.persistence.homework.HomeworkSubmissionJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizAnswerKeyJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizSubmissionIdempotencyJpaRepository;
+import com.pally.infrastructure.persistence.auth.AuthChallengeJpaRepository;
+import com.pally.infrastructure.persistence.weakness.WeaknessProfileStateJpaRepository;
 import com.pally.infrastructure.storage.StorageService;
 import com.pally.infrastructure.stripe.StripeService;
 import com.pally.shared.exception.BusinessException;
@@ -97,6 +104,13 @@ class DeleteAccountUseCaseTest {
     @Mock StripeService stripeService;
     @Mock PremiumService premiumService;
     @Mock RevokedTokenJpaRepository revokedTokenRepo;
+    @Mock AiUsageJpaRepository aiUsageRepo;
+    @Mock ContentGapSignalJpaRepository contentGapSignalRepo;
+    @Mock HomeworkSubmissionJpaRepository homeworkSubmissionRepo;
+    @Mock QuizAnswerKeyJpaRepository quizAnswerKeyRepo;
+    @Mock QuizSubmissionIdempotencyJpaRepository quizSubmissionIdempotencyRepo;
+    @Mock AuthChallengeJpaRepository authChallengeRepo;
+    @Mock WeaknessProfileStateJpaRepository weaknessProfileStateRepo;
 
     DeleteAccountUseCase useCase;
 
@@ -118,7 +132,10 @@ class DeleteAccountUseCaseTest {
                 biometricRegistrationRepo, biometricChallengeRepo,
                 emailVerificationTokenRepo, subscriptionRepo,
                 starAwardLogRepo, assignmentRepo,
-                storageService, stripeService, premiumService, revokedTokenRepo
+                storageService, stripeService, premiumService, revokedTokenRepo,
+                aiUsageRepo, contentGapSignalRepo, homeworkSubmissionRepo,
+                quizAnswerKeyRepo, quizSubmissionIdempotencyRepo,
+                authChallengeRepo, weaknessProfileStateRepo
         );
     }
 
@@ -258,6 +275,68 @@ class DeleteAccountUseCaseTest {
         verify(avatarRepo).deleteById(AVATAR_ID);
         // User row deleted
         verify(userRepo).deleteById(USER_ID);
+    }
+
+    @Test
+    void execute_anonymizesSurvivors_andDeletesNoFkOrphans_beforeUserRow() {
+        stubNoChildren();
+        stubEmptyLists();
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // SURVIVORS anonymized in place (rows kept, identity nulled).
+        verify(aiUsageRepo).anonymizeByUserId(USER_ID);
+        verify(contentGapSignalRepo).anonymizeByUserId(USER_ID);
+        // No-FK orphans deleted (would NOT cascade with the user row).
+        verify(homeworkSubmissionRepo).deleteByStudentId(USER_ID);
+        verify(authChallengeRepo).deleteByUserId(USER_ID);
+        verify(weaknessProfileStateRepo).deleteByUserId(USER_ID);
+        verify(quizSubmissionIdempotencyRepo).deleteByUserId(USER_ID);
+
+        // All of it happens BEFORE the user row delete, so a crash can't leave a purged
+        // user with survivor rows still pointing at the dead id.
+        var ordered = inOrder(aiUsageRepo, contentGapSignalRepo, homeworkSubmissionRepo,
+                authChallengeRepo, weaknessProfileStateRepo, quizSubmissionIdempotencyRepo, userRepo);
+        ordered.verify(aiUsageRepo).anonymizeByUserId(USER_ID);
+        ordered.verify(contentGapSignalRepo).anonymizeByUserId(USER_ID);
+        ordered.verify(userRepo).deleteById(USER_ID);
+    }
+
+    @Test
+    void execute_withAvatar_anonymizesAiUsageAndDeletesAnswerKeys_perAvatar() {
+        stubNoChildren();
+
+        AvatarJpaEntity avatar = new AvatarJpaEntity();
+        avatar.setId(AVATAR_ID);
+        avatar.setUserId(USER_ID);
+        when(avatarRepo.findByUserId(USER_ID)).thenReturn(List.of(avatar));
+        when(chatMessageRepo.findAll()).thenReturn(List.of());
+        when(chatSessionRepo.findAll()).thenReturn(List.of());
+        when(chatSessionSummaryRepo.findAll()).thenReturn(List.of());
+        when(chatSafetyFlagRepo.findAll()).thenReturn(List.of());
+        when(hintTreeRepo.findAll()).thenReturn(List.of());
+        when(flashcardRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(quizAnswerRepo.findAll()).thenReturn(List.of());
+        when(quizQuestionResultRepo.findAll()).thenReturn(List.of());
+        when(wikiPageRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(knowledgeFileRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(referralRepo.findAll()).thenReturn(List.of());
+        when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(consentRecordRepo.findAll()).thenReturn(List.of());
+        when(consentRequestRepo.findAll()).thenReturn(List.of());
+        when(characterUnlockRepo.findAll()).thenReturn(List.of());
+        when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
+        when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
+        when(biometricRegistrationRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(biometricChallengeRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(emailVerificationTokenRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(subscriptionRepo.findById(USER_ID)).thenReturn(Optional.empty());
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // ai_usage rows from this avatar are anonymized (survivor); answer keys deleted.
+        verify(aiUsageRepo).anonymizeByAvatarId(AVATAR_ID);
+        verify(quizAnswerKeyRepo).deleteByAvatarId(AVATAR_ID);
     }
 
     @Test

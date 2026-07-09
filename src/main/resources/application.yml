@@ -108,6 +108,9 @@ app:
 account:
   deletion:
     grace-days: ${ACCOUNT_DELETION_GRACE_DAYS:14}
+    # Max accounts the purge reaper processes per daily run (resumable — the next run
+    # picks up where this left off).
+    purge-batch-size: ${ACCOUNT_DELETION_PURGE_BATCH_SIZE:50}
 
 # ── Third-party AI consent gate ──────────────────────────────────────────────
 # Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic

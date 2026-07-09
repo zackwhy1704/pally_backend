@@ -33,6 +33,12 @@ public interface UserJpaRepository extends JpaRepository<UserJpaEntity, String> 
     List<UserJpaEntity> findByAccountStatusAndCreatedAtBefore(
             String accountStatus, java.time.Instant createdAt);
 
+    /// ACCOUNT DELETION Phase 1 reaper query (batch-limited via Pageable): accounts in
+    /// DELETION_PENDING whose grace elapsed (deletion_requested_at < cutoff), oldest
+    /// first. Purged rows vanish, so page 0 is a natural resumable cursor.
+    List<UserJpaEntity> findByAccountStatusAndDeletionRequestedAtBeforeOrderByDeletionRequestedAtAsc(
+            String accountStatus, java.time.Instant cutoff, Pageable pageable);
+
     int countByParentId(String parentId);
 
     Optional<UserJpaEntity> findByReferralCode(String referralCode);

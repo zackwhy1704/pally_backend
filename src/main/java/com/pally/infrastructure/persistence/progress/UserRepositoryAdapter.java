@@ -58,6 +58,17 @@ public class UserRepositoryAdapter implements UserRepository {
     }
 
     @Override
+    public List<User> findDeletionPendingBefore(Instant cutoff, int limit) {
+        return jpa.findByAccountStatusAndDeletionRequestedAtBeforeOrderByDeletionRequestedAtAsc(
+                        com.pally.domain.consent.ConsentGuard.STATUS_DELETION_PENDING,
+                        cutoff,
+                        org.springframework.data.domain.PageRequest.of(0, limit))
+                .stream()
+                .map(UserJpaEntity::toUserDomain)
+                .toList();
+    }
+
+    @Override
     public int countByParentId(String parentId) {
         return jpa.countByParentId(parentId);
     }

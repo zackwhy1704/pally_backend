@@ -36,6 +36,15 @@ public interface UserRepository {
      */
     void markDeletionPending(String userId, Instant requestedAt);
 
+    /**
+     * ACCOUNT DELETION Phase 1: up to {@code limit} accounts in DELETION_PENDING whose
+     * grace has elapsed (deletion_requested_at &lt; cutoff), oldest first. Batch-limited
+     * so the daily purge stays bounded; since purged rows are deleted, calling this
+     * again returns the next batch (a resumable cursor). Returns domain Users so the
+     * reaper stays free of any infrastructure.persistence import.
+     */
+    List<User> findDeletionPendingBefore(Instant cutoff, int limit);
+
     /** Batch-fetch users by their IDs (for heatmap display-name lookup). */
     List<User> findAllByIds(Collection<String> ids);
 
