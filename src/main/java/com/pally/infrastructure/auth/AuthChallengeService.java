@@ -33,9 +33,18 @@ public class AuthChallengeService {
 
     public static final String PURPOSE_LINK = "LINK_SOCIAL";
     public static final String PURPOSE_RESET = "PASSWORD_RESET";
+    /// ACCOUNT DELETION Phase 1: 6-digit re-auth code for a PASSWORDLESS (social)
+    /// account to CONFIRM a deletion request (a bearer token alone can never initiate
+    /// deletion). No schema change — a new value of the existing purpose column.
+    public static final String PURPOSE_DELETE = "DELETE_ACCOUNT";
+    /// ACCOUNT DELETION Phase 1: single-use restore-link token, valid for the whole
+    /// grace window, emailed to the requester (and a child's parent) so either can
+    /// cancel the deletion from the link.
+    public static final String PURPOSE_RESTORE = "RESTORE_ACCOUNT";
     private static final String PENDING = "PENDING", CONSUMED = "CONSUMED", EXPIRED = "EXPIRED";
     private static final long LINK_TTL_MIN = 10;
     private static final long RESET_TTL_MIN = 60;
+    private static final long DELETE_CODE_TTL_MIN = 10;
     private static final int MAX_ATTEMPTS = 5;
 
     private final AuthChallengeJpaRepository repo;
@@ -96,6 +105,65 @@ public class AuthChallengeService {
     public Optional<String> consumeResetToken(String token) {
         if (token == null || token.isBlank()) return Optional.empty();
         return repo.findByCodeHashAndPurposeAndStatus(sha256Hex(token), PURPOSE_RESET, PENDING)
+                .filter(c -> {
+                    if (Instant.now().isAfter(c.getExpiresAt())) { c.setStatus(EXPIRED); repo.save(c); return false; }
+                    return true;
+                })
+                .map(c -> { c.setStatus(CONSUMED); repo.save(c); return c.getUserId(); });
+    }
+
+    // ── ACCOUNT DELETION Phase 1 ─────────────────────────────────────────────
+
+    /** Creates a DELETE_ACCOUNT re-auth challenge; returns the PLAINTEXT 6-digit code (to email). */
+    @Transactional
+    public String createDeleteCode(String userId) {
+        invalidatePending(userId, PURPOSE_DELETE);
+        String code = String.format("%06d", RNG.nextInt(1_000_000));
+        repo.save(base(userId, PURPOSE_DELETE, code, DELETE_CODE_TTL_MIN));
+        return code;
+    }
+
+    /**
+     * Verifies a DELETE_ACCOUNT code for a user (constant-time on the hash), enforcing
+     * expiry + attempt cap. Consumes it on success. True only when a valid, unexpired,
+     * within-attempt-cap code matches — the passwordless re-auth gate.
+     */
+    @Transactional
+    public boolean consumeDeleteCode(String userId, String code) {
+        if (code == null || code.isBlank()) return false;
+        for (AuthChallengeJpaEntity c : repo.findByUserIdAndPurposeAndStatus(userId, PURPOSE_DELETE, PENDING)) {
+            if (Instant.now().isAfter(c.getExpiresAt())) { c.setStatus(EXPIRED); repo.save(c); continue; }
+            c.setAttempts(c.getAttempts() + 1);
+            if (c.getAttempts() > MAX_ATTEMPTS) { c.setStatus(EXPIRED); repo.save(c); continue; }
+            boolean match = MessageDigest.isEqual(
+                    c.getCodeHash().getBytes(StandardCharsets.UTF_8),
+                    sha256Hex(code).getBytes(StandardCharsets.UTF_8));
+            if (match) { c.setStatus(CONSUMED); repo.save(c); return true; }
+            repo.save(c); // wrong code — attempt recorded
+        }
+        return false;
+    }
+
+    /**
+     * Creates a single-use RESTORE_ACCOUNT token valid for the whole grace window and
+     * returns the PLAINTEXT token (for the emailed restore link). One active token per
+     * user — a re-request invalidates the prior one.
+     */
+    @Transactional
+    public String createRestoreToken(String userId, long ttlDays) {
+        invalidatePending(userId, PURPOSE_RESTORE);
+        byte[] raw = new byte[32];
+        RNG.nextBytes(raw);
+        String token = HexFormat.of().formatHex(raw);
+        repo.save(base(userId, PURPOSE_RESTORE, token, ttlDays * 24 * 60));
+        return token;
+    }
+
+    /** Verifies + consumes a RESTORE_ACCOUNT token, returning the owning userId. */
+    @Transactional
+    public Optional<String> consumeRestoreToken(String token) {
+        if (token == null || token.isBlank()) return Optional.empty();
+        return repo.findByCodeHashAndPurposeAndStatus(sha256Hex(token), PURPOSE_RESTORE, PENDING)
                 .filter(c -> {
                     if (Instant.now().isAfter(c.getExpiresAt())) { c.setStatus(EXPIRED); repo.save(c); return false; }
                     return true;

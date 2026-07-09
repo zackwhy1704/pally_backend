@@ -26,6 +26,16 @@ public interface UserRepository {
     /** Count students enrolled in a centre. */
     long countByCentreId(String centreId);
 
+    /**
+     * ACCOUNT DELETION Phase 1: move the account into the deletion grace window in a
+     * single unit of work — set account_status = DELETION_PENDING, stamp
+     * deletion_requested_at, and BUMP session_epoch. The epoch bump is the PRIMARY
+     * block: it invalidates every outstanding token (JwtAuthenticationFilter rejects
+     * tokens minted below the current epoch), so the account is logged out everywhere
+     * the instant deletion is requested. Idempotent to re-apply.
+     */
+    void markDeletionPending(String userId, Instant requestedAt);
+
     /** Batch-fetch users by their IDs (for heatmap display-name lookup). */
     List<User> findAllByIds(Collection<String> ids);
 

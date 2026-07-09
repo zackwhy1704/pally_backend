@@ -2,6 +2,7 @@ package com.pally.api;
 
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.AvatarNotFoundException;
+import com.pally.shared.exception.CentreNotEmptyException;
 import com.pally.shared.exception.ConsentRequiredException;
 import com.pally.shared.exception.DuplicateContentException;
 import com.pally.shared.exception.GuardianRequiredException;
@@ -137,6 +138,17 @@ public class GlobalExceptionHandler {
                 "code", LinkRequiredException.CODE,
                 "challenge", ex.getChallenge(),
                 "provider", ex.getProvider());
+        return ResponseEntity.status(409).body(new ApiResponse<>(payload, ex.getMessage(), 409));
+    }
+
+    /// Account-deletion block-unless-empty: an org owner with a non-empty centre.
+    /// Distinct code CENTRE_NOT_EMPTY so the client shows "transfer or close your
+    /// centre first" rather than a generic 409.
+    @ExceptionHandler(CentreNotEmptyException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleCentreNotEmpty(
+            CentreNotEmptyException ex) {
+        log.debug("Centre not empty — deletion blocked");
+        Map<String, Object> payload = Map.of("code", CentreNotEmptyException.CODE);
         return ResponseEntity.status(409).body(new ApiResponse<>(payload, ex.getMessage(), 409));
     }
 

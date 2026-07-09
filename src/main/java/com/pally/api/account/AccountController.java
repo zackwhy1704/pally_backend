@@ -1,12 +1,9 @@
 package com.pally.api.account;
 
+import com.pally.domain.account.AccountDeletionService;
 import com.pally.domain.account.AccountService;
-import com.pally.domain.account.usecase.DeleteAccountUseCase;
-import com.pally.infrastructure.auth.JwtService;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.response.ApiResponse;
-import io.jsonwebtoken.JwtException;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -18,13 +15,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
 import java.util.Map;
 
 /**
- * Parent ⇄ child account linking.
+ * Parent ⇄ child account linking + account deletion (request/grace flow).
  *
- * <p>Thin HTTP delegator — all logic lives in {@link AccountService}.
+ * <p>Thin HTTP delegator — all logic lives in {@link AccountService} /
+ * {@link AccountDeletionService}.
  */
 @RestController
 @RequestMapping("/api/v1/account")
@@ -33,8 +30,7 @@ import java.util.Map;
 public class AccountController {
 
     private final AccountService accountService;
-    private final DeleteAccountUseCase deleteAccountUseCase;
-    private final JwtService jwtService;
+    private final AccountDeletionService accountDeletionService;
 
     /**
      * Saves or updates the user's FCM push notification token.
@@ -79,31 +75,55 @@ public class AccountController {
     }
 
     /**
-     * Permanently deletes the authenticated user's account and all their data.
-     *
-     * <p>Required by Apple App Store guideline 5.1.1 and PDPA.
-     * Only the authenticated user can delete their own account.
-     * Returns 409 Conflict if the user is a PARENT with linked children.
+     * Requests deletion of the authenticated account (Apple 5.1.1 / PDPA erasure).
+     * Re-auth is MANDATORY — a bearer token alone can never initiate deletion:
+     * <ul>
+     *   <li>password accounts send {@code {"password": "..."}};</li>
+     *   <li>passwordless (social) accounts first call {@code POST /delete/send-code}
+     *       to receive an emailed code, then send {@code {"code": "123456"}}.</li>
+     * </ul>
+     * On success the account enters a grace window (logged out everywhere via the
+     * session-epoch bump); the response carries the grace end date and whether the
+     * user must cancel a store IAP manually. 409 CENTRE_NOT_EMPTY if the caller owns a
+     * non-empty centre; 409 if a parent still has linked children; 401 on bad re-auth;
+     * 429 when rate-limited.
      */
-    @DeleteMapping("/me")
-    public ResponseEntity<Void> deleteAccount(
+    @PostMapping("/delete")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> requestDeletion(
             @AuthenticationPrincipal String userId,
-            HttpServletRequest request) {
+            @RequestBody(required = false) Map<String, String> body) {
+        AccountDeletionService.DeletionRequestResult res = accountDeletionService.requestDeletion(
+                userId,
+                body == null ? null : body.get("password"),
+                body == null ? null : body.get("code"));
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "graceEndsAt", res.graceEndsAt().toString(),
+                "needsManualCancellation", res.needsManualCancellation())));
+    }
 
-        String jti = null;
-        Instant tokenExpiry = null;
-        String authHeader = request.getHeader("Authorization");
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
-            try {
-                jti = jwtService.extractJti(token);
-                tokenExpiry = jwtService.extractExpiration(token);
-            } catch (JwtException e) {
-                log.warn("[DeleteAccount] Could not extract jti from token: {}", e.getMessage());
-            }
-        }
+    /**
+     * Emails a passwordless (social) account a 6-digit deletion confirmation code.
+     * A no-op (still 200) for password accounts or accounts with no email on file, so
+     * the endpoint never reveals which kind an account is.
+     */
+    @PostMapping("/delete/send-code")
+    public ResponseEntity<ApiResponse<Void>> sendDeleteCode(
+            @AuthenticationPrincipal String userId) {
+        accountDeletionService.sendDeleteCodeIfPasswordless(userId);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
 
-        deleteAccountUseCase.execute(userId, jti, tokenExpiry);
-        return ResponseEntity.noContent().build();
+    /**
+     * @deprecated Legacy bearer-only immediate delete — UNSAFE under the current
+     * policy ("a bearer token alone can never initiate deletion"). Now delegates to
+     * the re-auth grace flow ({@link #requestDeletion}); kept so existing clients do
+     * not 404. New clients must use {@code POST /account/delete}.
+     */
+    @Deprecated
+    @DeleteMapping("/me")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAccount(
+            @AuthenticationPrincipal String userId,
+            @RequestBody(required = false) Map<String, String> body) {
+        return requestDeletion(userId, body);
     }
 }

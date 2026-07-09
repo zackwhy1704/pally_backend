@@ -45,6 +45,19 @@ public class UserRepositoryAdapter implements UserRepository {
     }
 
     @Override
+    @Transactional
+    public void markDeletionPending(String userId, Instant requestedAt) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found: " + userId, 404));
+        // Targeted update (NOT a full applyDomainToEntity) so the epoch bump can never
+        // be clobbered by a stale domain snapshot — the domain User doesn't carry epoch.
+        e.setAccountStatus(com.pally.domain.consent.ConsentGuard.STATUS_DELETION_PENDING);
+        e.setDeletionRequestedAt(requestedAt);
+        e.setSessionEpoch(e.getSessionEpoch() + 1); // kills every outstanding token
+        jpa.save(e);
+    }
+
+    @Override
     public int countByParentId(String parentId) {
         return jpa.countByParentId(parentId);
     }
