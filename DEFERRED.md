@@ -350,3 +350,14 @@ Deferred items, each with a why:
   abort that user every run (stays PENDING, loud log) and it re-occupies a batch slot each
   day. Fine at near-zero abort volume; if it ever recurs at scale, add a PENDING_REVIEW
   sub-state so aborts don't starve healthy purges.
+
+## Process note (account deletion, learned 2026-07)
+
+- **Strict audits must sweep the OLD SIBLINGS of new surfaces, not just the new surfaces.**
+  Phase 1 locked "a bearer token alone can never initiate deletion" and closed it on
+  DELETE /account/me — but DELETE /auth/account (the endpoint the live client actually
+  called) kept the old bearer-only immediate-delete semantics, and the strict audit's
+  blast radius was drawn around what CHANGED, not around what the change made STALE. The
+  next phase's mini-0 caught it (B1: /auth/account -> 410). Second time an audit missed a
+  stale sibling — when a rule is locked, grep every sibling of the changed code and re-audit
+  the ones the rule now implicates, not only the diff.
