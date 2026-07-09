@@ -14,7 +14,6 @@ import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionSummaryJpaRepository;
 import com.pally.infrastructure.persistence.chat.HintTreeJpaRepository;
-import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRequestJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaRepository;
@@ -31,6 +30,13 @@ import com.pally.infrastructure.persistence.referral.ReferralJpaRepository;
 import com.pally.infrastructure.persistence.safety.ChatSafetyFlagJpaRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
+import com.pally.infrastructure.persistence.cost.AiUsageJpaRepository;
+import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
+import com.pally.infrastructure.persistence.homework.HomeworkSubmissionJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizAnswerKeyJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizSubmissionIdempotencyJpaRepository;
+import com.pally.infrastructure.persistence.auth.AuthChallengeJpaRepository;
+import com.pally.infrastructure.persistence.weakness.WeaknessProfileStateJpaRepository;
 import com.pally.infrastructure.storage.StorageService;
 import com.pally.infrastructure.stripe.StripeService;
 import com.pally.shared.exception.BusinessException;
@@ -81,7 +87,6 @@ class DeleteAccountUseCaseTest {
     @Mock ActivityLogJpaRepository activityLogRepo;
     @Mock StudyPlanCompletionJpaRepository studyPlanCompletionRepo;
     @Mock UserBadgeJpaRepository badgeRepo;
-    @Mock ConsentRecordJpaRepository consentRecordRepo;
     @Mock ConsentRequestJpaRepository consentRequestRepo;
     @Mock ReferralJpaRepository referralRepo;
     @Mock CharacterUnlockJpaRepository characterUnlockRepo;
@@ -91,10 +96,19 @@ class DeleteAccountUseCaseTest {
     @Mock BiometricChallengeJpaRepository biometricChallengeRepo;
     @Mock EmailVerificationTokenJpaRepository emailVerificationTokenRepo;
     @Mock SubscriptionJpaRepository subscriptionRepo;
+    @Mock com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo;
+    @Mock com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo;
     @Mock StorageService storageService;
     @Mock StripeService stripeService;
     @Mock PremiumService premiumService;
     @Mock RevokedTokenJpaRepository revokedTokenRepo;
+    @Mock AiUsageJpaRepository aiUsageRepo;
+    @Mock ContentGapSignalJpaRepository contentGapSignalRepo;
+    @Mock HomeworkSubmissionJpaRepository homeworkSubmissionRepo;
+    @Mock QuizAnswerKeyJpaRepository quizAnswerKeyRepo;
+    @Mock QuizSubmissionIdempotencyJpaRepository quizSubmissionIdempotencyRepo;
+    @Mock AuthChallengeJpaRepository authChallengeRepo;
+    @Mock WeaknessProfileStateJpaRepository weaknessProfileStateRepo;
 
     DeleteAccountUseCase useCase;
 
@@ -111,11 +125,15 @@ class DeleteAccountUseCaseTest {
                 flashcardRepo, quizAnswerRepo, quizQuestionResultRepo,
                 wikiPageSourceRepo, wikiPageRepo, knowledgeFileRepo,
                 activityLogRepo, studyPlanCompletionRepo, badgeRepo,
-                consentRecordRepo, consentRequestRepo, referralRepo,
+                consentRequestRepo, referralRepo,
                 characterUnlockRepo, userMochiRepo, userPowerupRepo,
                 biometricRegistrationRepo, biometricChallengeRepo,
                 emailVerificationTokenRepo, subscriptionRepo,
-                storageService, stripeService, premiumService, revokedTokenRepo
+                starAwardLogRepo, assignmentRepo,
+                storageService, stripeService, premiumService, revokedTokenRepo,
+                aiUsageRepo, contentGapSignalRepo, homeworkSubmissionRepo,
+                quizAnswerKeyRepo, quizSubmissionIdempotencyRepo,
+                authChallengeRepo, weaknessProfileStateRepo
         );
     }
 
@@ -129,8 +147,8 @@ class DeleteAccountUseCaseTest {
         when(avatarRepo.findByUserId(USER_ID)).thenReturn(List.of());
         when(referralRepo.findAll()).thenReturn(List.of());
         when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
-        when(consentRecordRepo.findAll()).thenReturn(List.of());
-        when(consentRequestRepo.findAll()).thenReturn(List.of());
+        // consent_records/requests are RETAINED (PDPA proof) — purge neither reads nor
+        // deletes them; it only scrubs the consent_requests token.
         when(characterUnlockRepo.findAll()).thenReturn(List.of());
         when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
         when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
@@ -141,6 +159,21 @@ class DeleteAccountUseCaseTest {
     }
 
     // ── Tests ──────────────────────────────────────────────────────────────
+
+    @Test
+    void execute_clearsRestrictFkRows_beforeUserDelete_soDeleteCannotHalfAbort() {
+        stubNoChildren();
+        stubEmptyLists();
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // star_award_log.(parent_id|child_id) and assignment.student_id are FKs to users
+        // with no ON DELETE — leaving them would abort the whole delete. They MUST be cleared.
+        var inOrder = inOrder(starAwardLogRepo, assignmentRepo, userRepo);
+        inOrder.verify(starAwardLogRepo).deleteByParticipant(USER_ID);
+        inOrder.verify(assignmentRepo).deleteByStudentId(USER_ID);
+        inOrder.verify(userRepo).deleteById(USER_ID); // user row deleted LAST
+    }
 
     @Test
     void execute_soloUser_deletesUserRowAndRevokesToken() {
@@ -220,8 +253,8 @@ class DeleteAccountUseCaseTest {
         // User-level stubs
         when(referralRepo.findAll()).thenReturn(List.of());
         when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
-        when(consentRecordRepo.findAll()).thenReturn(List.of());
-        when(consentRequestRepo.findAll()).thenReturn(List.of());
+        // consent_records/requests are RETAINED (PDPA proof) — purge neither reads nor
+        // deletes them; it only scrubs the consent_requests token.
         when(characterUnlockRepo.findAll()).thenReturn(List.of());
         when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
         when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
@@ -240,6 +273,73 @@ class DeleteAccountUseCaseTest {
         verify(avatarRepo).deleteById(AVATAR_ID);
         // User row deleted
         verify(userRepo).deleteById(USER_ID);
+    }
+
+    @Test
+    void execute_anonymizesSurvivors_andDeletesNoFkOrphans_beforeUserRow() {
+        stubNoChildren();
+        stubEmptyLists();
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // SURVIVORS anonymized in place (rows kept, identity nulled).
+        verify(aiUsageRepo).anonymizeByUserId(USER_ID);
+        verify(contentGapSignalRepo).anonymizeByUserId(USER_ID);
+        // No-FK orphans deleted (would NOT cascade with the user row).
+        verify(homeworkSubmissionRepo).deleteByStudentId(USER_ID);
+        verify(authChallengeRepo).deleteByUserId(USER_ID);
+        verify(weaknessProfileStateRepo).deleteByUserId(USER_ID);
+        verify(quizSubmissionIdempotencyRepo).deleteByUserId(USER_ID);
+
+        // CONSENT PROOF is RETAINED (PDPA evidence): the request token is scrubbed
+        // (minimization) but the rows are NEVER deleted.
+        verify(consentRequestRepo).scrubTokensByChildUserId(USER_ID);
+        verify(consentRequestRepo, never()).deleteById(anyString());
+
+        // All of it happens BEFORE the user row delete, so a crash can't leave a purged
+        // user with survivor rows still pointing at the dead id.
+        var ordered = inOrder(aiUsageRepo, contentGapSignalRepo, homeworkSubmissionRepo,
+                authChallengeRepo, weaknessProfileStateRepo, quizSubmissionIdempotencyRepo, userRepo);
+        ordered.verify(aiUsageRepo).anonymizeByUserId(USER_ID);
+        ordered.verify(contentGapSignalRepo).anonymizeByUserId(USER_ID);
+        ordered.verify(userRepo).deleteById(USER_ID);
+    }
+
+    @Test
+    void execute_withAvatar_anonymizesAiUsageAndDeletesAnswerKeys_perAvatar() {
+        stubNoChildren();
+
+        AvatarJpaEntity avatar = new AvatarJpaEntity();
+        avatar.setId(AVATAR_ID);
+        avatar.setUserId(USER_ID);
+        when(avatarRepo.findByUserId(USER_ID)).thenReturn(List.of(avatar));
+        when(chatMessageRepo.findAll()).thenReturn(List.of());
+        when(chatSessionRepo.findAll()).thenReturn(List.of());
+        when(chatSessionSummaryRepo.findAll()).thenReturn(List.of());
+        when(chatSafetyFlagRepo.findAll()).thenReturn(List.of());
+        when(hintTreeRepo.findAll()).thenReturn(List.of());
+        when(flashcardRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(quizAnswerRepo.findAll()).thenReturn(List.of());
+        when(quizQuestionResultRepo.findAll()).thenReturn(List.of());
+        when(wikiPageRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(knowledgeFileRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(referralRepo.findAll()).thenReturn(List.of());
+        when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        // consent_records/requests are RETAINED (PDPA proof) — purge neither reads nor
+        // deletes them; it only scrubs the consent_requests token.
+        when(characterUnlockRepo.findAll()).thenReturn(List.of());
+        when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
+        when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
+        when(biometricRegistrationRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(biometricChallengeRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(emailVerificationTokenRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(subscriptionRepo.findById(USER_ID)).thenReturn(Optional.empty());
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // ai_usage rows from this avatar are anonymized (survivor); answer keys deleted.
+        verify(aiUsageRepo).anonymizeByAvatarId(AVATAR_ID);
+        verify(quizAnswerKeyRepo).deleteByAvatarId(AVATAR_ID);
     }
 
     @Test

@@ -176,6 +176,15 @@ public abstract class IntegrationTestBase {
                     + "(SELECT id FROM users WHERE email LIKE '%@test.com') "
                     + "OR child_id IN (SELECT id FROM users WHERE email LIKE '%@test.com')")
                     .executeUpdate();
+            // 2b. Consent proof no longer cascades from users (V119 dropped the FK so real
+            // purges RETAIN it). For TEST hygiene only, clear it for @test.com users so the
+            // shared container doesn't accumulate across the suite.
+            entityManager.createNativeQuery(
+                    "DELETE FROM consent_records WHERE user_id IN "
+                    + "(SELECT id FROM users WHERE email LIKE '%@test.com')").executeUpdate();
+            entityManager.createNativeQuery(
+                    "DELETE FROM consent_requests WHERE child_user_id IN "
+                    + "(SELECT id FROM users WHERE email LIKE '%@test.com')").executeUpdate();
             // 3. The test users themselves (remaining children cascade).
             int users = entityManager.createNativeQuery(
                     "DELETE FROM users WHERE email LIKE '%@test.com'")

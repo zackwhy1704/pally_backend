@@ -13,7 +13,6 @@ import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionSummaryJpaRepository;
 import com.pally.infrastructure.persistence.chat.HintTreeJpaRepository;
-import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRequestJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
@@ -29,6 +28,13 @@ import com.pally.infrastructure.persistence.referral.ReferralJpaRepository;
 import com.pally.infrastructure.persistence.safety.ChatSafetyFlagJpaRepository;
 import com.pally.infrastructure.persistence.shop.CharacterUnlockJpaRepository;
 import com.pally.infrastructure.persistence.subscription.SubscriptionJpaRepository;
+import com.pally.infrastructure.persistence.cost.AiUsageJpaRepository;
+import com.pally.infrastructure.persistence.assignment.ContentGapSignalJpaRepository;
+import com.pally.infrastructure.persistence.homework.HomeworkSubmissionJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizAnswerKeyJpaRepository;
+import com.pally.infrastructure.persistence.quiz.QuizSubmissionIdempotencyJpaRepository;
+import com.pally.infrastructure.persistence.auth.AuthChallengeJpaRepository;
+import com.pally.infrastructure.persistence.weakness.WeaknessProfileStateJpaRepository;
 import com.pally.infrastructure.storage.StorageService;
 import com.pally.infrastructure.stripe.StripeService;
 import com.pally.shared.exception.BusinessException;
@@ -73,7 +79,6 @@ public class DeleteAccountUseCase {
     private final ActivityLogJpaRepository activityLogRepo;
     private final StudyPlanCompletionJpaRepository studyPlanCompletionRepo;
     private final UserBadgeJpaRepository badgeRepo;
-    private final ConsentRecordJpaRepository consentRecordRepo;
     private final ConsentRequestJpaRepository consentRequestRepo;
     private final ReferralJpaRepository referralRepo;
     private final CharacterUnlockJpaRepository characterUnlockRepo;
@@ -83,10 +88,20 @@ public class DeleteAccountUseCase {
     private final BiometricChallengeJpaRepository biometricChallengeRepo;
     private final EmailVerificationTokenJpaRepository emailVerificationTokenRepo;
     private final SubscriptionJpaRepository subscriptionRepo;
+    private final com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo;
+    private final com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo;
     private final StorageService storageService;
     private final StripeService stripeService;
     private final PremiumService premiumService;
     private final RevokedTokenJpaRepository revokedTokenRepo;
+    // ── Account-deletion survivors (anonymize) + no-FK orphans (delete) ────────
+    private final AiUsageJpaRepository aiUsageRepo;
+    private final ContentGapSignalJpaRepository contentGapSignalRepo;
+    private final HomeworkSubmissionJpaRepository homeworkSubmissionRepo;
+    private final QuizAnswerKeyJpaRepository quizAnswerKeyRepo;
+    private final QuizSubmissionIdempotencyJpaRepository quizSubmissionIdempotencyRepo;
+    private final AuthChallengeJpaRepository authChallengeRepo;
+    private final WeaknessProfileStateJpaRepository weaknessProfileStateRepo;
 
     // ── Constructor injection (no @Autowired fields) ───────────────────────
 
@@ -107,7 +122,6 @@ public class DeleteAccountUseCase {
             ActivityLogJpaRepository activityLogRepo,
             StudyPlanCompletionJpaRepository studyPlanCompletionRepo,
             UserBadgeJpaRepository badgeRepo,
-            ConsentRecordJpaRepository consentRecordRepo,
             ConsentRequestJpaRepository consentRequestRepo,
             ReferralJpaRepository referralRepo,
             CharacterUnlockJpaRepository characterUnlockRepo,
@@ -117,10 +131,19 @@ public class DeleteAccountUseCase {
             BiometricChallengeJpaRepository biometricChallengeRepo,
             EmailVerificationTokenJpaRepository emailVerificationTokenRepo,
             SubscriptionJpaRepository subscriptionRepo,
+            com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo,
+            com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo,
             StorageService storageService,
             StripeService stripeService,
             PremiumService premiumService,
-            RevokedTokenJpaRepository revokedTokenRepo) {
+            RevokedTokenJpaRepository revokedTokenRepo,
+            AiUsageJpaRepository aiUsageRepo,
+            ContentGapSignalJpaRepository contentGapSignalRepo,
+            HomeworkSubmissionJpaRepository homeworkSubmissionRepo,
+            QuizAnswerKeyJpaRepository quizAnswerKeyRepo,
+            QuizSubmissionIdempotencyJpaRepository quizSubmissionIdempotencyRepo,
+            AuthChallengeJpaRepository authChallengeRepo,
+            WeaknessProfileStateJpaRepository weaknessProfileStateRepo) {
 
         this.userRepo                  = userRepo;
         this.avatarRepo                = avatarRepo;
@@ -138,7 +161,6 @@ public class DeleteAccountUseCase {
         this.activityLogRepo           = activityLogRepo;
         this.studyPlanCompletionRepo   = studyPlanCompletionRepo;
         this.badgeRepo                 = badgeRepo;
-        this.consentRecordRepo         = consentRecordRepo;
         this.consentRequestRepo        = consentRequestRepo;
         this.referralRepo              = referralRepo;
         this.characterUnlockRepo       = characterUnlockRepo;
@@ -148,10 +170,19 @@ public class DeleteAccountUseCase {
         this.biometricChallengeRepo    = biometricChallengeRepo;
         this.emailVerificationTokenRepo = emailVerificationTokenRepo;
         this.subscriptionRepo          = subscriptionRepo;
+        this.starAwardLogRepo          = starAwardLogRepo;
+        this.assignmentRepo            = assignmentRepo;
         this.storageService            = storageService;
         this.stripeService             = stripeService;
         this.premiumService            = premiumService;
         this.revokedTokenRepo          = revokedTokenRepo;
+        this.aiUsageRepo               = aiUsageRepo;
+        this.contentGapSignalRepo      = contentGapSignalRepo;
+        this.homeworkSubmissionRepo    = homeworkSubmissionRepo;
+        this.quizAnswerKeyRepo         = quizAnswerKeyRepo;
+        this.quizSubmissionIdempotencyRepo = quizSubmissionIdempotencyRepo;
+        this.authChallengeRepo         = authChallengeRepo;
+        this.weaknessProfileStateRepo  = weaknessProfileStateRepo;
     }
 
     /**
@@ -206,13 +237,17 @@ public class DeleteAccountUseCase {
         activityLogRepo.deleteAllByUserId(userId);
         studyPlanCompletionRepo.deleteAllByUserId(userId);
 
-        // Consent records and requests
-        consentRecordRepo.findAll().stream()
-                .filter(r -> userId.equals(r.getUserId()))
-                .forEach(r -> consentRecordRepo.deleteById(r.getId()));
-        consentRequestRepo.findAll().stream()
-                .filter(r -> userId.equals(r.getChildUserId()))
-                .forEach(r -> consentRequestRepo.deleteById(r.getId()));
+        // ── Consent proof: RETAIN, do NOT delete (LOCKED survivor policy + DPO) ──────
+        // consent_records + consent_requests are the PDPA/PDPC evidence that a valid
+        // (parental) consent was obtained; their purpose activates AT and AFTER erasure
+        // ("on what basis did you process this child's data?"). They SURVIVE the purge —
+        // V119 dropped their ON DELETE CASCADE FK to users, and we no longer delete them
+        // here. consent_records is already minimal (who/what/when/mechanism), retained
+        // verbatim. We only SCRUB the reusable approval token on consent_requests
+        // (minimization — keep the proof, not a live secret). Retention DURATION is a
+        // DPIA open item. The retained rows are EVIDENCE-ONLY (no operational read path
+        // queries consent by a purged user id).
+        consentRequestRepo.scrubTokensByChildUserId(userId);
 
         // Shop / collectibles
         characterUnlockRepo.findAll().stream()
@@ -233,6 +268,28 @@ public class DeleteAccountUseCase {
 
         // Subscription row
         subscriptionRepo.deleteById(userId);
+
+        // ── Step 4c: account-deletion survivors + no-FK orphans (the DPIA map) ────
+        // These tables reference the user by a PLAIN column (no FK / no ON DELETE), so
+        // deleting the user row below would NOT touch them — they must be handled here,
+        // BEFORE the user delete, inside this same transaction so a crash can't leave a
+        // purged user with rows still pointing at the dead id.
+        //   SURVIVORS → anonymize-in-place (keep the row, null the identity):
+        aiUsageRepo.anonymizeByUserId(userId);              // cost ledger survives
+        contentGapSignalRepo.anonymizeByUserId(userId);     // teacher gap signal survives
+        //   CONTENTFUL / EPHEMERAL / SIGNAL orphans → delete:
+        homeworkSubmissionRepo.deleteByStudentId(userId);   // embeds the student's own work
+        authChallengeRepo.deleteByUserId(userId);           // short-lived auth codes
+        weaknessProfileStateRepo.deleteByUserId(userId);    // per-user weakness state
+        quizSubmissionIdempotencyRepo.deleteByUserId(userId); // idempotency guard rows
+
+        // ── Step 4b: clear the RESTRICT FKs that would otherwise ABORT the delete ──
+        // star_award_log.(parent_id|child_id) and assignment.student_id are FKs to users
+        // with NO ON DELETE, so any such row makes the user-row delete below throw a
+        // constraint violation and roll back the ENTIRE deletion (a half-abort). Clear
+        // them first. (Latent when the tables are empty — real for any parent/child/centre.)
+        starAwardLogRepo.deleteByParticipant(userId);
+        assignmentRepo.deleteByStudentId(userId);
 
         // ── Step 5: delete the user row itself ────────────────────────────────
         userRepo.deleteById(userId);
@@ -309,7 +366,14 @@ public class DeleteAccountUseCase {
             knowledgeFileRepo.deleteById(file.getId());
         });
 
-        // Avatar row itself
+        // Account-deletion: avatar-keyed no-FK rows that would NOT cascade with the
+        // avatar row (no ON DELETE). ai_usage is a SURVIVOR — anonymize (null avatar_id),
+        // keep the cost row; quiz_answer_keys are orphans — delete. See the DPIA map.
+        aiUsageRepo.anonymizeByAvatarId(avatarId);
+        quizAnswerKeyRepo.deleteByAvatarId(avatarId);
+
+        // Avatar row itself (cascades wiki_pages/flashcards/chat/modules/quiz_sessions
+        // /quiz_question_results via ON DELETE CASCADE on avatars(id)).
         avatarRepo.deleteById(avatarId);
     }
 }

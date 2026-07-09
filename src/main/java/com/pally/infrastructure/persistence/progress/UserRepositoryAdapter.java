@@ -45,6 +45,59 @@ public class UserRepositoryAdapter implements UserRepository {
     }
 
     @Override
+    @Transactional
+    public void markDeletionPending(String userId, Instant requestedAt) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found: " + userId, 404));
+        // Targeted update (NOT a full applyDomainToEntity) so the epoch bump can never
+        // be clobbered by a stale domain snapshot — the domain User doesn't carry epoch.
+        e.setAccountStatus(com.pally.domain.consent.ConsentGuard.STATUS_DELETION_PENDING);
+        e.setDeletionRequestedAt(requestedAt);
+        e.setSessionEpoch(e.getSessionEpoch() + 1); // kills every outstanding token
+        jpa.save(e);
+    }
+
+    @Override
+    @Transactional
+    public void clearDeletionPending(String userId) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found: " + userId, 404));
+        e.setAccountStatus(com.pally.domain.consent.ConsentGuard.STATUS_ACTIVE);
+        e.setDeletionRequestedAt(null);
+        e.setSessionEpoch(e.getSessionEpoch() + 1); // any token minted during grace also dies
+        jpa.save(e);
+    }
+
+    @Override
+    public Optional<User> findByEmail(String email) {
+        return jpa.findByEmail(com.pally.shared.util.EmailNormalizer.canonical(email))
+                .map(UserJpaEntity::toUserDomain);
+    }
+
+    @Override
+    public List<User> findPurgeCandidates(Instant graceCutoff, Instant retryCutoff, int limit) {
+        return jpa.findPurgeCandidates(
+                        com.pally.domain.consent.ConsentGuard.STATUS_DELETION_PENDING,
+                        graceCutoff,
+                        retryCutoff,
+                        org.springframework.data.domain.PageRequest.of(0, limit))
+                .stream()
+                .map(UserJpaEntity::toUserDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void markDeletionAttempt(String userId, Instant attemptedAt) {
+        // Own transaction (via the adapter) so it commits even when the sibling purge
+        // transaction rolled back — that's the point: record the failed/aborted attempt.
+        jpa.findById(userId).ifPresent(e -> {
+            e.setDeletionLastAttemptAt(attemptedAt);
+            jpa.save(e);
+        });
+    }
+
+    @Override
     public int countByParentId(String parentId) {
         return jpa.countByParentId(parentId);
     }

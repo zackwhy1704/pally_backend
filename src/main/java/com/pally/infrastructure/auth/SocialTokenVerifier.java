@@ -79,6 +79,7 @@ public class SocialTokenVerifier {
      * Callers must supply their Google OAuth client ID(s) as {@code allowedAudiences}.
      */
     public VerifiedClaims verifyGoogle(String idToken, List<String> allowedAudiences) {
+        requireConfiguredAudience(allowedAudiences, "Google");
         Map<String, Object> payload = verifyToken(idToken, googleKeys, GOOGLE_JWKS_URL, allowedAudiences);
         String iss = (String) payload.get("iss");
         if (!GOOGLE_ISS_1.equals(iss) && !GOOGLE_ISS_2.equals(iss)) {
@@ -104,6 +105,7 @@ public class SocialTokenVerifier {
      * Apple tokens may not contain an email on repeated logins — callers should handle null.
      */
     public VerifiedClaims verifyApple(String identityToken, List<String> allowedAudiences) {
+        requireConfiguredAudience(allowedAudiences, "Apple");
         Map<String, Object> payload = verifyToken(identityToken, appleKeys, APPLE_JWKS_URL, allowedAudiences);
         String iss = (String) payload.get("iss");
         if (!APPLE_ISS.equals(iss)) {
@@ -117,6 +119,20 @@ public class SocialTokenVerifier {
                 null, // Apple doesn't return name after first login
                 (String) payload.get("sub"),
                 "apple");
+    }
+
+    /**
+     * FAIL-CLOSED: a provider sign-in with NO configured audience (client-id) is REJECTED,
+     * never waved through. Google/Apple sign the token, not its audience binding — so a
+     * validly-signed token issued to ANY other app replays here and impersonates that
+     * app's user unless we pin the audience. Config absent ⇒ that social sign-in is OFF.
+     * (The 6th member of the null-config fail-open family.)
+     */
+    static void requireConfiguredAudience(List<String> allowedAudiences, String provider) {
+        if (allowedAudiences == null || allowedAudiences.isEmpty()) {
+            throw new SecurityException(
+                    provider + " sign-in is not configured (no allowed audience) — rejected");
+        }
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────

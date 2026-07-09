@@ -9,6 +9,11 @@ public interface OrgClassJpaRepository extends JpaRepository<OrgClassJpaEntity, 
 
     List<OrgClassJpaEntity> findByOrganizationId(String organizationId);
 
+    /// Count of classes in an org. Used by the account-deletion block-unless-empty
+    /// guard (CentreAccessService.isOwnedCentreEmpty): an owner with any class may
+    /// not delete until the centre is transferred or closed.
+    long countByOrganizationId(String organizationId);
+
     Optional<OrgClassJpaEntity> findByJoinCode(String joinCode);
 
     /// The class whose hidden corpus avatar this is. Lets the avatar mapper

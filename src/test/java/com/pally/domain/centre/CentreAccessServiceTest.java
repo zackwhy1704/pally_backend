@@ -2,10 +2,12 @@ package com.pally.domain.centre;
 
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaEntity;
 import com.pally.infrastructure.persistence.organization.ClassMembershipJpaRepository;
+import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
+import com.pally.infrastructure.persistence.progress.UserJpaRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,6 +28,8 @@ class CentreAccessServiceTest {
     @Mock OrganizationJpaRepository orgRepo;
     @Mock OrgStaffJpaRepository staffRepo;
     @Mock ClassMembershipJpaRepository membershipRepo;
+    @Mock OrgClassJpaRepository orgClassRepo;
+    @Mock UserJpaRepository userRepo;
 
     @InjectMocks CentreAccessService service;
 
@@ -148,5 +153,74 @@ class CentreAccessServiceTest {
     @Test
     void isActiveClassMember_nullClassId_returnsFalse() {
         assertThat(service.isActiveClassMember("student-1", null)).isFalse();
+    }
+
+    // ── isOwnedCentreEmpty (account-deletion block-unless-empty) ────────────────
+
+    private OrgStaffJpaEntity staff(String userId) {
+        OrgStaffJpaEntity s = new OrgStaffJpaEntity();
+        s.setOrgId(ORG_ID);
+        s.setUserId(userId);
+        s.setStatus(OrgStaffJpaEntity.STATUS_ACTIVE);
+        return s;
+    }
+
+    @Test
+    void isOwnedCentreEmpty_ownsNoOrg_returnsTrue() {
+        when(orgRepo.findByOwnerUserId(OWNER_ID)).thenReturn(List.of());
+
+        assertThat(service.isOwnedCentreEmpty(OWNER_ID)).isTrue();
+    }
+
+    @Test
+    void isOwnedCentreEmpty_ownsEmptyOrg_returnsTrue() {
+        when(orgRepo.findByOwnerUserId(OWNER_ID)).thenReturn(List.of(org(OWNER_ID)));
+        when(orgClassRepo.countByOrganizationId(ORG_ID)).thenReturn(0L);
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(0L);
+        when(staffRepo.findByOrgIdAndStatus(ORG_ID, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(List.of());
+
+        assertThat(service.isOwnedCentreEmpty(OWNER_ID)).isTrue();
+    }
+
+    @Test
+    void isOwnedCentreEmpty_orgHasAClass_returnsFalse() {
+        when(orgRepo.findByOwnerUserId(OWNER_ID)).thenReturn(List.of(org(OWNER_ID)));
+        when(orgClassRepo.countByOrganizationId(ORG_ID)).thenReturn(1L);
+
+        assertThat(service.isOwnedCentreEmpty(OWNER_ID)).isFalse();
+    }
+
+    @Test
+    void isOwnedCentreEmpty_orgHasEnrolledStudents_returnsFalse() {
+        when(orgRepo.findByOwnerUserId(OWNER_ID)).thenReturn(List.of(org(OWNER_ID)));
+        when(orgClassRepo.countByOrganizationId(ORG_ID)).thenReturn(0L);
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(3L);
+
+        assertThat(service.isOwnedCentreEmpty(OWNER_ID)).isFalse();
+    }
+
+    @Test
+    void isOwnedCentreEmpty_orgHasOtherActiveStaff_returnsFalse() {
+        when(orgRepo.findByOwnerUserId(OWNER_ID)).thenReturn(List.of(org(OWNER_ID)));
+        when(orgClassRepo.countByOrganizationId(ORG_ID)).thenReturn(0L);
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(0L);
+        when(staffRepo.findByOrgIdAndStatus(ORG_ID, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(List.of(staff(OTHER_ID)));
+
+        assertThat(service.isOwnedCentreEmpty(OWNER_ID)).isFalse();
+    }
+
+    @Test
+    void isOwnedCentreEmpty_onlyStaffRowIsTheOwnerThemselves_returnsTrue() {
+        // The owner may hold their own org_staff row; that must NOT count as
+        // "other staff" and block their deletion of an otherwise-empty centre.
+        when(orgRepo.findByOwnerUserId(OWNER_ID)).thenReturn(List.of(org(OWNER_ID)));
+        when(orgClassRepo.countByOrganizationId(ORG_ID)).thenReturn(0L);
+        when(userRepo.countByCentreId(ORG_ID)).thenReturn(0L);
+        when(staffRepo.findByOrgIdAndStatus(ORG_ID, OrgStaffJpaEntity.STATUS_ACTIVE))
+                .thenReturn(List.of(staff(OWNER_ID)));
+
+        assertThat(service.isOwnedCentreEmpty(OWNER_ID)).isTrue();
     }
 }

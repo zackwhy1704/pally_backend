@@ -26,6 +26,41 @@ public interface UserRepository {
     /** Count students enrolled in a centre. */
     long countByCentreId(String centreId);
 
+    /**
+     * ACCOUNT DELETION Phase 1: move the account into the deletion grace window in a
+     * single unit of work — set account_status = DELETION_PENDING, stamp
+     * deletion_requested_at, and BUMP session_epoch. The epoch bump is the PRIMARY
+     * block: it invalidates every outstanding token (JwtAuthenticationFilter rejects
+     * tokens minted below the current epoch), so the account is logged out everywhere
+     * the instant deletion is requested. Idempotent to re-apply.
+     */
+    void markDeletionPending(String userId, Instant requestedAt);
+
+    /**
+     * ACCOUNT DELETION Phase 1: up to {@code limit} accounts in DELETION_PENDING whose
+     * grace has elapsed ({@code deletion_requested_at < graceCutoff}), oldest first,
+     * EXCLUDING any attempted within the backoff window ({@code deletion_last_attempt_at}
+     * null or {@code < retryCutoff}). The exclusion prevents a permanently-stuck account
+     * (org acquired during grace, or a repeatedly-failing purge) from monopolizing the
+     * oldest-first head and starving healthy purges behind it. Returns domain Users so
+     * the reaper stays free of any infrastructure.persistence import.
+     */
+    List<User> findPurgeCandidates(Instant graceCutoff, Instant retryCutoff, int limit);
+
+    /** Records a purge ATTEMPT (set on abort/failure) so the backoff window excludes this
+     *  account from the next runs — the anti-starvation timestamp. */
+    void markDeletionAttempt(String userId, Instant attemptedAt);
+
+    /**
+     * ACCOUNT DELETION Phase 1 restore: cancel a pending deletion — set account_status =
+     * ACTIVE, clear deletion_requested_at, and BUMP session_epoch AGAIN so any token
+     * minted between the request and the restore also dies. Idempotent-safe.
+     */
+    void clearDeletionPending(String userId);
+
+    /** Look up a user by (canonicalized) email — used by the password restore path. */
+    Optional<User> findByEmail(String email);
+
     /** Batch-fetch users by their IDs (for heatmap display-name lookup). */
     List<User> findAllByIds(Collection<String> ids);
 
