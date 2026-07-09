@@ -91,6 +91,8 @@ class DeleteAccountUseCaseTest {
     @Mock BiometricChallengeJpaRepository biometricChallengeRepo;
     @Mock EmailVerificationTokenJpaRepository emailVerificationTokenRepo;
     @Mock SubscriptionJpaRepository subscriptionRepo;
+    @Mock com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo;
+    @Mock com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo;
     @Mock StorageService storageService;
     @Mock StripeService stripeService;
     @Mock PremiumService premiumService;
@@ -115,6 +117,7 @@ class DeleteAccountUseCaseTest {
                 characterUnlockRepo, userMochiRepo, userPowerupRepo,
                 biometricRegistrationRepo, biometricChallengeRepo,
                 emailVerificationTokenRepo, subscriptionRepo,
+                starAwardLogRepo, assignmentRepo,
                 storageService, stripeService, premiumService, revokedTokenRepo
         );
     }
@@ -141,6 +144,21 @@ class DeleteAccountUseCaseTest {
     }
 
     // ── Tests ──────────────────────────────────────────────────────────────
+
+    @Test
+    void execute_clearsRestrictFkRows_beforeUserDelete_soDeleteCannotHalfAbort() {
+        stubNoChildren();
+        stubEmptyLists();
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // star_award_log.(parent_id|child_id) and assignment.student_id are FKs to users
+        // with no ON DELETE — leaving them would abort the whole delete. They MUST be cleared.
+        var inOrder = inOrder(starAwardLogRepo, assignmentRepo, userRepo);
+        inOrder.verify(starAwardLogRepo).deleteByParticipant(USER_ID);
+        inOrder.verify(assignmentRepo).deleteByStudentId(USER_ID);
+        inOrder.verify(userRepo).deleteById(USER_ID); // user row deleted LAST
+    }
 
     @Test
     void execute_soloUser_deletesUserRowAndRevokesToken() {

@@ -83,6 +83,8 @@ public class DeleteAccountUseCase {
     private final BiometricChallengeJpaRepository biometricChallengeRepo;
     private final EmailVerificationTokenJpaRepository emailVerificationTokenRepo;
     private final SubscriptionJpaRepository subscriptionRepo;
+    private final com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo;
+    private final com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo;
     private final StorageService storageService;
     private final StripeService stripeService;
     private final PremiumService premiumService;
@@ -117,6 +119,8 @@ public class DeleteAccountUseCase {
             BiometricChallengeJpaRepository biometricChallengeRepo,
             EmailVerificationTokenJpaRepository emailVerificationTokenRepo,
             SubscriptionJpaRepository subscriptionRepo,
+            com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo,
+            com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo,
             StorageService storageService,
             StripeService stripeService,
             PremiumService premiumService,
@@ -148,6 +152,8 @@ public class DeleteAccountUseCase {
         this.biometricChallengeRepo    = biometricChallengeRepo;
         this.emailVerificationTokenRepo = emailVerificationTokenRepo;
         this.subscriptionRepo          = subscriptionRepo;
+        this.starAwardLogRepo          = starAwardLogRepo;
+        this.assignmentRepo            = assignmentRepo;
         this.storageService            = storageService;
         this.stripeService             = stripeService;
         this.premiumService            = premiumService;
@@ -233,6 +239,14 @@ public class DeleteAccountUseCase {
 
         // Subscription row
         subscriptionRepo.deleteById(userId);
+
+        // ── Step 4b: clear the RESTRICT FKs that would otherwise ABORT the delete ──
+        // star_award_log.(parent_id|child_id) and assignment.student_id are FKs to users
+        // with NO ON DELETE, so any such row makes the user-row delete below throw a
+        // constraint violation and roll back the ENTIRE deletion (a half-abort). Clear
+        // them first. (Latent when the tables are empty — real for any parent/child/centre.)
+        starAwardLogRepo.deleteByParticipant(userId);
+        assignmentRepo.deleteByStudentId(userId);
 
         // ── Step 5: delete the user row itself ────────────────────────────────
         userRepo.deleteById(userId);
