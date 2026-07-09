@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * ACCOUNT DELETION Phase 1 — user-initiated deletion REQUEST (build order step 2).
@@ -133,27 +134,83 @@ public class AccountDeletionService {
         }
         reauthenticate(userId, password, code);
 
-        // 2. Org owner block-unless-empty (also re-checked at purge time).
+        return performDeletion(user);
+    }
+
+    /**
+     * PUBLIC (unauthenticated) delete-by-email request (Phase 2). NON-ENUMERATING: the
+     * caller (controller) returns an identical message regardless of whether the account
+     * exists. Possession of the emailed single-use token is the re-auth. Rate-limited per
+     * address. The email SEND is fire-and-forget so response timing doesn't reveal account
+     * existence; the token mint is synchronous (fast, constant-ish).
+     */
+    @Transactional
+    public void requestDeletionByEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return; // controller still responds identically
+        }
+        var rl = rateLimiter.tryAcquire(
+                "acct-del-req:" + email.trim().toLowerCase(), REAUTH_LIMIT, REAUTH_WINDOW_MS);
+        if (!rl.allowed()) {
+            throw new BusinessException("Too many requests. Try again later.", 429);
+        }
+        userRepo.findByEmail(email).ifPresent(u -> {
+            String token = authChallenge.createDeleteConfirmToken(u.getId());
+            String link = webBaseUrl + "/delete-account?token=" + token;
+            String html = "<p>Someone (hopefully you) asked to delete the Apalchi account for "
+                    + "this email. <a href=\"" + link + "\">Confirm deletion</a> — this starts a "
+                    + graceDays + "-day window in which you can still restore it. If you didn't "
+                    + "request this, ignore this email and nothing happens.</p>";
+            // Fire-and-forget the SEND (the network-latency part) so a present vs absent
+            // account can't be told apart by response timing.
+            CompletableFuture.runAsync(() -> safeEmail(u.getEmail(),
+                    "Confirm your Apalchi account deletion", html));
+        });
+    }
+
+    /**
+     * PUBLIC confirm of a delete-by-email request (Phase 2). Consumes the single-use token
+     * and runs the SAME pipeline as the authenticated request — same grace, same org-owner
+     * 409 CENTRE_NOT_EMPTY (surfaced on the confirm page, not discovered at purge), same
+     * parent-notify. No session required (the token is the authorization).
+     */
+    @Transactional
+    public DeletionRequestResult confirmDeletionByToken(String token) {
+        String userId = authChallenge.consumeDeleteConfirmToken(token)
+                .orElseThrow(() -> new BusinessException(
+                        "This deletion link is invalid or has expired.", 400));
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("Account not found", 404));
+        return performDeletion(user);
+    }
+
+    /**
+     * The shared post-authorization deletion pipeline — reached AFTER re-auth (in-app) or
+     * AFTER a valid confirm token (public). Enforces the org-owner + parent guards,
+     * cancels Stripe / flags IAP, transitions to DELETION_PENDING (bumping the epoch), and
+     * fires best-effort emails. One pipeline so both entry points behave identically.
+     */
+    private DeletionRequestResult performDeletion(User user) {
+        String userId = user.getId();
+        // Org owner block-unless-empty (also re-checked at purge time). For the public
+        // path this surfaces as a 409 on the confirm page, not a silent abort at purge.
         if (!centreAccess.isOwnedCentreEmpty(userId)) {
             throw new CentreNotEmptyException();
         }
-        // 3. Parent with linked children — mirror the purge engine's guard so the
-        //    account isn't left PENDING then aborted by the reaper forever.
+        // Parent with linked children — mirror the purge engine's guard so the account
+        // isn't left PENDING then aborted by the reaper forever.
         if (userRepo.countByParentId(userId) > 0) {
             throw new BusinessException(
                     "Please unlink all child accounts before deleting your account.", 409);
         }
 
-        // 4. Subscription: cancel Stripe server-side, or flag store-managed IAP.
         boolean needsManualCancellation = cancelSubscriptionOrDetectIap(userId);
 
-        // 5. State transition — DELETION_PENDING + stamp + epoch bump (logs out everywhere).
         Instant now = Instant.now();
-        userRepo.markDeletionPending(userId, now);
+        userRepo.markDeletionPending(userId, now); // status + stamp + epoch bump
         Instant graceEndsAt = now.plus(graceDays, ChronoUnit.DAYS);
 
-        // 6. Best-effort emails (never block the state change). One restore token is
-        //    shared by the requester and, for a child, their parent — either can cancel.
+        // One restore token, shared by the requester and (for a child) their parent.
         String restoreToken = mintRestoreTokenSafely(userId);
         sendRequestedEmail(user, graceEndsAt, restoreToken);
         notifyParentIfChild(user, graceEndsAt, restoreToken);

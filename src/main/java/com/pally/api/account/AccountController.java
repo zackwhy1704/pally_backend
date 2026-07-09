@@ -114,6 +114,35 @@ public class AccountController {
     }
 
     /**
+     * PUBLIC (unauthenticated) delete-by-email request (Phase 2 / memoly public page).
+     * Always returns the SAME non-enumerating message so it can't reveal whether an
+     * account exists; if it does, a single-use confirm link is emailed. Rate-limited per
+     * address (429).
+     */
+    @PostMapping("/delete/request-by-email")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> requestDeletionByEmail(
+            @RequestBody(required = false) Map<String, String> body) {
+        accountDeletionService.requestDeletionByEmail(body == null ? null : body.get("email"));
+        return ResponseEntity.ok(ApiResponse.success(Map.of("message",
+                "If an account exists for that email, we've emailed instructions to delete it.")));
+    }
+
+    /**
+     * PUBLIC confirm of a delete-by-email request — the emailed single-use token is the
+     * authorization. Runs the same grace pipeline as the authenticated request; 409
+     * CENTRE_NOT_EMPTY if the account owns a non-empty centre; 400 on a bad/expired token.
+     */
+    @PostMapping("/delete/confirm")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> confirmDeletionByToken(
+            @RequestBody(required = false) Map<String, String> body) {
+        AccountDeletionService.DeletionRequestResult res =
+                accountDeletionService.confirmDeletionByToken(body == null ? null : body.get("token"));
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "graceEndsAt", res.graceEndsAt().toString(),
+                "needsManualCancellation", res.needsManualCancellation())));
+    }
+
+    /**
      * Cancels a pending deletion during the grace window. UNAUTHENTICATED (the account
      * has no valid session during grace — the epoch bump killed it): authorised by the
      * emailed restore {@code token}, or by {@code email}+{@code password} re-auth (the
