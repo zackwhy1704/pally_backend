@@ -94,6 +94,12 @@ never re-implemented inline in handlers.
 4. `GET /actuator/info` → `deploy.commit` + `build.time` match step 1 (curl the live URL).
 5. No "Using generated security password" line anywhere; a live deploy with
    `sk_live_` + non-prod profile REFUSES to boot (EnvironmentGuard) — that's expected.
+6. `auth.google.client-ids` / `auth.apple.client-ids` are SET on Railway. Social sign-in
+   is now FAIL-CLOSED (SocialTokenVerifier rejects when no audience is configured) — the
+   6th fail-open cure. Missing config no longer means silent-vulnerability; it means
+   "social sign-in OFF". Flip it knowingly: unset ⇒ Google/Apple sign-in returns 401,
+   don't discover it in the field. (Frontend `NEXT_PUBLIC_GOOGLE_CLIENT_ID` on Vercel is a
+   SEPARATE var — both must match the same OAuth web client for Google to work end-to-end.)
 
 ## Hard-won lessons (enforce these)
 - **Fix the FAMILY, not the instance.** Every parser/prompt/guard fix must be applied to ALL sibling
