@@ -100,14 +100,19 @@ public class AuthController {
             @Valid @RequestBody RegisterRequest request,
             HttpServletResponse response
     ) {
-        // /auth/register is the WEB centre-admin path (adults-only); mobile students use
-        // /onboard/quick and always carry a birth year. So when the role is blank AND no
-        // birth year is supplied, default to "adult" (age-exempt) — a birth-year-less web
-        // signup is never mistaken for a student. A birth year present means a real student
-        // registration (e.g. test helpers), so the role is left untouched.
+        // FAIL-CLOSED (tolerance window closed 2026-07-09). This used to default a blank
+        // role + null birth year to role="adult" (age-exempt) — a deploy-order tolerance
+        // from when the web client relied on it. But "unknown shape -> age-exempt ADULT"
+        // is exactly the unknown->adult pattern this codebase spent a branch killing: if
+        // any client ever sent this shape it would silently mint age-exempt accounts
+        // (age-exempt minors) behind a reassuring default. The real web client (memoly)
+        // sends an explicit role:"adult" — VERIFIED live on prod (deployment ed6d5e0);
+        // mobile students use /onboard/quick and always carry a birth year. So a blank
+        // role + no birth year is no longer a valid shape — REJECTED, not defaulted.
         String role = request.role();
         if ((role == null || role.isBlank()) && request.birthYear() == null) {
-            role = "adult";
+            throw new BusinessException(
+                    "A birth year or an account role is required to register.", 400);
         }
         AuthResponse result = authService.register(
                 request.email(), request.password(), request.displayName(),

@@ -56,21 +56,52 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void webRegister_noBirthYear_succeedsAsAdult_notBlockedByAgeGate() {
-        // The web (memoly) centre-admin signup sends NO birth year. It must NOT 400 on the
-        // student birth-year requirement — /auth/register is the adults-only path.
+    void webRegister_explicitAdultRole_noBirthYear_succeedsAsAdult() {
+        // The web (memoly) centre-admin signup sends an EXPLICIT role:"adult" and no birth
+        // year. It must NOT 400 on the student birth-year requirement — /auth/register with
+        // role:"adult" is the age-exempt adults-only path. (Was previously a blank-role
+        // signup relying on the removed blank->adult default; now sends the real shape.)
         HttpHeaders h = new HttpHeaders();
         h.setContentType(MediaType.APPLICATION_JSON);
         Map<String, Object> body = Map.of(
                 "email", "admin-" + System.nanoTime() + "@test.com",
                 "password", "password123",
-                "displayName", "Centre Admin");
+                "displayName", "Centre Admin",
+                "role", "adult");
         ResponseEntity<Map> res = restTemplate.postForEntity(
                 baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, h), Map.class);
 
         assertThat(res.getStatusCode().value()).isEqualTo(201);
         Map<String, Object> data = (Map<String, Object>) res.getBody().get("data");
         assertThat(data.get("token")).isNotNull(); // a real session, not a 400
+    }
+
+    @Test
+    void webRegister_blankRole_noBirthYear_isRejected400_noAccountCreated() {
+        // FAIL-CLOSED: the removed blank->adult default. A registration with neither a role
+        // nor a birth year is REJECTED (never minted age-exempt), and creates no account.
+        String email = "blankshape-" + System.nanoTime() + "@test.com";
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = Map.of(
+                "email", email,
+                "password", "password123",
+                "displayName", "No Shape");
+        ResponseEntity<Map> res = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, h), Map.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(400);
+        // No account row created: re-registering the SAME email with a valid shape now
+        // SUCCEEDS (201). Had the blank-shape register created the account, this would 409.
+        ResponseEntity<Map> retry = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register",
+                new HttpEntity<>(Map.of(
+                        "email", email,
+                        "password", "password123",
+                        "displayName", "No Shape",
+                        "role", "adult"), h),
+                Map.class);
+        assertThat(retry.getStatusCode().value()).isEqualTo(201);
     }
 
     @Test
