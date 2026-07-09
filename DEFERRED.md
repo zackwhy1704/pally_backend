@@ -361,3 +361,14 @@ Deferred items, each with a why:
   next phase's mini-0 caught it (B1: /auth/account -> 410). Second time an audit missed a
   stale sibling — when a rule is locked, grep every sibling of the changed code and re-audit
   the ones the rule now implicates, not only the diff.
+
+## CLOSED 2026-07-09 — blank-role→ADULT default retired (fail-closed)
+
+AuthController /register no longer defaults a blank role + null birth year to
+role="adult" (age-exempt) — it returns 400. The "unknown shape → age-exempt ADULT"
+landmine (would mint age-exempt minors if any client sent the shape) is gone. Safe
+because the only web caller, memoly, sends explicit role:"adult" — VERIFIED live on
+prod via Vercel (deployment ed6d5e0, ancestor of the role:"adult" commit 2e49709);
+mobile uses /onboard/quick with a birth year (bypasses this controller path). The
+dead pally signUpWithEmail (the one no-role caller) was already deleted. Pinned by
+SignupSecurityIntegrationTest (explicit-adult 201 + blank-shape 400 no-account).

@@ -29,11 +29,13 @@ class AuthIntegrationTest extends IntegrationTestBase {
     void register_duplicateEmail_returns409() {
         String email = "auth-dup-" + System.nanoTime() + "@test.com";
         registerUser(email, "password123");
-        // Second registration with same email
+        // Second registration with same email (role:"adult" so it passes the register
+        // shape guard and reaches the duplicate-email check, not the 400 blank-shape guard).
         Map<String, String> body = Map.of(
                 "email", email,
                 "password", "password456",
-                "displayName", "Dup User");
+                "displayName", "Dup User",
+                "role", "adult");
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> response = restTemplate.postForEntity(
