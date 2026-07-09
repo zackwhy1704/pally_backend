@@ -101,6 +101,14 @@ app:
     # 60 catches pages with multiple quality issues stacked up).
     low-confidence-threshold: ${REVIEW_LOW_CONF:60}
 
+# ── Account deletion (Apple 5.1.1 / PDPA erasure) ────────────────────────────
+# A user-requested deletion moves the account to DELETION_PENDING for a grace
+# window, then the DeletionPurgeReaper permanently purges it. Logging in or the
+# emailed restore link during grace cancels it. DPO-overridable via env.
+account:
+  deletion:
+    grace-days: ${ACCOUNT_DELETION_GRACE_DAYS:14}
+
 # ── Third-party AI consent gate ──────────────────────────────────────────────
 # Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic
 # (Claude) and Google (Gemini) as overseas AI processors is shown in the UI

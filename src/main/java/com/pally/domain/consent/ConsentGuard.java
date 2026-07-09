@@ -45,6 +45,13 @@ public class ConsentGuard {
     public static final String STATUS_PENDING = "PENDING_CONSENT";
     /// Social sign-in that hasn't completed the profile (birth year) step yet.
     public static final String STATUS_PENDING_PROFILE = "PENDING_PROFILE";
+    /// ACCOUNT DELETION Phase 1: a user inside the deletion grace window. It is
+    /// deliberately NOT on the ACTIVE_STATUSES allow-list below, so requireActive()
+    /// fails closed for it. This is a BELT-AND-SUSPENDERS secondary block only — the
+    /// PRIMARY block is the session_epoch bump at request time, which kills every
+    /// outstanding token via JwtAuthenticationFilter (ConsentGuard is per-gate, not
+    /// a global filter, so it cannot be the sole wall). See AccountDeletionService.
+    public static final String STATUS_DELETION_PENDING = "DELETION_PENDING";
 
     /// The ALLOW-LIST of active-equivalent statuses. requireActive() FAILS CLOSED:
     /// a status not in here is blocked. This replaces per-guard enumeration of blocking

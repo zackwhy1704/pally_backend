@@ -170,6 +170,14 @@ public class UserJpaEntity {
     @Column(name = "birth_year")
     private Integer birthYear;
 
+    /// ACCOUNT DELETION Phase 1 (V118): when the user requested account deletion.
+    /// NULL for normal accounts. Stamped together with account_status =
+    /// 'DELETION_PENDING' (see ConsentGuard.STATUS_DELETION_PENDING) and a
+    /// session_epoch bump; the DeletionPurgeReaper permanently purges the account
+    /// account.deletion.grace-days after this instant. Cleared on restore.
+    @Column(name = "deletion_requested_at")
+    private Instant deletionRequestedAt;
+
     // ── Cardless 7-day trial (V47) ────────────────────────────────────────
     // NONE | ACTIVE | EXPIRED | CONVERTED
     @Column(name = "trial_status", nullable = false, length = 20)
