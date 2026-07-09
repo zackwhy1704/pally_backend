@@ -1,6 +1,7 @@
 package com.pally.domain.account;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.subscription.SubscriptionRepository;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
@@ -270,5 +271,81 @@ class AccountDeletionServiceTest {
         service.sendDeleteCodeIfPasswordless(USER);
 
         verify(emailService).sendHtml(eq("a@b.com"), anyString(), anyString());
+    }
+
+    // ── restore ──────────────────────────────────────────────────────────────
+
+    private User pendingUser() {
+        User u = user("a@b.com");
+        u.setAccountStatus(ConsentGuard.STATUS_DELETION_PENDING);
+        return u;
+    }
+
+    @Test
+    void restore_validToken_clearsPending() {
+        when(authChallenge.consumeRestoreToken("tok")).thenReturn(Optional.of(USER));
+        when(userRepo.findById(USER)).thenReturn(Optional.of(pendingUser()));
+
+        var res = service.restore("tok", null, null);
+
+        assertThat(res.restored()).isTrue();
+        verify(userRepo).clearDeletionPending(USER);
+    }
+
+    @Test
+    void restore_invalidToken_throws400() {
+        when(authChallenge.consumeRestoreToken("bad")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.restore("bad", null, null))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 400);
+
+        verify(userRepo, never()).clearDeletionPending(anyString());
+    }
+
+    @Test
+    void restore_accountNotPending_isIdempotentNoOp() {
+        when(authChallenge.consumeRestoreToken("tok")).thenReturn(Optional.of(USER));
+        when(userRepo.findById(USER)).thenReturn(Optional.of(user("a@b.com"))); // ACTIVE
+
+        var res = service.restore("tok", null, null);
+
+        assertThat(res.restored()).isFalse();
+        verify(userRepo, never()).clearDeletionPending(anyString());
+    }
+
+    @Test
+    void restore_passwordPath_validPassword_clearsPending() {
+        allowRate();
+        when(userRepo.findByEmail("a@b.com")).thenReturn(Optional.of(pendingUser()));
+        when(userRepo.getPasswordHash(USER)).thenReturn(Optional.of("$2a$hash"));
+        when(passwordEncoder.matches("pw", "$2a$hash")).thenReturn(true);
+        when(userRepo.findById(USER)).thenReturn(Optional.of(pendingUser()));
+
+        var res = service.restore(null, "a@b.com", "pw");
+
+        assertThat(res.restored()).isTrue();
+        verify(userRepo).clearDeletionPending(USER);
+    }
+
+    @Test
+    void restore_passwordPath_wrongPassword_throws401() {
+        allowRate();
+        when(userRepo.findByEmail("a@b.com")).thenReturn(Optional.of(pendingUser()));
+        when(userRepo.getPasswordHash(USER)).thenReturn(Optional.of("$2a$hash"));
+        when(passwordEncoder.matches("bad", "$2a$hash")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.restore(null, "a@b.com", "bad"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 401);
+
+        verify(userRepo, never()).clearDeletionPending(anyString());
+    }
+
+    @Test
+    void restore_noCredentials_throws400() {
+        assertThatThrownBy(() -> service.restore(null, null, null))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 400);
     }
 }

@@ -114,6 +114,22 @@ public class AccountController {
     }
 
     /**
+     * Cancels a pending deletion during the grace window. UNAUTHENTICATED (the account
+     * has no valid session during grace — the epoch bump killed it): authorised by the
+     * emailed restore {@code token}, or by {@code email}+{@code password} re-auth (the
+     * login-during-grace path). Returns {@code {restored: true|false}}.
+     */
+    @PostMapping("/restore")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> restore(
+            @RequestBody(required = false) Map<String, String> body) {
+        AccountDeletionService.RestoreResult res = accountDeletionService.restore(
+                body == null ? null : body.get("token"),
+                body == null ? null : body.get("email"),
+                body == null ? null : body.get("password"));
+        return ResponseEntity.ok(ApiResponse.success(Map.of("restored", res.restored())));
+    }
+
+    /**
      * @deprecated Legacy bearer-only immediate delete — UNSAFE under the current
      * policy ("a bearer token alone can never initiate deletion"). Now delegates to
      * the re-auth grace flow ({@link #requestDeletion}); kept so existing clients do

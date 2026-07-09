@@ -10,6 +10,7 @@ import com.pally.infrastructure.persistence.organization.OrgStaffJpaRepository;
 import com.pally.infrastructure.persistence.organization.OrganizationJpaRepository;
 import com.pally.infrastructure.persistence.progress.UserJpaEntity;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
+import com.pally.shared.exception.AccountScheduledForDeletionException;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.LinkRequiredException;
 import com.pally.domain.consent.ConsentGuard;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 
 @Slf4j
 @Service
@@ -50,6 +52,26 @@ public class AuthService {
 
     @org.springframework.beans.factory.annotation.Value("${app.web-base-url:https://apalchi.com}")
     private String webBaseUrl;
+
+    @org.springframework.beans.factory.annotation.Value("${account.deletion.grace-days:14}")
+    private int deletionGraceDays;
+
+    /**
+     * ACCOUNT DELETION: a DELETION_PENDING account authenticating during grace must NOT
+     * receive a session token — the session_epoch bump is the wall, and minting here
+     * would be the hole in it. Throw the restore surface instead. Applied at every genuine
+     * sign-in entry (password login + social sign-in); a brand-new account is never
+     * DELETION_PENDING so this is a no-op on registration paths.
+     */
+    private void guardNotPendingDeletion(UserJpaEntity user) {
+        if (ConsentGuard.STATUS_DELETION_PENDING.equals(user.getAccountStatus())) {
+            Instant graceEndsAt = user.getDeletionRequestedAt() != null
+                    ? user.getDeletionRequestedAt().plus(deletionGraceDays, ChronoUnit.DAYS)
+                    : null;
+            log.info("[Auth] Sign-in blocked — account {} is scheduled for deletion", user.getId());
+            throw new AccountScheduledForDeletionException(graceEndsAt);
+        }
+    }
 
     @Transactional
     public AuthResponse register(String email, String password, String displayName) {
@@ -164,6 +186,10 @@ public class AuthService {
         if (user.getPasswordHash() == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new BusinessException("Invalid email or password", 401);
         }
+
+        // Password verified — but a DELETION_PENDING account gets the restore surface,
+        // never a session token (see guardNotPendingDeletion).
+        guardNotPendingDeletion(user);
 
         // Daily login streak update (idempotent for same-day logins).
         updateLoginStreak(user);
@@ -419,6 +445,9 @@ public class AuthService {
         } catch (Exception ignored) {
             // never block sign-in on badge math
         }
+
+        // A returning DELETION_PENDING account gets the restore surface, not a session.
+        guardNotPendingDeletion(user);
 
         log.info("[Auth] Social sign-in id={} new={} streak={}",
                 user.getId(), isNew, user.getStreakDays());

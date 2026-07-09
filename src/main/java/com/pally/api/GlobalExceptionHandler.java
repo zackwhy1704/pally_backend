@@ -1,5 +1,6 @@
 package com.pally.api;
 
+import com.pally.shared.exception.AccountScheduledForDeletionException;
 import com.pally.shared.exception.AiConsentRequiredException;
 import com.pally.shared.exception.AvatarNotFoundException;
 import com.pally.shared.exception.CentreNotEmptyException;
@@ -139,6 +140,20 @@ public class GlobalExceptionHandler {
                 "challenge", ex.getChallenge(),
                 "provider", ex.getProvider());
         return ResponseEntity.status(409).body(new ApiResponse<>(payload, ex.getMessage(), 409));
+    }
+
+    /// Sign-in attempt on an account in the deletion grace window. Distinct code +
+    /// graceEndsAt so the client offers restore instead of showing a bad-password error.
+    /// NO session token is minted (the epoch bump is the wall).
+    @ExceptionHandler(AccountScheduledForDeletionException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleScheduledForDeletion(
+            AccountScheduledForDeletionException ex) {
+        log.debug("Sign-in blocked — account scheduled for deletion");
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("code", AccountScheduledForDeletionException.CODE);
+        payload.put("graceEndsAt",
+                ex.getGraceEndsAt() != null ? ex.getGraceEndsAt().toString() : null);
+        return ResponseEntity.status(403).body(new ApiResponse<>(payload, ex.getMessage(), 403));
     }
 
     /// Account-deletion block-unless-empty: an org owner with a non-empty centre.

@@ -1,6 +1,7 @@
 package com.pally.domain.account;
 
 import com.pally.domain.centre.CentreAccessService;
+import com.pally.domain.consent.ConsentGuard;
 import com.pally.domain.subscription.SubscriptionRepository;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
@@ -160,6 +161,58 @@ public class AccountDeletionService {
         log.info("[AccountDeletion] Requested userId={} graceEndsAt={} iap={}",
                 userId, graceEndsAt, needsManualCancellation);
         return new DeletionRequestResult(graceEndsAt, needsManualCancellation);
+    }
+
+    /** Result of a restore attempt — {@code restored} is false for an idempotent no-op
+     *  (the account was not actually pending, e.g. a double-submitted link). */
+    public record RestoreResult(boolean restored) {}
+
+    /**
+     * Cancels a pending deletion during the grace window (build order step 4). Authorised
+     * EITHER by the emailed single-use restore token OR by email+password re-auth (the
+     * login-during-grace path, which returns the restore surface, never a session). On
+     * success the account returns to ACTIVE and the epoch is bumped AGAIN so any token
+     * minted between request and restore also dies.
+     */
+    @Transactional
+    public RestoreResult restore(String token, String email, String password) {
+        String userId = resolveRestoreUser(token, email, password);
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("Account not found", 404));
+        if (!ConsentGuard.STATUS_DELETION_PENDING.equals(user.getAccountStatus())) {
+            // Not pending (already active / double-submit) — idempotent no-op success.
+            return new RestoreResult(false);
+        }
+        userRepo.clearDeletionPending(userId); // ACTIVE + clear stamp + epoch++ again
+        safeEmail(user.getEmail(), "Your Apalchi account has been restored",
+                "<p>Welcome back! Your account deletion was cancelled and all your data is "
+                + "safe. You can sign in as usual.</p>");
+        log.info("[AccountDeletion] Restored userId={}", userId);
+        return new RestoreResult(true);
+    }
+
+    private String resolveRestoreUser(String token, String email, String password) {
+        if (token != null && !token.isBlank()) {
+            return authChallenge.consumeRestoreToken(token)
+                    .orElseThrow(() -> new BusinessException(
+                            "This restore link is invalid or has expired.", 400));
+        }
+        if (email != null && password != null) {
+            // Password re-auth path (login-during-grace). Rate-limited like the request.
+            var rl = rateLimiter.tryAcquire("acct-restore:" + email, REAUTH_LIMIT, REAUTH_WINDOW_MS);
+            if (!rl.allowed()) {
+                throw new BusinessException(
+                        "Too many attempts. Try again in " + rl.retryAfterSeconds() + "s.", 429);
+            }
+            User u = userRepo.findByEmail(email)
+                    .orElseThrow(() -> new BusinessException("Incorrect email or password", 401));
+            String hash = userRepo.getPasswordHash(u.getId()).orElse(null);
+            if (hash == null || !passwordEncoder.matches(password, hash)) {
+                throw new BusinessException("Incorrect email or password", 401);
+            }
+            return u.getId();
+        }
+        throw new BusinessException("Provide a restore link, or your email and password.", 400);
     }
 
     // ── internals ─────────────────────────────────────────────────────────────

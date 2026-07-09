@@ -45,6 +45,16 @@ public interface UserRepository {
      */
     List<User> findDeletionPendingBefore(Instant cutoff, int limit);
 
+    /**
+     * ACCOUNT DELETION Phase 1 restore: cancel a pending deletion — set account_status =
+     * ACTIVE, clear deletion_requested_at, and BUMP session_epoch AGAIN so any token
+     * minted between the request and the restore also dies. Idempotent-safe.
+     */
+    void clearDeletionPending(String userId);
+
+    /** Look up a user by (canonicalized) email — used by the password restore path. */
+    Optional<User> findByEmail(String email);
+
     /** Batch-fetch users by their IDs (for heatmap display-name lookup). */
     List<User> findAllByIds(Collection<String> ids);
 

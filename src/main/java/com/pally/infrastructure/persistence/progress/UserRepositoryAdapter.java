@@ -58,6 +58,23 @@ public class UserRepositoryAdapter implements UserRepository {
     }
 
     @Override
+    @Transactional
+    public void clearDeletionPending(String userId) {
+        UserJpaEntity e = jpa.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found: " + userId, 404));
+        e.setAccountStatus(com.pally.domain.consent.ConsentGuard.STATUS_ACTIVE);
+        e.setDeletionRequestedAt(null);
+        e.setSessionEpoch(e.getSessionEpoch() + 1); // any token minted during grace also dies
+        jpa.save(e);
+    }
+
+    @Override
+    public Optional<User> findByEmail(String email) {
+        return jpa.findByEmail(com.pally.shared.util.EmailNormalizer.canonical(email))
+                .map(UserJpaEntity::toUserDomain);
+    }
+
+    @Override
     public List<User> findDeletionPendingBefore(Instant cutoff, int limit) {
         return jpa.findByAccountStatusAndDeletionRequestedAtBeforeOrderByDeletionRequestedAtAsc(
                         com.pally.domain.consent.ConsentGuard.STATUS_DELETION_PENDING,
