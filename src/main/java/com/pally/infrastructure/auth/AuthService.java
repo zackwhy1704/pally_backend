@@ -91,12 +91,14 @@ public class AuthService {
         }
 
         boolean isParent = "parent".equalsIgnoreCase(role);
-        // Age is REQUIRED for a student account (the age-gate can't fail safe without it).
-        // Parents register without a birth year (they're the guardian, not the data subject).
-        if (!isParent && birthYear == null) {
+        boolean isAdult = "adult".equalsIgnoreCase(role); // web centre-admin (adults-only)
+        boolean ageExempt = isParent || isAdult; // not a student data subject → no age gate
+        // Age is REQUIRED for a STUDENT account (the age-gate can't fail safe without it).
+        // Age-exempt adults (parent guardian, web centre-admin) register without one.
+        if (!ageExempt && birthYear == null) {
             throw new BusinessException("Birth year is required", 400);
         }
-        boolean under13 = !isParent && userAgeService.isUnder13(birthYear);
+        boolean under13 = !ageExempt && userAgeService.isUnder13(birthYear);
         // DEFAULT-DENY at the entry: no under-13 account without a parent/guardian email.
         if (under13 && (parentEmail == null || parentEmail.isBlank())) {
             throw new BusinessException(
@@ -114,13 +116,15 @@ public class AuthService {
         user.setStreakDays(0);
         user.setCreatedAt(Instant.now());
         user.setSetupComplete(false);
-        // Student path only — parents register without a birth year (their account
-        // is the consenting guardian, not the data subject under the age rule).
-        if (!"parent".equalsIgnoreCase(role)) {
+        // Student path only — age-exempt adults (parent / web centre-admin) store no
+        // birth year (they're not the data subject under the age rule).
+        if (!ageExempt) {
             user.setBirthYear(birthYear);
         }
-        if ("parent".equalsIgnoreCase(role)) {
+        if (isParent) {
             user.setAccountType(AccountType.PARENT);
+        } else if (isAdult) {
+            user.setAccountType(AccountType.ADULT);
         }
         userRepo.save(user);
 

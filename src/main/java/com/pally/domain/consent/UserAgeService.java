@@ -44,6 +44,14 @@ public class UserAgeService {
         if (user == null) {
             return true; // fail-closed — no user, no proof of age
         }
+        // Age-exempt adults: PARENT (guardian) and ADULT (web centre-admin) are never
+        // student data subjects, so the age gate does not apply — regardless of a null
+        // birth year. Without this, the fail-closed null→under-13 default would wrongly
+        // gate every adult web signup.
+        if (user.getAccountType() == com.pally.domain.account.AccountType.PARENT
+                || user.getAccountType() == com.pally.domain.account.AccountType.ADULT) {
+            return false;
+        }
         return isUnder13(user.getBirthYear());
     }
 

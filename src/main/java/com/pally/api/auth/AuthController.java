@@ -100,9 +100,18 @@ public class AuthController {
             @Valid @RequestBody RegisterRequest request,
             HttpServletResponse response
     ) {
+        // /auth/register is the WEB centre-admin path (adults-only); mobile students use
+        // /onboard/quick and always carry a birth year. So when the role is blank AND no
+        // birth year is supplied, default to "adult" (age-exempt) — a birth-year-less web
+        // signup is never mistaken for a student. A birth year present means a real student
+        // registration (e.g. test helpers), so the role is left untouched.
+        String role = request.role();
+        if ((role == null || role.isBlank()) && request.birthYear() == null) {
+            role = "adult";
+        }
         AuthResponse result = authService.register(
                 request.email(), request.password(), request.displayName(),
-                request.role(), request.birthYear(), request.parentEmail());
+                role, request.birthYear(), request.parentEmail());
         // Web cookie-auth (no-op unless AUTH_COOKIE_DOMAIN is set); body token unchanged for mobile.
         authCookieService.setAuthCookie(response, result.token());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(result));

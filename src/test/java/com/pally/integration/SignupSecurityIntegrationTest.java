@@ -56,6 +56,24 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
+    void webRegister_noBirthYear_succeedsAsAdult_notBlockedByAgeGate() {
+        // The web (memoly) centre-admin signup sends NO birth year. It must NOT 400 on the
+        // student birth-year requirement — /auth/register is the adults-only path.
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, Object> body = Map.of(
+                "email", "admin-" + System.nanoTime() + "@test.com",
+                "password", "password123",
+                "displayName", "Centre Admin");
+        ResponseEntity<Map> res = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, h), Map.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(201);
+        Map<String, Object> data = (Map<String, Object>) res.getBody().get("data");
+        assertThat(data.get("token")).isNotNull(); // a real session, not a 400
+    }
+
+    @Test
     void quickOnboard_existingEmail_caseVariant_returns409_viaCanonicalKey() {
         registerUser("Mixed@test.com", "password123");
 

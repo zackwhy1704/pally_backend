@@ -39,6 +39,21 @@ class UserAgeServiceTest {
     }
 
     @Test
+    void ageExemptAdults_areNeverUnder13_evenWithNullBirthYear() {
+        // Web centre-admin (ADULT) and guardian (PARENT) are not student data subjects —
+        // the null→under-13 fail-safe must NOT gate them.
+        User adult = new User();
+        adult.setAccountType(com.pally.domain.account.AccountType.ADULT);
+        adult.setBirthYear(null);
+        assertThat(service.isUnder13(adult)).isFalse();
+
+        User parent = new User();
+        parent.setAccountType(com.pally.domain.account.AccountType.PARENT);
+        parent.setBirthYear(null);
+        assertThat(service.isUnder13(parent)).isFalse();
+    }
+
+    @Test
     void clearlyYoung_isUnder13() {
         // age == 10 this year → under 13
         assertThat(service.isUnder13(sgYear() - 10)).isTrue();
