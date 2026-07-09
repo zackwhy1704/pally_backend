@@ -75,14 +75,26 @@ public class UserRepositoryAdapter implements UserRepository {
     }
 
     @Override
-    public List<User> findDeletionPendingBefore(Instant cutoff, int limit) {
-        return jpa.findByAccountStatusAndDeletionRequestedAtBeforeOrderByDeletionRequestedAtAsc(
+    public List<User> findPurgeCandidates(Instant graceCutoff, Instant retryCutoff, int limit) {
+        return jpa.findPurgeCandidates(
                         com.pally.domain.consent.ConsentGuard.STATUS_DELETION_PENDING,
-                        cutoff,
+                        graceCutoff,
+                        retryCutoff,
                         org.springframework.data.domain.PageRequest.of(0, limit))
                 .stream()
                 .map(UserJpaEntity::toUserDomain)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public void markDeletionAttempt(String userId, Instant attemptedAt) {
+        // Own transaction (via the adapter) so it commits even when the sibling purge
+        // transaction rolled back — that's the point: record the failed/aborted attempt.
+        jpa.findById(userId).ifPresent(e -> {
+            e.setDeletionLastAttemptAt(attemptedAt);
+            jpa.save(e);
+        });
     }
 
     @Override

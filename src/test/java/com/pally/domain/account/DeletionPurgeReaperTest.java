@@ -46,6 +46,7 @@ class DeletionPurgeReaperTest {
         reaper = new DeletionPurgeReaper(userRepo, deleteAccountUseCase, centreAccess, emailService);
         ReflectionTestUtils.setField(reaper, "graceDays", 14);
         ReflectionTestUtils.setField(reaper, "batchSize", 50);
+        ReflectionTestUtils.setField(reaper, "retryBackoffHours", 20);
     }
 
     private User user(String id, String email) {
@@ -56,46 +57,53 @@ class DeletionPurgeReaperTest {
     }
 
     @Test
-    void reap_emptyCentreUser_emailsThenPurges_inThatOrder() {
-        when(userRepo.findDeletionPendingBefore(any(), eq(50)))
+    void reap_emptyCentreUser_purgesThenEmails_inThatOrder() {
+        when(userRepo.findPurgeCandidates(any(), any(), eq(50)))
                 .thenReturn(List.of(user("u1", "a@b.com")));
         when(centreAccess.isOwnedCentreEmpty("u1")).thenReturn(true);
 
         reaper.reap();
 
-        var ord = inOrder(emailService, deleteAccountUseCase);
-        ord.verify(emailService).sendHtml(eq("a@b.com"), anyString(), anyString());
+        // Email fires AFTER a confirmed purge, never before (defect: a failed purge must
+        // not tell the user they were deleted).
+        var ord = inOrder(deleteAccountUseCase, emailService);
         ord.verify(deleteAccountUseCase).execute("u1", null, null);
+        ord.verify(emailService).sendHtml(eq("a@b.com"), anyString(), anyString());
     }
 
     @Test
-    void reap_orgAcquiredDuringGrace_abortsLoud_noPurge_noEmail() {
-        when(userRepo.findDeletionPendingBefore(any(), anyInt()))
+    void reap_orgAcquiredDuringGrace_abortsLoud_noPurge_noEmail_marksAttempt() {
+        when(userRepo.findPurgeCandidates(any(), any(), anyInt()))
                 .thenReturn(List.of(user("owner", "o@b.com")));
         when(centreAccess.isOwnedCentreEmpty("owner")).thenReturn(false);
 
         reaper.reap();
 
         verify(deleteAccountUseCase, never()).execute(anyString(), any(), any());
-        verifyNoInteractions(emailService);
+        verify(emailService, never()).sendHtml(anyString(), anyString(), anyString());
+        // Anti-starvation: the aborted account is marked so the backoff excludes it next run.
+        verify(userRepo).markDeletionAttempt(eq("owner"), any());
     }
 
     @Test
-    void reap_oneUserFails_othersStillPurged() {
-        when(userRepo.findDeletionPendingBefore(any(), anyInt()))
-                .thenReturn(List.of(user("bad", null), user("good", null)));
+    void reap_oneUserFails_noEmailForFailed_othersStillPurged_andFailedMarked() {
+        when(userRepo.findPurgeCandidates(any(), any(), anyInt()))
+                .thenReturn(List.of(user("bad", "bad@b.com"), user("good", "good@b.com")));
         when(centreAccess.isOwnedCentreEmpty(anyString())).thenReturn(true);
         doThrow(new RuntimeException("boom"))
                 .when(deleteAccountUseCase).execute("bad", null, null);
 
         reaper.reap();
 
-        verify(deleteAccountUseCase).execute("good", null, null);
+        verify(deleteAccountUseCase).execute("good", null, null);      // isolation
+        verify(emailService, never()).sendHtml(eq("bad@b.com"), anyString(), anyString()); // no lie
+        verify(emailService).sendHtml(eq("good@b.com"), anyString(), anyString());
+        verify(userRepo).markDeletionAttempt(eq("bad"), any());        // backoff on failure
     }
 
     @Test
     void reap_noPendingAccounts_isNoOp() {
-        when(userRepo.findDeletionPendingBefore(any(), anyInt())).thenReturn(List.of());
+        when(userRepo.findPurgeCandidates(any(), any(), anyInt())).thenReturn(List.of());
 
         reaper.reap();
 

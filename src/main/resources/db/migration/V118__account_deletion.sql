@@ -15,6 +15,13 @@
 -- grace clock started so the reaper knows when the window has elapsed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
 
+-- Last time the purge reaper ATTEMPTED this account (set on abort/failure; the row is
+-- gone on success). The reaper excludes rows attempted within a backoff window so that
+-- permanently-stuck accounts (org acquired during grace, or a repeatedly-failing purge)
+-- can never monopolize the ORDER BY deletion_requested_at ASC head of the queue and
+-- starve healthy purges behind them. Nullable — never attempted yet.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deletion_last_attempt_at TIMESTAMPTZ;
+
 -- The reaper scans daily for DELETION_PENDING accounts whose grace has elapsed. A
 -- partial index keeps that scan cheap no matter how large the users table grows.
 CREATE INDEX IF NOT EXISTS idx_users_deletion_pending

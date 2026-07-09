@@ -38,12 +38,18 @@ public interface UserRepository {
 
     /**
      * ACCOUNT DELETION Phase 1: up to {@code limit} accounts in DELETION_PENDING whose
-     * grace has elapsed (deletion_requested_at &lt; cutoff), oldest first. Batch-limited
-     * so the daily purge stays bounded; since purged rows are deleted, calling this
-     * again returns the next batch (a resumable cursor). Returns domain Users so the
-     * reaper stays free of any infrastructure.persistence import.
+     * grace has elapsed ({@code deletion_requested_at < graceCutoff}), oldest first,
+     * EXCLUDING any attempted within the backoff window ({@code deletion_last_attempt_at}
+     * null or {@code < retryCutoff}). The exclusion prevents a permanently-stuck account
+     * (org acquired during grace, or a repeatedly-failing purge) from monopolizing the
+     * oldest-first head and starving healthy purges behind it. Returns domain Users so
+     * the reaper stays free of any infrastructure.persistence import.
      */
-    List<User> findDeletionPendingBefore(Instant cutoff, int limit);
+    List<User> findPurgeCandidates(Instant graceCutoff, Instant retryCutoff, int limit);
+
+    /** Records a purge ATTEMPT (set on abort/failure) so the backoff window excludes this
+     *  account from the next runs — the anti-starvation timestamp. */
+    void markDeletionAttempt(String userId, Instant attemptedAt);
 
     /**
      * ACCOUNT DELETION Phase 1 restore: cancel a pending deletion — set account_status =

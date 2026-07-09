@@ -178,6 +178,13 @@ public class UserJpaEntity {
     @Column(name = "deletion_requested_at")
     private Instant deletionRequestedAt;
 
+    /// ACCOUNT DELETION Phase 1: last time the purge reaper attempted this account (set
+    /// on abort/failure). The reaper's candidate query excludes rows attempted within a
+    /// backoff window, so a permanently-stuck account can't starve healthy purges behind
+    /// it in the oldest-first queue. NULL until first attempted; the row is gone on success.
+    @Column(name = "deletion_last_attempt_at")
+    private Instant deletionLastAttemptAt;
+
     // ── Cardless 7-day trial (V47) ────────────────────────────────────────
     // NONE | ACTIVE | EXPIRED | CONVERTED
     @Column(name = "trial_status", nullable = false, length = 20)

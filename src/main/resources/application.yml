@@ -111,6 +111,10 @@ account:
     # Max accounts the purge reaper processes per daily run (resumable — the next run
     # picks up where this left off).
     purge-batch-size: ${ACCOUNT_DELETION_PURGE_BATCH_SIZE:50}
+    # Backoff before a stuck/failed account is retried, so it can't monopolize the
+    # oldest-first queue head and starve healthy purges. ~1 day => stuck users retry
+    # roughly daily but never block progress.
+    retry-backoff-hours: ${ACCOUNT_DELETION_RETRY_BACKOFF_HOURS:20}
 
 # ── Third-party AI consent gate ──────────────────────────────────────────────
 # Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic
