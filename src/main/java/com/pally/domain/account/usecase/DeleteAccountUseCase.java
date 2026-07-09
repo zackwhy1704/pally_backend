@@ -13,7 +13,6 @@ import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionSummaryJpaRepository;
 import com.pally.infrastructure.persistence.chat.HintTreeJpaRepository;
-import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRequestJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.WikiPageJpaRepository;
@@ -80,7 +79,6 @@ public class DeleteAccountUseCase {
     private final ActivityLogJpaRepository activityLogRepo;
     private final StudyPlanCompletionJpaRepository studyPlanCompletionRepo;
     private final UserBadgeJpaRepository badgeRepo;
-    private final ConsentRecordJpaRepository consentRecordRepo;
     private final ConsentRequestJpaRepository consentRequestRepo;
     private final ReferralJpaRepository referralRepo;
     private final CharacterUnlockJpaRepository characterUnlockRepo;
@@ -124,7 +122,6 @@ public class DeleteAccountUseCase {
             ActivityLogJpaRepository activityLogRepo,
             StudyPlanCompletionJpaRepository studyPlanCompletionRepo,
             UserBadgeJpaRepository badgeRepo,
-            ConsentRecordJpaRepository consentRecordRepo,
             ConsentRequestJpaRepository consentRequestRepo,
             ReferralJpaRepository referralRepo,
             CharacterUnlockJpaRepository characterUnlockRepo,
@@ -164,7 +161,6 @@ public class DeleteAccountUseCase {
         this.activityLogRepo           = activityLogRepo;
         this.studyPlanCompletionRepo   = studyPlanCompletionRepo;
         this.badgeRepo                 = badgeRepo;
-        this.consentRecordRepo         = consentRecordRepo;
         this.consentRequestRepo        = consentRequestRepo;
         this.referralRepo              = referralRepo;
         this.characterUnlockRepo       = characterUnlockRepo;
@@ -241,13 +237,17 @@ public class DeleteAccountUseCase {
         activityLogRepo.deleteAllByUserId(userId);
         studyPlanCompletionRepo.deleteAllByUserId(userId);
 
-        // Consent records and requests
-        consentRecordRepo.findAll().stream()
-                .filter(r -> userId.equals(r.getUserId()))
-                .forEach(r -> consentRecordRepo.deleteById(r.getId()));
-        consentRequestRepo.findAll().stream()
-                .filter(r -> userId.equals(r.getChildUserId()))
-                .forEach(r -> consentRequestRepo.deleteById(r.getId()));
+        // ── Consent proof: RETAIN, do NOT delete (LOCKED survivor policy + DPO) ──────
+        // consent_records + consent_requests are the PDPA/PDPC evidence that a valid
+        // (parental) consent was obtained; their purpose activates AT and AFTER erasure
+        // ("on what basis did you process this child's data?"). They SURVIVE the purge —
+        // V119 dropped their ON DELETE CASCADE FK to users, and we no longer delete them
+        // here. consent_records is already minimal (who/what/when/mechanism), retained
+        // verbatim. We only SCRUB the reusable approval token on consent_requests
+        // (minimization — keep the proof, not a live secret). Retention DURATION is a
+        // DPIA open item. The retained rows are EVIDENCE-ONLY (no operational read path
+        // queries consent by a purged user id).
+        consentRequestRepo.scrubTokensByChildUserId(userId);
 
         // Shop / collectibles
         characterUnlockRepo.findAll().stream()

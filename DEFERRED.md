@@ -328,3 +328,25 @@ Deferred from the auth research, NOT in this pass — each with a one-line why:
 - **Prompt B review blockers** — out of scope for Prompt A; tracked separately.
 - **UNIQUE lower(email) index upgrade** — V114 added a NON-unique index; the UNIQUE
   upgrade is gated on the prod case-variant duplicate count (dedup is a human call).
+
+## Account Deletion Phase 1 (feat/account-deletion) — merge-held; deferred follow-ups
+
+The grace/purge core: V118/V119, POST /account/delete (re-auth), DeletionPurgeReaper,
+and consent-proof retention. Merge waits on the strict audit + explicit human confirm.
+Deferred items, each with a why:
+
+- **Consent-evidence retention DURATION** — V119 RETAINS consent_records/consent_requests
+  through erasure (PDPA/PDPC proof-of-consent), with the approval token scrubbed. How many
+  years to keep the evidence post-deletion is a DPO/lawyer call — indefinite retention is
+  its own PDPA question. Code ships with the retain; the expiry is the lawyer's number
+  (add a dated purge for consent evidence once N is set). **DPIA open item.**
+- **Back-port batch limit to PendingParentalConsentReaper** — the consent reaper still
+  selects ALL stale accounts unbounded; DeletionPurgeReaper added a batch limit + cursor.
+  Same unbounded-scheduled-deleter risk shape; give the consent reaper the same treatment.
+- **Restore path (build order step 4)** — clearDeletionPending (status=ACTIVE, clear stamp,
+  bump epoch again) + login-during-grace returns the RESTORE surface only (never a normal
+  token); consumeRestoreToken is already built. NOT yet wired — the last commit of Phase 1.
+- **Persistent purge-abort escalation** — an org acquired during grace makes the reaper
+  abort that user every run (stays PENDING, loud log) and it re-occupies a batch slot each
+  day. Fine at near-zero abort volume; if it ever recurs at scale, add a PENDING_REVIEW
+  sub-state so aborts don't starve healthy purges.

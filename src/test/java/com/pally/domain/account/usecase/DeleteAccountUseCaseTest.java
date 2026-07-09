@@ -14,7 +14,6 @@ import com.pally.infrastructure.persistence.chat.ChatMessageJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionJpaRepository;
 import com.pally.infrastructure.persistence.chat.ChatSessionSummaryJpaRepository;
 import com.pally.infrastructure.persistence.chat.HintTreeJpaRepository;
-import com.pally.infrastructure.persistence.consent.ConsentRecordJpaRepository;
 import com.pally.infrastructure.persistence.consent.ConsentRequestJpaRepository;
 import com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaEntity;
 import com.pally.infrastructure.persistence.knowledge.KnowledgeFileJpaRepository;
@@ -88,7 +87,6 @@ class DeleteAccountUseCaseTest {
     @Mock ActivityLogJpaRepository activityLogRepo;
     @Mock StudyPlanCompletionJpaRepository studyPlanCompletionRepo;
     @Mock UserBadgeJpaRepository badgeRepo;
-    @Mock ConsentRecordJpaRepository consentRecordRepo;
     @Mock ConsentRequestJpaRepository consentRequestRepo;
     @Mock ReferralJpaRepository referralRepo;
     @Mock CharacterUnlockJpaRepository characterUnlockRepo;
@@ -127,7 +125,7 @@ class DeleteAccountUseCaseTest {
                 flashcardRepo, quizAnswerRepo, quizQuestionResultRepo,
                 wikiPageSourceRepo, wikiPageRepo, knowledgeFileRepo,
                 activityLogRepo, studyPlanCompletionRepo, badgeRepo,
-                consentRecordRepo, consentRequestRepo, referralRepo,
+                consentRequestRepo, referralRepo,
                 characterUnlockRepo, userMochiRepo, userPowerupRepo,
                 biometricRegistrationRepo, biometricChallengeRepo,
                 emailVerificationTokenRepo, subscriptionRepo,
@@ -149,8 +147,8 @@ class DeleteAccountUseCaseTest {
         when(avatarRepo.findByUserId(USER_ID)).thenReturn(List.of());
         when(referralRepo.findAll()).thenReturn(List.of());
         when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
-        when(consentRecordRepo.findAll()).thenReturn(List.of());
-        when(consentRequestRepo.findAll()).thenReturn(List.of());
+        // consent_records/requests are RETAINED (PDPA proof) — purge neither reads nor
+        // deletes them; it only scrubs the consent_requests token.
         when(characterUnlockRepo.findAll()).thenReturn(List.of());
         when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
         when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
@@ -255,8 +253,8 @@ class DeleteAccountUseCaseTest {
         // User-level stubs
         when(referralRepo.findAll()).thenReturn(List.of());
         when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
-        when(consentRecordRepo.findAll()).thenReturn(List.of());
-        when(consentRequestRepo.findAll()).thenReturn(List.of());
+        // consent_records/requests are RETAINED (PDPA proof) — purge neither reads nor
+        // deletes them; it only scrubs the consent_requests token.
         when(characterUnlockRepo.findAll()).thenReturn(List.of());
         when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
         when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
@@ -293,6 +291,11 @@ class DeleteAccountUseCaseTest {
         verify(weaknessProfileStateRepo).deleteByUserId(USER_ID);
         verify(quizSubmissionIdempotencyRepo).deleteByUserId(USER_ID);
 
+        // CONSENT PROOF is RETAINED (PDPA evidence): the request token is scrubbed
+        // (minimization) but the rows are NEVER deleted.
+        verify(consentRequestRepo).scrubTokensByChildUserId(USER_ID);
+        verify(consentRequestRepo, never()).deleteById(anyString());
+
         // All of it happens BEFORE the user row delete, so a crash can't leave a purged
         // user with survivor rows still pointing at the dead id.
         var ordered = inOrder(aiUsageRepo, contentGapSignalRepo, homeworkSubmissionRepo,
@@ -322,8 +325,8 @@ class DeleteAccountUseCaseTest {
         when(knowledgeFileRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
         when(referralRepo.findAll()).thenReturn(List.of());
         when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
-        when(consentRecordRepo.findAll()).thenReturn(List.of());
-        when(consentRequestRepo.findAll()).thenReturn(List.of());
+        // consent_records/requests are RETAINED (PDPA proof) — purge neither reads nor
+        // deletes them; it only scrubs the consent_requests token.
         when(characterUnlockRepo.findAll()).thenReturn(List.of());
         when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
         when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
