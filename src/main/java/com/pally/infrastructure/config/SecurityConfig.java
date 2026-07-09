@@ -67,6 +67,8 @@ public class SecurityConfig {
                     "/api/v1/auth/biometric/verify",
                     "/api/v1/auth/verify-email",
                     "/api/v1/account/restore",
+                    "/api/v1/account/delete/request-by-email",
+                    "/api/v1/account/delete/confirm",
                     "/api/v1/onboard/quick",
                     "/api/v1/subscription/webhook",
                     // Public tokenized trusted-adult review flow (no auth; no PII

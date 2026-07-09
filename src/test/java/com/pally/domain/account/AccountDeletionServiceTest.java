@@ -348,4 +348,75 @@ class AccountDeletionServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("httpStatus", 400);
     }
+
+    // ── public delete-by-email (Phase 2) ────────────────────────────────────────
+
+    @Test
+    void requestByEmail_unknownEmail_mintsNothing_butDoesNotThrow() {
+        allowRate();
+        when(userRepo.findByEmail("x@y.com")).thenReturn(Optional.empty());
+
+        service.requestDeletionByEmail("x@y.com"); // non-enumerating: silent
+
+        verify(authChallenge, never()).createDeleteConfirmToken(anyString());
+    }
+
+    @Test
+    void requestByEmail_knownEmail_mintsConfirmToken() {
+        allowRate();
+        when(userRepo.findByEmail("x@y.com")).thenReturn(Optional.of(user("x@y.com")));
+        when(authChallenge.createDeleteConfirmToken(USER)).thenReturn("tok");
+
+        service.requestDeletionByEmail("x@y.com");
+
+        verify(authChallenge).createDeleteConfirmToken(USER);
+    }
+
+    @Test
+    void requestByEmail_rateLimited_throws429() {
+        when(rateLimiter.tryAcquire(anyString(), anyInt(), anyLong()))
+                .thenReturn(SlidingWindowRateLimiter.Result.deny(60));
+
+        assertThatThrownBy(() -> service.requestDeletionByEmail("x@y.com"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 429);
+    }
+
+    @Test
+    void confirmByToken_validToken_runsSamePipeline_transitions() {
+        when(authChallenge.consumeDeleteConfirmToken("tok")).thenReturn(Optional.of(USER));
+        when(userRepo.findById(USER)).thenReturn(Optional.of(user(null)));
+        when(centreAccess.isOwnedCentreEmpty(USER)).thenReturn(true);
+        when(userRepo.countByParentId(USER)).thenReturn(0);
+        noSubscription();
+
+        service.confirmDeletionByToken("tok");
+
+        verify(userRepo).markDeletionPending(eq(USER), any(Instant.class));
+    }
+
+    @Test
+    void confirmByToken_invalidToken_throws400() {
+        when(authChallenge.consumeDeleteConfirmToken("bad")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.confirmDeletionByToken("bad"))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("httpStatus", 400);
+
+        verify(userRepo, never()).markDeletionPending(anyString(), any());
+    }
+
+    @Test
+    void confirmByToken_orgOwner_throws409CentreNotEmpty_atConfirmTime() {
+        // Rider 1: the org-owner block fires at CONFIRM time (rendered on the page), not
+        // discovered at purge.
+        when(authChallenge.consumeDeleteConfirmToken("tok")).thenReturn(Optional.of(USER));
+        when(userRepo.findById(USER)).thenReturn(Optional.of(user(null)));
+        when(centreAccess.isOwnedCentreEmpty(USER)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.confirmDeletionByToken("tok"))
+                .isInstanceOf(CentreNotEmptyException.class);
+
+        verify(userRepo, never()).markDeletionPending(anyString(), any());
+    }
 }

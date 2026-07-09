@@ -48,7 +48,6 @@ public class AuthService {
     private final DuplicateSignupNotifier duplicateSignupNotifier;
     private final AuthChallengeService authChallengeService;
     private final com.pally.infrastructure.email.EmailService emailService;
-    private final com.pally.domain.account.usecase.DeleteAccountUseCase deleteAccountUseCase;
 
     @org.springframework.beans.factory.annotation.Value("${app.web-base-url:https://apalchi.com}")
     private String webBaseUrl;
@@ -487,18 +486,10 @@ public class AuthService {
         });
     }
 
-    /**
-     * DEPRECATED delete path. This used to be a bare {@code userRepo.deleteById()} with
-     * NO guard and NO cascade — it orphaned the entire avatar subtree (avatars.user_id has
-     * no DB FK) and aborted on the RESTRICT FKs. It now DELEGATES to the single guarded
-     * {@link DeleteAccountUseCase} so there is exactly one deletion implementation.
-     * Clients are being migrated to the canonical account-deletion endpoint; this remains
-     * only so the current mobile build's DELETE /auth/account keeps working (safely).
-     */
-    @Transactional
-    public void deleteAccount(String userId) {
-        deleteAccountUseCase.execute(userId, null, null);
-    }
+    // ACCOUNT DELETION Phase 2: the AuthService.deleteAccount path (bearer-only immediate
+    // hard-delete behind DELETE /auth/account) was REMOVED — the endpoint now returns 410
+    // GONE. Deletion goes exclusively through AccountDeletionService.requestDeletion
+    // (re-auth + grace) and the two background reapers. There is one deletion path again.
 
     @Transactional
     public void updateChildName(String userId, String childName) {

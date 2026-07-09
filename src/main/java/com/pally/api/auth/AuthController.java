@@ -338,12 +338,21 @@ public class AuthController {
         return email == null ? "" : email.trim().toLowerCase();
     }
 
+    /**
+     * @deprecated REMOVED (410 GONE). This was a bearer-only IMMEDIATE hard-delete: a
+     * valid session alone triggered a full, graceless, irreversible purge — it violated
+     * the locked "a bearer token alone can never initiate deletion" rule and bypassed the
+     * entire grace / re-auth / restore flow. It is retired rather than repurposed so a
+     * second live deletion surface can't drift from the canonical one. Clients must use
+     * {@code POST /api/v1/account/delete} (re-auth + 14-day grace) and
+     * {@code POST /api/v1/account/restore}.
+     */
+    @Deprecated
     @DeleteMapping("/account")
-    public ResponseEntity<Void> deleteAccount(
-            @AuthenticationPrincipal String userId
-    ) {
-        authService.deleteAccount(userId);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<ApiResponse<Void>> deleteAccount() {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "This way of deleting your account has been removed. Please update the app "
+                + "to delete your account.", 410));
     }
 
     @GetMapping("/me")

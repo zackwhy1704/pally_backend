@@ -41,10 +41,15 @@ public class AuthChallengeService {
     /// grace window, emailed to the requester (and a child's parent) so either can
     /// cancel the deletion from the link.
     public static final String PURPOSE_RESTORE = "RESTORE_ACCOUNT";
+    /// ACCOUNT DELETION Phase 2: single-use web-link token for the PUBLIC (unauthenticated)
+    /// delete-by-email flow — possession of the emailed token proves email control, which
+    /// is the re-auth for a session-less request. Short TTL, hashed, single-use.
+    public static final String PURPOSE_DELETE_CONFIRM = "DELETE_CONFIRM";
     private static final String PENDING = "PENDING", CONSUMED = "CONSUMED", EXPIRED = "EXPIRED";
     private static final long LINK_TTL_MIN = 10;
     private static final long RESET_TTL_MIN = 60;
     private static final long DELETE_CODE_TTL_MIN = 10;
+    private static final long DELETE_CONFIRM_TTL_MIN = 60;
     private static final int MAX_ATTEMPTS = 5;
 
     private final AuthChallengeJpaRepository repo;
@@ -164,6 +169,33 @@ public class AuthChallengeService {
     public Optional<String> consumeRestoreToken(String token) {
         if (token == null || token.isBlank()) return Optional.empty();
         return repo.findByCodeHashAndPurposeAndStatus(sha256Hex(token), PURPOSE_RESTORE, PENDING)
+                .filter(c -> {
+                    if (Instant.now().isAfter(c.getExpiresAt())) { c.setStatus(EXPIRED); repo.save(c); return false; }
+                    return true;
+                })
+                .map(c -> { c.setStatus(CONSUMED); repo.save(c); return c.getUserId(); });
+    }
+
+    /**
+     * Creates a single-use DELETE_CONFIRM web-link token for the PUBLIC delete-by-email
+     * flow and returns the PLAINTEXT token (for the emailed link). One active token per
+     * user — a re-request invalidates the prior one.
+     */
+    @Transactional
+    public String createDeleteConfirmToken(String userId) {
+        invalidatePending(userId, PURPOSE_DELETE_CONFIRM);
+        byte[] raw = new byte[32];
+        RNG.nextBytes(raw);
+        String token = HexFormat.of().formatHex(raw);
+        repo.save(base(userId, PURPOSE_DELETE_CONFIRM, token, DELETE_CONFIRM_TTL_MIN));
+        return token;
+    }
+
+    /** Verifies + consumes a DELETE_CONFIRM token, returning the owning userId. */
+    @Transactional
+    public Optional<String> consumeDeleteConfirmToken(String token) {
+        if (token == null || token.isBlank()) return Optional.empty();
+        return repo.findByCodeHashAndPurposeAndStatus(sha256Hex(token), PURPOSE_DELETE_CONFIRM, PENDING)
                 .filter(c -> {
                     if (Instant.now().isAfter(c.getExpiresAt())) { c.setStatus(EXPIRED); repo.save(c); return false; }
                     return true;
