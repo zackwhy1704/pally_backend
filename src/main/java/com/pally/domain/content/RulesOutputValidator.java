@@ -48,6 +48,18 @@ public class RulesOutputValidator implements OutputValidator {
         return outputs.stream().filter(o -> isValid(o, type)).toList();
     }
 
+    @Override
+    public java.util.Optional<String> explain(Object output, OutputType type) {
+        // Same rules as isValid — module items give the field-level reason; other types
+        // fall back to the boolean (no interactive boundary needs their reason yet).
+        if (type == OutputType.MODULE_ITEM) {
+            return java.util.Optional.ofNullable(explainModuleItem(output));
+        }
+        return isValid(output, type)
+                ? java.util.Optional.empty()
+                : java.util.Optional.of("output failed validation for " + type);
+    }
+
     /// Exhaustive over OutputType — a new constant without a case fails to compile.
     private boolean isValid(Object o, OutputType type) {
         return switch (type) {
@@ -59,28 +71,41 @@ public class RulesOutputValidator implements OutputValidator {
 
     // ── MODULE_ITEM — the B-4 substantive contract, per ContentItemType ──────────
     private boolean isValidModuleItem(Object o) {
+        return explainModuleItem(o) == null;
+    }
+
+    /// The single source of truth for module-item validity: returns a human reason when
+    /// INVALID, or {@code null} when valid. {@link #isValidModuleItem} is just the boolean
+    /// view of this, so retainValid (drop) and the approve-boundary refusal (explain) can
+    /// never drift apart.
+    private String explainModuleItem(Object o) {
         // Only ModuleContentItem flows here in production; anything else we can't judge,
         // so keep it (fail-open on type mismatch, never invent a drop).
-        if (!(o instanceof ModuleContentItem item)) return true;
+        if (!(o instanceof ModuleContentItem item)) return null;
         ContentItemType t;
         try {
             t = ContentItemType.valueOf(item.getType());
         } catch (IllegalArgumentException | NullPointerException e) {
-            return false; // unknown/absent type = malformed
+            return "unknown or missing item type"; // malformed
         }
         Map<String, Object> c = parse(item.getContentJson());
         Map<String, Object> a = parse(item.getAnswerJson());
         return switch (t) {
-            case MICRO_CARD -> nonBlank(c, "title") && nonBlank(c, "body");
-            case HOT_TAKE -> nonBlank(c, "statement")
-                    && a.get("isTrue") != null && nonBlank(a, "explanation");
-            case SPOT_MISTAKE -> nonBlank(c, "problem") && nonBlank(c, "wrongSolution")
-                    && nonBlank(a, "errorDescription") && nonBlank(a, "correctSolution");
-            case CHALLENGE -> nonBlank(c, "question")
-                    && nonBlank(a, "answer") && nonBlank(a, "explanation");
+            case MICRO_CARD -> (nonBlank(c, "title") && nonBlank(c, "body"))
+                    ? null : "a card needs a non-empty title and body";
+            case HOT_TAKE -> (nonBlank(c, "statement")
+                    && a.get("isTrue") != null && nonBlank(a, "explanation"))
+                    ? null : "a hot-take needs a statement, a true/false answer, and an explanation";
+            case SPOT_MISTAKE -> (nonBlank(c, "problem") && nonBlank(c, "wrongSolution")
+                    && nonBlank(a, "errorDescription") && nonBlank(a, "correctSolution"))
+                    ? null : "a spot-the-mistake needs a problem, a wrong solution, an error description, and the correct solution";
+            case CHALLENGE -> (nonBlank(c, "question")
+                    && nonBlank(a, "answer") && nonBlank(a, "explanation"))
+                    ? null : "a challenge needs a question, an answer, and an explanation";
             // PROVE gates module completion; the student-facing stem is the load-bearing
             // field (expectedKeyPoints live in answer_json for evaluation).
-            case PROVE_QUESTION -> nonBlank(c, "question");
+            case PROVE_QUESTION -> nonBlank(c, "question")
+                    ? null : "a prove question needs a question";
         };
     }
 

@@ -75,17 +75,23 @@ public class ContentReviewPortAdapter implements ContentReviewPort {
 
     @Override
     @Transactional
-    public int approveAllDraftsByClass(String classId) {
-        // Scope to the class's own modules — never the whole table.
-        List<ModuleContentItemJpaEntity> drafts = moduleJpa.findByClassId(classId).stream()
-                .flatMap(m -> jpa.findByModuleIdOrderBySortOrder(m.getId()).stream())
-                .filter(e -> "DRAFT".equals(e.getStatus()))
-                .toList();
-        for (ModuleContentItemJpaEntity item : drafts) {
+    public int approveItems(String classId, List<String> itemIds) {
+        if (itemIds == null || itemIds.isEmpty()) return 0;
+        // Which modules belong to this class — the id must map into one of them or it's
+        // skipped (cross-tenant guard: never approve another centre's item by id).
+        java.util.Set<String> classModuleIds = moduleJpa.findByClassId(classId).stream()
+                .map(LearningModuleJpaEntity::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        int approved = 0;
+        for (String id : itemIds) {
+            ModuleContentItemJpaEntity item = jpa.findById(id).orElse(null);
+            if (item == null || !classModuleIds.contains(item.getModuleId())) continue;
+            if (!"DRAFT".equals(item.getStatus())) continue; // only DRAFT → LIVE
             item.setStatus("LIVE");
             jpa.save(item);
+            approved++;
         }
-        return drafts.size();
+        return approved;
     }
 
     // ── Mapping helpers ──────────────────────────────────────────────────────
