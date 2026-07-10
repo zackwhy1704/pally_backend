@@ -74,6 +74,24 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
         jpa.deleteByModuleId(moduleId);
     }
 
+    @Override
+    public List<ModuleContentItem> findReapScanCandidates(java.time.Instant retryCutoff, int limit) {
+        return jpa.findReapScanCandidates(
+                        ModuleContentItemRepository.SERVABLE_STATUSES, retryCutoff,
+                        org.springframework.data.domain.PageRequest.of(0, limit))
+                .stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<ModuleContentItem> findServablePage(int pageNumber, int pageSize) {
+        return jpa.findByStatusIn(
+                        ModuleContentItemRepository.SERVABLE_STATUSES,
+                        org.springframework.data.domain.PageRequest.of(
+                                pageNumber, pageSize,
+                                org.springframework.data.domain.Sort.by("id")))
+                .stream().map(this::toDomain).toList();
+    }
+
     // ── Mapping helpers ────────────────────────────────────────────────────
 
     ModuleContentItem toDomain(ModuleContentItemJpaEntity e) {
@@ -89,6 +107,8 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
         d.setCreatedAt(e.getCreatedAt());
         d.setStatus(e.getStatus());
         d.setVerificationJson(e.getVerificationJson());
+        d.setReapAttempts(e.getReapAttempts());
+        d.setReapLastAttemptAt(e.getReapLastAttemptAt());
         return d;
     }
 
@@ -105,6 +125,8 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
         e.setCreatedAt(d.getCreatedAt());
         e.setStatus(d.getStatus());
         e.setVerificationJson(d.getVerificationJson());
+        e.setReapAttempts(d.getReapAttempts());
+        e.setReapLastAttemptAt(d.getReapLastAttemptAt());
         return e;
     }
 }
