@@ -1,196 +1,232 @@
-# Deferred items — grading harness & trust
+# Deferred items — the tracked ledger
 
 > Linked from [`CLAUDE.md`](CLAUDE.md). This is the tracked home for consciously-deferred
-> gaps; when you defer something, add it here (don't leave it "low priority" with no owner).
+> gaps: things we chose not to do yet, each with a reason and **what closes it**. When you
+> defer something, add it here — don't leave it "low priority" with no owner.
 
-Consciously-accepted gaps with a home, so "low priority with no owner" never again
-becomes how a fail-open survives for months. Each item: what, why deferred, the
-accepted risk, and what closes it.
+## How to read this file (process notes, learned the hard way)
 
-## 1. Quiz keyless client-map fallback (`SubmitQuizAnswersUseCase:187`)
-- **What:** when no server answer key exists for a question, grading falls back to
-  the client-supplied `correctMap`. This is the LAST place in the system that reads
-  a client-supplied answer key.
-- **Why deferred:** unreachable for normal play — the serve chokepoint persists a
-  key for every quiz and the reaper TTL is 7 days (`quiz.answer-key-retention-days`).
-  Only a quiz served, abandoned, and submitted >7 days later reaches it. Full
-  closure needs quiz-side signal typing (a schema change to `quiz_question_results`),
-  which is separate work.
-- **Accepted risk:** a >7-day-stale abandoned quiz can be graded from the client map
-  (spoofable) for its analytics row. Pinned by test
-  (`SubmitQuizAnswersUseCaseTest.noServerKey_fallsBackToClientMap_theKnownLegacyGap_pinnedExplicitly`).
-- **Closes it:** add `signal_type` to quiz results; keyless → UNGRADED (exclude from
-  analytics) instead of client-map.
+- **Unledgered ≠ tracked.** A defect you can see on a screenshot but that has no line here
+  is invisible, not "known" — file the entry the moment a gap is known, not after it's fixed.
+  (The 0–1 vs 0–100 "2600% mastery" family bug sat in shipped code for weeks with no entry.)
+- **Audits must sweep the OLD SIBLINGS of a new surface, not just the diff.** When a rule is
+  locked ("a bearer token alone can never delete an account"), grep every sibling of the
+  changed code and re-audit the ones the rule now implicates. (`DELETE /account/me` was
+  locked while `DELETE /auth/account` — the endpoint the live client called — kept the old
+  bearer-only semantics. Twice now an audit's blast radius was drawn around what changed,
+  not around what the change made stale.)
+- **A fix at the VISIBLE layer is not a fix at the WORK layer — and check the CALLER before
+  calling a path unmetered.** Verify the behaviour beneath the label, but also don't stop at the
+  wrong layer: `ClaudeApiClient`'s streaming methods carry no `record()`, yet their callers
+  (`ClaudeChatProxy`, `CacheKeepAliveService`) parse the terminal SSE usage event and meter it.
+  Reading only the low-level method wrongly reads "unmetered"; the meter lives at the caller,
+  where the purpose is known. (A reconciliation pass first mis-called streaming "still open" for
+  exactly this reason.)
+- **Push at commit time.** On this repo, merge to `main` auto-deploys to prod (Railway).
+  A held branch is not shipped; a "done" that isn't merged is not live.
 
-## 2. PROVE old-client stranding
-- **What:** the self-assessment overlay renders only from the PROVE submit response
-  in the new pally client (>= 2ad9dae). Modules completed on an older build — or
-  before the overlay shipped — have PROVE items stranded as permanently UNGRADED
-  with no later UI path to self-assess.
-- **Why deferred:** safe (UNGRADED asserts nothing false); a retro-self-assess UI is
-  net-new surface.
-- **Accepted risk:** those modules contribute no PROVE mastery signal, ever.
-- **Closes it:** a "review past modules" surface that lets a student self-assess
-  historical PROVE items, or backfill on next module open.
+Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF-KEYBOARD**
+(human/ops, not code) · **CLOSED** (with commit refs, kept for archaeology).
 
-## 3. SPOT_MISTAKE / CHALLENGE are UNGRADED by design
+---
+
+# OPEN (code — actionable)
+
+## Grading harness & trust
+
+### 1. Quiz keyless client-map fallback (`SubmitQuizAnswersUseCase:187`)
+- **What:** when no server answer key exists for a question, grading falls back to the
+  client-supplied `correctMap` — the last place in the system that reads a client answer key.
+- **Why deferred:** unreachable for normal play — the serve chokepoint persists a key for
+  every quiz and the reaper TTL is 7 days (`quiz.answer-key-retention-days`). Only a quiz
+  served, abandoned, and submitted >7 days later reaches it.
+- **Accepted risk:** a >7-day-stale abandoned quiz can be graded from the (spoofable) client
+  map for its analytics row. Pinned by
+  `SubmitQuizAnswersUseCaseTest.noServerKey_fallsBackToClientMap_theKnownLegacyGap_pinnedExplicitly`.
+- **Closes it:** add `signal_type` to `quiz_question_results`; keyless → UNGRADED (excluded
+  from analytics) instead of client-map.
+
+### 3. SPOT_MISTAKE / CHALLENGE are UNGRADED by design
 - **What:** of the TEST types, only HOT_TAKE has a discrete key. SPOT_MISTAKE
-  (`errorDescription`/`correctSolution` free text) and CHALLENGE (open-ended) have no
-  discrete key, so they stay UNGRADED (never a client-trusted or guessed score).
-- **Why deferred:** deterministic grading needs a discrete key these types don't have.
+  (`errorDescription`/`correctSolution` free text) and CHALLENGE (open-ended) have no discrete
+  key, so they stay UNGRADED (never a client-trusted or guessed score).
 - **Accepted risk:** these TEST items contribute no mastery signal.
-- **Closes it:** either convert SPOT_MISTAKE to a keyed (multiple-choice) format, or
-  route CHALLENGE through the PROVE self-assessment path.
+- **Closes it:** convert SPOT_MISTAKE to a keyed (multiple-choice) format, or route CHALLENGE
+  through the PROVE self-assessment path.
 
-## 4. Display-as-state for self-report-only modules — PARENT-NOTIFICATION DONE; exam-readiness UI remains
-- **What:** a module whose only signal is a self-report should render a STATE, not a
-  trust-weighted % (30%) as if graded.
-- **Parent notification — DONE (2026-07):** the ledger's old claim that `signalType`
-  was already emitted here was WRONG — `MilestoneNotifier.onModuleCompleted` had no
-  such param. Now plumbed: `ModuleProgressionService.isSelfReportOnly` derives it and
-  the notifier renders "completed (self-assessed)" (no %). Pinned by
-  `MilestoneNotifierTest.onModuleCompleted_selfReportOnly_rendersStateNotPercent`.
-- **Exam-readiness UI (pally) — REMAINS:** the backend DTO DOES emit `signalType`
-  (`ModuleExamReadinessService.java:67`), but the pally exam-prep concept model doesn't
-  parse it, so the % still shows for SELF_REPORT concepts. Small: add `signalType` to
-  the concept model + a "self-assessed" label on `exam_prep_screen`. Deferred to the
-  next focused pass (not a store blocker; the numbers are now scale-correct).
+### 4. Exam-readiness UI label for self-report-only concepts — FIX BUILT (pally), merge-held
+- **What:** the backend exam-readiness DTO emits `signalType` (`ModuleExamReadinessService.java:67`),
+  but the pally exam-prep concept model didn't parse it, so a SELF_REPORT concept's
+  trust-weighted % rendered as if graded.
+- **Status:** fix built on pally branch `feat/ledger-reconcile-cheap-closes` — `signalType`
+  added to `ExamConceptMastery` + a "Self-assessed" caption on `exam_prep_screen`; pinned by a
+  widget test. Merge-held with that branch. The parent-notification half is already CLOSED
+  (see below).
+- **Closes it:** merge the pally cheap-closes branch.
 
-## 5. Generation validator: keyless deterministic item — CLOSED
-- **What:** a deterministic-type item (HOT_TAKE) generated WITHOUT its key
-  (`answer_json.isTrue`) should fail generation validation, not persist.
-- **RESOLVED (verified):** `RulesOutputValidator.isValidModuleItem` at
-  `RulesOutputValidator.java:75` already enforces it —
-  `case HOT_TAKE -> nonBlank(c,"statement") && a.get("isTrue") != null && nonBlank(a,"explanation")`.
-  A HOT_TAKE without its `isTrue` key fails validation and never persists. Closed by
-  the store-blockers audit (2026-07).
+## Cost / fan-out control
 
-## Off-keyboard (not code)
-- Device-verify the weakness loop on real hardware (wrong hot-takes → mastery moves →
-  weak concept → weak-first next quiz).
-- Store submission, manual QA pass, DPIA.
+### Billed-but-FAILED streaming — the narrow residual (streaming itself IS metered)
+- **What:** streaming chat and keepalive ARE metered (see CLOSED). The only residual: if a chat
+  stream errors/aborts BEFORE the terminal `message_delta`/`message_stop` usage event,
+  `ClaudeChatProxy.parseEventWithMetrics` never fires, so the input tokens Anthropic already
+  billed (carried in the earlier `message_start` usage) go unrecorded.
+- **Accepted risk:** near-zero today (pre-launch, and only on a mid-stream abort). Under-counts
+  the ledger by the input tokens of failed streams only.
+- **Closes it:** capture `message_start` usage and, on stream error, record a `success=false`
+  row with whatever usage the stream reported (same billed-but-failed rule as the unary path's
+  `meterBilledFailure`).
 
-## Cost / fan-out control — deferred (2026-07, from the AI-cost-ledger pass)
+### Flashcard model lever (Haiku → gemini-2.5-flash) — saving UNREALIZED
+- **What:** the ~$1.25/upload lever. `ClaudeFlashcardGenerator.java:82` still hardcodes
+  `modelRouter.getHaikuModel()`; `ModelRouter` has **no** `forFlashcardGeneration()`. The
+  evidence gate (`FlashcardModelEvidenceGate`) passed **only with thinking disabled**
+  (gemini-2.5-flash with thinking ON silently drops ~40% of pages; `thinkingBudget=0` → 0
+  dropped, 100% valid, 4.4 vs 5.0 cards/page).
+- **Why still open:** the flip is not applied — the saving is not being realized. It is **not
+  one line**: it needs a new router method → gemini-2.5-flash AND routing the flashcard prompt
+  through a Gemini path that sets `thinkingBudget=0` + `robustJsonArray` retry/salvage (Flash
+  empties must be retried, never silently dropped).
+- **Closes it:** add `ModelRouter.forFlashcardGeneration()` + the Gemini path (Prompt B1),
+  confirm `gemini.thinking-budget` maps the flashcard purpose to 0, ship a cards/page counter.
 
-Shipped this pass: Teach EVAL_FAILED, the content-change fan-out gate (2.4/2.3),
-the ai_usage ledger extension + GeminiCompletionService metering (P1), and the
-flashcard auto-gen threshold CTA (2.2). Deferred, deliberately, from data not guesses:
+### Gemini thinking-mode on the two REASONING evals — GATED
+- **What:** `teach-eval` and `module-prove-eval` are deliberately UNLISTED in
+  `gemini.thinking-budget` (thinking ON). The extraction/structured-gen purposes are already 0
+  (`GeminiThinkingBudgetConfig`); the failure-path metering is DONE (see CLOSED).
+- **Why deferred:** flipping the two reasoning purposes to 0 needs a teach-eval evidence-gate
+  variant (parse-rate + AgreementScorer sanity, thinking on vs off) with live keys — same
+  10-min protocol as the flashcard gate. No flip without it.
+- **Closes it:** run the gate; if it passes, add `teach-eval: 0` / `module-prove-eval: 0`.
 
-### Async flashcard generation job (2.1)
-- **What:** POST returns a job id; client polls (reuse CompileJobStore +
-  DurableCompileStatusStore + the /wiki/compile status pattern). Kills the
-  synchronous all-pages loop entirely; survives navigation.
-- **Why deferred:** the heavy piece. The 2.2 threshold CTA is the interim shield.
-- **Accepted risk:** a *confirmed* large-corpus generate still runs synchronously
-  (behind the CTA, so it's a chosen wait, not a surprise hang).
+### Async flashcard generation job
+- **What:** POST returns a job id; client polls (reuse `CompileJobStore` +
+  `DurableCompileStatusStore` + the `/wiki/compile` status pattern). Kills the synchronous
+  all-pages loop; survives navigation. The 2.2 threshold CTA is the interim shield.
+- **Accepted risk:** a *confirmed* large-corpus generate still runs synchronously (behind the
+  CTA — a chosen wait, not a surprise hang).
+- **Closes it:** build the job-id + poll path.
 
-### Config caps (2.5) — BOTH halves
-- **What:** max new cards/day to a student (Anki-style due+N-new queue) + a
-  per-avatar daily LLM-call budget with a "resumes tomorrow" state.
-- **Why deferred:** caps chosen before ledger data are guesses. The new-cards/day
-  cap is pedagogy UX that belongs with the flashcard page-picker pass; the
-  per-avatar LLM budget is redundant while the account-level AI Studio spend cap
-  exists (SET THAT — 2 min, $0). Decide both from ai_usage data.
+### Module-gen batching (Phase 2) — the launch-blocker-prone harness
+- **What:** merge the 3 TEST calls (HOT_TAKE+SPOT_MISTAKE+CHALLENGE) → 1 (≤2–3/page); batch
+  flashcards 3–5 pages/call with per-member salvage. LEARN separate; PROVE already adaptive.
+- **Why deferred (risk):** this is the generation harness with the B2 launch-blocker history
+  (0 PROVE items → no module could complete). Do NOT rush at a session tail.
+- **Closes it:** raise token budget per merged call + salvage parser + a per-merge config flag
+  that REVERTS to the split path if the merged call's validator-drop rate exceeds the split
+  baseline. `ModuleGeneratorMergeParityTest` exists — build on it.
 
-### pally flashcard page/topic picker (2.6)
-- **What:** filter by sourceSlug (column exists) so a kid with 2000 cards studies
-  the chapter they chose; default view = due-today + today's new allotment.
-- **Why deferred:** ships with the new-cards/day cap (2.5) as one UX pass.
+### Config caps — data-driven
+- **What:** max new cards/day per student (Anki-style due+N-new queue) + a per-avatar daily
+  LLM-call budget with a "resumes tomorrow" state.
+- **Why deferred:** caps chosen before ledger data are guesses. The per-avatar LLM budget is
+  redundant while the account-level AI Studio spend cap exists (set that — off-keyboard).
+- **Closes it:** decide both from `ai_usage` data; the new-cards/day cap ships with the picker.
 
-### Lazy module generation — PARTIALLY RESOLVED structurally by chapter-chunking
-- **What:** don't generate a page's Learn/Test modules until a student opens that
-  topic (PROVE is ALREADY adaptive — generateProveItemsAdaptively at TEST
-  completion — so only LEARN+TEST are eager).
-- **RESHAPED by chunked compile (shipped ca40cea):** the biggest waste this entry
-  targeted — an entire textbook's pages generated eagerly when few are studied — is
-  now gone at the SOURCE: an oversized upload no longer compiles whole, so modules
-  are only ever generated for pages of chunks the student PICKED. Generation follows
-  compiled chunks; a never-picked chapter produces no pages → no module fan-out
-  (verified: all three generators iterate wiki pages, not KnowledgeFiles).
-- **What REMAINS (narrower):** WITHIN a compiled chunk, LEARN+TEST are still eager
-  for every page. That's a much smaller surface (~25 pages, deliberately picked, so
-  high open-probability) — the "N% of pages never opened" argument is weak here. The
-  original blocker still holds for the residue: assignment resolution SNAPSHOTS the
-  module set, and lazy gen would put a 5-call latency storm in the student's path.
-  Decide from the ledger whether within-chunk laziness is still worth the design
-  split (eager for class/assigned, lazy LEARN+TEST for B2C self-study) — but the
-  headline dollar win this entry chased is already banked by chunking.
+### pally flashcard page/topic picker
+- **What:** filter by `sourceSlug` (column exists) so a kid with 2000 cards studies the chapter
+  they chose; default view = due-today + today's new allotment.
+- **Closes it:** ships with the new-cards/day cap as one UX pass.
 
-### Ledger blind spots still open (P1 covered the completion services)
-- OCR (GeminiVisionOcrService, ClaudeVisionOcrService — direct HTTP) and streaming
-  chat + keepalive (ClaudeApiClient streaming) bypass the metered completion
-  clients → still unmeter'd. The ledger will show them as gaps; the corpus-∝ chat
-  streaming is the likely home of the rest of the spike (the fan-out fixes meter
-  but don't reduce it). Meter these next.
+### Lazy module generation — narrowed by chunked compile
+- **What remains:** WITHIN a compiled chunk, LEARN+TEST are still eager for every page (PROVE
+  is already adaptive). The headline dollar win (a whole textbook generated eagerly) is already
+  banked by chunking (`ca40cea`): modules are only generated for pages of chunks the student
+  picked.
+- **Why the residue holds:** assignment resolution SNAPSHOTS the module set, and lazy gen would
+  put a 5-call latency storm in the student's path.
+- **Closes it:** decide from the ledger whether within-chunk laziness is worth the design split
+  (eager for class/assigned, lazy LEARN+TEST for B2C self-study).
 
-### RelevanceChecker fail-open inconsistency (ledger-grade, from the family sweep)
-- `ClaudeRelevanceChecker:120` parse-error → 0.0 (reject) vs `:46` exception → 1.0
-  (accept). Inconsistent, but relevance is a soft warning (not a hard gate), so
-  low-priority. Make the parse-error path match the accept-on-failure behaviour.
+### Page-based upload quota — largely superseded by chunked compile
+- **What remains (narrow):** a rolling-30d page-volume budget on top of the doc-count +
+  chunk-compile caps, IF the ledger shows users uploading enormous corpora and compiling all.
+  The 600k "split by chapter" reject is dissolved (segments at 50k, rejects only at 5M
+  pathological); the expensive op (compile) is already capped by `ChunkCompileGuard`
+  (`Entitlements.monthlyChunkCompiles`, FREE 5 / PRO 100 / unlimited).
+- **Closes it:** a data-driven maybe — decide from ai_usage; no longer a launch item.
 
-## Cost levers + page quota — deferred (2026-07, from the cost-levers/quota pass)
+### Flyway version bump for Postgres 18 (advisory)
+- **What:** boot logs a Flyway "not certified for this database version" advisory on PG18.
+  Advisory only — migrations still apply and run correctly.
+- **Closes it:** bump Flyway (Spring BOM override or explicit `flyway-core` /
+  `flyway-database-postgresql`) to a version listing PG18; re-run the Testcontainers suite.
 
-Shipped this pass: P3 attribution (avatarId threaded through GeminiCompletionService
-callers; commit 78c1927) + P4 OCR metering (both VisionOcrServices; 72a3154). The
-ai_usage ledger is now COMPLETE (completion services + OCR) and avatar-attributed —
-so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
+## Auth hardening (branch merged — these follow-ups remain)
 
-### Flashcard model lever (Phase 1) — gate BUILT + run; PASSES with thinking OFF
-- **What:** route flashcard gen Haiku → gemini-2.5-flash (the ~$1.25/upload lever).
-  ClaudeFlashcardGenerator:82 hardcodes getHaikuModel(); ModelRouter has no
-  forFlashcardGeneration(). Add it + a Gemini path.
-- **Evidence gate:** `FlashcardModelEvidenceGate` (committed, run with CLAUDE_API_KEY
-  + GEMINI_API_KEY via `railway run`). KEY FINDING: gemini-2.5-flash as-is (thinking
-  ON, low token cap) SILENTLY DROPS ~40% of pages (0 cards — the thinking tokens eat
-  the output budget). With `generationConfig.thinkingConfig.thinkingBudget=0` it's
-  reliable: 0 dropped pages, 100% valid, 4.4 vs 5.0 cards/page → GATE PASSED. So the
-  switch is VIABLE **only with thinking disabled**, AND still needs the real 20-page
-  run (the committed run was 5 easy placeholder pages) before flipping.
-- **On flip:** add ModelRouter.forFlashcardGeneration()=gemini-2.5-flash + route the
-  flashcard prompt through a Gemini path that sets thinkingBudget=0 + robustJsonArray-
-  style retry/salvage (Flash empties must be retried, never silently dropped).
+> `feat/auth-hardening-a` is **MERGED to main** (`1740d95`…`1fdad48`, age inversion `76358e0`).
+> The branch closed signup-upsert takeover, social auto-link takeover, email normalization,
+> fail-closed status, sub-keying, linking challenges, real forgot-password, birthYear
+> collection, and the `isUnder13(null)` inversion. Deferred follow-ups:
 
-### Gemini thinking-mode starves low-token calls — MOSTLY RESOLVED (per-purpose config)
-- **What it was:** `GeminiCompletionService`/`GeminiWikiCompiler` set generationConfig
-  WITHOUT thinkingConfig → gemini-2.5-flash ran thinking ON at low token caps → thinking
-  ate the output budget → silent empties → robustJsonArray retries (2× calls) or Haiku
-  fallback (10×). The flashcard gate proved the mechanism (~40% empties → 0 with
-  thinkingBudget=0).
-- **RESOLVED:** thinking is now a PER-PURPOSE config (`GeminiThinkingBudgetConfig`,
-  `gemini.thinking-budget.<purpose>` in application.yml). EXTRACTION / classify /
-  structured-generation purposes (topic-router, summarizer, class-brief, wiki-compile,
-  all module LEARN/TEST/PROVE-**gen** + centre-regen-*) → `thinkingBudget=0`. A purpose
-  ABSENT from the map OMITS thinkingConfig → provider default (thinking ON). Revert any
-  single purpose by deleting its yml line. NOTE: an earlier blanket hardcode (15bb23c)
-  had wrongly set 0 on the two REASONING evals too — the config restores thinking-ON
-  there.
-- **STILL GATED (the only remaining piece):** the two REASONING purposes `teach-eval`
-  and `module-prove-eval` are deliberately UNLISTED (thinking ON). Flipping them to 0
-  needs the teach-eval evidence-gate variant (parse-rate + AgreementScorer sanity,
-  thinking on vs off) run with live keys — same 10-min protocol as the flashcard gate.
-  No flip without it. To flip after the gate passes: add `teach-eval: 0` /
-  `module-prove-eval: 0` to `gemini.thinking-budget`.
-- **Failure-path metering (DONE this pass):** the empty-text branch in BOTH Gemini
-  services now records a ledger row with `success=false` + the usageMetadata tokens
-  (Google billed the call) BEFORE throwing, with `finishReason` in the purpose_label
-  suffix (`<task>:EMPTY:MAX_TOKENS` vs `:SAFETY`) — no migration. The wiki compiler used
-  to record such empties as `success=true`; fixed.
+- **UNIQUE `lower(email)` index upgrade** — V114 added a NON-unique index; the UNIQUE upgrade
+  is gated on the prod case-variant duplicate count (dedup is a human call).
+  **Closes it:** run the dup-count query (off-keyboard); if zero, a V-next migration dropping
+  the non-unique index and adding `UNIQUE (lower(email))` + a case-variant 409 test (Prompt C1).
+- **Keychain/secure-storage wipe on first launch/logout** — iOS Keychain survives uninstall, so
+  a reinstalled app can resurrect a stale identity. Server epoch invalidates the session, but
+  the client should wipe. **Closes it:** pally first-launch (SharedPreferences flag absent)
+  secure-storage wipe before reading any token (Prompt C2).
+- **Breach-password screening (HIBP k-anonymity)** — reject known-breached passwords at
+  register/reset. Deferred: net-new external call + UX; not a takeover fix.
+- **Refresh-token rotation** — auth is stateless JWT with a session-epoch kill switch; a true
+  short-lived-access + rotating-refresh model is a larger redesign. Deferred.
+- **Login/verify rate-limiting + attestation** — login is rate-limited; per-endpoint limits on
+  link/verify-code beyond the challenge attempt-cap, and device attestation, are hardening.
+- **Email verification at register** — we don't block app use on unverified email (kids start
+  fast); a verification gate is a separate product call.
 
-### Zombie recompile reconciler — RESOLVED (four affected avatars: run diagnostic in prod)
-- **What it was:** `findAvatarIdsNeedingRecompile()` flagged any avatar with READY files
-  and 0 ACTIVE wiki pages EVERY startup — even when all its files were already compiled
-  (`compiled_by` set). executeBatched then skips every file (idempotent) → guaranteed
-  no-op → re-flags again next restart, forever.
-- **RESOLVED:** the "0 active pages" branch now also requires an uncompiled READY file
-  (`compiled_by IS NULL`) — genuine work. The "file newer than pages" incremental branch
-  is untouched. Pinned by `ZombieRecompileReconcilerTest` (real Postgres).
-- **REMAINING (prod forensics, do NOT blind-recompile):** identify WHY the four known
-  avatars have 0 pages (compile produced none / all archived / all irrelevant). Run
-  against prod, then decide per-avatar (reaper vs leave):
+## Account deletion (branch merged — these follow-ups remain)
+
+> Account deletion Phase 1 (`ad35005`) **and** Phase 2 (`92d729b`) are **MERGED to main**:
+> V118/V119 grace-lifecycle, `POST /account/delete` (re-auth), `DeletionPurgeReaper`, restore
+> (`a659212`), consent-proof retention, public delete-by-email, and `/auth/account` → 410.
+> Deferred follow-ups:
+
+- **Back-port batch limit to `PendingParentalConsentReaper`** — the consent reaper still selects
+  ALL stale accounts unbounded; `DeletionPurgeReaper` added a batch limit + cursor. Same
+  unbounded-scheduled-deleter shape. **Closes it:** give the consent reaper the same treatment.
+- **Persistent purge-abort escalation** — an org acquired during grace makes the reaper abort
+  that user every run (stays PENDING, loud log) and re-occupies a batch slot daily. Fine at
+  near-zero volume. **Closes it (if it recurs at scale):** a PENDING_REVIEW sub-state so aborts
+  don't starve healthy purges.
+- **Consent-evidence retention DURATION** — V119 RETAINS `consent_records`/`consent_requests`
+  through erasure (PDPA proof-of-consent), approval token scrubbed. How many years to keep is a
+  DPO/lawyer number. **Closes it:** a dated consent-evidence purge once N is set (off-keyboard
+  / DPIA).
+
+### Apple full-name capture — PRECONDITION on future Apple sign-in
+- **What:** Apple sends the user's name only in the first-auth `user` payload (not the JWT); the
+  client must forward it. Backend already persists email on first auth.
+- **Status:** MOOT until pally ships Apple sign-in (no `sign_in_with_apple` in the client today).
+  Not a TODO now — a precondition on that future work: *when Apple sign-in is added, forward the
+  first-auth name payload* (else the name is lost forever after first auth).
+
+---
+
+# OFF-KEYBOARD (human / ops — not code)
+
+- **Store submission, manual QA pass, DPIA.** (App is pre-launch.)
+- **Device-verify the weakness loop on real hardware** — wrong hot-takes → mastery moves → weak
+  concept → weak-first next quiz.
+- **Set the account-level AI Studio spend cap** (2 min, $0) — makes the per-avatar LLM budget
+  redundant.
+- **Consent-evidence retention duration** — the DPO/lawyer's N years (feeds the dated purge above).
+- **Prod diagnostic — email case-variant duplicates** (gates the UNIQUE-index migration, Prompt C):
+  ```sql
+  SELECT lower(email), count(*) FROM users GROUP BY 1 HAVING count(*) > 1;
+  ```
+  Any rows → STOP; dedup is a human decision before the migration.
+- **Prod diagnostic — null-birthYear population** (sizes the complete-profile re-prompt):
+  ```sql
+  SELECT COUNT(*) FROM users WHERE birth_year IS NULL;
+  ```
+- **Prod forensics — the four zombie-recompile avatars** (the reconciler CODE is fixed; this is
+  "why do these four have 0 pages", decide reaper-vs-leave per avatar; do NOT blind-recompile):
   ```sql
   SELECT kf.avatar_id,
-         COUNT(*)                                         AS ready_files,
-         COUNT(*) FILTER (WHERE kf.compiled_by IS NOT NULL) AS compiled_files,
+         COUNT(*)                                            AS ready_files,
+         COUNT(*) FILTER (WHERE kf.compiled_by IS NOT NULL)  AS compiled_files,
          (SELECT COUNT(*) FROM wiki_pages wp
            WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE')   AS active_pages,
          (SELECT COUNT(*) FROM wiki_pages wp
@@ -201,174 +237,58 @@ so "what does a FREE user cost/month" is a one-query answer. Remaining, scoped:
   HAVING (SELECT COUNT(*) FROM wiki_pages wp
            WHERE wp.avatar_id = kf.avatar_id AND wp.status = 'ACTIVE') = 0;
   ```
-  archived_pages > 0 → content existed then was archived (investigate why). archived = 0
-  and active = 0 → compile genuinely produced nothing (extraction/relevance drop — check
-  extracted_chars). These are now unflagged by the reconciler either way (no more churn).
+  `archived_pages > 0` → content existed then was archived (investigate why). `archived = 0 and
+  active = 0` → compile produced nothing (extraction/relevance drop — check `extracted_chars`).
+  The reconciler no longer churns on these either way.
 
-### Module-gen batching (Phase 2) — the launch-blocker-prone harness
-- **What:** merge the 3 TEST calls (HOT_TAKE+SPOT_MISTAKE+CHALLENGE) → 1 (target
-  ≤2–3/page); batch flashcards 3–5 pages/call with per-member salvage. LEARN
-  separate; PROVE already adaptive.
-- **Why deferred (risk):** this is the generation harness with the B2 launch-blocker
-  history (0 PROVE items → no module could complete). NON-NEGOTIABLE guard: raise
-  token budget per merged call + salvage parser + a per-merge config flag that
-  REVERTS to the split path if the merged call's truncation rate (validator drops)
-  exceeds the split baseline. `ModuleGeneratorMergeParityTest` already exists — build
-  on it. Do NOT rush at the tail of a long session.
+---
 
-### Page-based upload quota — LARGELY SUPERSEDED by chapter-chunking (shipped ca40cea)
-- **UPDATE (chunked compile shipped):** the two problems this entry was designed to
-  solve are now handled a different way, so most of it is moot:
-  - **The 600k "split by chapter" reject is DISSOLVED.** That ceiling conflated a
-    quality unit with a safety bound; both jobs are now separated. Upload segments at
-    50k (`compile.segment-trigger-chars`) into pickable chapters and rejects only at
-    5M (`compile.upload-reject-chars`, pathological-file safety). A 500-page textbook
-    is INGESTED (chunked), not rejected — the "split by chapter" hint now points at a
-    capability that exists by default. **Verified: the parent extraction path has NO
-    600k trap** — the old reject was retired, and PDFBox extracts the whole file; only
-    a genuinely broken 5M+-char file is refused.
-  - **The per-doc page ceiling is SUPERSEDED.** A big doc no longer needs a per-doc
-    cap — it's split into ≤25-page chunks, each compiled individually.
-  - **The cost gate this entry chased already exists** as the chunk-compile allowance
-    (`Entitlements.monthlyChunkCompiles` + `ChunkCompileGuard`, FREE 5 / PRO 100 /
-    unlimited), which caps the EXPENSIVE op (compile) directly, per rolling 30d, same
-    guard code path for B2C and centre-resolved B2B.
-- **What could still be worth doing (much narrower):** a rolling-30d *page-volume*
-  budget on top of the doc-count + chunk-compile caps, IF the ledger shows a few
-  users uploading enormous corpora and compiling everything. Decide from data; it's
-  no longer a launch item. Original scoping kept below for reference.
-- **Original scoping (for reference — mostly moot now):**
-  - Chokepoint: enforce at the TOP of UploadFileUseCase (same place the doc-count
-    guard + preflight already sit), BEFORE OCR/extraction.
-  - 600k ceiling — DISSOLVED (see UPDATE above). The old note read: a ~1M-char/500-page
-    file was REJECTED LOUDLY with a "split by chapter" hint. Chunking makes that the
-    default behaviour instead of a reject.
-  - Charge model: preflight ESTIMATE (PDF metadata pages / image count / ceil(chars/2000)
-    / ceil(bytes/3500) flagged) to REJECT only; CHARGE AT READY on ACTUAL extracted chars.
-    Prefer a stored extracted_chars column set at READY (one migration) over len()-per-check.
-    Grandfather-ZERO (pre-migration READY files count 0). Bounded concurrent overshoot
-    (< 1 per-doc ceiling) accepted vs reservation complexity — document in guard javadoc.
-  - Scope: USER default; CENTRE budget = -1 (unlimited) so B2B is unaffected; FAMILY/
-    ORG_CLASS pooling → DEFERRED (decide from ledger data, same date as lazy-modules).
-  - Tiers/limits config live in Entitlements.forTier + application.yml (join, don't
-    rebuild). Migration must warn on the stale subscription.free.upload-cap key.
-- **Status:** largely SUPERSEDED by chapter-chunking (backend + both clients shipped).
-  Any residual page-volume budget is now a data-driven maybe, not a launch item — the
-  expensive-op gate (compile) is already covered by the chunk-compile allowance.
+# CLOSED (kept for archaeology)
 
-### Flyway version bump for Postgres 18 (advisory, deferred)
-- **What:** boot logs a Flyway "not certified for this database version" advisory on
-  Postgres 18. Advisory ONLY — migrations still apply and run correctly; it's Flyway's
-  compatibility whitelist lagging the PG release, not a functional break.
-- **Why deferred:** a Flyway dependency bump is a build-infra change with its own
-  regression surface (migration-runner behavior), out of scope for the deploy-guards PR.
-- **Closes it:** bump the Flyway version (via the Spring Boot BOM override or an explicit
-  `org.flywaydb:flyway-core`/`flyway-database-postgresql` version) to one that lists PG18,
-  then re-run the Testcontainers migration suite to confirm no runner behavior change.
-
-## Store-release blockers pass (2026-07)
-
-### Mastery scale went unledgered for weeks — the lesson (unledgered ≠ tracked)
-A 0–1 vs 0–100 contract mismatch rendered "2600% mastery" on the mobile module list,
-home banner, exam-prep, and the web exam-readiness/modules tabs — a FAMILY bug that
-sat in shipped code without a DEFERRED entry, so it wasn't "tracked", it was invisible.
-FIXED this pass (canonical 0–100 documented on `LearningModule.masteryPct`; clients use
-`masteryDisplayPct`/`masteryFraction`; web helper de-×100'd + the `avgMastery`→`masteryPct`
-field-name bug fixed; backend write + serialization clamp). Lesson: a bug you can see on
-a screenshot but that has no ledger line is a hole in the ledger's own preface — file
-the entry the moment a defect is known, not after it's fixed.
-
-### Age fail-safe inversion — INTEGRATED into feat/auth-hardening-a (was standalone HELD)
-The isUnder13(null)→true inversion now sits ON TOP of Auth Hardening A (Phases 1–4), which
-removed the lockout risk that held it: birthYear is required at register, social sign-in
-creates PENDING_PROFILE + a DOB step, legacy null accounts get the complete-profile
-re-prompt, and the ConsentGuard family fails closed. Full suite passes WITH the inversion
-active (the earlier 61-failure blast radius is gone). Still merge-held on that branch —
-see "Auth Hardening A" below. The standalone feat/age-fail-safe branch is superseded.
-
-### (historical) Age fail-safe inversion — original standalone HELD note
-The `isUnder13(null)` fail-open (`UserAgeService.java:50` returns FALSE) is a compliance
-bug. The inversion CANNOT ship alone: social sign-in never collects birthYear
-(`SocialAuthRequest` has no field; `signInWithSocial` never sets it) and the email
-`signUpWithEmail` client path sends none — so every social account is null-birthYear.
-Flipping the default without age-collection + a re-prompt would 403-lock every social
-user out of AI. Held work before this can merge:
-- Client re-prompt for existing null-birthYear accounts (route through the consent-gate
-  surfaces on next open, before consent-gated features — `consent_gate_guard.dart`).
-- birthYear collection on social sign-in (add the field + an age step) and required on
-  the email register path.
-- Run the null-birthYear count (`SELECT COUNT(*) FROM users WHERE birth_year IS NULL;`)
-  against Railway to size the re-prompt population.
-- Family sweep: `UserAgeService:40,50`, `ConsentGuard:99,137,182,222`, `AuthService:79`,
-  social — harden or accept each (the closed model is `ConsentGuard:189,225`).
-Merge waits on explicit confirm AND the count.
-
-## Auth Hardening A (feat/auth-hardening-a) — merge-held; deferred follow-ups
-
-The branch closes the signup-upsert takeover, social auto-link takeover, email
-normalization, fail-closed status, sub-keying, linking challenges, real forgot-password,
-birthYear collection, and the age inversion. Merge waits on **explicit human confirm +
-the prod null-birthYear count** (`SELECT COUNT(*) FROM users WHERE birth_year IS NULL;`).
-Deferred from the auth research, NOT in this pass — each with a one-line why:
-
-- **Breach-password screening (HIBP k-anonymity)** — reject known-breached passwords at
-  register/reset. Deferred: net-new external call + UX; not a takeover fix.
-- **Refresh-token rotation** — auth is stateless JWT with a session-epoch kill switch; a
-  true short-lived-access + rotating-refresh model is a larger redesign. Deferred.
-- **Login/verify rate-limiting + attestation** — login is rate-limited; per-endpoint
-  limits on link/verify-code beyond the challenge attempt-cap, and device attestation,
-  are hardening, not correctness. Deferred.
-- **Email verification at register** — we don't block app use on unverified email (kids
-  start fast); a verification gate is a separate product call. Deferred.
-- **Keychain/secure-storage wipe on logout/reset** — client-side hygiene; the server
-  epoch already invalidates the session. Deferred to a client pass.
-- **Apple full-name capture on first authorization** — Apple sends the name only in the
-  first-auth `user` payload (not the JWT); the client must forward it. Backend persists
-  email on first auth; name-forwarding is a client change. Deferred.
-- **Prompt B review blockers** — out of scope for Prompt A; tracked separately.
-- **UNIQUE lower(email) index upgrade** — V114 added a NON-unique index; the UNIQUE
-  upgrade is gated on the prod case-variant duplicate count (dedup is a human call).
-
-## Account Deletion Phase 1 (feat/account-deletion) — merge-held; deferred follow-ups
-
-The grace/purge core: V118/V119, POST /account/delete (re-auth), DeletionPurgeReaper,
-and consent-proof retention. Merge waits on the strict audit + explicit human confirm.
-Deferred items, each with a why:
-
-- **Consent-evidence retention DURATION** — V119 RETAINS consent_records/consent_requests
-  through erasure (PDPA/PDPC proof-of-consent), with the approval token scrubbed. How many
-  years to keep the evidence post-deletion is a DPO/lawyer call — indefinite retention is
-  its own PDPA question. Code ships with the retain; the expiry is the lawyer's number
-  (add a dated purge for consent evidence once N is set). **DPIA open item.**
-- **Back-port batch limit to PendingParentalConsentReaper** — the consent reaper still
-  selects ALL stale accounts unbounded; DeletionPurgeReaper added a batch limit + cursor.
-  Same unbounded-scheduled-deleter risk shape; give the consent reaper the same treatment.
-- **Restore path (build order step 4)** — clearDeletionPending (status=ACTIVE, clear stamp,
-  bump epoch again) + login-during-grace returns the RESTORE surface only (never a normal
-  token); consumeRestoreToken is already built. NOT yet wired — the last commit of Phase 1.
-- **Persistent purge-abort escalation** — an org acquired during grace makes the reaper
-  abort that user every run (stays PENDING, loud log) and it re-occupies a batch slot each
-  day. Fine at near-zero abort volume; if it ever recurs at scale, add a PENDING_REVIEW
-  sub-state so aborts don't starve healthy purges.
-
-## Process note (account deletion, learned 2026-07)
-
-- **Strict audits must sweep the OLD SIBLINGS of new surfaces, not just the new surfaces.**
-  Phase 1 locked "a bearer token alone can never initiate deletion" and closed it on
-  DELETE /account/me — but DELETE /auth/account (the endpoint the live client actually
-  called) kept the old bearer-only immediate-delete semantics, and the strict audit's
-  blast radius was drawn around what CHANGED, not around what the change made STALE. The
-  next phase's mini-0 caught it (B1: /auth/account -> 410). Second time an audit missed a
-  stale sibling — when a rule is locked, grep every sibling of the changed code and re-audit
-  the ones the rule now implicates, not only the diff.
-
-## CLOSED 2026-07-09 — blank-role→ADULT default retired (fail-closed)
-
-AuthController /register no longer defaults a blank role + null birth year to
-role="adult" (age-exempt) — it returns 400. The "unknown shape → age-exempt ADULT"
-landmine (would mint age-exempt minors if any client sent the shape) is gone. Safe
-because the only web caller, memoly, sends explicit role:"adult" — VERIFIED live on
-prod via Vercel (deployment ed6d5e0, ancestor of the role:"adult" commit 2e49709);
-mobile uses /onboard/quick with a birth year (bypasses this controller path). The
-dead pally signUpWithEmail (the one no-role caller) was already deleted. Pinned by
-SignupSecurityIntegrationTest (explicit-adult 201 + blank-shape 400 no-account).
+- **Generation validator: keyless deterministic item** — `RulesOutputValidator.isValidModuleItem`
+  (`:75`) enforces `HOT_TAKE` needs `answer_json.isTrue`; a keyless HOT_TAKE fails validation and
+  never persists. Closed by the store-blockers audit (2026-07).
+- **RelevanceChecker fail-open inconsistency** — `parseResponse` parse-error now returns `1.0`
+  (accept), consistent with the API-failure path in `check()`. Both "checker unavailable" paths
+  fail toward accepting the upload. Closed `46c5264` (2026-07).
+- **OCR metering** — both `GeminiVisionOcrService:139` and `ClaudeVisionOcrService:137` record an
+  `ai_usage` row (`purpose_label='ocr'`) at their HTTP seam. Closed `72a3154`.
+- **Streaming chat + keepalive metering** — metered at the CALLER (not inside `ClaudeApiClient`):
+  `ClaudeChatProxy.parseEventWithMetrics` extracts the terminal `message_delta`/`message_stop`
+  usage (`CacheMetrics`) and records a `"chat"` row with real input/output + cache-adjusted
+  tokens; `CacheKeepAliveService` records an estimated `"cache-keepalive"` row. Closed `8455952`.
+  (Prod `ai_usage` shows no `chat`/`ocr`/`cache-keepalive` rows yet only because there's been no
+  such traffic since 2026-07-08 on the deployed build — verified the code path at source; the
+  ledger will populate with traffic. The narrow billed-but-FAILED-stream residual is OPEN above.)
+- **Gemini failure-path metering** — the empty-text branch in both Gemini services records
+  `success=false` + the billed `usageMetadata` tokens (finishReason in the purpose suffix) before
+  throwing; the wiki compiler no longer records empties as `success=true`. Closed `6539b3f`.
+- **Per-purpose Gemini thinking budget** — `GeminiThinkingBudgetConfig`
+  (`gemini.thinking-budget.<purpose>`); extraction/classify/structured-gen purposes → 0; a purpose
+  absent from the map gets provider default (thinking ON). The two reasoning evals stay unlisted
+  (still OPEN — see above). Closed `6539b3f`.
+- **Avatar attribution through GeminiCompletionService** — `avatarId` threaded through callers.
+  Closed `78c1927`.
+- **Zombie recompile reconciler (code)** — `findAvatarIdsNeedingRecompile()`'s "0 active pages"
+  branch now also requires an uncompiled READY file (`compiled_by IS NULL`) — genuine work only,
+  no more per-restart churn. Pinned by `ZombieRecompileReconcilerTest` (real Postgres). Closed
+  `6539b3f`. (Prod forensics for the four known avatars → OFF-KEYBOARD.)
+- **Item 4 parent notification** — the old claim that `signalType` was emitted at the notifier was
+  WRONG; now plumbed: `ModuleProgressionService.isSelfReportOnly` derives it and
+  `MilestoneNotifier.onModuleCompleted` renders "completed (self-assessed)" (no %). Pinned by
+  `MilestoneNotifierTest.onModuleCompleted_selfReportOnly_rendersStateNotPercent`. Closed 2026-07.
+  (The exam-readiness UI half is OPEN — see above.)
+- **PROVE old-client stranding** — MOOT-at-launch: the self-assess overlay shipped in pally
+  `2ad9dae` (build `1.0.1+6`, the current & only build); the app is pre-launch, so no released
+  client predates the overlay. **Launch precondition:** set the server min-version floor
+  (`/app/min-version`) to `1.0.1+6` at store launch so no pre-overlay internal build survives.
+- **Mastery scale 0–1 vs 0–100 ("2600%")** — canonical 0–100 on `LearningModule.masteryPct`;
+  clients use `masteryDisplayPct`/`masteryFraction`; web helper de-×100'd; backend clamp. Closed
+  in the store-blockers pass (`8527f5e`).
+- **Age fail-safe inversion (`isUnder13(null)`)** — integrated on top of Auth Hardening A and
+  merged; the ConsentGuard family fails closed; full suite green with the inversion active. Closed
+  `1fdad48` / `76358e0`.
+- **blank-role→ADULT default retired** — `AuthController /register` returns 400 on a blank role +
+  null birth year (was defaulting to age-exempt ADULT). Verified safe: memoly sends explicit
+  `role:"adult"` (prod Vercel `ed6d5e0`); mobile uses `/onboard/quick` with a birth year. Pinned by
+  `SignupSecurityIntegrationTest`. Closed 2026-07-09 (`95e2bf5`/`7439a15`).
