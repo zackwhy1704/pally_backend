@@ -9,6 +9,7 @@ import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -33,11 +34,27 @@ public class ClaudeFlashcardGenerator {
     private static final Logger log =
             LoggerFactory.getLogger(ClaudeFlashcardGenerator.class);
     private static final int MAX_TOKENS = 900;
+    /** ai_usage purpose label — same on both providers so the ledger gives a clean
+     *  Haiku-vs-Gemini before/after for the exact same workload. */
+    private static final String PURPOSE = "flashcard-gen";
 
     private final ClaudeApiClient claudeApiClient;
+    private final GeminiCompletionService geminiCompletion;
     private final ObjectMapper objectMapper;
     private final ModelRouter modelRouter;
     private final FlashcardRepository flashcardRepository;
+
+    /**
+     * The ~$1.25/upload cost lever. When true, flashcard generation routes to
+     * gemini-2.5-flash (with {@code gemini.thinking-budget.flashcard-gen=0} — the
+     * evidence gate only passed with thinking OFF) instead of Claude Haiku.
+     * Config-flippable via {@code FLASHCARD_USE_GEMINI} so it reverts with no deploy.
+     * Defaults FALSE: merging this changes nothing until the flag is flipped AFTER
+     * the real 20-page evidence run. GeminiCompletionService falls back to Haiku if
+     * the Gemini key is absent, so a flip can never hard-fail generation.
+     */
+    @Value("${flashcard.use-gemini:false}")
+    private boolean useGemini;
 
     /// New page → generate + persist (delete any prior cards on the same
     /// slug first, defensively).
@@ -46,11 +63,22 @@ public class ClaudeFlashcardGenerator {
                 avatarId, page.getSlug());
         List<FlashCard> cards = generateFromContent(
                 avatarId, page.getSlug(), page.getTitle(), page.getContent());
-        if (!cards.isEmpty()) {
-            flashcardRepository.saveAll(cards);
-            log.info("[Flashcard] Generated {} cards for slug={}",
-                    cards.size(), page.getSlug());
+        // Cards-per-page counter so a model-swap quality regression is visible in the
+        // first day's logs (grep "[Flashcard] cards/page"). The evidence gate's failure
+        // mode was 0-card pages (thinking-ON silently ate the output budget) — surface
+        // an empty result LOUDLY on non-blank content, it's the drop signal.
+        String model = useGemini ? "gemini-2.5-flash" : "haiku";
+        if (cards.isEmpty()) {
+            boolean hadContent = page.getContent() != null && !page.getContent().isBlank();
+            if (hadContent) {
+                log.warn("[Flashcard] cards/page=0 model={} slug={} — DROP on non-blank content "
+                        + "(possible model regression)", model, page.getSlug());
+            }
+            return;
         }
+        flashcardRepository.saveAll(cards);
+        log.info("[Flashcard] cards/page={} model={} slug={}",
+                cards.size(), model, page.getSlug());
     }
 
     /// Updated page → same as the new-page path (delete then regenerate).
@@ -78,11 +106,17 @@ public class ClaudeFlashcardGenerator {
 
         String raw;
         try {
-            raw = claudeApiClient.complete(
-                    modelRouter.getHaikuModel(), MAX_TOKENS, prompt);
+            // Both paths ledger under PURPOSE ("flashcard-gen") so Haiku (pre-flip) and
+            // Gemini (post-flip) costs are directly comparable in ai_usage. The Gemini
+            // path applies gemini.thinking-budget.flashcard-gen=0, meters with avatarId,
+            // and itself falls back to Haiku if the Gemini key is absent.
+            raw = useGemini
+                    ? geminiCompletion.complete(MAX_TOKENS, prompt, PURPOSE, avatarId)
+                    : claudeApiClient.complete(
+                            modelRouter.getHaikuModel(), MAX_TOKENS, prompt, PURPOSE);
         } catch (Exception e) {
-            log.warn("[Flashcard] Claude call failed slug={}: {}",
-                    slug, e.getMessage());
+            log.warn("[Flashcard] generation call failed (useGemini={}) slug={}: {}",
+                    useGemini, slug, e.getMessage());
             return List.of();
         }
         if (raw == null || raw.isBlank()) return List.of();

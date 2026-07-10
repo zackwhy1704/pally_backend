@@ -299,6 +299,10 @@ gemini:
     centre-regen-hottake: 0
     centre-regen-spotmistake: 0
     centre-regen-challenge: 0
+    # Flashcard gen (only reached when flashcard.use-gemini=true). Thinking OFF is
+    # MANDATORY here — the evidence gate showed thinking-ON drops ~40% of pages to 0
+    # cards. Do not remove this line while the flag is on.
+    flashcard-gen: 0
 
 # Storage defaults to s3 (Cloudflare R2) so production needs no per-deploy flag.
 # Local dev / CI override via STORAGE_TYPE=local (tests force local in
@@ -347,6 +351,10 @@ flashcard:
   # Above this many wiki pages, flashcard auto-generate-on-open becomes an
   # explicit CTA (avoids the synchronous all-pages generation hang).
   auto-generate-max-pages: 15
+  # Route flashcard generation Haiku → gemini-2.5-flash (the ~$1.25/upload cost lever).
+  # OFF by default: flip FLASHCARD_USE_GEMINI=true on Railway (no deploy) AFTER the real
+  # 20-page evidence run. Requires gemini.thinking-budget.flashcard-gen=0 (thinking OFF).
+  use-gemini: ${FLASHCARD_USE_GEMINI:false}
 
 subscription:
   free:
