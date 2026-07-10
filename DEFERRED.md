@@ -54,15 +54,11 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 - **Closes it:** convert SPOT_MISTAKE to a keyed (multiple-choice) format, or route CHALLENGE
   through the PROVE self-assessment path.
 
-### 4. Exam-readiness UI label for self-report-only concepts — FIX BUILT (pally), merge-held
-- **What:** the backend exam-readiness DTO emits `signalType` (`ModuleExamReadinessService.java:67`),
-  but the pally exam-prep concept model didn't parse it, so a SELF_REPORT concept's
-  trust-weighted % rendered as if graded.
-- **Status:** fix built on pally branch `feat/ledger-reconcile-cheap-closes` — `signalType`
-  added to `ExamConceptMastery` + a "Self-assessed" caption on `exam_prep_screen`; pinned by a
-  widget test. Merge-held with that branch. The parent-notification half is already CLOSED
-  (see below).
-- **Closes it:** merge the pally cheap-closes branch.
+### 4. Exam-readiness UI label for self-report-only concepts — CLOSED (merged 2026-07-10)
+`signalType` added to pally `ExamConceptMastery` + a "Self-assessed" caption on
+`exam_prep_screen` (widget-test pinned). Merged to pally main (`9c2e93d`). Backend already
+emits it (`ModuleExamReadinessService.java:67`); the parent-notification half was already
+CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 ## Cost / fan-out control
 
@@ -77,18 +73,15 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
   row with whatever usage the stream reported (same billed-but-failed rule as the unary path's
   `meterBilledFailure`).
 
-### Flashcard model lever (Haiku → gemini-2.5-flash) — saving UNREALIZED
-- **What:** the ~$1.25/upload lever. `ClaudeFlashcardGenerator.java:82` still hardcodes
-  `modelRouter.getHaikuModel()`; `ModelRouter` has **no** `forFlashcardGeneration()`. The
-  evidence gate (`FlashcardModelEvidenceGate`) passed **only with thinking disabled**
-  (gemini-2.5-flash with thinking ON silently drops ~40% of pages; `thinkingBudget=0` → 0
-  dropped, 100% valid, 4.4 vs 5.0 cards/page).
-- **Why still open:** the flip is not applied — the saving is not being realized. It is **not
-  one line**: it needs a new router method → gemini-2.5-flash AND routing the flashcard prompt
-  through a Gemini path that sets `thinkingBudget=0` + `robustJsonArray` retry/salvage (Flash
-  empties must be retried, never silently dropped).
-- **Closes it:** add `ModelRouter.forFlashcardGeneration()` + the Gemini path (Prompt B1),
-  confirm `gemini.thinking-budget` maps the flashcard purpose to 0, ship a cards/page counter.
+### Flashcard model lever (Haiku → gemini-2.5-flash) — CODE MERGED, only the OPERATOR FLIP remains
+- **Code shipped** (merged `0b55908`): `ClaudeFlashcardGenerator` routes through
+  `GeminiCompletionService` behind `flashcard.use-gemini` (`FLASHCARD_USE_GEMINI`, default
+  **OFF**), `gemini.thinking-budget.flashcard-gen=0` (thinking OFF — mandatory), both providers
+  ledger under `flashcard-gen` for a direct before/after, + a cards/page log & 0-card WARN.
+  Est. saving ~55% (~$0.23–0.42/150-page upload; the ~$1.25 was total cost, not the saving).
+- **What remains (OFF-KEYBOARD, operator):** run the real 20-page evidence (the committed gate
+  was 5 placeholder pages), then set `FLASHCARD_USE_GEMINI=true` on Railway (no deploy) and
+  check the `flashcard-gen` ledger rows a day later. **Closes it:** that flip.
 
 ### Gemini thinking-mode on the two REASONING evals — GATED
 - **What:** `teach-eval` and `module-prove-eval` are deliberately UNLISTED in
@@ -159,8 +152,9 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 > fail-closed status, sub-keying, linking challenges, real forgot-password, birthYear
 > collection, and the `isUnder13(null)` inversion. Deferred follow-ups:
 
-- **UNIQUE `lower(email)` index upgrade** — V114 added a NON-unique index; the UNIQUE upgrade
-  is gated on the prod case-variant duplicate count (dedup is a human call).
+- **UNIQUE `lower(email)` index upgrade — CLOSED (merged 2026-07-10, `cd13643`).** Gate cleared
+  (prod dup-count 0 rows / 38 users); V121 drops V114's non-unique index and adds
+  `UNIQUE (lower(email))`; case-variant 409 pinned by `UniqueEmailLowerIndexIntegrationTest`.
   **Closes it:** run the dup-count query (off-keyboard); if zero, a V-next migration dropping
   the non-unique index and adding `UNIQUE (lower(email))` + a case-variant 409 test (Prompt C1).
 - **Keychain/secure-storage wipe on first launch/logout** — iOS Keychain survives uninstall, so
