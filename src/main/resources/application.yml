@@ -127,6 +127,9 @@ content:
     batch-size: ${CONTENT_REAPER_BATCH_SIZE:100}
     scan-backoff-hours: ${CONTENT_REAPER_SCAN_BACKOFF_HOURS:20}
     max-regenerate-attempts: ${CONTENT_REAPER_MAX_ATTEMPTS:2}
+    # Per-run LLM-call cap for the regenerate pass — 3 nights to clear the 147 legacy blanks
+    # (~$0.20 total) so night one can never run away. Raise after a clean first run.
+    max-regenerate-per-run: ${CONTENT_REAPER_MAX_REGEN_PER_RUN:50}
 
 # ── Third-party AI consent gate ──────────────────────────────────────────────
 # Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic

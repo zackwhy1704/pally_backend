@@ -127,6 +127,43 @@ public class ModuleContentGenerator {
                 module.getId(), page.getSlug(), allItems.size(), guidance != null && !guidance.isBlank());
     }
 
+    /**
+     * CONTENT-HEALTH REAPER regeneration: regenerate the items of a SINGLE
+     * {@link ContentItemType} for a module, as LIVE items, for the reaper to APPEND. This
+     * path NEVER deletes/replaces (unlike {@link #regenerateAsDraft}, whose replaceItems
+     * deletes — which would orphan module_progress's FK to the item id); the reaper appends
+     * these and retires the old quarantined originals separately.
+     *
+     * <p>TYPE-scoped, not stage-scoped: a blank SPOT_MISTAKE regenerates ONLY spot-mistakes,
+     * never its valid HOT_TAKE/CHALLENGE stage-siblings. The underlying generators self-meter
+     * under their normal purpose label ({@code module-*-gen}) and always return a substantive
+     * item (real or a validated fallback), so this rarely returns empty. Validation is applied
+     * by the CALLER before it swaps (validate-before-swap). PROVE is adaptive (not a stage
+     * generator) → returns empty, so the reaper retires a stray blank PROVE rather than heal it.
+     */
+    public List<ModuleContentItem> regenerateTypeItems(
+            Avatar avatar, WikiPage page, LearningModule module, String type) {
+        ContentItemType t;
+        try {
+            t = ContentItemType.valueOf(type);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return List.of();
+        }
+        String tier = resolveContentTier(avatar);
+        String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
+        String subject = avatar.getSubject().label();
+        String content = truncate(page.getContent(), 3000);
+        List<ModuleContentItem> items = switch (t) {
+            case MICRO_CARD -> generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId());
+            case HOT_TAKE -> generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId());
+            case SPOT_MISTAKE -> generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId());
+            case CHALLENGE -> generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId());
+            case PROVE_QUESTION -> List.of(); // adaptive path — reaper retires a stray blank PROVE
+        };
+        items.forEach(i -> i.setStatus("LIVE"));
+        return items;
+    }
+
     // ── Groundedness gate (B3) ───────────────────────────────────────────────
 
     /**

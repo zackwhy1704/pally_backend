@@ -35,6 +35,26 @@ class RulesOutputValidatorTest {
     }
 
     @Test
+    void explain_givesAReasonForBlank_andEmptyForValid_sameRulesAsRetainValid() {
+        // The approve-boundary needs a teacher-facing reason, from the SAME rules as the
+        // drop path (retainValid) — so a refusal can never disagree with a silent drop.
+        ModuleContentItem blank = spotMistake("", "", "", "");
+        ModuleContentItem valid = spotMistake("Solve 2+2", "2+2=5", "addition slip", "2+2=4");
+
+        assertThat(validator.explain(blank, OutputType.MODULE_ITEM))
+                .as("a blank spot-mistake explains why it's unusable")
+                .isPresent();
+        assertThat(validator.explain(blank, OutputType.MODULE_ITEM).get())
+                .contains("spot-the-mistake");
+        assertThat(validator.explain(valid, OutputType.MODULE_ITEM))
+                .as("a valid item has no complaint")
+                .isEmpty();
+        // Consistency: explain-present iff retainValid drops it.
+        assertThat(validator.retainValid(List.of(blank), OutputType.MODULE_ITEM)).isEmpty();
+        assertThat(validator.retainValid(List.of(valid), OutputType.MODULE_ITEM)).containsExactly(valid);
+    }
+
+    @Test
     void moduleItem_halfBlankSpotMistake_isDropped() {
         // The partial-parse failure mode: present but half-empty (a real regression class).
         ModuleContentItem halfBlank = spotMistake("Solve 2+2", "", "addition slip", "");

@@ -92,6 +92,16 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
                 .stream().map(this::toDomain).toList();
     }
 
+    @Override
+    public List<ModuleContentItem> findByStatusPage(String status, int pageNumber, int pageSize) {
+        return jpa.findByStatusIn(
+                        java.util.List.of(status),
+                        org.springframework.data.domain.PageRequest.of(
+                                pageNumber, pageSize,
+                                org.springframework.data.domain.Sort.by("id")))
+                .stream().map(this::toDomain).toList();
+    }
+
     // ── Mapping helpers ────────────────────────────────────────────────────
 
     ModuleContentItem toDomain(ModuleContentItemJpaEntity e) {

@@ -1,6 +1,7 @@
 package com.pally.domain.content;
 
 import java.util.List;
+import java.util.Optional;
 
 /// Shared VALIDATION capability — one of the three composable content-pipeline seams
 /// (ContextAssembler, ContentLlmClient, OutputValidator). Every surface that produces
@@ -21,4 +22,12 @@ public interface OutputValidator {
     /// Return only the outputs that are valid for their type. Pass-through returns every
     /// output (Phase 1); Phase 3 omits malformed ones.
     <T> List<T> retainValid(List<T> outputs, OutputType type);
+
+    /// Human-readable reason a SINGLE output is INVALID for its type, or empty if valid.
+    /// Same rules as {@link #retainValid} — one source of truth for "why is this unusable?".
+    /// Used at the teacher approve/edit boundary so a refusal tells the teacher what to fix
+    /// (not a silent skip). Default: always valid (matches a pass-through validator).
+    default Optional<String> explain(Object output, OutputType type) {
+        return Optional.empty();
+    }
 }

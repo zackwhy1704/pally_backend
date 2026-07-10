@@ -33,11 +33,14 @@ public interface ContentReviewPort {
     ContentItemView updateItem(UpdateItemCommand command);
 
     /**
-     * Sets all DRAFT items belonging to the given class to LIVE (bulk approve).
+     * Sets the given DRAFT items to LIVE (bulk approve of a pre-validated subset).
+     * Each id MUST belong to {@code classId} (verified via its module) or it is skipped,
+     * so one centre can never approve another's content. The domain service pre-filters
+     * to the items that PASS validation, so a blank/invalid draft is never flipped live.
      *
-     * @return the number of items approved
+     * @return the number of items actually approved
      */
-    int approveAllDraftsByClass(String classId);
+    int approveItems(String classId, List<String> itemIds);
 
     // ── Value objects ────────────────────────────────────────────────────────
 
