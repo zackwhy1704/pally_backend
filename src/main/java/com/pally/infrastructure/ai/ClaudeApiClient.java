@@ -245,9 +245,30 @@ public class ClaudeApiClient {
         } catch (Exception e) {
             metrics.recordError(task, "parse_error");
             metrics.stopLatency(sample, task, model);
+            // BILLED-BUT-FAILED: Anthropic bills a 200 even when we can't use it (parse
+            // failure, or the empty-content-array throw above after a real generation).
+            // Meter success=false WITH the billed tokens so the cost ledger reflects real
+            // spend instead of silently dropping it — mirrors the Gemini empty-text fix.
+            meterBilledFailure(responseJson, task, model);
             log.error("[Claude-{}] PARSE FAILED after {}ms: {}", callId, ms, responseJson, e);
             throw new RuntimeException("Unexpected Claude API response format", e);
         }
+    }
+
+    /// Meters a BILLED-BUT-FAILED unary Claude call: best-effort re-extract of usage from
+    /// the raw 200 body (0 if the body itself is unreadable), recorded as a success=false
+    /// ledger row so real spend isn't silently dropped. Package-private for testing.
+    void meterBilledFailure(String responseJson, String task, String model) {
+        long inTok = 0, outTok = 0;
+        try {
+            JsonNode usage = objectMapper.readTree(responseJson).path("usage");
+            inTok = usage.path("input_tokens").asLong(0);
+            outTok = usage.path("output_tokens").asLong(0);
+        } catch (Exception ignored) {
+            // body unreadable — still record a success=false row, at 0 tokens
+        }
+        aiUsageMeter.record(null, null, callTypeForTask(task), task,
+                com.pally.domain.cost.AiTrigger.OTHER, model, inTok, outTok, false, false);
     }
 
     // ── Vision + Tool-use (multimodal) ──────────────────────────────────────────

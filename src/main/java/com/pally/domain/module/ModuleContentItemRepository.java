@@ -9,6 +9,21 @@ import java.util.Optional;
  */
 public interface ModuleContentItemRepository {
 
+    /**
+     * FAIL-CLOSED allow-list of statuses whose items are SERVED to students (the
+     * ConsentGuard.ACTIVE_STATUSES pattern): an item reaches a device only if its
+     * status is on THIS list. Everything else — DRAFT (unreviewed / mid-regenerate),
+     * ARCHIVED (withdrawn), REJECTED, and the reaper's QUARANTINED / RETIRED — is NOT
+     * served, and any future/unknown status defaults to not-served (never leaks).
+     *
+     * <p>Use the {@code findServable*} methods for anything that returns item CONTENT to
+     * a student. GATING/EXISTENCE counts (the PROVE-generation gate), the
+     * teacher-reviewed BADGE, and completion DENOMINATORS deliberately read the FULL set
+     * via {@code findByModuleId*} — filtering those would trigger spurious regeneration,
+     * neuter the badge, and skew mastery. Keep the two families distinct.
+     */
+    List<String> SERVABLE_STATUSES = List.of("LIVE", "APPROVED");
+
     ModuleContentItem save(ModuleContentItem item);
 
     List<ModuleContentItem> saveAll(List<ModuleContentItem> items);
@@ -18,6 +33,12 @@ public interface ModuleContentItemRepository {
     List<ModuleContentItem> findByModuleIdOrderBySortOrder(String moduleId);
 
     List<ModuleContentItem> findByModuleIdAndStageOrderBySortOrder(String moduleId, String stage);
+
+    /** SERVABLE items only (SERVABLE_STATUSES) — for returning content to a student. */
+    List<ModuleContentItem> findServableByModuleIdOrderBySortOrder(String moduleId);
+
+    /** SERVABLE items for one stage only — for returning content to a student. */
+    List<ModuleContentItem> findServableByModuleIdAndStageOrderBySortOrder(String moduleId, String stage);
 
     int countByModuleIdAndStage(String moduleId, String stage);
 

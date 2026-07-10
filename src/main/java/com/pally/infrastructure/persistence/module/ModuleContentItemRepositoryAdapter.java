@@ -42,6 +42,21 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
     }
 
     @Override
+    public List<ModuleContentItem> findServableByModuleIdOrderBySortOrder(String moduleId) {
+        return jpa.findByModuleIdAndStatusInOrderBySortOrder(
+                        moduleId, ModuleContentItemRepository.SERVABLE_STATUSES)
+                .stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public List<ModuleContentItem> findServableByModuleIdAndStageOrderBySortOrder(
+            String moduleId, String stage) {
+        return jpa.findByModuleIdAndStageAndStatusInOrderBySortOrder(
+                        moduleId, stage, ModuleContentItemRepository.SERVABLE_STATUSES)
+                .stream().map(this::toDomain).toList();
+    }
+
+    @Override
     public List<ModuleContentItem> findByModuleIdAndStageOrderBySortOrder(
             String moduleId, String stage) {
         return jpa.findByModuleIdAndStageOrderBySortOrder(moduleId, stage)

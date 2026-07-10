@@ -140,6 +140,14 @@ public class MuddiestService {
      * Maps conceptId → human label by scanning the module's content items. We
      * read {@code answer_json.targetConcept} and {@code content_json.concept}
      * (the two places concepts are stored across stages).
+     *
+     * <p>DELIBERATELY reads the FULL set (findByModuleId*, NOT findServable*). This
+     * extracts concept LABELS, not item content — nothing here reaches a student as a
+     * card/question, so the servable filter doesn't apply. More importantly it must
+     * RESOLVE the label for any concept a student ALREADY voted on — including one
+     * whose item later went DRAFT/ARCHIVED — and a servable-only scan would surface a
+     * raw conceptId instead of its label in the aggregate + class post. Do NOT "tidy"
+     * this onto findServable*. (See ModuleContentItemRepository.SERVABLE_STATUSES.)
      */
     private Map<String, String> conceptLabels(String moduleId) {
         Map<String, String> labels = new LinkedHashMap<>();
