@@ -44,6 +44,13 @@ public interface ModuleContentItemRepository {
     /** Read-only paging over servable items for the DRY_RUN damage report (page 0-indexed). */
     List<ModuleContentItem> findServablePage(int pageNumber, int pageSize);
 
+    /**
+     * Paging over items in a SINGLE status (page 0-indexed), e.g. QUARANTINED — the reaper's
+     * retire/regenerate passes act on the NON-servable family, so they read this, NEVER
+     * findServable* (which would exclude the very candidates they must process).
+     */
+    List<ModuleContentItem> findByStatusPage(String status, int pageNumber, int pageSize);
+
     ModuleContentItem save(ModuleContentItem item);
 
     List<ModuleContentItem> saveAll(List<ModuleContentItem> items);
