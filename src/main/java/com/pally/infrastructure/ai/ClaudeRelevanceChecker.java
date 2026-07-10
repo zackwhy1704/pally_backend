@@ -117,7 +117,12 @@ public class ClaudeRelevanceChecker implements RelevancePort {
             return new RelevanceScore(score, reason, studyMaterial);
         } catch (Exception e) {
             log.error("Failed to parse relevance response: {}", raw, e);
-            return new RelevanceScore(0.0, "Parse error: " + e.getMessage());
+            // FAIL-OPEN (accept), consistent with the API-failure path in check() above.
+            // A malformed-but-200 relevance response is the checker being unavailable, not
+            // a signal about the content — and a false REJECT (0.0) silently discards a
+            // student's valid upload (its pages get dropped). Relevance is a soft warning;
+            // both "checker unavailable" paths now fail toward accepting the upload.
+            return new RelevanceScore(1.0, "Relevance check response unreadable — content accepted");
         }
     }
 
