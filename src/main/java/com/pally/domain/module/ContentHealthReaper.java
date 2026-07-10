@@ -1,8 +1,11 @@
 package com.pally.domain.module;
 
+import com.pally.domain.avatar.Avatar;
+import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.content.OutputType;
 import com.pally.domain.content.OutputValidator;
 import com.pally.domain.cost.AiCostRates;
+import com.pally.domain.knowledge.WikiPage;
 import com.pally.domain.knowledge.WikiRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,10 +31,14 @@ import java.util.Optional;
  * cursor ({@code reap_last_attempt_at}) + per-item try/catch, so it can never
  * unbounded-sweep or let a stuck item starve the batch head.
  *
- * <p>This commit is the SCAN → QUARANTINE core: a quarantined item is off
+ * <p>The live reap runs three passes: SCAN → QUARANTINE (a quarantined item is off
  * {@link ModuleContentItemRepository#SERVABLE_STATUSES}, so Phase 1a stops serving it
- * immediately — that alone meets the "no blank item reaches a student" bar. The
- * regenerate/retire recovery layer is a following commit.
+ * immediately — that alone meets the "no blank item reaches a student" bar); RETIRE-NO-SOURCE
+ * (a quarantined item whose WikiPage source is gone → terminal RETIRED, status only, never
+ * deleted); and REGENERATE (capped LLM path: regenerate the item's type from its source,
+ * validate-before-swap, append new LIVE + retire the old, 2 failures → RETIRED). All three
+ * are gated behind {@code content.reaper.dry-run=false}; in dry-run only the classified
+ * damage report is produced.
  */
 @Component
 @Slf4j
@@ -45,13 +52,20 @@ public class ContentHealthReaper {
     private int batchSize;
     @Value("${content.reaper.scan-backoff-hours:20}")
     private int scanBackoffHours;
+    /** Per-run LLM-call cap so a big corpus can't run away on night one (approved: 50/night). */
+    @Value("${content.reaper.max-regenerate-per-run:50}")
+    private int maxRegeneratePerRun;
+    /** After this many failed regen attempts an item is terminally RETIRED (not retried forever). */
+    @Value("${content.reaper.max-regenerate-attempts:2}")
+    private int maxRegenerateAttempts;
 
     private static final int REPORT_PAGE_SIZE = 500;
 
     // Cost-estimate assumptions for a single stage regeneration (documented, not measured):
     // a spot-mistake regen sends the page content (~1.8k input tokens) and gets one item
     // (~300 output). gemini-2.5-flash (the module-*-gen model, thinking 0). The authoritative
-    // cost is the "content-reaper-regen" ledger rows post-flip; this is the pre-flip estimate.
+    // cost is the module-*-gen ledger rows during the recovery window (correlate with the
+    // regenerate-pass log line); this is the pre-flip estimate.
     static final String REGEN_MODEL = "gemini-2.5-flash";
     static final long EST_INPUT_TOKENS_PER_REGEN = 1800;
     static final long EST_OUTPUT_TOKENS_PER_REGEN = 300;
@@ -61,15 +75,20 @@ public class ContentHealthReaper {
     private final LearningModuleRepository moduleRepo;
     private final WikiRepository wikiRepo;
     private final AiCostRates costRates;
+    private final AvatarRepository avatarRepo;
+    private final ModuleContentGenerator contentGenerator;
 
     public ContentHealthReaper(ModuleContentItemRepository itemRepo, OutputValidator validator,
                                LearningModuleRepository moduleRepo, WikiRepository wikiRepo,
-                               AiCostRates costRates) {
+                               AiCostRates costRates, AvatarRepository avatarRepo,
+                               ModuleContentGenerator contentGenerator) {
         this.itemRepo = itemRepo;
         this.validator = validator;
         this.moduleRepo = moduleRepo;
         this.wikiRepo = wikiRepo;
         this.costRates = costRates;
+        this.avatarRepo = avatarRepo;
+        this.contentGenerator = contentGenerator;
     }
 
     /** 03:15 Asia/Singapore daily (after the deletion reapers). Does nothing unless enabled. */
@@ -87,6 +106,7 @@ public class ContentHealthReaper {
         }
         scanAndQuarantineBatch();
         retireSourcelessQuarantined();
+        regenerateBatch();
     }
 
     /**
@@ -180,6 +200,72 @@ public class ContentHealthReaper {
             pageNum++;
         }
         log.info("[ContentReaper] retire pass: checkedQuarantined={} retiredNoSource={}", checked, retired);
+    }
+
+    /**
+     * REGENERATE pass (LIVE reap — LLM path, capped). For up to {@code maxRegeneratePerRun}
+     * QUARANTINED items with a live source: regenerate that item's TYPE for its module,
+     * VALIDATE the fresh output (validate-before-swap — an invalid regen never replaces
+     * anything), then APPEND the valid new LIVE items and RETIRE (never delete) the old
+     * quarantined original. A regen that yields nothing valid bumps reap_attempts; after
+     * {@code maxRegenerateAttempts} the item is terminally RETIRED (never retried forever).
+     * Per-item try/catch: one failure never aborts the batch.
+     *
+     * <p>COST/METERING: the underlying stage generators self-meter under their own purpose
+     * label ({@code module-*-gen}); reaper regens therefore appear in {@code ai_usage} under
+     * that label during the recovery window (correlate with this pass's per-run log line). A
+     * bespoke {@code content-reaper-regen} label would need a purpose override threaded through
+     * the generator harness — deliberately NOT done here to avoid changing the launch-blocker
+     * generation harness; it's a follow-up.
+     */
+    void regenerateBatch() {
+        if (maxRegeneratePerRun <= 0) return;
+        List<ModuleContentItem> candidates = itemRepo.findByStatusPage(
+                ModuleContentItemRepository.STATUS_QUARANTINED, 0, maxRegeneratePerRun);
+        int regenerated = 0, retiredExhausted = 0, skippedNoSource = 0, failed = 0;
+        for (ModuleContentItem item : candidates) {
+            if (regenerated >= maxRegeneratePerRun) break; // hard cap on LLM calls per run
+            try {
+                LearningModule module = moduleRepo.findById(item.getModuleId()).orElse(null);
+                Avatar avatar = module == null ? null
+                        : avatarRepo.findById(module.getAvatarId()).orElse(null);
+                WikiPage page = module == null ? null
+                        : wikiRepo.findByAvatarIdAndSlug(module.getAvatarId(), module.getWikiPageSlug())
+                                .orElse(null);
+                if (module == null || avatar == null || page == null) {
+                    skippedNoSource++; // the retire pass owns sourceless items
+                    continue;
+                }
+
+                List<ModuleContentItem> fresh = contentGenerator.regenerateTypeItems(
+                        avatar, page, module, item.getType());
+                // VALIDATE-BEFORE-SWAP: only validator-passing items may replace anything.
+                List<ModuleContentItem> valid =
+                        validator.retainValid(fresh, OutputType.MODULE_ITEM);
+
+                if (!valid.isEmpty()) {
+                    itemRepo.saveAll(valid);                 // APPEND new LIVE (new ids)
+                    item.setStatus(ModuleContentItemRepository.STATUS_RETIRED); // retire old — NEVER delete
+                    itemRepo.save(item);
+                    regenerated++;
+                } else {
+                    item.setReapAttempts(item.getReapAttempts() + 1);
+                    if (item.getReapAttempts() >= maxRegenerateAttempts) {
+                        item.setStatus(ModuleContentItemRepository.STATUS_RETIRED);
+                        retiredExhausted++;
+                        log.warn("[ContentReaper] regen exhausted after {} attempts → RETIRED item={}",
+                                item.getReapAttempts(), item.getId());
+                    }
+                    itemRepo.save(item);
+                }
+            } catch (Exception e) {
+                failed++;
+                log.error("[ContentReaper] regen failed item={}: {}", item.getId(), e.getMessage(), e);
+            }
+        }
+        log.info("[ContentReaper] regenerate pass: regenerated={} retiredExhausted={} "
+                        + "skippedNoSource={} failed={} cap={}",
+                regenerated, retiredExhausted, skippedNoSource, failed, maxRegeneratePerRun);
     }
 
     /** True when the item passes the persist-boundary validator (the same rules generation uses). */

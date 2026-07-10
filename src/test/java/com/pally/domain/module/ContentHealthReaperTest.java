@@ -38,18 +38,22 @@ class ContentHealthReaperTest {
     @Mock ModuleContentItemRepository itemRepo;
     @Mock LearningModuleRepository moduleRepo;
     @Mock WikiRepository wikiRepo;
+    @Mock com.pally.domain.avatar.AvatarRepository avatarRepo;
+    @Mock ModuleContentGenerator contentGenerator;
 
     ContentHealthReaper reaper;
 
     @BeforeEach
     void setUp() {
         reaper = new ContentHealthReaper(itemRepo, new RulesOutputValidator(new ObjectMapper()),
-                moduleRepo, wikiRepo, new AiCostRates());
+                moduleRepo, wikiRepo, new AiCostRates(), avatarRepo, contentGenerator);
         ReflectionTestUtils.setField(reaper, "enabled", true);
         ReflectionTestUtils.setField(reaper, "batchSize", 100);
         ReflectionTestUtils.setField(reaper, "scanBackoffHours", 20);
-        // Live reap now runs the retire pass too; default it to an empty QUARANTINED page so
-        // the scan tests aren't forced to care about it (lenient: dry-run tests never call it).
+        ReflectionTestUtils.setField(reaper, "maxRegeneratePerRun", 50);
+        ReflectionTestUtils.setField(reaper, "maxRegenerateAttempts", 2);
+        // Live reap now runs the retire + regenerate passes too; default the QUARANTINED page
+        // empty so the scan tests aren't forced to care (lenient: dry-run tests never call it).
         lenient().when(itemRepo.findByStatusPage(anyString(), anyInt(), anyInt()))
                 .thenReturn(List.of());
     }
@@ -187,5 +191,78 @@ class ContentHealthReaperTest {
         assertThat(report.wouldRegenerate()).isEqualTo(1); // has a live source
         assertThat(report.wouldRetire()).isEqualTo(1);     // source gone
         assertThat(report.estRegenCostMicros()).isGreaterThan(0); // 1 regen costs something
+    }
+
+    // ── 3.1/3.4 regenerate (LLM path) ────────────────────────────────────────────
+
+    /** A QUARANTINED spot-mistake whose module/avatar/wiki source all resolve. */
+    private ModuleContentItem healableQuarantined(String id) {
+        ModuleContentItem i = quarantined(id, "mod-live");
+        LearningModule mod = new LearningModule();
+        mod.setId("mod-live"); mod.setAvatarId("av-1"); mod.setWikiPageSlug("frac");
+        lenient().when(moduleRepo.findById("mod-live")).thenReturn(Optional.of(mod));
+        lenient().when(avatarRepo.findById("av-1")).thenReturn(Optional.of(
+                com.pally.domain.avatar.Avatar.create("teacher-1", "Corpus",
+                        com.pally.domain.avatar.Subject.MATHS,
+                        com.pally.domain.avatar.CharacterType.MOCHI)));
+        lenient().when(wikiRepo.findByAvatarIdAndSlug("av-1", "frac"))
+                .thenReturn(Optional.of(WikiPage.create("av-1", "frac", "Fractions", "body")));
+        return i;
+    }
+
+    @Test
+    void regenerate_validOutput_appendsLiveAndRetiresOldNeverDeletes() {
+        ModuleContentItem q = healableQuarantined("q1");
+        when(itemRepo.findByStatusPage("QUARANTINED", 0, 50)).thenReturn(List.of(q));
+        // generator returns a real, VALID spot-mistake.
+        when(contentGenerator.regenerateTypeItems(any(), any(), any(), eq("SPOT_MISTAKE")))
+                .thenReturn(List.of(valid("new1")));
+
+        reaper.regenerateBatch();
+
+        verify(itemRepo).saveAll(any());               // new LIVE items appended
+        assertThat(q.getStatus()).isEqualTo("RETIRED"); // old retired, not deleted
+        verify(itemRepo).save(q);
+    }
+
+    @Test
+    void regenerate_invalidOutput_neverSwaps_bumpsAttempt() {
+        ModuleContentItem q = healableQuarantined("q2");
+        when(itemRepo.findByStatusPage("QUARANTINED", 0, 50)).thenReturn(List.of(q));
+        // generator returns a BLANK item — the validator drops it → nothing to swap.
+        when(contentGenerator.regenerateTypeItems(any(), any(), any(), any()))
+                .thenReturn(List.of(blank("bad-new")));
+
+        reaper.regenerateBatch();
+
+        verify(itemRepo, never()).saveAll(any());      // validate-before-swap: no append
+        assertThat(q.getStatus()).isEqualTo("QUARANTINED"); // not healed, not yet exhausted
+        assertThat(q.getReapAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void regenerate_secondFailure_retiresTerminally() {
+        ModuleContentItem q = healableQuarantined("q3");
+        q.setReapAttempts(1); // already failed once
+        when(itemRepo.findByStatusPage("QUARANTINED", 0, 50)).thenReturn(List.of(q));
+        when(contentGenerator.regenerateTypeItems(any(), any(), any(), any()))
+                .thenReturn(List.of(blank("bad-new")));
+
+        reaper.regenerateBatch();
+
+        assertThat(q.getReapAttempts()).isEqualTo(2);
+        assertThat(q.getStatus()).isEqualTo("RETIRED"); // 2 fails → terminal, never retried forever
+        verify(itemRepo, never()).saveAll(any());
+    }
+
+    @Test
+    void regenerate_perRunCap_isThePageSize_soTheDbNeverReturnsMore() {
+        ReflectionTestUtils.setField(reaper, "maxRegeneratePerRun", 1);
+        when(itemRepo.findByStatusPage("QUARANTINED", 0, 1)).thenReturn(List.of());
+
+        reaper.regenerateBatch();
+
+        // the cap is pushed into the query (page size), so a huge corpus can't run away.
+        verify(itemRepo).findByStatusPage("QUARANTINED", 0, 1);
     }
 }
