@@ -15,9 +15,13 @@
   locked while `DELETE /auth/account` — the endpoint the live client called — kept the old
   bearer-only semantics. Twice now an audit's blast radius was drawn around what changed,
   not around what the change made stale.)
-- **A fix at the VISIBLE layer is not a fix at the WORK layer.** Verify the behaviour exists
-  beneath the label. (A commit subject once claimed "meter streaming chat" while metering
-  only the *unary* path — see the streaming-meter entry below.)
+- **A fix at the VISIBLE layer is not a fix at the WORK layer — and check the CALLER before
+  calling a path unmetered.** Verify the behaviour beneath the label, but also don't stop at the
+  wrong layer: `ClaudeApiClient`'s streaming methods carry no `record()`, yet their callers
+  (`ClaudeChatProxy`, `CacheKeepAliveService`) parse the terminal SSE usage event and meter it.
+  Reading only the low-level method wrongly reads "unmetered"; the meter lives at the caller,
+  where the purpose is known. (A reconciliation pass first mis-called streaming "still open" for
+  exactly this reason.)
 - **Push at commit time.** On this repo, merge to `main` auto-deploys to prod (Railway).
   A held branch is not shipped; a "done" that isn't merged is not live.
 
@@ -62,18 +66,16 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 
 ## Cost / fan-out control
 
-### Streaming + keepalive metering — the last ledger blind spot
-- **What:** the completion clients and OCR are metered, but `ClaudeApiClient`'s SSE streaming
-  path (`streamResponseWithCache` / `streamResponseWithCacheAndModel` / `streamResponse`,
-  :668–802) relays the raw flux and never parses the terminal `message_delta`/`message_stop`
-  usage event → streaming chat + `CacheKeepAliveService` keepalive pings are unmetered.
-  (Note: commit `8455952`'s subject said "meter streaming chat" but metered only the *unary*
-  `completeFast` — a visible-layer/work-layer gap; the SSE flux is genuinely still open.)
-- **Why deferred:** the corpus-∝ chat streaming is the likely home of the remaining spend the
-  fan-out fixes meter-but-don't-reduce; worth doing carefully with the terminal-event parse.
-- **Closes it:** capture usage from the terminal SSE event; meter with purpose + avatarId; on
-  stream error/abort, meter `success=false` with whatever usage the stream reported. Keepalive
-  metered with its own purpose label. (Prompt B2.)
+### Billed-but-FAILED streaming — the narrow residual (streaming itself IS metered)
+- **What:** streaming chat and keepalive ARE metered (see CLOSED). The only residual: if a chat
+  stream errors/aborts BEFORE the terminal `message_delta`/`message_stop` usage event,
+  `ClaudeChatProxy.parseEventWithMetrics` never fires, so the input tokens Anthropic already
+  billed (carried in the earlier `message_start` usage) go unrecorded.
+- **Accepted risk:** near-zero today (pre-launch, and only on a mid-stream abort). Under-counts
+  the ledger by the input tokens of failed streams only.
+- **Closes it:** capture `message_start` usage and, on stream error, record a `success=false`
+  row with whatever usage the stream reported (same billed-but-failed rule as the unary path's
+  `meterBilledFailure`).
 
 ### Flashcard model lever (Haiku → gemini-2.5-flash) — saving UNREALIZED
 - **What:** the ~$1.25/upload lever. `ClaudeFlashcardGenerator.java:82` still hardcodes
@@ -251,6 +253,13 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
   fail toward accepting the upload. Closed `46c5264` (2026-07).
 - **OCR metering** — both `GeminiVisionOcrService:139` and `ClaudeVisionOcrService:137` record an
   `ai_usage` row (`purpose_label='ocr'`) at their HTTP seam. Closed `72a3154`.
+- **Streaming chat + keepalive metering** — metered at the CALLER (not inside `ClaudeApiClient`):
+  `ClaudeChatProxy.parseEventWithMetrics` extracts the terminal `message_delta`/`message_stop`
+  usage (`CacheMetrics`) and records a `"chat"` row with real input/output + cache-adjusted
+  tokens; `CacheKeepAliveService` records an estimated `"cache-keepalive"` row. Closed `8455952`.
+  (Prod `ai_usage` shows no `chat`/`ocr`/`cache-keepalive` rows yet only because there's been no
+  such traffic since 2026-07-08 on the deployed build — verified the code path at source; the
+  ledger will populate with traffic. The narrow billed-but-FAILED-stream residual is OPEN above.)
 - **Gemini failure-path metering** — the empty-text branch in both Gemini services records
   `success=false` + the billed `usageMetadata` tokens (finishReason in the purpose suffix) before
   throwing; the wiki compiler no longer records empties as `success=true`. Closed `6539b3f`.
