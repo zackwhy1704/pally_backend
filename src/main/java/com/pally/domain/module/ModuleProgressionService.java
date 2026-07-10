@@ -116,8 +116,10 @@ public class ModuleProgressionService {
                 .orElseThrow(() -> new BusinessException("Module not found", 404));
         assertModuleAccess(module, userId);
 
+        // SERVING: a student receives only servable-status items (LIVE/APPROVED) — never
+        // DRAFT (mid-teacher-review), ARCHIVED, or reaper-quarantined/retired content.
         List<ModuleContentItem> items =
-                itemRepository.findByModuleIdOrderBySortOrder(moduleId);
+                itemRepository.findServableByModuleIdOrderBySortOrder(moduleId);
         List<ModuleProgress> progress =
                 progressRepository.findByModuleIdAndUserId(moduleId, userId);
 
@@ -159,8 +161,16 @@ public class ModuleProgressionService {
         // C3 — student-facing trust marker. A centre module is "teacher-reviewed"
         // when a teacher has approved its content (items APPROVED/LIVE, none DRAFT).
         // Personal content (no class) has no teacher, so it never gets the badge.
-        boolean teacherReviewed = module.getClassId() != null && !items.isEmpty()
-                && items.stream().allMatch(i ->
+        //
+        // DELIBERATELY reads the FULL set (findByModuleId*), NOT findServable*. The badge's
+        // entire job is to detect an UNreviewed (DRAFT) item; computed over a servable-only
+        // list — which is LIVE/APPROVED by construction — it would be always-true and
+        // silently stop doing its only job. Do NOT "tidy" this onto findServable*.
+        // (See ModuleContentItemRepository.SERVABLE_STATUSES.)
+        List<ModuleContentItem> allItems =
+                itemRepository.findByModuleIdOrderBySortOrder(moduleId);
+        boolean teacherReviewed = module.getClassId() != null && !allItems.isEmpty()
+                && allItems.stream().allMatch(i ->
                         "APPROVED".equals(i.getStatus()) || "LIVE".equals(i.getStatus()));
         result.put("teacherReviewed", teacherReviewed);
         return result;
@@ -193,8 +203,10 @@ public class ModuleProgressionService {
             }
         }
 
+        // SERVING (the PROVE-existence gate above stays UNFILTERED so it can't spuriously
+        // regenerate): the student receives only servable-status items for this stage.
         List<ModuleContentItem> stageItems =
-                itemRepository.findByModuleIdAndStageOrderBySortOrder(
+                itemRepository.findServableByModuleIdAndStageOrderBySortOrder(
                         moduleId, currentStage.name());
 
         Map<String, Object> result = new HashMap<>();
@@ -503,9 +515,10 @@ public class ModuleProgressionService {
         // Generate fresh PROVE items (old ones are kept — new sort_order offsets them)
         generateProveItemsAdaptively(module, userId);
 
-        // Return the new PROVE items
+        // Return the new PROVE items (SERVING → servable-only; the freshly generated
+        // ones are LIVE, any non-servable older ones are correctly excluded).
         List<ModuleContentItem> proveItems =
-                itemRepository.findByModuleIdAndStageOrderBySortOrder(
+                itemRepository.findServableByModuleIdAndStageOrderBySortOrder(
                         module.getId(), ModuleStage.PROVE.name());
 
         Map<String, Object> result = new HashMap<>();

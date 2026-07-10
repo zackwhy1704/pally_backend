@@ -84,7 +84,7 @@ class ModuleProgressionServiceTest {
         when(moduleRepository.findById("mod-c")).thenReturn(Optional.of(module));
         when(avatarRepository.existsByIdAndUserId("corpus-avatar", "student")).thenReturn(false);
         when(centreAccessService.isActiveClassMember("student", "class-c")).thenReturn(true);
-        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-c", "LEARN"))
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-c", "LEARN"))
                 .thenReturn(List.of());
 
         Map<String, Object> result = service.startModule("mod-c", "student");
@@ -105,7 +105,7 @@ class ModuleProgressionServiceTest {
         item.setContentJson("{\"title\":\"T\",\"body\":\"B\"}");
         item.setAnswerJson("{\"k\":\"v\"}");
         item.setSortOrder(0);
-        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-s", "LEARN"))
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-s", "LEARN"))
                 .thenReturn(List.of(item));
 
         Map<String, Object> result = service.startModule("mod-s", "user-1");
@@ -171,7 +171,7 @@ class ModuleProgressionServiceTest {
                 .thenReturn(Optional.of(page));
         when(contentGenerator.generateProveQuestions(eq(module), eq(page), anyList(), eq("FREE")))
                 .thenReturn(List.of());
-        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-1", "PROVE"))
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-1", "PROVE"))
                 .thenReturn(List.of());
 
         Map<String, Object> result = service.startModule("mod-1", "user-1");
@@ -189,7 +189,7 @@ class ModuleProgressionServiceTest {
         module.setTier("FREE");
         when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
         when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(0);
-        when(itemRepository.findByModuleIdAndStageOrderBySortOrder("mod-1", "PROVE"))
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-1", "PROVE"))
                 .thenReturn(List.of());
         when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
                 .thenReturn(List.of());
@@ -766,5 +766,61 @@ class ModuleProgressionServiceTest {
         m.setMasteryPct(BigDecimal.ZERO);
         m.setCreatedAt(Instant.now());
         return m;
+    }
+
+    private ModuleContentItem servableItem(String id, String status) {
+        ModuleContentItem i = new ModuleContentItem();
+        i.setId(id);
+        i.setStatus(status);
+        i.setStage("LEARN");
+        i.setType("MICRO_CARD");
+        i.setContentJson("{\"title\":\"t\",\"body\":\"b\"}");
+        i.setSortOrder(0);
+        return i;
+    }
+
+    // ── 1a: serving filters status; gating/badge read the FULL set ──────────────
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void getModuleDetail_servesOnlyServableItems_whileBadgeSeesTheFullSet() {
+        LearningModule module = buildModule("mod-s", "LEARN");
+        module.setClassId("class-c");
+        when(moduleRepository.findById("mod-s")).thenReturn(Optional.of(module));
+        when(avatarRepository.existsByIdAndUserId("avatar-1", "u1")).thenReturn(true);
+        ModuleContentItem live = servableItem("i-live", "LIVE");
+        ModuleContentItem draft = servableItem("i-draft", "DRAFT");
+        // SERVING reads servable-only; BADGE reads the full set (must see the DRAFT).
+        when(itemRepository.findServableByModuleIdOrderBySortOrder("mod-s"))
+                .thenReturn(List.of(live));
+        when(itemRepository.findByModuleIdOrderBySortOrder("mod-s"))
+                .thenReturn(List.of(live, draft));
+        when(progressRepository.findByModuleIdAndUserId("mod-s", "u1")).thenReturn(List.of());
+
+        Map<String, Object> detail = service.getModuleDetail("mod-s", "u1");
+
+        List<Map<String, Object>> served = (List<Map<String, Object>>) detail.get("items");
+        assertThat(served).hasSize(1); // the DRAFT item is NOT served to the student
+        assertThat(served.get(0).get("id")).isEqualTo("i-live");
+        // The badge still detects the DRAFT (reads the full set) → NOT reviewed.
+        assertThat(detail.get("teacherReviewed")).isEqualTo(false);
+    }
+
+    @Test
+    void startModule_proveStage_draftProveItemsExist_doesNotSpuriouslyRegenerate() {
+        LearningModule module = buildModule("mod-pr", "PROVE");
+        when(moduleRepository.findById("mod-pr")).thenReturn(Optional.of(module));
+        when(avatarRepository.existsByIdAndUserId("avatar-1", "u1")).thenReturn(true);
+        // The PROVE-existence gate counts the FULL set → sees the (DRAFT) prove items.
+        when(itemRepository.countByModuleIdAndStage("mod-pr", "PROVE")).thenReturn(3);
+        // Serving is servable-only → empty (all DRAFT) — but this must NOT trigger a regen.
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-pr", "PROVE"))
+                .thenReturn(List.of());
+
+        service.startModule("mod-pr", "u1");
+
+        // The trap: had the gate been filtered, count would be 0 → an LLM regeneration.
+        // The gate stays unfiltered, so the generator is never touched.
+        verifyNoInteractions(contentGenerator);
     }
 }
