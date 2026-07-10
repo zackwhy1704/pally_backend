@@ -116,6 +116,18 @@ account:
     # roughly daily but never block progress.
     retry-backoff-hours: ${ACCOUNT_DELETION_RETRY_BACKOFF_HOURS:20}
 
+# ── Content-health reaper (Phase 1b) — reaps legacy blank/invalid module items ──
+# SAFE BY DEFAULT: dry-run=true (only counts, never writes, never calls an LLM) and
+# enabled=false (the scheduled pass does nothing). A live reap needs BOTH flipped, by an
+# operator holding the dry-run damage report + cost estimate.
+content:
+  reaper:
+    enabled: ${CONTENT_REAPER_ENABLED:false}
+    dry-run: ${CONTENT_REAPER_DRY_RUN:true}
+    batch-size: ${CONTENT_REAPER_BATCH_SIZE:100}
+    scan-backoff-hours: ${CONTENT_REAPER_SCAN_BACKOFF_HOURS:20}
+    max-regenerate-attempts: ${CONTENT_REAPER_MAX_ATTEMPTS:2}
+
 # ── Third-party AI consent gate ──────────────────────────────────────────────
 # Now ALWAYS enforced (no flag). The plain-language disclosure naming Anthropic
 # (Claude) and Google (Gemini) as overseas AI processors is shown in the UI

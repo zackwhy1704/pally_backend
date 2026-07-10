@@ -24,6 +24,26 @@ public interface ModuleContentItemRepository {
      */
     List<String> SERVABLE_STATUSES = List.of("LIVE", "APPROVED");
 
+    /// Content-health-reaper TERMINAL statuses (NOT on SERVABLE_STATUSES → already excluded
+    /// from every serving read by Phase 1a). A blank/invalid item is QUARANTINED (stops
+    /// being served immediately), then either regenerated back to LIVE or RETIRED — RETIRED
+    /// keeps the row (module_progress.item_id FK; NEVER deleted).
+    String STATUS_QUARANTINED = "QUARANTINED";
+    String STATUS_RETIRED = "RETIRED";
+
+    /**
+     * REAPER SCAN cursor batch (Phase 1b): up to {@code limit} SERVABLE items not scanned
+     * since {@code retryCutoff} (reap_last_attempt_at null or older), oldest-scan first —
+     * so successive runs progress across the whole corpus instead of re-scanning the same
+     * head (the anti-starvation cursor). The reaper reads the FULL-STATUS family, NEVER
+     * findServable*: it exists to act ON items by status, so a servable-only helper would
+     * hide its own candidates. (Only servable items are scanned — only they reach students.)
+     */
+    List<ModuleContentItem> findReapScanCandidates(java.time.Instant retryCutoff, int limit);
+
+    /** Read-only paging over servable items for the DRY_RUN damage report (page 0-indexed). */
+    List<ModuleContentItem> findServablePage(int pageNumber, int pageSize);
+
     ModuleContentItem save(ModuleContentItem item);
 
     List<ModuleContentItem> saveAll(List<ModuleContentItem> items);

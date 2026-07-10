@@ -49,7 +49,19 @@ public class ModuleContentItemJpaEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
-    /** Publishing status: DRAFT, APPROVED, LIVE, ARCHIVED. Personal avatars default to LIVE. */
+    /**
+     * Publishing status: DRAFT, APPROVED, LIVE, ARCHIVED (personal avatars default LIVE),
+     * plus the content-health-reaper terminals QUARANTINED / RETIRED. Only LIVE + APPROVED
+     * are servable (ModuleContentItemRepository.SERVABLE_STATUSES).
+     */
     @Column(nullable = false, length = 20)
     private String status = "LIVE";
+
+    /** Content-health reaper: count of regeneration attempts (2 → RETIRED). */
+    @Column(name = "reap_attempts", nullable = false)
+    private int reapAttempts;
+
+    /** Content-health reaper: last reap-attempt time (backoff, anti-starvation). Null = never. */
+    @Column(name = "reap_last_attempt_at")
+    private Instant reapLastAttemptAt;
 }

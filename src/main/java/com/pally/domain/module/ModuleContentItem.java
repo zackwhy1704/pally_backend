@@ -27,4 +27,8 @@ public class ModuleContentItem {
     private String status = "LIVE";
     /** Groundedness gate (B3) flag payload, or null when clean. */
     private String verificationJson;
+    /** Content-health reaper: regeneration attempts (2 → RETIRED). */
+    private int reapAttempts;
+    /** Content-health reaper: last scan/reap-attempt time (scan cursor + regen backoff). */
+    private Instant reapLastAttemptAt;
 }
