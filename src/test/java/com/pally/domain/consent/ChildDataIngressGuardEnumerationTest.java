@@ -23,10 +23,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ChildDataIngressGuardEnumerationTest {
 
-    /// Registry of child-data ingress (note upload, free AI chat, photo-question).
-    /// Add a new ingress here; the assertion then forces it to call the guard.
+    /// Registry of child-data ingress (note upload, free AI chat, photo-question, chunk
+    /// compile). Add a new ingress here; the assertion then forces it to call the guard.
+    /// NOTE: CompileChunkUseCase was ADDED 2026-07-10 — it had been MISSING from this list,
+    /// so the enumeration never enforced the invariant on it and it shipped with only the
+    /// weak requireAiConsent (the live-test gap). The mechanical test below now makes an
+    /// omission impossible: a hand-kept registry inherits the author's blind spots.
     private static final List<String> INGRESS_SOURCES = List.of(
             "src/main/java/com/pally/domain/knowledge/usecase/UploadFileUseCase.java",
+            "src/main/java/com/pally/domain/knowledge/usecase/CompileChunkUseCase.java",
             "src/main/java/com/pally/domain/chat/usecase/SendMessageUseCase.java",
             "src/main/java/com/pally/domain/chat/usecase/SolvePhotoQuestionsUseCase.java",
             "src/main/java/com/pally/api/chat/ChatController.java");
@@ -40,6 +45,38 @@ class ChildDataIngressGuardEnumerationTest {
                             + "consentGuard.requireChildDataIngressConsent at entry", path)
                     .contains("requireChildDataIngressConsent");
         }
+    }
+
+    /**
+     * MECHANICAL family invariant (no hand-kept list to forget): every source file that calls
+     * {@code requireAiConsent} directly is a child-data ingress route, so it MUST also call
+     * {@code requireChildDataIngressConsent} BEFORE it — the strong (verified-parental) gate
+     * precedes the weak (self-grant-satisfiable) AI-disclosure ack. ConsentGuard itself is
+     * excluded (it defines both). This is what would have caught the CompileChunkUseCase gap
+     * automatically, and catches the sixth ingress path someone adds next quarter.
+     */
+    @Test
+    void everyRequireAiConsentCaller_callsTheStrongGateFirst() throws IOException {
+        Path root = Path.of("src/main/java/com/pally");
+        List<Path> offenders = new java.util.ArrayList<>();
+        try (var paths = Files.walk(root)) {
+            for (Path p : paths.filter(Files::isRegularFile)
+                    .filter(f -> f.toString().endsWith(".java"))
+                    .filter(f -> !f.getFileName().toString().equals("ConsentGuard.java"))
+                    .toList()) {
+                String src = Files.readString(p);
+                int weak = src.indexOf("requireAiConsent(");
+                if (weak < 0) continue; // not an AI-ingress caller
+                int strong = src.indexOf("requireChildDataIngressConsent(");
+                if (strong < 0 || strong > weak) {
+                    offenders.add(p); // missing the strong gate, or it comes AFTER the weak one
+                }
+            }
+        }
+        assertThat(offenders)
+                .as("every requireAiConsent caller (a child-data ingress) must call "
+                        + "requireChildDataIngressConsent FIRST — these do not")
+                .isEmpty();
     }
 
     @Test
