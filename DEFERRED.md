@@ -206,6 +206,17 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 - **Set the account-level AI Studio spend cap** (2 min, $0) — makes the per-avatar LLM budget
   redundant.
 - **Consent-evidence retention duration** — the DPO/lawyer's N years (feeds the dated purge above).
+- **DPIA (P6) — does parental approval's consent scope include overseas AI data transfer?** Today
+  `ConsentService.PURPOSES_JSON` = `[tutoring,quiz,progress,parent_visibility]` — it does NOT include
+  `AI_DATA_TRANSFER`, so `requireAiConsent` is satisfied only by the child's OWN self-grant (a
+  disclosure-ack), never by the parent's approval. Post-compile-chunk-fix that self-grant is never
+  load-bearing (the parental gate `requireChildDataIngressConsent` gates every ingress), so it's
+  benign. But whether an under-13 should be recording ANY consent to overseas AI transfer, vs the
+  parent's approval covering it, is a PDPA scope decision — NOT an engineering call. Decide: if the
+  parent's consent should legally cover AI transfer, add `AI_DATA_TRANSFER` to the approval's purpose
+  set and make the child self-ack redundant/removable. (This is why the "block under-13 self-grant"
+  fix was NOT built — blocking it with the current scope would strand every approved under-13 at the
+  AI gate. See the consent-authority pass, 2026-07-11.)
 - **Prod diagnostic — email case-variant duplicates** (gates the UNIQUE-index migration, Prompt C):
   ```sql
   SELECT lower(email), count(*) FROM users GROUP BY 1 HAVING count(*) > 1;
