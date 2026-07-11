@@ -18,15 +18,17 @@ class GlobalExceptionHandlerBadInputTest {
 
     @Test
     void dataIntegrityViolation_mapsTo400_withoutLeakingDbDetail() {
-        var ex = new DataIntegrityViolationException(
-                "could not execute statement; value too long for type character varying(10)");
+        // A real DataIntegrityViolation wraps a SQLException; 22001 = value too long.
+        var ex = new DataIntegrityViolationException("could not execute statement",
+                new java.sql.SQLException(
+                        "value too long for type character varying(10)", "22001"));
 
         ResponseEntity<ApiResponse<Void>> resp = handler.handleDataIntegrity(ex);
 
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
         assertThat(resp.getBody()).isNotNull();
         assertThat(resp.getBody().status()).isEqualTo(400);
-        // Generic message — no raw SQL / column name leaked to the client.
+        // Non-blaming message — no raw SQL / column name leaked to the client.
         assertThat(resp.getBody().error()).doesNotContain("character varying");
         assertThat(resp.getBody().error()).contains("too long");
     }
