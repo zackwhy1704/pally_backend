@@ -55,7 +55,14 @@ public class CompileChunkUseCase {
                 .filter(c -> c.getAvatarId().equals(avatarId))
                 .orElseThrow(() -> new BusinessException("Chapter not found", 404));
 
-        // AI-transfer consent + slot lock — same gates as a compile-triggering upload.
+        // Child-data ingress + AI-transfer consent + slot lock — the SAME gate stack as a
+        // compile-triggering upload (UploadFileUseCase). Compiling a chunk ships the child's
+        // notes to Gemini overseas, so requireChildDataIngressConsent (VERIFIED parental
+        // approval for under-13) MUST precede requireAiConsent — the latter alone is satisfied
+        // by a child's own self-grant. Invariant: every child-data ingress calls
+        // requireChildDataIngressConsent at entry (ConsentGuard javadoc); pinned by
+        // ChildDataIngressGuardInvariantTest.
+        consentGuard.requireChildDataIngressConsent(userId);
         consentGuard.requireAiConsent(userId);
         avatarSlotGuard.requireActive(avatarId, userId);
 

@@ -333,10 +333,35 @@ public class GlobalExceptionHandler {
         // Postgres names the exact table/column/constraint in the wrapped cause.
         // Schema detail stays server-side; the client still gets the generic msg.
         log.warn("Data integrity violation (mapped to 400): {}", describeIntegrityCause(ex));
+        // Kind-specific, NON-blaming user message (schema detail stays in the log above). A
+        // write failure is OUR problem to surface honestly — never "your file is corrupted".
+        String userMessage = switch (integrityKind(ex)) {
+            case "VALUE_TOO_LONG" ->
+                    "Part of this file (like a chapter title) was too long to save. "
+                    + "We've logged it — this is on us, not your file.";
+            default -> "Something in this file couldn't be saved. We've logged it and will take a look.";
+        };
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(
-                        "Invalid input — a value was too long or violated a constraint.", 400));
+                .body(ApiResponse.error(userMessage, 400));
+    }
+
+    /// The sqlState-derived kind (VALUE_TOO_LONG / NOT_NULL_VIOLATION / …) for MESSAGE
+    /// selection — same discriminator {@link #describeIntegrityCause} logs. Schema-safe:
+    /// it returns only the coarse kind, never the column/constraint detail.
+    private String integrityKind(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof java.sql.SQLException se) {
+                return switch (se.getSQLState() == null ? "" : se.getSQLState()) {
+                    case "22001" -> "VALUE_TOO_LONG";
+                    case "23502" -> "NOT_NULL_VIOLATION";
+                    case "23503" -> "FK_VIOLATION";
+                    case "23505" -> "UNIQUE_VIOLATION";
+                    default -> "OTHER";
+                };
+            }
+        }
+        return "OTHER";
     }
 
     /// Unwrap a {@link org.springframework.dao.DataIntegrityViolationException} to the
