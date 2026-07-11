@@ -25,7 +25,8 @@ public class KnowledgeFileJpaEntity {
     @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
 
-    @Column(name = "file_name", nullable = false)
+    // TEXT (V122): chunk titles from PDF bookmarks reuse this column and can exceed 255.
+    @Column(name = "file_name", nullable = false, columnDefinition = "TEXT")
     private String fileName;
 
     @Column(name = "storage_key", nullable = false, length = 500)
@@ -69,7 +70,7 @@ public class KnowledgeFileJpaEntity {
     @Column(name = "page_to")
     private Integer pageTo;
 
-    @Column(name = "chunk_title", length = 255)
+    @Column(name = "chunk_title", columnDefinition = "TEXT") // TEXT (V122): bookmark titles can exceed 255
     private String chunkTitle;
 
     public static KnowledgeFileJpaEntity fromDomain(KnowledgeFile kf) {

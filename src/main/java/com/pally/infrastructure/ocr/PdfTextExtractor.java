@@ -101,6 +101,21 @@ public class PdfTextExtractor implements OcrPort {
      * destination can't be resolved is skipped, never thrown — segmentation must
      * degrade to LLM/range fallback, never fail an upload.
      */
+    /** Max chars for a bookmark-derived chapter title. Leaves headroom under any bounded
+     *  column and under the " (part x/y)" suffix segmentation appends downstream — the
+     *  V122 TEXT widening is the belt; this is the suspenders (sane titles, no giant strings). */
+    static final int MAX_BOOKMARK_TITLE_CHARS = 200;
+
+    /** A raw PDF bookmark title can contain newlines/control chars and be arbitrarily long
+     *  (a malformed PDF put a whole paragraph in one bookmark → varchar(255) overflow →
+     *  the whole 157-page upload 400'd). Collapse whitespace, strip control chars, truncate. */
+    static String sanitizeBookmarkTitle(String raw) {
+        String cleaned = raw.replaceAll("[\\p{Cntrl}\\s]+", " ").trim();
+        return cleaned.length() <= MAX_BOOKMARK_TITLE_CHARS
+                ? cleaned
+                : cleaned.substring(0, MAX_BOOKMARK_TITLE_CHARS).trim();
+    }
+
     public List<Bookmark> extractOutline(byte[] bytes) {
         List<Bookmark> marks = new ArrayList<>();
         try (PDDocument document = Loader.loadPDF(bytes)) {
@@ -113,7 +128,7 @@ public class PdfTextExtractor implements OcrPort {
                     int idx = document.getPages().indexOf(page); // 0-based
                     String title = item.getTitle();
                     if (idx < 0 || title == null || title.isBlank()) continue;
-                    marks.add(new Bookmark(title.trim(), idx + 1));
+                    marks.add(new Bookmark(sanitizeBookmarkTitle(title), idx + 1));
                 } catch (IOException e) {
                     // unresolvable bookmark — skip, keep the rest
                 }
