@@ -139,6 +139,27 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   (`Entitlements.monthlyChunkCompiles`, FREE 5 / PRO 100 / unlimited).
 - **Closes it:** a data-driven maybe — decide from ai_usage; no longer a launch item.
 
+### Chapter compile — server single-flight 409 (COMPILE_IN_PROGRESS)
+- **What:** `POST /avatars/{id}/files/{chunkId}/compile` on an already-in-flight chunk does NOT
+  return a 409 COMPILE_IN_PROGRESS today. Deliberately deferred (2026-07-13) — a retry is already
+  SAFE without it: the compile is a fast async ack (not a held LLM call), and `ChunkCompileGuard`
+  is SUCCESS-BASED (counts children with `compiled_at` set), so a still-running or failed pick
+  never burns allowance → retrying a running compile double-spends nothing and starts no duplicate
+  job (the recompile scheduler coalesces via `inFlight`/`dirtyAgain`). The client already handles
+  a 409 gracefully (`PallyError.compileInProgress` → friendly "already reading — check Library"),
+  so the server can add the explicit guard later with zero client change.
+- **Closes it:** a `@Transactional` check in `CompileChunkUseCase` — if the chunk is already
+  PICKED/COMPILING (or the avatar's recompile is in flight), return 409 with the in-flight id in
+  the body, nothing metered. Test: concurrent same-chunk → one runs, one 409s, quota + ledger
+  untouched by the 409.
+
+### Chapter compile — chunk-title quality papercut
+- **What:** chapter-picker rows can render a bookmark's disclaimer paragraph (truncated) as a
+  "title" instead of a real heading. Not a crash — cosmetic. The client already falls back to
+  `'Chapter'` on blank, but a long non-heading string still shows.
+- **Closes it:** at segmentation, prefer a real heading / outline entry; else synthesize
+  "Chapter N · pages X–Y" server-side rather than passing the raw first paragraph as `chunk_title`.
+
 ### Flyway version bump for Postgres 18 (advisory)
 - **What:** boot logs a Flyway "not certified for this database version" advisory on PG18.
   Advisory only — migrations still apply and run correctly.
