@@ -49,6 +49,12 @@ public final class ClaimExtractor {
             if (s.endsWith("?")) continue;           // the question itself, not a claim
             String lower = s.toLowerCase();
             if (SCAFFOLD_PREFIXES.stream().anyMatch(lower::startsWith)) continue;
+            // A heading/title line (a MICRO_CARD title, a section header) is not a
+            // checkable CLAIM — it has no proposition to entail, yet NAMED_ENTITY
+            // ("The Never-Ending Journey") would treat it as a hard fact and flag it
+            // as ungrounded. Skip it so titles never inflate the flag rate. (#2 of
+            // the groundedness hardening — the extractor false-positive fix.)
+            if (isHeadingOrTitle(s)) continue;
 
             boolean hardFact = isHardFact(s);
             // Keep substantive sentences only: a hard fact OR a definitional
@@ -64,5 +70,27 @@ public final class ClaimExtractor {
         return NUMBER.matcher(s).find()
                 || FORMULA.matcher(s).find()
                 || NAMED_ENTITY.matcher(s).find();
+    }
+
+    /**
+     * A heading/title line vs a real proposition. A proposition normally closes
+     * with a period; a title/heading reads as a short Title-Case noun phrase and
+     * typically ends with nothing or "!". We keep anything period-terminated (a
+     * sentence) and drop only short, majority-capitalised, non-period lines — so
+     * "Water boils at 100 degrees Celsius" stays a claim while "The Never-Ending
+     * Journey!" / "Great Job!" / "Step 5: Wait for Their Questions" are dropped.
+     * Biased toward precision (keep-if-unsure) — the gate must never flag teaching.
+     */
+    static boolean isHeadingOrTitle(String s) {
+        String t = s.replaceAll("[*_`#]", "").trim();
+        if (t.isEmpty()) return true;
+        if (t.endsWith(".")) return false;              // period → a sentence, keep it
+        String[] words = t.split("\\s+");
+        if (words.length > 9) return false;             // long line → not a title
+        long capitalised = java.util.Arrays.stream(words)
+                .filter(w -> !w.isEmpty() && Character.isUpperCase(w.charAt(0)))
+                .count();
+        // Title Case = a majority of words start capitalised → a heading, not a claim.
+        return capitalised >= Math.max(2, Math.ceil(words.length * 0.6));
     }
 }

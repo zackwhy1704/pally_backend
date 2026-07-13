@@ -139,6 +139,23 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   (`Entitlements.monthlyChunkCompiles`, FREE 5 / PRO 100 / unlimited).
 - **Closes it:** a data-driven maybe — decide from ai_usage; no longer a launch item.
 
+### "Grounded" for a teaching agent — the invented-illustration policy (product definition)
+- **What:** after scoping groundedness to fact-claiming types (#1) + the heading filter (#2),
+  the residual MICRO_CARD flags (~4.4% projected, 68/1548) include Mochi's **invented pedagogical
+  illustrations of TRUE claims** — e.g. "5 apples or 5 metres" to explain units, tone analogies.
+  Today these count as "not found in your notes" → flagged. The open question: should an invented
+  illustration/analogy of a correct claim be "ungrounded"? Product read (Zack + Claude, 2026-07-13):
+  **no** — the gate should verify the factual CLAIM ("water boils at 100°C"), not penalise an
+  invented illustration of it; a tutor that can only repeat notes verbatim is a worse tutor.
+- **Why deferred:** (a) genuinely harder to separate mechanically than headings/type-scoping —
+  distinguishing "invented illustration of a true claim" from "invented FALSE claim" is subtle;
+  (b) NOT blocking — after #1+#2 the rate is already well under the 20% ceiling, and groundedness
+  flags are teacher-review metadata only (they never quarantine/block serving). Decide deliberately
+  POST-LAUNCH with real MICRO_CARD examples in hand, not under a submission-week clock.
+- **Closes it:** define "grounded" for a pedagogically-inventive agent (a DPIA-adjacent product
+  call), then encode it — likely: only flag a hard fact whose NUMBER/FORMULA/named-entity is absent
+  or contradicted, never a soft illustrative sentence (the hardFact split already exists to build on).
+
 ### Flyway version bump for Postgres 18 (advisory)
 - **What:** boot logs a Flyway "not certified for this database version" advisory on PG18.
   Advisory only — migrations still apply and run correctly.
