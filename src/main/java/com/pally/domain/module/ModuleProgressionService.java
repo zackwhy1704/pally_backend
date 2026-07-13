@@ -209,28 +209,7 @@ public class ModuleProgressionService {
                 itemRepository.findServableByModuleIdAndStageOrderBySortOrder(
                         moduleId, currentStage.name());
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("moduleId", module.getId());
-        result.put("stage", currentStage.name());
-        result.put("items", stageItems.stream().map(item -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("id", item.getId());
-            // stage is required by the mobile ModuleContentItem parser — the
-            // detail (getModuleDetail) path already includes it; the start path
-            // must too, or every item fails to parse and the lesson shows the
-            // generic "Something went wrong loading this lesson" error.
-            m.put("stage", item.getStage());
-            m.put("type", item.getType());
-            m.put("contentJson", item.getContentJson());
-            m.put("sortOrder", item.getSortOrder());
-            // Include answer_json only for LEARN items (they're not secret)
-            if (ModuleStage.LEARN.name().equals(item.getStage())) {
-                m.put("answerJson", item.getAnswerJson());
-            }
-            return m;
-        }).toList());
-
-        return result;
+        return buildStageResponse(moduleId, currentStage, stageItems, false);
     }
 
     /**
@@ -521,21 +500,59 @@ public class ModuleProgressionService {
                 itemRepository.findServableByModuleIdAndStageOrderBySortOrder(
                         module.getId(), ModuleStage.PROVE.name());
 
+        return buildStageResponse(module.getId(), ModuleStage.PROVE, proveItems, true);
+    }
+
+    /**
+     * Builds the /start (and /revision) stage payload AND enforces the module-
+     * PLAYABILITY invariant: a stage must never be entered with zero SERVABLE
+     * items, because the student would have nothing to answer → the stage can
+     * never advance (the advance denominator reads the UNFILTERED count), so the
+     * lesson dead-ends on a benign-looking 200. When the servable list is empty
+     * we attach a {@code contentStatus} so the client can react honestly instead
+     * of retry-looping:
+     *   • CONTENT_UPDATING  — items exist for this stage but none are currently
+     *     servable (DRAFT / reaper-QUARANTINED mid-heal). Transient: the client
+     *     bounces to Library, no strand, no re-POST spin.
+     *   • CONTENT_UNAVAILABLE — no items at all for this stage (a genuine gap;
+     *     generation guarantees ≥1, so this is a real anomaly worth surfacing).
+     * The normal (non-empty) payload shape is unchanged — {@code contentStatus}
+     * is additive and appears only in the previously-dead-end empty case.
+     */
+    private Map<String, Object> buildStageResponse(
+            String moduleId, ModuleStage stage,
+            List<ModuleContentItem> servableItems, boolean revision) {
         Map<String, Object> result = new HashMap<>();
-        result.put("moduleId", module.getId());
-        result.put("stage", ModuleStage.PROVE.name());
-        result.put("revision", true);
-        result.put("items", proveItems.stream().map(item -> {
+        result.put("moduleId", moduleId);
+        result.put("stage", stage.name());
+        if (revision) {
+            result.put("revision", true);
+        }
+        result.put("items", servableItems.stream().map(item -> {
             Map<String, Object> m = new HashMap<>();
             m.put("id", item.getId());
-            // stage is required by the mobile parser (see startModule above).
+            // stage is required by the mobile ModuleContentItem parser — without
+            // it every item fails to parse and the lesson shows the generic
+            // "Something went wrong loading this lesson" error.
             m.put("stage", item.getStage());
             m.put("type", item.getType());
             m.put("contentJson", item.getContentJson());
             m.put("sortOrder", item.getSortOrder());
+            // Include answer_json only for LEARN items (they're not secret).
+            if (ModuleStage.LEARN.name().equals(item.getStage())) {
+                m.put("answerJson", item.getAnswerJson());
+            }
             return m;
         }).toList());
 
+        if (servableItems.isEmpty()) {
+            int total = itemRepository.countByModuleIdAndStage(moduleId, stage.name());
+            String status = total > 0 ? "CONTENT_UPDATING" : "CONTENT_UNAVAILABLE";
+            result.put("contentStatus", status);
+            log.warn("[Module] stage {} served EMPTY for module={} (servable=0, total={}) "
+                    + "→ {} — playability guard engaged (student bounced, not stranded)",
+                    stage.name(), moduleId, total, status);
+        }
         return result;
     }
 
