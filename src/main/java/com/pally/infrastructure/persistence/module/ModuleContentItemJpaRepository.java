@@ -24,6 +24,10 @@ public interface ModuleContentItemJpaRepository extends JpaRepository<ModuleCont
 
     int countByModuleIdAndStage(String moduleId, String stage);
 
+    /// Servable-status-filtered stage count (completion denominator).
+    int countByModuleIdAndStageAndStatusIn(
+            String moduleId, String stage, java.util.Collection<String> statuses);
+
     void deleteByModuleId(String moduleId);
 
     /// Content-health reaper scan cursor: servable items not scanned since the cutoff,

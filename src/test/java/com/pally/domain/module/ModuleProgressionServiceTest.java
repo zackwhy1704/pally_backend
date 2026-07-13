@@ -337,7 +337,7 @@ class ModuleProgressionServiceTest {
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
 
@@ -347,6 +347,69 @@ class ModuleProgressionServiceTest {
         assertThat(result.get("stageComplete")).isEqualTo(true);
         assertThat(result.get("nextStage")).isEqualTo("TEST");
         verify(moduleRepository).save(any());
+    }
+
+    // ── advance-layer playability (the P1 sibling): the completion denominator is
+    // the SERVABLE count, so a reaper-created non-servable row can't strand a student.
+
+    @Test
+    void submitAnswers_advancesWhenAllSERVABLEAnswered_evenWithANonServableRowPresent() {
+        // Reaper effect reproduced: the stage has a RETIRED/QUARANTINED row so the
+        // UNFILTERED total is 3, but only 2 items are servable. A student answers both
+        // servable items → the stage MUST advance. Regressing the denominator back to
+        // countByModuleIdAndStage (3) would read 2/3 and strand them forever — the exact
+        // launch bug the re-enabled reaper would have mass-produced.
+        LearningModule module = buildModule("mod-reap", "LEARN");
+        when(moduleRepository.findById("mod-reap")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("l-2");
+        item.setStage("LEARN");
+        item.setType("MICRO_CARD");
+        when(itemRepository.findById("l-2")).thenReturn(Optional.of(item));
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-reap", "user-1", "l-2"))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Unfiltered=3 (a RETIRED row lingers). lenient: the FIX must NOT read it — a
+        // regression to the unfiltered count would use 3 here and fail to advance.
+        lenient().when(itemRepository.countByModuleIdAndStage("mod-reap", "LEARN")).thenReturn(3);
+        when(itemRepository.countServableByModuleIdAndStage("mod-reap", "LEARN")).thenReturn(2);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-reap", "user-1", "LEARN"))
+                .thenReturn(2);
+
+        Map<String, Object> result = service.submitAnswers("mod-reap", "user-1",
+                List.of(Map.of("itemId", "l-2", "response", "{\"viewed\":true}")));
+
+        assertThat(result.get("stageComplete")).isEqualTo(true);
+        assertThat(result.get("nextStage")).isEqualTo("TEST");
+    }
+
+    @Test
+    void submitAnswers_zeroServableItems_neverAutoAdvancesPastAnEmptyStage() {
+        // servable==0 is the transient CONTENT_UPDATING state — completion must be
+        // FALSE, never an auto-advance that skips a stage the student never saw.
+        LearningModule module = buildModule("mod-empty2", "LEARN");
+        when(moduleRepository.findById("mod-empty2")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("l-x");
+        item.setStage("LEARN");
+        item.setType("MICRO_CARD");
+        when(itemRepository.findById("l-x")).thenReturn(Optional.of(item));
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-empty2", "user-1", "l-x"))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        when(itemRepository.countServableByModuleIdAndStage("mod-empty2", "LEARN")).thenReturn(0);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-empty2", "user-1", "LEARN"))
+                .thenReturn(1);
+
+        Map<String, Object> result = service.submitAnswers("mod-empty2", "user-1",
+                List.of(Map.of("itemId", "l-x", "response", "{}")));
+
+        assertThat(result.get("stageComplete")).isEqualTo(false);
+        verify(moduleRepository, never()).save(any());
     }
 
     @Test
@@ -363,7 +426,7 @@ class ModuleProgressionServiceTest {
         when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
 
@@ -390,7 +453,7 @@ class ModuleProgressionServiceTest {
         when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "LEARN")).thenReturn(1);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
 
@@ -417,7 +480,7 @@ class ModuleProgressionServiceTest {
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        when(itemRepository.countByModuleIdAndStage("mod-1", "LEARN")).thenReturn(2);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "LEARN")).thenReturn(2);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "LEARN"))
                 .thenReturn(1);
 
@@ -449,7 +512,7 @@ class ModuleProgressionServiceTest {
                 .thenReturn(ModuleProveEvaluator.ProveResult.ok(
                         true, List.of("kp1"), List.of(), "Great!", 0.85));
 
-        when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(2);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "PROVE")).thenReturn(2);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "PROVE"))
                 .thenReturn(1);
 
@@ -577,7 +640,7 @@ class ModuleProgressionServiceTest {
         when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(itemRepository.countByModuleIdAndStage("mod-1", "TEST")).thenReturn(2);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "TEST")).thenReturn(2);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "TEST"))
                 .thenReturn(1);
 
@@ -619,7 +682,7 @@ class ModuleProgressionServiceTest {
         saved.setSignalType(GradingSignal.UNGRADED);
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         // PROVE stage completes (this was the last item) → updateMastery runs.
-        when(itemRepository.countByModuleIdAndStage("mod-1", "PROVE")).thenReturn(1);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "PROVE")).thenReturn(1);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "PROVE"))
                 .thenReturn(1);
         when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
@@ -675,7 +738,7 @@ class ModuleProgressionServiceTest {
         when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(itemRepository.countByModuleIdAndStage("mod-1", "TEST")).thenReturn(2);
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "TEST")).thenReturn(2);
         when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "TEST"))
                 .thenReturn(1);
     }
@@ -785,7 +848,7 @@ class ModuleProgressionServiceTest {
         p.setSignalType(GradingSignal.UNGRADED);
         when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
                 .thenReturn(List.of(p));
-        when(itemRepository.countByModuleIdAndStage(eq("mod-1"), anyString()))
+        when(itemRepository.countServableByModuleIdAndStage(eq("mod-1"), anyString()))
                 .thenReturn(1);
 
         Map<String, Object> results = service.getResults("mod-1", "user-1");

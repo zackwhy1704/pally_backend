@@ -348,13 +348,21 @@ public class ModuleProgressionService {
             results.add(itemResult);
         }
 
-        // Check if all items in this stage are answered → advance
-        int totalInStage = itemRepository.countByModuleIdAndStage(
+        // Check if all items in this stage are answered → advance. The denominator
+        // is the SERVABLE count, NOT the unfiltered one: a non-servable row
+        // (reaper-QUARANTINED/RETIRED, DRAFT) is never served to the student, so
+        // counting it would strand them mid-stage — they answer every item they were
+        // given, but completedInStage never reaches an unfiltered total that includes
+        // rows they can't see (the advance-layer sibling of P1's serve-layer empty
+        // guard; the reaper is the only thing that creates non-servable rows). A
+        // stage with ZERO servable items is NOT complete — it's the transient
+        // CONTENT_UPDATING state; never auto-advance past an empty stage.
+        int servableInStage = itemRepository.countServableByModuleIdAndStage(
                 moduleId, currentStage.name());
         int completedInStage = progressRepository.countByModuleIdAndUserIdAndStage(
                 moduleId, userId, currentStage.name());
 
-        boolean stageComplete = completedInStage >= totalInStage;
+        boolean stageComplete = servableInStage > 0 && completedInStage >= servableInStage;
         ModuleStage nextStage = null;
 
         if (stageComplete) {
@@ -459,7 +467,10 @@ public class ModuleProgressionService {
             if (s == ModuleStage.COMPLETE) continue;
             List<ModuleProgress> stageProgress =
                     byStage.getOrDefault(s.name(), List.of());
-            int total = itemRepository.countByModuleIdAndStage(moduleId, s.name());
+            // SERVABLE total (completion family — must match the submitAnswers advance
+            // denominator) so a student who finished every served item reads N/N, not
+            // N/N+1 because a reaper-RETIRED row still lingers in the unfiltered count.
+            int total = itemRepository.countServableByModuleIdAndStage(moduleId, s.name());
             int completed = stageProgress.size();
             var avg = stageProgress.stream()
                     .filter(p -> p.getScore() != null)

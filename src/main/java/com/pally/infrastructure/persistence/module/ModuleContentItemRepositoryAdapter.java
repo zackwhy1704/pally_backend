@@ -69,6 +69,12 @@ public class ModuleContentItemRepositoryAdapter implements ModuleContentItemRepo
     }
 
     @Override
+    public int countServableByModuleIdAndStage(String moduleId, String stage) {
+        return jpa.countByModuleIdAndStageAndStatusIn(
+                moduleId, stage, ModuleContentItemRepository.SERVABLE_STATUSES);
+    }
+
+    @Override
     @Transactional
     public void deleteByModuleId(String moduleId) {
         jpa.deleteByModuleId(moduleId);
