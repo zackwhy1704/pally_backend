@@ -70,6 +70,18 @@ public interface ModuleContentItemRepository {
     int countByModuleIdAndStage(String moduleId, String stage);
 
     /**
+     * SERVABLE items in a stage (SERVABLE_STATUSES) — the denominator for
+     * stage-COMPLETION (submitAnswers advance) and stage-progress summaries. A
+     * non-servable row (reaper-QUARANTINED/RETIRED, DRAFT) is never served to the
+     * student, so counting it toward completion would strand the student mid-stage
+     * (they answer every served item but the count never lets the stage advance).
+     * The serve layer and the advance layer must reason over the SAME servable set.
+     * (Use {@link #countByModuleIdAndStage} only for EXISTENCE/regen-gating, never
+     * for completion — see the PROVE-existence gate.)
+     */
+    int countServableByModuleIdAndStage(String moduleId, String stage);
+
+    /**
      * Deletes all content items belonging to the given module.
      * Used by the centre regenerate flow to clear stale draft items before
      * re-generating with teacher guidance.

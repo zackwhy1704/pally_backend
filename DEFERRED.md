@@ -238,6 +238,22 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 # OFF-KEYBOARD (human / ops — not code)
 
+- **⚠️ CONTENT-REAPER RE-ENABLE PRECONDITION (runbook — check the FAMILY before flipping
+  `CONTENT_REAPER_DRY_RUN=false`).** The reaper is the ONLY thing in the system that creates
+  non-servable rows (QUARANTINED/RETIRED) at scale, so EVERY consumer of "how many items are in
+  this stage" is a potential sibling of the same invariant: *a non-servable row must not be
+  treated as present.* Before re-enabling, confirm BOTH layers reason over the SERVABLE set, not
+  the unfiltered count:
+    - **serve layer** — `startModule`/`buildStageResponse` (empty-served → CONTENT_UPDATING). ✅ P1.
+    - **advance layer** — `submitAnswers` stageComplete denominator = `countServableByModuleIdAndStage`,
+      servable==0 → not complete. ✅ this fix (`fix/stage-advance-servable-denominator`).
+  History: the reaper's re-flip had to be reverted TWICE — once for the serve layer (P1), once for
+  the advance layer (this) — because each was gated on the previous fix in FORM but the fix didn't
+  reach the sibling. The discipline: grep every `countByModuleIdAndStage` caller and classify it
+  (completion → servable; existence/regen-gate/sort-order → unfiltered, with a rider comment) as a
+  FAMILY before flipping, not after a student gets stuck. Still-unfixed non-stranding siblings
+  (display/analytics only): `listModules` itemCounts + `CentreAnalyticsService:512` count RETIRED
+  rows → cosmetically inflated counts; acceptable, not a blocker.
 - **Store submission, manual QA pass, DPIA.** (App is pre-launch.)
 - **Device-verify the weakness loop on real hardware** — wrong hot-takes → mastery moves → weak
   concept → weak-first next quiz.
