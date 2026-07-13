@@ -121,6 +121,94 @@ class ModuleProgressionServiceTest {
         assertThat(m.get("answerJson")).isNotNull(); // LEARN items expose answerJson
     }
 
+    // ── module PLAYABILITY invariant: a stage never enters empty-served ──
+    // The stuck-TEST prod bug (2026-07-13): a stage whose items were all made
+    // non-servable (reaper-QUARANTINED / DRAFT) served `200 + items:[]`, so the
+    // student had nothing to answer and TEST could never advance — a dead-end.
+
+    private ModuleContentItem item(String id, String stage, String type) {
+        ModuleContentItem it = new ModuleContentItem();
+        it.setId(id);
+        it.setStage(stage);
+        it.setType(type);
+        it.setContentJson("{\"statement\":\"s\",\"isTrue\":true,\"explanation\":\"e\"}");
+        it.setSortOrder(0);
+        return it;
+    }
+
+    @Test
+    void startModule_testStageItemsExistButNoneServable_returnsContentUpdating_notDeadEnd() {
+        // The exact prod shape: TEST items exist (unfiltered count > 0) but all are
+        // non-servable → the servable list is empty. Must NOT be a benign 200.
+        LearningModule module = buildModule("mod-stuck", "TEST");
+        when(moduleRepository.findById("mod-stuck")).thenReturn(Optional.of(module));
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-stuck", "TEST"))
+                .thenReturn(List.of());
+        when(itemRepository.countByModuleIdAndStage("mod-stuck", "TEST")).thenReturn(3);
+
+        Map<String, Object> result = service.startModule("mod-stuck", "user-1");
+
+        assertThat(result.get("items")).asList().isEmpty();
+        assertThat(result.get("contentStatus")).isEqualTo("CONTENT_UPDATING");
+        assertThat(result.get("stage")).isEqualTo("TEST");
+    }
+
+    @Test
+    void startModule_stageGenuinelyHasNoItems_returnsContentUnavailable() {
+        LearningModule module = buildModule("mod-empty", "TEST");
+        when(moduleRepository.findById("mod-empty")).thenReturn(Optional.of(module));
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-empty", "TEST"))
+                .thenReturn(List.of());
+        when(itemRepository.countByModuleIdAndStage("mod-empty", "TEST")).thenReturn(0);
+
+        Map<String, Object> result = service.startModule("mod-empty", "user-1");
+
+        assertThat(result.get("contentStatus")).isEqualTo("CONTENT_UNAVAILABLE");
+    }
+
+    @Test
+    void startModule_normalServableStage_carriesNoContentStatus() {
+        // Playability holds → the field is ABSENT (normal payload shape unchanged).
+        LearningModule module = buildModule("mod-ok", "TEST");
+        when(moduleRepository.findById("mod-ok")).thenReturn(Optional.of(module));
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-ok", "TEST"))
+                .thenReturn(List.of(item("i-1", "TEST", "HOT_TAKE")));
+
+        Map<String, Object> result = service.startModule("mod-ok", "user-1");
+
+        assertThat(result).doesNotContainKey("contentStatus");
+        assertThat(result.get("items")).asList().hasSize(1);
+    }
+
+    @Test
+    void playabilityWalk_everyEnteredStageServesAtLeastOneRenderableItem() {
+        // The named invariant this whole failure exists to buy: LEARN → TEST →
+        // PROVE each serve ≥1 item and carry no CONTENT_UPDATING dead-end signal.
+        record Step(String stage, String type) {}
+        for (Step step : List.of(
+                new Step("LEARN", "MICRO_CARD"),
+                new Step("TEST", "SPOT_MISTAKE"),
+                new Step("PROVE", "PROVE_QUESTION"))) {
+            String id = "walk-" + step.stage();
+            LearningModule module = buildModule(id, step.stage());
+            when(moduleRepository.findById(id)).thenReturn(Optional.of(module));
+            // PROVE has a pre-serve existence gate — a positive count skips regen.
+            if ("PROVE".equals(step.stage())) {
+                when(itemRepository.countByModuleIdAndStage(id, "PROVE")).thenReturn(1);
+            }
+            when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder(id, step.stage()))
+                    .thenReturn(List.of(item("it-" + step.stage(), step.stage(), step.type())));
+
+            Map<String, Object> result = service.startModule(id, "user-1");
+
+            assertThat(result.get("stage")).isEqualTo(step.stage());
+            assertThat(result.get("items")).as("stage %s must serve ≥1 item", step.stage())
+                    .asList().isNotEmpty();
+            assertThat(result).as("stage %s must not dead-end", step.stage())
+                    .doesNotContainKey("contentStatus");
+        }
+    }
+
     // ── getModuleDetail: teacher-reviewed badge (C3) ─────────────────────
 
     @Test
