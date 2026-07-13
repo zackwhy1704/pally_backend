@@ -167,6 +167,32 @@ public class ModuleContentGenerator {
     // ── Groundedness gate (B3) ───────────────────────────────────────────────
 
     /**
+     * Item types the groundedness gate runs on — a POSITIVE allow-list, not an
+     * exclude-list, so a future 6th ContentItemType is NOT grounded-by-default.
+     *
+     * <p>Only MICRO_CARD (LEARN teaching facts) and PROVE_QUESTION carry factual
+     * truth-claims where "is this true to the source?" is a coherent question.
+     * SPOT_MISTAKE (a PLANTED wrong solution), HOT_TAKE (a deliberately
+     * plausibly-FALSE statement to judge), and CHALLENGE (an invented role-play
+     * scenario) are invented-practice BY DESIGN — grounding them against the notes
+     * is a category error: their pedagogical job is to NOT match the source. A
+     * prod-flag classification (2026-07-13) found 77% of all groundedness flags
+     * were on these three types (e.g. "F = m + a" flagged as "contradicts your
+     * notes" — that IS the planted mistake). Scoping to the fact-claiming types
+     * removes that category-error flood; the residual MICRO_CARD rate is then a
+     * real signal (the 20% ceiling stays untouched — the over-fire was measurement
+     * error, not fabrication).
+     */
+    private static final java.util.Set<String> GROUNDED_TYPES =
+            java.util.Set.of("MICRO_CARD", "PROVE_QUESTION");
+
+    /** True iff the groundedness gate should run on this item type (positive
+     * allow-list — an unknown/future type is NOT grounded by default). */
+    static boolean isGroundedType(String type) {
+        return type != null && GROUNDED_TYPES.contains(type);
+    }
+
+    /**
      * Runs the groundedness gate over each generated item against the source page,
      * attaching a flag payload to items that assert a hard fact not entailed by the
      * notes (or that contradict them). Fail-open: any error skips tagging, never
@@ -179,6 +205,9 @@ public class ModuleContentGenerator {
         if (source == null || source.isBlank()) return;
         boolean sourceVerified = page.isHumanVerified();
         for (ModuleContentItem item : items) {
+            // #1: only fact-claiming types are grounded (see GROUNDED_TYPES) —
+            // invented-practice types must not be checked against the source.
+            if (!isGroundedType(item.getType())) continue;
             try {
                 List<String> texts = extractItemTexts(item);
                 if (texts.isEmpty()) continue;
