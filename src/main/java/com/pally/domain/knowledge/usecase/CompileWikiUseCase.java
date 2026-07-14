@@ -158,20 +158,31 @@ public class CompileWikiUseCase {
                 .toList();
 
         if (readyFiles.isEmpty()) {
-            log.warn("[Pipeline:Compile] NO READY files for avatarId={} — compile skipped. " +
-                     "Failed={} Processing={}. Re-upload or use /wiki/recompile to reset FAILED files.",
-                     avatarId, failedCount, processingCount);
-            // Archive all active pages since there are no ready files — the brain is empty.
-            try {
-                int archived = wikiRepository.archiveOrphanPages(avatarId, List.of());
-                if (archived > 0) {
-                    log.info("[Pipeline:Compile] Archived {} orphan pages (no ready files) for avatar={}",
-                            archived, avatarId);
+            // total==0: genuinely no files (e.g. the user deleted their last one) — the
+            // INTENDED empty-brain path. Archive orphan pages and return empty.
+            if (allFiles.isEmpty()) {
+                log.info("[Pipeline:Compile] no files for avatarId={} — archiving orphan pages "
+                        + "(brain intentionally empty).", avatarId);
+                try {
+                    int archived = wikiRepository.archiveOrphanPages(avatarId, List.of());
+                    if (archived > 0) {
+                        log.info("[Pipeline:Compile] Archived {} orphan pages (no files) for avatar={}",
+                                archived, avatarId);
+                    }
+                } catch (Exception e) {
+                    log.warn("[Pipeline:Compile] Orphan archive failed (non-fatal): {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("[Pipeline:Compile] Orphan archive failed (non-fatal): {}", e.getMessage());
+                return new CompileResult(0, 0, List.of());
             }
-            return new CompileResult(0, 0, List.of());
+            // total>0 but zero READY: a commit-race victim (a just-picked chunk not yet
+            // visible) OR a legitimately all-FAILED avatar. Do NOT archive — wiping an
+            // established brain on a transient zero-ready read is a worse bug than the race
+            // that exposed it. Signal the scheduler for a SINGLE retry (self-heals a race;
+            // gives up after one try on all-FAILED). Brain stays non-READY until it resolves.
+            log.warn("[Pipeline:Compile] zero READY of {} files for avatarId={} (failed={} processing={}) "
+                    + "— NOT archiving (brain preserved), requesting single retry.",
+                    allFiles.size(), avatarId, failedCount, processingCount);
+            return new CompileResult(0, 0, List.of(), "skipped-zero-ready-retry", 0, 0);
         }
 
         // ── Incremental compile: only feed NEW files to the AI compiler ──────

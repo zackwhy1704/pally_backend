@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.Set;
@@ -59,6 +61,11 @@ public class WikiRecompileScheduler {
     private final ConcurrentHashMap<String, Long>               firstQueuedAt  = new ConcurrentHashMap<>();
     private final Set<String>                                    inFlight       = ConcurrentHashMap.newKeySet();
     private final Set<String>                                    dirtyAgain     = ConcurrentHashMap.newKeySet();
+    /// Single-shot guard for the zero-ready-with-files retry (Fix B): an avatar whose
+    /// compile found files but none READY gets exactly ONE 2-min retry (race self-heal)
+    /// before we give up (all-FAILED avatars must not retry forever). Cleared on any
+    /// non-zero-ready outcome.
+    private final Set<String>                                    zeroReadyRetried = ConcurrentHashMap.newKeySet();
 
     // Daily compile budget guard: counts compiles per avatar per UTC day.
     // Prevents a spam-uploading user from triggering unbounded Gemini calls.
@@ -100,6 +107,29 @@ public class WikiRecompileScheduler {
      * debounced to coalesce burst uploads into a single compile.
      */
     public void requestRecompile(String avatarId) {
+        // Invariant (the fix-the-family chokepoint): a recompile fires only AFTER the
+        // writes it depends on COMMIT. The compile task reads committed state
+        // (READ_COMMITTED), so triggering inside an open transaction races the write —
+        // the fresh-avatar first compile read the just-picked chunk as still
+        // PENDING_CHUNK (ready=0 → skipped → empty brain). Defer to afterCommit when a
+        // tx is active; run inline otherwise (scheduler-internal + non-transactional
+        // callers). A rolled-back tx correctly never compiles — intended, not a lost
+        // compile. Enforced here once so a caller turning @Transactional later can't
+        // silently inherit the race.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            doRequestRecompile(avatarId);
+                        }
+                    });
+        } else {
+            doRequestRecompile(avatarId);
+        }
+    }
+
+    private void doRequestRecompile(String avatarId) {
         // First-upload-immediate: no existing pages AND not already compiling
         if (firstUploadImmediate
                 && wikiRepository.countActiveByAvatarId(avatarId) == 0
@@ -215,6 +245,7 @@ public class WikiRecompileScheduler {
         }
 
         boolean failed = false;
+        boolean deferBrainReady = false; // Fix B: don't flip READY when we're retrying a zero-ready
         try {
             // Capture the result so per-page failures aren't lost: the centre web
             // polls /avatars then reads GET /wiki/compile/status, which serves this
@@ -222,6 +253,27 @@ public class WikiRecompileScheduler {
             // failed to persist) looks like a full success to the teacher.
             CompileWikiUseCase.CompileResult result = compileWikiUseCase.execute(avatarId);
             recordRecompileStatus(avatarId, result);
+            // Fix B: the compile found files but none READY (a commit-race victim whose
+            // pick isn't visible yet, OR a legitimately all-FAILED avatar). CompileWiki
+            // did NOT archive (never wipe a brain on a transient zero-ready). Retry ONCE:
+            // a race self-heals on the retry; an all-FAILED avatar stops after one try
+            // (never a forever loop) and keeps whatever pages it already had.
+            if ("skipped-zero-ready-retry".equals(result.tierServed())) {
+                if (zeroReadyRetried.add(avatarId)) {
+                    deferBrainReady = true; // leave brain non-READY until the retry resolves
+                    timer.schedule(() -> requestRecompile(avatarId), 2,
+                            java.util.concurrent.TimeUnit.MINUTES);
+                    log.warn("[Debounce] zero READY files (but files exist) for avatar={} — "
+                            + "single retry in 2min; brain left non-READY, pages NOT archived", avatarId);
+                } else {
+                    zeroReadyRetried.remove(avatarId);
+                    log.error("[Debounce] zero READY files AGAIN after retry for avatar={} — giving up: "
+                            + "leaving existing pages intact, marking READY. Files likely all FAILED/"
+                            + "PROCESSING; check the [Pipeline:Compile] inventory line.", avatarId);
+                }
+            } else {
+                zeroReadyRetried.remove(avatarId); // any real outcome resets the single-shot guard
+            }
         } catch (Exception e) {
             failed = true;
             boolean isTimeout = e.getMessage() == null
@@ -236,7 +288,11 @@ public class WikiRecompileScheduler {
             }
         } finally {
             inFlight.remove(avatarId);
-            safeMarkReady(avatarId);
+            // Fix B: skip READY while a zero-ready retry is pending — a skip that
+            // followed an explicit request must not present a "ready" empty brain.
+            if (!deferBrainReady) {
+                safeMarkReady(avatarId);
+            }
             if (dirtyAgain.remove(avatarId)) {
                 log.info("[Debounce] Follow-up recompile queued for avatar={}", avatarId);
                 requestRecompile(avatarId);
