@@ -13,6 +13,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -93,6 +95,116 @@ class WikiRecompileSchedulerTest {
                 .atMost(DEBOUNCE_MS * 3 + 500, TimeUnit.MILLISECONDS)
                 .untilAsserted(() ->
                         verify(compileWikiUseCase, times(1)).execute(avatarId));
+    }
+
+    // ── Fix A: recompile requests fire only AFTER the tx commits ─────────────
+
+    private WikiRecompileScheduler schedulerWithMockExec(ThreadPoolExecutor exec) {
+        WikiRecompileScheduler s = new WikiRecompileScheduler(
+                exec, compileWikiUseCase, wikiRepository, brainStateService, avatarRepository,
+                new com.pally.domain.knowledge.usecase.CompileJobStore(),
+                mock(com.pally.domain.knowledge.usecase.DurableCompileStatusStore.class));
+        ReflectionTestUtils.setField(s, "debounceMs", DEBOUNCE_MS);
+        ReflectionTestUtils.setField(s, "maxWaitMs", MAX_WAIT_MS);
+        ReflectionTestUtils.setField(s, "firstUploadImmediate", true);
+        return s;
+    }
+
+    @Test
+    void requestRecompile_insideTransaction_defersTheCompileUntilAfterCommit() {
+        ThreadPoolExecutor exec = mock(ThreadPoolExecutor.class);
+        WikiRecompileScheduler s = schedulerWithMockExec(exec);
+        when(wikiRepository.countActiveByAvatarId("av-tx")).thenReturn(0); // immediate branch
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            s.requestRecompile("av-tx");
+            // Deferred — nothing triggered while the tx is still open (the compile would
+            // otherwise race the pick write and see it uncommitted).
+            verify(exec, never()).execute(any());
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(1);
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+            verify(exec, times(1)).execute(any()); // fires only after commit
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void requestRecompile_rolledBackTransaction_neverCompiles() {
+        ThreadPoolExecutor exec = mock(ThreadPoolExecutor.class);
+        WikiRecompileScheduler s = schedulerWithMockExec(exec);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            s.requestRecompile("av-rb");
+            // Rollback: afterCompletion(ROLLED_BACK) fires, afterCommit does NOT.
+            TransactionSynchronizationManager.getSynchronizations().forEach(
+                    sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+            verify(exec, never()).execute(any()); // a rolled-back pick correctly compiles nothing
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void requestRecompile_twiceInOneTransaction_coalescesToOneImmediateCompile() {
+        ThreadPoolExecutor exec = mock(ThreadPoolExecutor.class);
+        WikiRecompileScheduler s = schedulerWithMockExec(exec);
+        when(wikiRepository.countActiveByAvatarId("av-2x")).thenReturn(0);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            s.requestRecompile("av-2x");
+            s.requestRecompile("av-2x");
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).hasSize(2);
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+            // Both afterCommit callbacks fire, but inFlight coalescing means only the
+            // first takes the immediate path; the second falls through to debounce.
+            verify(exec, times(1)).execute(any());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    // ── Fix B: zero-ready-with-files → single retry, brain not READY, no wipe ─
+
+    @Test
+    void zeroReadyWithFiles_firstTime_leavesBrainNonReady() throws InterruptedException {
+        when(wikiRepository.countActiveByAvatarId("av-zr")).thenReturn(0); // immediate branch
+        when(compileWikiUseCase.execute("av-zr")).thenReturn(new CompileWikiUseCase.CompileResult(
+                0, 0, List.of(), "skipped-zero-ready-retry", 0, 0));
+
+        scheduler.requestRecompile("av-zr");
+
+        Awaitility.await().atMost(2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-zr"));
+        Thread.sleep(300); // let runCompile's finally run
+        // A skip that followed an explicit request must NOT present a "ready" empty brain.
+        verify(brainStateService, never()).markReady("av-zr");
+    }
+
+    @Test
+    void zeroReadyWithFiles_secondTime_givesUpSingleShot_andMarksReady() throws InterruptedException {
+        when(wikiRepository.countActiveByAvatarId("av-zr2")).thenReturn(0);
+        when(compileWikiUseCase.execute("av-zr2")).thenReturn(new CompileWikiUseCase.CompileResult(
+                0, 0, List.of(), "skipped-zero-ready-retry", 0, 0));
+
+        scheduler.requestRecompile("av-zr2"); // 1st → defer, no markReady
+        Awaitility.await().atMost(2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-zr2"));
+        Thread.sleep(200); // 1st runCompile finishes, inFlight cleared
+
+        scheduler.requestRecompile("av-zr2"); // 2nd (simulates the retry) → give up
+        Awaitility.await().atMost(2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(compileWikiUseCase, times(2)).execute("av-zr2"));
+        // markReady fires exactly ONCE — only on the give-up (never a third attempt).
+        Awaitility.await().atMost(2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(brainStateService, times(1)).markReady("av-zr2"));
     }
 
     // ── Test 2: Max-wait ceiling ─────────────────────────────────────────────
