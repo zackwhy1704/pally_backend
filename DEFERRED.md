@@ -120,7 +120,29 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 - **Accepted risk:** cosmetic only — the module plays and completes correctly.
 - **Closes it:** hide the PROVE count until generated, or label it "adaptive" instead of "0".
 
-## Cost / fan-out control
+## Retention & UX polish (post-launch)
+
+### Streak card doesn't communicate its stakes — copy pass
+- **What:** the streak economy is fully built (StreakService owns day-roll / freeze consumption /
+  milestone grants / earned-freeze top-ups; freezes are a purchasable atomic star spend; L20+ cap
+  scaling; EXTRA_FREEZE premium hook; MilestoneNotifier; client celebrates milestones + shows a
+  freeze pill), but the card never SAYS what a freeze is or what milestones give. Mechanics only
+  manifest across days, so a same-day tester (and a user) reads it as decorative.
+- **Accepted risk:** the machinery works; only its legibility is thin — users may undervalue it.
+- **Closes it:** copy pass on the streak/goal card — surface "freeze protects your streak", the
+  next milestone and its reward. No logic change.
+
+### Exam countdown + testDate→reminder integration (field retained, settings UI removed)
+- **What:** the per-avatar `testDate` field is kept on the Avatar model + `/test-date` PATCH endpoint,
+  but the SETTINGS editor that wrote it was removed (it was an input with no clear output — confusing
+  pre-launch). NOTE for whoever revives this: `testDate` is NOT output-less — `exam_prep_screen` and
+  `study_plan_screen` (both routed) READ it for a countdown / days-left. With the only writer removed,
+  those screens now show empty states until a writer returns.
+- **Why deferred:** the exam-countdown feature is half-built — no scheduled reminder is wired to
+  `testDate` (the only zonedSchedule is the daily-quiz reminder), and no Home countdown. Shipping an
+  input with no salient output reads as "broken".
+- **Closes it (post-launch):** wire a testDate→reminder (reuse the daily-quiz `zonedSchedule` path) +
+  a Home/hub countdown, then re-add a date input (ideally at avatar creation, not buried in settings).
 
 ### Billed-but-FAILED streaming — the narrow residual (streaming itself IS metered)
 - **What:** streaming chat and keepalive ARE metered (see CLOSED). The only residual: if a chat
