@@ -96,6 +96,23 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 - **Closes it:** decide whether to call `updateMastery` at TEST→PROVE (blend the stored TEST
   DETERMINISTIC signal early); if so, add it behind a considered review of the downstream reads.
 
+### 8. Revision serves OLD + NEW PROVE items (≈10) vs the "5 fresh" intent — decide
+- **What:** entering revision regenerates PROVE questions, but the served set includes the
+  old PROVE items alongside the fresh ones (≈10 total), while the code comment/intent was
+  ~5 fresh questions. The student gets a longer-than-designed revision set.
+- **Why deferred:** a content/UX decision (is a bigger pool good, or confusing?), plus a
+  data question — whether old PROVE items should be retired/replaced on revision.
+- **Closes it:** decide the intended revision set size; if "fresh only", retire/exclude the
+  prior PROVE items when regenerating.
+
+### 9. Revision silently UN-COMPLETES a module on tap — confirm dialog? (GATED-adjacent UX)
+- **What:** tapping a COMPLETE module to revise flips its list badge COMPLETE → PROVE with
+  no explanation. The user reads it as lost progress (they "finished" it; now it says PROVE).
+- **Why deferred:** touches stage-semantics UX (not logic). A confirm dialog ("Revise this —
+  it'll reopen at PROVE?") or a distinct "Revising" badge would set expectations.
+- **Closes it:** product decision on the revision-entry affordance; add a confirm/label so the
+  badge change is intentional, not a surprise. (Logic is correct — this is expectation-setting.)
+
 ### 7. Module card shows "0 prove" — cosmetic (PROVE is generated on-demand)
 - **What:** the module card's item counts show 0 PROVE items because PROVE questions are
   generated adaptively on-demand (at PROVE start from TEST results), not at module creation. Reads
