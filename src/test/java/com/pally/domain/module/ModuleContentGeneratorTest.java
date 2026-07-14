@@ -290,4 +290,80 @@ class ModuleContentGeneratorTest {
         String s = "[{\"a\":{\"n\":1},\"s\":\"has } brace\"},{\"b\":2},{\"c\":";
         assertThat(com.pally.shared.json.JsonExtraction.extractBalancedObjects(s)).hasSize(2);
     }
+
+    // ── FIX C: persona fallback + FIX D: student-facing feedback prompts ─────────
+
+    /** Runs generate() and returns every prompt string sent to the model. */
+    private List<String> capturePrompts(Avatar avatar) {
+        WikiPage page = WikiPage.create("avatar1", "sales", "Closing the Sale",
+                "A good salesperson listens before pitching.");
+        lenient().when(moduleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        // Any prompt → empty parse → fallback item; the PROMPT is still sent + captured.
+        lenient().when(geminiCompletion.complete(anyInt(), anyString(), anyString(), anyString()))
+                .thenReturn("[]");
+        generator.generate(avatar, page);
+        ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+        verify(geminiCompletion, atLeastOnce())
+                .complete(anyInt(), cap.capture(), anyString(), anyString());
+        return cap.getAllValues();
+    }
+
+    private String promptContaining(List<String> prompts, String needle) {
+        return prompts.stream().filter(p -> p.contains(needle)).findFirst()
+                .orElseThrow(() -> new AssertionError("no prompt containing: " + needle));
+    }
+
+    @Test
+    void nullGradeLevel_usesNeutralPersona_neverPrimarySchool() {
+        // The bug: a null gradeLevel children-framed ALL content (a sales book → kids).
+        Avatar avatar = Avatar.create("user1", "Sales", Subject.GENERAL, CharacterType.MOCHI);
+        assertThat(avatar.getGradeLevel()).isNull();
+
+        List<String> prompts = capturePrompts(avatar);
+
+        assertThat(prompts).isNotEmpty();
+        assertThat(prompts).noneMatch(p -> p.contains("primary school"));
+        // Every generator frames to the neutral "a student".
+        assertThat(promptContaining(prompts, "bite-size concept cards"))
+                .contains("for a student studying");
+        assertThat(promptContaining(prompts, "true/false statements")).contains("for a student.");
+        assertThat(promptContaining(prompts, "application questions"))
+                .contains("test whether a student can USE");
+        assertThat(promptContaining(prompts, "WRONG worked solution"))
+                .contains("misconception a student would make");
+    }
+
+    @Test
+    void setGradeLevel_isUnchanged_framesAsThatGradeStudent() {
+        // Behavior MUST be identical to before when a grade is set.
+        Avatar avatar = Avatar.create("user1", "Sci", Subject.SCIENCE, CharacterType.MOCHI);
+        avatar.setGradeLevel("P5");
+
+        List<String> prompts = capturePrompts(avatar);
+
+        assertThat(promptContaining(prompts, "true/false statements")).contains("for a P5 student.");
+        assertThat(prompts).noneMatch(p -> p.contains("primary school"));
+    }
+
+    @Test
+    void explanationPrompts_specifyStudentFacingFeedback_notRubric() {
+        // FIX D: the model wrote assessor meta ("This question assesses…") which we serve
+        // to students. Each explanation-bearing prompt now specifies direct feedback.
+        Avatar avatar = Avatar.create("user1", "Sales", Subject.GENERAL, CharacterType.MOCHI);
+        List<String> prompts = capturePrompts(avatar);
+
+        // Collapse whitespace: the instruction phrases wrap across text-block lines.
+        String hotTake = promptContaining(prompts, "true/false statements").replaceAll("\\s+", " ");
+        assertThat(hotTake).contains("shown to the learner AFTER")
+                .contains("Do NOT describe what the question tests");
+
+        String challenge = promptContaining(prompts, "application questions").replaceAll("\\s+", " ");
+        assertThat(challenge).contains("shown to the learner AFTER")
+                .contains("Do NOT describe what the question assesses");
+
+        String spot = promptContaining(prompts, "WRONG worked solution").replaceAll("\\s+", " ");
+        assertThat(spot).contains("shown to the learner AFTER")
+                .contains("Do NOT describe what the exercise tests");
+    }
 }

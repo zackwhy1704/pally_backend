@@ -74,6 +74,35 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 emits it (`ModuleExamReadinessService.java:67`); the parent-notification half was already
 CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
+### 5. Free-text TEST answers are UNGRADED (SPOT_MISTAKE/CHALLENGE) — LLM-evaluate like PROVE?
+- **What:** SPOT_MISTAKE ("I found it") and CHALLENGE (free-text) contribute no mastery
+  signal (see #3). PROVE already runs `ModuleProveEvaluator.evaluateAnswer` for feedback; the
+  same could grade TEST free-text answers (an `evalResult` per item) so TEST contributes a
+  real (low-trust) signal instead of nothing.
+- **Why deferred:** a PRODUCT + COST decision — it adds an LLM call per TEST free-text item on
+  every submit (latency + spend), and the trust weighting/anti-spoof story needs design (the
+  student's own text can't be a client-authoritative grade).
+- **Closes it:** decide the product value vs per-submit cost; if yes, reuse the PROVE evaluator
+  path with a TEST-appropriate trust weight and metering.
+
+### 6. Mastery visibly moves only at COMPLETE — TEST-completion mastery update (GATED)
+- **What:** `updateMastery` runs only when a stage advances INTO COMPLETE (and on self-report),
+  so a student sees mastery move only after finishing PROVE — not after TEST, even though TEST
+  HOT_TAKEs are graded DETERMINISTIC and already stored. Feels unresponsive mid-module.
+- **Why deferred / GATED:** this is a PROGRESSION-SEMANTICS change (when mastery is written).
+  Writing mastery at TEST completion changes what a mid-module mastery number MEANS and could
+  interact with the parent-notification / weakness-trigger timing. Needs an explicit decision,
+  not a drive-by.
+- **Closes it:** decide whether to call `updateMastery` at TEST→PROVE (blend the stored TEST
+  DETERMINISTIC signal early); if so, add it behind a considered review of the downstream reads.
+
+### 7. Module card shows "0 prove" — cosmetic (PROVE is generated on-demand)
+- **What:** the module card's item counts show 0 PROVE items because PROVE questions are
+  generated adaptively on-demand (at PROVE start from TEST results), not at module creation. Reads
+  as "missing content" when it's by-design.
+- **Accepted risk:** cosmetic only — the module plays and completes correctly.
+- **Closes it:** hide the PROVE count until generated, or label it "adaptive" instead of "0".
+
 ## Cost / fan-out control
 
 ### Billed-but-FAILED streaming — the narrow residual (streaming itself IS metered)

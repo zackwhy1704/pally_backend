@@ -56,7 +56,13 @@ public class ModuleContentGenerator {
     // without a DB round-trip; only the final persist runs in a (brief) transaction.
     public LearningModule generate(Avatar avatar, WikiPage page) {
         String tier = resolveContentTier(avatar);
-        String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
+        // Audience persona for the prompts below. A null gradeLevel yields a NEUTRAL
+        // persona ("a student") — NOT "primary school", which children-framed ALL
+        // content for ungraded avatars (a sales book → ice-cream shops). When a grade
+        // IS set the phrase is "a {grade} student", so output is unchanged for them.
+        String level = avatar.getGradeLevel() != null
+                ? "a " + avatar.getGradeLevel() + " student"
+                : "a student";
         String subject = avatar.getSubject().label();
 
         // Build the module in memory (UUID assigned now — no DB write yet).
@@ -101,7 +107,13 @@ public class ModuleContentGenerator {
     // transaction. The delete + re-insert happen together in the short write at the end.
     public void regenerateAsDraft(Avatar avatar, WikiPage page, LearningModule module, String guidance) {
         String tier = resolveContentTier(avatar);
-        String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
+        // Audience persona for the prompts below. A null gradeLevel yields a NEUTRAL
+        // persona ("a student") — NOT "primary school", which children-framed ALL
+        // content for ungraded avatars (a sales book → ice-cream shops). When a grade
+        // IS set the phrase is "a {grade} student", so output is unchanged for them.
+        String level = avatar.getGradeLevel() != null
+                ? "a " + avatar.getGradeLevel() + " student"
+                : "a student";
         String subject = avatar.getSubject().label();
         String content = truncate(page.getContent(), 3000);
 
@@ -150,7 +162,13 @@ public class ModuleContentGenerator {
             return List.of();
         }
         String tier = resolveContentTier(avatar);
-        String level = avatar.getGradeLevel() != null ? avatar.getGradeLevel() : "primary school";
+        // Audience persona for the prompts below. A null gradeLevel yields a NEUTRAL
+        // persona ("a student") — NOT "primary school", which children-framed ALL
+        // content for ungraded avatars (a sales book → ice-cream shops). When a grade
+        // IS set the phrase is "a {grade} student", so output is unchanged for them.
+        String level = avatar.getGradeLevel() != null
+                ? "a " + avatar.getGradeLevel() + " student"
+                : "a student";
         String subject = avatar.getSubject().label();
         String content = truncate(page.getContent(), 3000);
         List<ModuleContentItem> items = switch (t) {
@@ -290,7 +308,8 @@ public class ModuleContentGenerator {
             List<ModuleProgress> testResults,
             String tier) {
 
-        String level = "primary school"; // fallback; caller can improve
+        // (No persona var here: the PROVE prompt below is already grade-neutral
+        // ("A student studied ...") and never interpolated a level.)
         int n = "CENTRE".equals(tier) ? 5 : 3;
 
         String testSummary = testResults.stream()
@@ -481,7 +500,7 @@ public class ModuleContentGenerator {
         int n = "CENTRE".equals(tier) ? 6 : 4;
 
         String prompt = """
-                Split this educational content into %d bite-size concept cards for a %s student studying %s.
+                Split this educational content into %d bite-size concept cards for %s studying %s.
                 Each card covers ONE concept, under 60 words, with key terms in bold.%s
 
                 Content:
@@ -533,8 +552,13 @@ public class ModuleContentGenerator {
         int n = "CENTRE".equals(tier) ? 3 : 2;
 
         String prompt = """
-                Generate %d true/false statements about this content for a %s student.
+                Generate %d true/false statements about this content for %s.
                 At least one must be a common misconception (false).%s
+
+                The "explanation" is shown to the learner AFTER they answer. Write it as
+                direct feedback addressed to them (second person, "you..."): explain why
+                the statement is true or false and walk through the reasoning. Do NOT
+                describe what the question tests or mention "the student".
 
                 Content:
                 %s
@@ -586,7 +610,12 @@ public class ModuleContentGenerator {
 
         String prompt = """
                 Write ONE plausible but WRONG worked solution for a problem from this content.
-                Introduce a common %s-student misconception. The student must find the error.%s
+                Introduce a common misconception %s would make. The learner must find the error.%s
+
+                "errorDescription" and "correctSolution" are shown to the learner AFTER
+                they attempt it. Write them as direct feedback addressed to them (second
+                person, "you..."): name the mistake and walk through the correct approach.
+                Do NOT describe what the exercise tests or mention "the student".
 
                 Content:
                 %s
@@ -635,8 +664,13 @@ public class ModuleContentGenerator {
         int n = "CENTRE".equals(tier) ? 3 : 1;
 
         String prompt = """
-                Generate %d application questions that test whether a %s student can USE these concepts.
+                Generate %d application questions that test whether %s can USE these concepts.
                 Include word problems where possible.%s
+
+                The "explanation" is shown to the learner AFTER they answer. Write it as
+                direct feedback addressed to them (second person, "you..."): walk through
+                the ideal answer and the reasoning. Do NOT describe what the question
+                assesses or mention "the student".
 
                 Content:
                 %s
