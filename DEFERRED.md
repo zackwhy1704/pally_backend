@@ -46,6 +46,20 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 - **Closes it:** add `signal_type` to `quiz_question_results`; keyless → UNGRADED (excluded
   from analytics) instead of client-map.
 
+### 2. All-HOT_TAKE TEST stage: the last item's reveal is bannerless
+- **What:** the client per-item HOT_TAKE verdict fetch is SKIPPED for the LAST item of a stage
+  (the no-advance invariant — a per-item submit can never be the one that completes the stage:
+  completedInStage ≤ N-1 < N). So a stage's last hot-take shows its reveal with no Correct!/Not
+  quite banner.
+- **Why it (almost) never bites:** hot-takes sort at 100, SPOT_MISTAKE 200, CHALLENGE 300 — the
+  last item is normally a CHALLENGE, so every hot-take gets its verdict. But that ordering is a
+  generation-time convention, NOT enforced; a generator fallback could mint a hot-take-only TEST
+  stage whose last item is then bannerless.
+- **Accepted risk:** that one item is still graded correctly at the end-of-stage submit; only its
+  inline banner is missing. Non-blocking.
+- **Closes it:** render the last hot-take's verdict from the end-of-stage submit `results[]`
+  before advancing, or add a non-advancing per-item grade endpoint.
+
 ### 3. SPOT_MISTAKE / CHALLENGE are UNGRADED by design
 - **What:** of the TEST types, only HOT_TAKE has a discrete key. SPOT_MISTAKE
   (`errorDescription`/`correctSolution` free text) and CHALLENGE (open-ended) have no discrete
@@ -304,6 +318,17 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 # CLOSED (kept for archaeology)
 
+- **TEST reveal + verdict read null serve-time answerJson** — the reveal rendered blank and
+  HOT_TAKE "Correct!/Not quite" degenerated to "tapped Agree" (the client `isTrue ?? true`),
+  miseducating since the widget shipped. DISPLAY-only: server grading was always deterministic
+  from the raw choice (`ModuleProgressionService:322-326`), so NO stored mastery was contaminated
+  (Phase 0 verified). Fixed option B: `buildStageResponse` serves a field-filtered `revealJson`
+  for SPOT_MISTAKE/CHALLENGE via the `pickStringFields` whitelist (leak-proof by construction;
+  HOT_TAKE serves nothing — its key stays secret); the client hydrates the HOT_TAKE verdict from
+  a per-item submit, SKIPPING the last item so advancement stays solely on the end-of-stage submit
+  (completedInStage ≤ N-1 < N). Backend `cc5c453`, client (pally) `194f392`. Pinned by leak-tests
+  t1–t4 + client verdict/failure/no-advance-invariant tests. (Residual: the all-hot-take last-item
+  bannerless edge is OPEN #2 above.)
 - **Generation validator: keyless deterministic item** — `RulesOutputValidator.isValidModuleItem`
   (`:75`) enforces `HOT_TAKE` needs `answer_json.isTrue`; a keyless HOT_TAKE fails validation and
   never persists. Closed by the store-blockers audit (2026-07).
