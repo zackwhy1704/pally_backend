@@ -366,4 +366,16 @@ class ModuleContentGeneratorTest {
         assertThat(spot).contains("shown to the learner AFTER")
                 .contains("Do NOT describe what the exercise tests");
     }
+
+    @Test
+    void spotMistakePrompt_guardsProblemAndWrongSolutionPurity_noMetaOrErrorHints() {
+        // The problem/wrongSolution must be pure student-facing content — no labels,
+        // meta-commentary, or hints at the planted error (which would defeat "find it").
+        Avatar avatar = Avatar.create("user1", "Sales", Subject.GENERAL, CharacterType.MOCHI);
+        String spot = promptContaining(capturePrompts(avatar), "WRONG worked solution")
+                .replaceAll("\\s+", " ");
+        assertThat(spot)
+                .contains("\"problem\" and \"wrongSolution\" must contain ONLY")
+                .contains("NOT name or hint at the error");
+    }
 }

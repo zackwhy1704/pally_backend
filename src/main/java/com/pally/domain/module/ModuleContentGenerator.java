@@ -612,6 +612,13 @@ public class ModuleContentGenerator {
                 Write ONE plausible but WRONG worked solution for a problem from this content.
                 Introduce a common misconception %s would make. The learner must find the error.%s
 
+                "problem" and "wrongSolution" must contain ONLY what the learner would
+                actually see and write — a real problem statement and a plausible worked
+                solution, nothing else. Do NOT add labels, headings, or meta-commentary
+                (no "Student's Misconception:", no "(incorrect)", no annotations) and do
+                NOT name or hint at the error anywhere in them — the mistake must be
+                discoverable, revealed ONLY in "errorDescription"/"correctSolution".
+
                 "errorDescription" and "correctSolution" are shown to the learner AFTER
                 they attempt it. Write them as direct feedback addressed to them (second
                 person, "you..."): name the mistake and walk through the correct approach.
