@@ -906,6 +906,101 @@ class ModuleProgressionServiceTest {
         assertThat(out.get(0).get("contentJson")).isEqualTo("{\"title\":\"x\"}");
     }
 
+    // ── TEST reveal serve (option B): field-filtered, least-leak by construction ──
+    // The serve payload attaches a NON-secret reveal so the client renders it inline
+    // without a per-item call. Each test pins a leak boundary.
+
+    private ModuleContentItem testItem(String id, String type, String contentJson, String answerJson) {
+        ModuleContentItem it = new ModuleContentItem();
+        it.setId(id);
+        it.setStage("TEST");
+        it.setType(type);
+        it.setContentJson(contentJson);
+        it.setAnswerJson(answerJson);
+        it.setSortOrder(0);
+        return it;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> serveOneTestItem(ModuleContentItem item) {
+        LearningModule module = buildModule("mod-rev", "TEST");
+        when(moduleRepository.findById("mod-rev")).thenReturn(Optional.of(module));
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-rev", "TEST"))
+                .thenReturn(List.of(item));
+        Map<String, Object> result = service.startModule("mod-rev", "user-1");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");
+        assertThat(items).hasSize(1);
+        return items.get(0);
+    }
+
+    @Test
+    void serve_hotTake_carriesNoReveal_noAnswerJson_noIsTrueAnywhere() throws Exception {
+        // (t1) HOT_TAKE is the graded type; isTrue is the spoofable key. The served
+        // item must expose NOTHING revealing — no revealJson, no answerJson, and the
+        // string form must not carry the key anywhere.
+        Map<String, Object> m = serveOneTestItem(testItem("h1", "HOT_TAKE",
+                "{\"statement\":\"Plants eat soil\"}",
+                "{\"isTrue\":false,\"explanation\":\"they photosynthesise\"}"));
+        assertThat(m).doesNotContainKeys("revealJson", "answerJson");
+        String json = objectMapper.writeValueAsString(m);
+        assertThat(json)
+                .as("HOT_TAKE serve payload must not leak the graded key or any reveal")
+                .doesNotContain("isTrue")
+                .doesNotContain("revealJson")
+                .doesNotContain("answerJson")
+                .doesNotContain("photosynthesise"); // the withheld explanation
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void serve_challenge_revealHasExplanationOnly_neverTheModelAnswer() throws Exception {
+        // (t2) CHALLENGE reveal serves the explanation but NEVER `answer` (the model
+        // answer stays withheld — least-leak, even though CHALLENGE is UNGRADED).
+        Map<String, Object> m = serveOneTestItem(testItem("c1", "CHALLENGE",
+                "{\"question\":\"What is 2+2?\"}",
+                "{\"answer\":\"four-is-the-answer\",\"explanation\":\"add them\"}"));
+        Map<String, Object> reveal = (Map<String, Object>) m.get("revealJson");
+        assertThat(reveal).containsEntry("explanation", "add them").doesNotContainKey("answer");
+        assertThat(objectMapper.writeValueAsString(m))
+                .as("the model answer must never appear in the serve payload")
+                .doesNotContain("four-is-the-answer");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void serve_spotMistake_revealCarriesBothExplanatoryFields() {
+        // (t3) SPOT_MISTAKE is UNGRADED; its reveal is an explanation of the pre-shown
+        // wrong solution — both fields are safe to serve.
+        Map<String, Object> m = serveOneTestItem(testItem("s1", "SPOT_MISTAKE",
+                "{\"problem\":\"2+2\",\"wrongSolution\":\"5\"}",
+                "{\"errorDescription\":\"added wrong\",\"correctSolution\":\"4\"}"));
+        Map<String, Object> reveal = (Map<String, Object>) m.get("revealJson");
+        assertThat(reveal)
+                .containsEntry("errorDescription", "added wrong")
+                .containsEntry("correctSolution", "4");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void serve_learnItem_keepsAnswerJson_andHasNoRevealJson() {
+        // (t4) LEARN contract is untouched: answerJson still attached, no revealJson.
+        LearningModule module = buildModule("mod-learn", "LEARN");
+        when(moduleRepository.findById("mod-learn")).thenReturn(Optional.of(module));
+        ModuleContentItem it = new ModuleContentItem();
+        it.setId("l1");
+        it.setStage("LEARN");
+        it.setType("MICRO_CARD");
+        it.setContentJson("{\"title\":\"T\",\"body\":\"B\"}");
+        it.setAnswerJson("{\"k\":\"v\"}");
+        it.setSortOrder(0);
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-learn", "LEARN"))
+                .thenReturn(List.of(it));
+
+        List<Map<String, Object>> items =
+                (List<Map<String, Object>>) service.startModule("mod-learn", "user-1").get("items");
+        assertThat(items.get(0)).containsKey("answerJson").doesNotContainKey("revealJson");
+    }
+
     private LearningModule buildModule(String id, String stage) {
         LearningModule m = new LearningModule();
         m.setId(id);

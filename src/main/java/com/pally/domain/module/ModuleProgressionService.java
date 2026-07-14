@@ -553,6 +553,20 @@ public class ModuleProgressionService {
             if (ModuleStage.LEARN.name().equals(item.getStage())) {
                 m.put("answerJson", item.getAnswerJson());
             }
+            // TEST reveal (field-filtered — least-leak by construction): attach ONLY the
+            // non-secret fields the client's reveal panel renders, in a NEW `revealJson`
+            // key (never overload the LEARN-only answerJson contract). SPOT_MISTAKE and
+            // CHALLENGE are UNGRADED, so their reveals are explanations, safe to serve —
+            // but CHALLENGE's `answer` (the model answer) is deliberately NOT served.
+            // HOT_TAKE gets NOTHING: isTrue is the graded key and its explanation rides
+            // the per-item submit response. Absent revealJson → the client keeps its
+            // current blank-tolerant behaviour (back-compat with old servers).
+            if (ModuleStage.TEST.name().equals(item.getStage())) {
+                Map<String, Object> reveal = buildTestReveal(item);
+                if (reveal != null && !reveal.isEmpty()) {
+                    m.put("revealJson", reveal);
+                }
+            }
             return m;
         }).toList());
 
@@ -565,6 +579,40 @@ public class ModuleProgressionService {
                     stage.name(), moduleId, total, status);
         }
         return result;
+    }
+
+    /// Field-filtered TEST reveal for the SERVE path: exactly the fields the client's
+    /// reveal panel renders, and nothing more. HOT_TAKE → null (its verdict+explanation
+    /// come from the graded submit response; isTrue must never be served — it's the
+    /// spoofable key). CHALLENGE serves `explanation` ONLY (never `answer`, the model
+    /// answer). Returns null when there's nothing safe to serve.
+    private Map<String, Object> buildTestReveal(ModuleContentItem item) {
+        String type = item.getType();
+        if (ContentItemType.SPOT_MISTAKE.name().equals(type)) {
+            return pickStringFields(item.getAnswerJson(), "errorDescription", "correctSolution");
+        }
+        if (ContentItemType.CHALLENGE.name().equals(type)) {
+            return pickStringFields(item.getAnswerJson(), "explanation"); // NEVER "answer"
+        }
+        return null; // HOT_TAKE (and any unknown type): serve no reveal
+    }
+
+    /// Extracts ONLY the allow-listed string fields from a JSON-object string. A field
+    /// not present is simply omitted; a malformed/blank source yields an empty map. It
+    /// can NEVER return a field outside {@code fields}, so the serve payload cannot
+    /// accidentally widen to a secret.
+    private Map<String, Object> pickStringFields(String json, String... fields) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (json == null || json.isBlank()) return out;
+        try {
+            var node = objectMapper.readTree(json);
+            for (String f : fields) {
+                if (node.hasNonNull(f)) out.put(f, node.path(f).asText());
+            }
+        } catch (Exception ignored) {
+            // malformed answer_json → empty reveal (client falls back to blank)
+        }
+        return out;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
