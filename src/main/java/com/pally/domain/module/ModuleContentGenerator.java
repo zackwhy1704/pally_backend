@@ -324,10 +324,18 @@ public class ModuleContentGenerator {
                 A student studied %s and scored these on their test:
                 %s
 
+                Study material:
+                %s
+
                 Generate exactly %d prove-it questions. Each targets ONE specific concept.
                 The student must answer in 1-3 sentences to demonstrate understanding.
                 Prioritize concepts the student scored poorly on; if they did well,
                 still generate reinforcement questions on the key concepts.
+
+                Base every question and every expectedKeyPoints entry ONLY on the study
+                material above. If a listed concept is not covered by the material, target
+                the closest concept that is. Never introduce facts, terms, or examples
+                absent from the material.
 
                 The questions and key points must NEVER name, quote, or allude to the
                 reader's grade, age, or schooling level (no "primary school", "P5", "as a
@@ -336,7 +344,7 @@ public class ModuleContentGenerator {
                 Output ONLY the JSON array — no prose, no preamble, no markdown fences.
                 Start your reply with [ and end with ]. Shape:
                 [{"question":"...","targetConcept":"...","expectedKeyPoints":["..."],"difficulty":"easy/medium/hard"}]
-                """.formatted(page.getTitle(), testSummary, n);
+                """.formatted(page.getTitle(), testSummary, truncate(page.getContent(), 3000), n);
 
         try {
             // Robust parse (retry + salvage from prose/truncation) — the fragile
