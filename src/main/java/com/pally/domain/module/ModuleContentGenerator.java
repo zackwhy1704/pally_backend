@@ -329,6 +329,10 @@ public class ModuleContentGenerator {
                 Prioritize concepts the student scored poorly on; if they did well,
                 still generate reinforcement questions on the key concepts.
 
+                The questions and key points must NEVER name, quote, or allude to the
+                reader's grade, age, or schooling level (no "primary school", "P5", "as a
+                young student"). Write to the reader as "you".
+
                 Output ONLY the JSON array — no prose, no preamble, no markdown fences.
                 Start your reply with [ and end with ]. Shape:
                 [{"question":"...","targetConcept":"...","expectedKeyPoints":["..."],"difficulty":"easy/medium/hard"}]
@@ -503,6 +507,11 @@ public class ModuleContentGenerator {
                 Split this educational content into %d bite-size concept cards for %s studying %s.
                 Each card covers ONE concept, under 60 words, with key terms in bold.%s
 
+                The audience level shapes vocabulary, difficulty, and examples ONLY:
+                NEVER name, quote, or allude to the reader's grade, age, or schooling
+                level anywhere in the output (no "primary school", "P5", "as a young
+                student"). Address the reader as "you".
+
                 Content:
                 %s
 
@@ -554,6 +563,11 @@ public class ModuleContentGenerator {
         String prompt = """
                 Generate %d true/false statements about this content for %s.
                 At least one must be a common misconception (false).%s
+
+                The audience level shapes vocabulary, difficulty, and examples ONLY:
+                NEVER name, quote, or allude to the reader's grade, age, or schooling
+                level anywhere in the output (no "primary school", "P5", "as a young
+                student"). Address the reader as "you".
 
                 The "explanation" is shown to the learner AFTER they answer. Write it as
                 direct feedback addressed to them (second person, "you..."): explain why
@@ -611,6 +625,11 @@ public class ModuleContentGenerator {
         String prompt = """
                 Write ONE plausible but WRONG worked solution for a problem from this content.
                 Introduce a common misconception %s would make. The learner must find the error.%s
+
+                The audience level shapes vocabulary, difficulty, and examples ONLY:
+                NEVER name, quote, or allude to the reader's grade, age, or schooling
+                level anywhere in the output (no "primary school", "P5", "as a young
+                student"). Address the reader as "you".
 
                 "problem" and "wrongSolution" must contain ONLY what the learner would
                 actually see and write — a real problem statement and a plausible worked
@@ -673,6 +692,11 @@ public class ModuleContentGenerator {
         String prompt = """
                 Generate %d application questions that test whether %s can USE these concepts.
                 Include word problems where possible.%s
+
+                The audience level shapes vocabulary, difficulty, and examples ONLY:
+                NEVER name, quote, or allude to the reader's grade, age, or schooling
+                level anywhere in the output (no "primary school", "P5", "as a young
+                student"). Address the reader as "you".
 
                 The "explanation" is shown to the learner AFTER they answer. Write it as
                 direct feedback addressed to them (second person, "you..."): walk through

@@ -323,7 +323,7 @@ class ModuleContentGeneratorTest {
         List<String> prompts = capturePrompts(avatar);
 
         assertThat(prompts).isNotEmpty();
-        assertThat(prompts).noneMatch(p -> p.contains("primary school"));
+        assertThat(prompts).noneMatch(p -> p.contains("primary school student")); // persona framing; "primary school" alone now appears only in the FIX E leak-guard examples
         // Every generator frames to the neutral "a student".
         assertThat(promptContaining(prompts, "bite-size concept cards"))
                 .contains("for a student studying");
@@ -343,7 +343,7 @@ class ModuleContentGeneratorTest {
         List<String> prompts = capturePrompts(avatar);
 
         assertThat(promptContaining(prompts, "true/false statements")).contains("for a P5 student.");
-        assertThat(prompts).noneMatch(p -> p.contains("primary school"));
+        assertThat(prompts).noneMatch(p -> p.contains("primary school student")); // persona framing; "primary school" alone now appears only in the FIX E leak-guard examples
     }
 
     @Test
@@ -377,5 +377,40 @@ class ModuleContentGeneratorTest {
         assertThat(spot)
                 .contains("\"problem\" and \"wrongSolution\" must contain ONLY")
                 .contains("NOT name or hint at the error");
+    }
+
+    /** FIX E: the persona sets vocabulary/difficulty ONLY — the generated text must never
+     * leak the reader's grade/age/schooling level. Guard present in every gen prompt. */
+    private static final String LEAK_GUARD =
+            "NEVER name, quote, or allude to the reader's grade, age, or schooling level";
+
+    @Test
+    void everyGenPrompt_carriesPersonaLeakGuard() {
+        Avatar avatar = Avatar.create("user1", "Sales", Subject.GENERAL, CharacterType.MOCHI);
+        List<String> prompts = capturePrompts(avatar);
+        for (String anchor : List.of("bite-size concept cards", "true/false statements",
+                "WRONG worked solution", "application questions")) {
+            assertThat(promptContaining(prompts, anchor).replaceAll("\\s+", " "))
+                    .as("persona-leak guard in the %s prompt", anchor)
+                    .contains(LEAK_GUARD);
+        }
+    }
+
+    @Test
+    void provePrompt_carriesPersonaLeakGuard() {
+        LearningModule m = proveModule("mod-e");
+        WikiPage page = WikiPage.create("av-1", "dividing-fractions", "Dividing Fractions",
+                "keep change flip");
+        when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
+        lenient().when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen"), anyString()))
+                .thenReturn("[]");
+
+        generator.generateProveQuestions(m, page, List.of(), "FREE");
+
+        ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+        verify(geminiCompletion, atLeastOnce())
+                .complete(anyInt(), cap.capture(), eq("module-prove-gen"), anyString());
+        assertThat(cap.getValue().replaceAll("\\s+", " ")).contains(LEAK_GUARD);
     }
 }
