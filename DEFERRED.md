@@ -295,6 +295,9 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   prompt to trace because there is no endpoint. (404 itself is source-inferred, not runtime-run.)
 - **Severity:** HIGH — a shipped, reachable teacher button that never works. Not a data/security
   issue; a broken capability with a visible affordance.
+- **UI hidden (2026-07-15):** the memoly button is gated off behind `NARRATION_ENABLED`
+  (`NEXT_PUBLIC_NARRATION_ENABLED`, default off) at memoly `9af92df` — no longer 404s in the
+  teacher dashboard. UNHIDE (flip the flag) when the backend endpoint ships.
 - **Closes it (build the endpoint):** implement `POST .../narration/generate` (+ the GET status).
   When built it MUST follow the FIX C–F conventions from the module generators — inject the
   brain (`truncate(page.getContent(), 3000)` + only-from-material grounding, FIX F), neutral
