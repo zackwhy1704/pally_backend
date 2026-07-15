@@ -585,6 +585,24 @@ public class ModuleProgressionService {
                     m.put("revealJson", reveal);
                 }
             }
+            // PROVE targeting metadata (SAFE — NOT the reference answer): the concept this
+            // question targets and the student's PRIOR TEST score on it, so the client can
+            // show a pre-answer badge ("Focusing on {concept} — this tripped you up"). The
+            // reference/expectedKeyPoints answer is NEVER served here (rides the submit).
+            if (ModuleStage.PROVE.name().equals(item.getStage())) {
+                try {
+                    var node = objectMapper.readTree(item.getAnswerJson());
+                    String tc = node.path("targetConcept").asText(null);
+                    if (tc != null && !tc.isBlank()) {
+                        m.put("targetConcept", tc);
+                    }
+                    if (node.hasNonNull("priorScore")) {
+                        m.put("priorScore", node.get("priorScore").asDouble());
+                    }
+                } catch (Exception ignored) {
+                    // legacy pre-tag PROVE item — no targeting metadata
+                }
+            }
             return m;
         }).toList());
 
