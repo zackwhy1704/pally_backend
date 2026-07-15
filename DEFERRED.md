@@ -122,7 +122,23 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 ## Retention & UX polish (post-launch)
 
-### Streak card doesn't communicate its stakes — copy pass
+### Weak-concept re-teach nudge — BLOCKED on two missing preconditions (needs a product decision)
+- **What:** a Home nudge ("Struggling with {concept}? Let's review it together") when the user's
+  weakness profile is non-empty, tapping into the tutor chat pre-seeded to review that concept.
+- **BLOCKED (verified 2026-07-15):** two preconditions the "minimal" version assumed don't exist:
+  1. **No per-day nudge dedup / persistence.** `HomeService.getNudges` (`:39`) recomputes nudges
+     statelessly each call (streak/flashcard/quiz/content) — there is NO cooldown/lastShown store to
+     mirror. "At most one per day per avatar" needs new persistence (forbidden: no new tables) or a
+     new in-memory dedup subsystem (a design choice beyond spec).
+  2. **No chat seed/deep-link.** `ChatRoute`/`ChatScreen` take only `avatarId` (`router.dart:234`,
+     `chat_screen.dart:33`); there is no mechanism to open the tutor chat pre-seeded with a first
+     message. Inventing one is out of scope.
+- **Questions to unblock:** (a) is per-day dedup a hard requirement, or is "show whenever weak"
+  (mirroring the other stateless nudges) acceptable? If hard, approve a persistence approach
+  (a `user`/`avatar` column = a migration = gated). (b) approve building a chat-seed mechanism
+  (a `?seed=` query param on ChatRoute + auto-send on open), or defer the whole nudge.
+- **Closes it:** answers to (a)+(b), then build backend nudge (mirroring the chosen dedup) + client
+  card + the seed mechanism.
 - **What:** the streak economy is fully built (StreakService owns day-roll / freeze consumption /
   milestone grants / earned-freeze top-ups; freezes are a purchasable atomic star spend; L20+ cap
   scaling; EXTRA_FREEZE premium hook; MilestoneNotifier; client celebrates milestones + shows a
