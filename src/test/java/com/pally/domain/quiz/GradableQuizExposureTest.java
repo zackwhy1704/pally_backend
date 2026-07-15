@@ -35,9 +35,11 @@ class GradableQuizExposureTest {
             "id",             // opaque question id
             "question",       // the prompt the student must read to answer
             "options",        // the choices they pick from
-            "sourcePageSlug"  // topic pointer, NOT the answer — the question text
+            "sourcePageSlug", // topic pointer, NOT the answer — the question text
                               // usually names the topic anyway; reveals the
                               // subject, never which option is correct
+            "pageTitle",      // provenance: source page title — a topic label, not the answer
+            "selectionReason" // "WEAK_TOPIC:{concept}" — WHY it was chosen, not the answer
     );
 
     /// Fields that reveal/justify the answer — withheld pre-submit, revealed in
@@ -70,7 +72,8 @@ class GradableQuizExposureTest {
     @Test
     void withheldFields_areNull_forATeacherGradedQuiz() {
         QuizQuestion q = new QuizQuestion(
-                "id-1", "av", "2+2?", List.of("3", "4", "5"), 1, "slug", "4 is 2+2");
+                "id-1", "av", "2+2?", List.of("3", "4", "5"), 1, "slug", "4 is 2+2",
+                "Addition", "WEAK_TOPIC:Addition");
         // exposeKey == false → teacher-graded path.
         QuizQuestionResponse served = QuizQuestionResponse.from(q, false);
 
@@ -80,5 +83,8 @@ class GradableQuizExposureTest {
         assertThat(served.question()).isEqualTo("2+2?");
         assertThat(served.options()).isNotEmpty();
         assertThat(served.sourcePageSlug()).isEqualTo("slug");
+        // SAFE provenance fields are always shipped, even to a teacher-graded quiz.
+        assertThat(served.pageTitle()).isEqualTo("Addition");
+        assertThat(served.selectionReason()).isEqualTo("WEAK_TOPIC:Addition");
     }
 }

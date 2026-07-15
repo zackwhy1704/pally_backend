@@ -146,7 +146,7 @@ class QuizServiceTest {
 
     private com.pally.domain.quiz.QuizQuestion q() {
         return new com.pally.domain.quiz.QuizQuestion(
-                "q1", AVATAR, "2+2?", List.of("3", "4", "5"), 1, "slug", "four");
+                "q1", AVATAR, "2+2?", List.of("3", "4", "5"), 1, "slug", "four", null, null);
     }
 
     @Test
