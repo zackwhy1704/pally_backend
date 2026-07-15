@@ -265,6 +265,42 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 - **Closes it:** bump Flyway (Spring BOM override or explicit `flyway-core` /
   `flyway-database-postgresql`) to a version listing PG18; re-run the Testcontainers suite.
 
+## Grounding, provenance & trust surfacing
+
+### B2C verification tags are unconsumed — decide the surface + alert on verifier failures
+- **What:** the groundedness/verification signal is produced but has no B2C consumer surface —
+  it's effectively centre-only today. And the verifier fail-opens (a failure accepts content),
+  which is only safe while failures are VISIBLE to us.
+- **Closes it:** decide the consumer surface (a student-facing trust marker, OR consciously accept
+  "verifier is centre-only") AND add a metric + alert on the verifier's exception/fail-open rate so
+  a silent spike in fail-opens can't degrade grounding unnoticed.
+
+### 3000-char head-truncation at the 3 compile/gen sites — measure before raising
+- **What:** module generation + PROVE grounding (FIX F) + the sibling generators all
+  `truncate(page.getContent(), 3000)` — a HEAD truncation. A long page's tail concepts are never
+  seen by the generator, so questions/cards skew to the page's opening.
+- **Why deferred:** raising the cap costs tokens on every gen; sampling (head+tail, or chunked) is
+  more work. Neither is justified without knowing how many pages actually exceed 3000 chars.
+- **Closes it:** measure the page-length distribution (how many pages > 3000 chars, by how much),
+  then raise the cap or switch to a head+tail / sampled window where it matters.
+
+### Provenance chips — "from {pageTitle}" on module items + quiz cards (sequence AFTER FIX F)
+- **What:** the serve payload doesn't carry the source `pageTitle`/`slug`, so items can't show
+  where they came from. A small tappable provenance chip on each module item + quiz card is
+  high-trust ("this question is from YOUR notes on X") and cheap.
+- **Why AFTER FIX F:** grounding must be real first (FIX F) — a provenance chip on ungrounded
+  content would be a lie. Now that PROVE is grounded, the chip tells the truth.
+- **Closes it:** add `pageTitle`/`slug` to the item serve payload + a tappable chip on the module
+  item and quiz cards.
+
+### Concept-comeback reveal line — "you got X wrong before; here it is again" (post-launch)
+- **What:** when a weak concept comes back, say so — a reveal line that names the returning concept.
+  Quiz first (it already has the data); TEST needs `targetConcept` continuity across stages to do
+  the same, which isn't wired yet.
+- **Accepted risk:** none — purely additive retention polish; design is ready.
+- **Closes it (post-launch slice):** quiz reveal line first; then thread `targetConcept` continuity
+  into TEST to extend it there.
+
 ## Auth hardening (branch merged — these follow-ups remain)
 
 > `feat/auth-hardening-a` is **MERGED to main** (`1740d95`…`1fdad48`, age inversion `76358e0`).

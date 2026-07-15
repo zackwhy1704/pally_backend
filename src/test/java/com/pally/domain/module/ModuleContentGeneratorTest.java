@@ -413,4 +413,28 @@ class ModuleContentGeneratorTest {
                 .complete(anyInt(), cap.capture(), eq("module-prove-gen"), anyString());
         assertThat(cap.getValue().replaceAll("\\s+", " ")).contains(LEAK_GUARD);
     }
+
+    @Test
+    void provePrompt_injectsStudyMaterialAndGroundingInstruction() {
+        // FIX F: PROVE previously built questions from the page TITLE + test scores only —
+        // ungrounded. The prompt must now carry the material + an only-from-material rule.
+        LearningModule m = proveModule("mod-f");
+        WikiPage page = WikiPage.create("av-1", "dividing-fractions", "Dividing Fractions",
+                "To divide fractions: keep, change, flip.");
+        when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
+        lenient().when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen"), anyString()))
+                .thenReturn("[]");
+
+        generator.generateProveQuestions(m, page, List.of(), "FREE");
+
+        ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+        verify(geminiCompletion, atLeastOnce())
+                .complete(anyInt(), cap.capture(), eq("module-prove-gen"), anyString());
+        String prove = cap.getValue().replaceAll("\\s+", " ");
+        assertThat(prove)
+                .contains("Study material:")            // the material section marker
+                .contains("keep, change, flip")         // the actual brain, injected
+                .contains("Base every question and every expectedKeyPoints entry ONLY on the study material");
+    }
 }
