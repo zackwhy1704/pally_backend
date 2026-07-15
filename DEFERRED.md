@@ -267,6 +267,24 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 ## Grounding, provenance & trust surfacing
 
+### Web "Generate narration" hits an UNIMPLEMENTED backend endpoint — HIGH (teacher-facing feature is dead)
+- **What (verified 2026-07-15, investigation-only):** memoly's live `NarrationAction`
+  (`NarrationAction.tsx:29,46` → `api.generateNarration`, `api.ts:1360-1361`) POSTs to
+  `/api/v1/centre/organizations/{orgId}/classes/{classId}/modules/{moduleId}/narration/generate`
+  and polls `.../narration` (`api.ts:1367`). There is **NO narration controller/mapping/service
+  anywhere in `pally-backend`** — a case-insensitive grep for `narration` over `src/main/java`
+  returns zero hits; the centre controllers cover staff/class/marking/assignments/submissions/
+  report/challenges but not narration. So a teacher clicking "Generate narration" gets a 404
+  (unmapped-route). This supersedes the old "trace narration prompt" ledger item: there is no
+  prompt to trace because there is no endpoint. (404 itself is source-inferred, not runtime-run.)
+- **Severity:** HIGH — a shipped, reachable teacher button that never works. Not a data/security
+  issue; a broken capability with a visible affordance.
+- **Closes it (build the endpoint):** implement `POST .../narration/generate` (+ the GET status).
+  When built it MUST follow the FIX C–F conventions from the module generators — inject the
+  brain (`truncate(page.getContent(), 3000)` + only-from-material grounding, FIX F), neutral
+  persona + no grade-leak guard (FIX C/E), student/teacher-facing feedback not rubric (FIX D).
+  Do NOT ship a title-only or ungrounded narration prompt.
+
 ### B2C verification tags are unconsumed — decide the surface + alert on verifier failures
 - **What:** the groundedness/verification signal is produced but has no B2C consumer surface —
   it's effectively centre-only today. And the verifier fail-opens (a failure accepts content),
@@ -422,6 +440,13 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 # CLOSED (kept for archaeology)
 
+- **Provenance chip on TEST cards** — the ProvenanceChip ("From your notes: {title}", tap → wiki)
+  now renders on HotTakeCard/SpotMistakeCard/ChallengeCard (it already shipped on PROVE + quiz).
+  Serve already carried sourcePageTitle on TEST items; client model already parsed it. Silent
+  degrade on old content. Closed pally `c6ff86d` (per-card render + absence tests).
+- **PROVE comeback via self-assess** — the comeback line (shipped on quiz) now also renders on a
+  POSITIVE PROVE self-report (YES) of a concept with served priorScore < 0.5. Render-only; the
+  /self-report submission + mastery are untouched (payload-unchanged pin). Closed pally `ac76149`.
 - **TEST reveal + verdict read null serve-time answerJson** — the reveal rendered blank and
   HOT_TAKE "Correct!/Not quite" degenerated to "tapped Agree" (the client `isTrue ?? true`),
   miseducating since the widget shipped. DISPLAY-only: server grading was always deterministic
