@@ -1,9 +1,12 @@
 package com.pally.domain.home;
 
+import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.quiz.FlashcardRepository;
 import com.pally.domain.user.User;
 import com.pally.domain.user.UserRepository;
+import com.pally.domain.weakness.WeaknessProfileService;
+import com.pally.domain.weakness.WeaknessTopics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +25,7 @@ public class HomeService {
     private final UserRepository userRepository;
     private final AvatarRepository avatarRepository;
     private final FlashcardRepository flashcardRepository;
+    private final WeaknessProfileService weaknessProfileService;
 
     /**
      * Builds the list of nudges to display on the home screen.
@@ -51,8 +55,10 @@ public class HomeService {
             ));
         }
 
+        List<Avatar> avatars = avatarRepository.findByUserId(userId);
+
         // Due flashcards nudge — sum across all user avatars
-        long dueCount = avatarRepository.findByUserId(userId).stream()
+        long dueCount = avatars.stream()
                 .mapToLong(a -> flashcardRepository.findDueByAvatarId(a.getId()).size())
                 .sum();
 
@@ -71,6 +77,29 @@ public class HomeService {
                     "emoji", "🌟",
                     "message", "You're close to level " + (stats.getLevel() + 1) + "! Keep going."
             ));
+        }
+
+        // Weak-concept re-teach nudge — surfaced while the student has a live weakness for one
+        // of their avatars' subjects. STATELESS (matches the sibling nudges; no per-day dedup):
+        // a standing invitation that persists until the weakness clears, not a daily ping. Carries
+        // the top weak concept + avatarId so the client can open the tutor chat pre-filled to
+        // review it. One nudge (first weak avatar) — no flooding.
+        if (weaknessProfileService.isEnabled()) {
+            for (Avatar a : avatars) {
+                if (a.getSubject() == null) continue;
+                List<String> weak = weaknessProfileService.weakSlugsFor(userId, a.getSubject());
+                if (!weak.isEmpty()) {
+                    String concept = WeaknessTopics.label(weak.get(0));
+                    nudges.add(Map.of(
+                            "type", "weak_concept",
+                            "emoji", "🎯",
+                            "message", "Struggling with " + concept + "? Let's review it together",
+                            "concept", concept,
+                            "avatarId", a.getId()
+                    ));
+                    break;
+                }
+            }
         }
 
         // Fallback nudge if nothing else

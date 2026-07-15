@@ -37,6 +37,7 @@ class HomeServiceTest {
     @Mock UserRepository userRepository;
     @Mock AvatarRepository avatarRepository;
     @Mock FlashcardRepository flashcardRepository;
+    @Mock com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
 
     @InjectMocks HomeService service;
 
@@ -127,6 +128,66 @@ class HomeServiceTest {
         List<Map<String, String>> nudges = (List<Map<String, String>>) result.get("nudges");
         assertThat(nudges).hasSize(1);
         assertThat(nudges.get(0).get("type")).isEqualTo("content");
+    }
+
+    // ── weak-concept re-teach nudge (stateless) ───────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, String>> nudgesOf(Map<String, Object> result) {
+        return (List<Map<String, String>>) result.get("nudges");
+    }
+
+    @Test
+    void getNudges_weakSetNonEmpty_addsWeakConceptNudge_withConceptAndAvatarId() {
+        User user = userWith(0, 0, 1);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        Avatar av = Avatar.create(USER_ID, "Bot", Subject.MATHS, CharacterType.MOCHI);
+        when(avatarRepository.findByUserId(USER_ID)).thenReturn(List.of(av));
+        when(weaknessProfileService.isEnabled()).thenReturn(true);
+        when(weaknessProfileService.weakSlugsFor(USER_ID, Subject.MATHS))
+                .thenReturn(List.of("compliment-bridging", "another"));
+
+        Map<String, String> weak = nudgesOf(service.getNudges(USER_ID)).stream()
+                .filter(n -> "weak_concept".equals(n.get("type")))
+                .findFirst().orElseThrow();
+
+        String concept = com.pally.domain.weakness.WeaknessTopics.label("compliment-bridging");
+        assertThat(weak.get("concept")).isEqualTo(concept);            // TOP weak slug → concept
+        assertThat(weak.get("avatarId")).isEqualTo(av.getId());
+        assertThat(weak.get("message"))
+                .isEqualTo("Struggling with " + concept + "? Let's review it together");
+        // Exposure/leak check: the payload is metadata only — exactly these safe keys, no
+        // answer content, no secrets.
+        assertThat(weak.keySet())
+                .containsExactlyInAnyOrder("type", "emoji", "message", "concept", "avatarId");
+    }
+
+    @Test
+    void getNudges_weakSetEmpty_noWeakConceptNudge() {
+        User user = userWith(3, 0, 1); // a streak so it's not just the fallback
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        Avatar av = Avatar.create(USER_ID, "Bot", Subject.MATHS, CharacterType.MOCHI);
+        when(avatarRepository.findByUserId(USER_ID)).thenReturn(List.of(av));
+        when(weaknessProfileService.isEnabled()).thenReturn(true);
+        when(weaknessProfileService.weakSlugsFor(USER_ID, Subject.MATHS)).thenReturn(List.of());
+
+        assertThat(nudgesOf(service.getNudges(USER_ID)))
+                .noneMatch(n -> "weak_concept".equals(n.get("type")));
+    }
+
+    @Test
+    void getNudges_weaknessDisabled_neverAddsWeakConceptNudge_norReadsTheProfile() {
+        User user = userWith(3, 0, 1);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        Avatar av = Avatar.create(USER_ID, "Bot", Subject.MATHS, CharacterType.MOCHI);
+        when(avatarRepository.findByUserId(USER_ID)).thenReturn(List.of(av));
+        when(weaknessProfileService.isEnabled()).thenReturn(false);
+
+        assertThat(nudgesOf(service.getNudges(USER_ID)))
+                .noneMatch(n -> "weak_concept".equals(n.get("type")));
+        // flag off → the weak profile is never consulted.
+        verify(weaknessProfileService, org.mockito.Mockito.never())
+                .weakSlugsFor(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
