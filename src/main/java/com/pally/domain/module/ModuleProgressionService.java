@@ -209,7 +209,8 @@ public class ModuleProgressionService {
                 itemRepository.findServableByModuleIdAndStageOrderBySortOrder(
                         moduleId, currentStage.name());
 
-        return buildStageResponse(moduleId, currentStage, stageItems, false);
+        return buildStageResponse(moduleId, currentStage, stageItems, false,
+                module.getTitle(), module.getWikiPageSlug());
     }
 
     /**
@@ -334,6 +335,16 @@ public class ModuleProgressionService {
                 }
                 progress.setScore(score);
                 progress.setSignalType(signal);
+                // Provenance: copy the item's targetConcept onto the progress row (mirror
+                // the PROVE extraction above), so adaptive PROVE gen's testSummary reads
+                // real concept names ("Compliment bridging: 0.00"), never "unknown: 0.00".
+                try {
+                    var answerNode = objectMapper.readTree(item.getAnswerJson());
+                    progress.setTargetConcept(com.pally.shared.util.TextClamp.toCodePoints(
+                            answerNode.path("targetConcept").asText(null), 255));
+                } catch (Exception ignored) {
+                    // non-critical — legacy pre-tag item leaves targetConcept null
+                }
                 itemResult.put("answerJson", item.getAnswerJson());
                 itemResult.put("graded", signal == GradingSignal.DETERMINISTIC);
                 if (signal == GradingSignal.DETERMINISTIC) {
@@ -511,7 +522,8 @@ public class ModuleProgressionService {
                 itemRepository.findServableByModuleIdAndStageOrderBySortOrder(
                         module.getId(), ModuleStage.PROVE.name());
 
-        return buildStageResponse(module.getId(), ModuleStage.PROVE, proveItems, true);
+        return buildStageResponse(module.getId(), ModuleStage.PROVE, proveItems, true,
+                module.getTitle(), module.getWikiPageSlug());
     }
 
     /**
@@ -532,7 +544,8 @@ public class ModuleProgressionService {
      */
     private Map<String, Object> buildStageResponse(
             String moduleId, ModuleStage stage,
-            List<ModuleContentItem> servableItems, boolean revision) {
+            List<ModuleContentItem> servableItems, boolean revision,
+            String sourcePageTitle, String sourcePageSlug) {
         Map<String, Object> result = new HashMap<>();
         result.put("moduleId", moduleId);
         result.put("stage", stage.name());
@@ -549,6 +562,11 @@ public class ModuleProgressionService {
             m.put("type", item.getType());
             m.put("contentJson", item.getContentJson());
             m.put("sortOrder", item.getSortOrder());
+            // Provenance metadata (NOT answer content): the source page every item in this
+            // module came from, so the client can show a "From your notes: {title}" chip
+            // that taps through to the wiki page. Same for every item (one module = one page).
+            m.put("sourcePageTitle", sourcePageTitle);
+            m.put("sourcePageSlug", sourcePageSlug);
             // Include answer_json only for LEARN items (they're not secret).
             if (ModuleStage.LEARN.name().equals(item.getStage())) {
                 m.put("answerJson", item.getAnswerJson());

@@ -437,4 +437,74 @@ class ModuleContentGeneratorTest {
                 .contains("keep, change, flip")         // the actual brain, injected
                 .contains("Base every question and every expectedKeyPoints entry ONLY on the study material");
     }
+
+    // ── Adaptive provenance: concept tagging + PROVE priorScore + testSummary ────
+
+    @Test
+    void everyTestPrompt_requestsTargetConcept() {
+        Avatar avatar = Avatar.create("user1", "Sales", Subject.GENERAL, CharacterType.MOCHI);
+        List<String> prompts = capturePrompts(avatar);
+        for (String anchor : List.of("true/false statements", "WRONG worked solution",
+                "application questions")) {
+            assertThat(promptContaining(prompts, anchor).replaceAll("\\s+", " "))
+                    .as("targetConcept schema in the %s prompt", anchor)
+                    .contains("targetConcept").contains("drawn ONLY from the")
+                    .contains("\"targetConcept\":\"...\"");
+        }
+    }
+
+    @Test
+    void hotTakes_persistTargetConcept_inAnswerJson() {
+        when(geminiCompletion.complete(anyInt(), contains("true/false"), any(), anyString()))
+                .thenReturn("[{\"statement\":\"S\",\"isTrue\":true,\"explanation\":\"E\","
+                        + "\"targetConcept\":\"Compliment bridging\"}]");
+        List<ModuleContentItem> items = generator.generateHotTakes(
+                "m", "content", "a student", "Sales", "FREE", "", "av");
+        assertThat(items.get(0).getAnswerJson()).contains("\"targetConcept\":\"Compliment bridging\"");
+    }
+
+    @Test
+    void proveItems_stampPriorScoreForWeakConcept_nullForReinforcement() {
+        LearningModule m = proveModule("mod-ps");
+        WikiPage page = WikiPage.create("av-1", "sales", "Sales", "compliment bridging content");
+        when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
+        when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        // TEST result: the student scored 0 on "Compliment bridging" (case/space differs slightly).
+        ModuleProgress weak = new ModuleProgress();
+        weak.setTargetConcept("compliment bridging");
+        weak.setScore(BigDecimal.ZERO);
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen"), anyString()))
+                .thenReturn("[{\"question\":\"Q1\",\"targetConcept\":\"Compliment bridging\",\"expectedKeyPoints\":[\"k\"]},"
+                        + "{\"question\":\"Q2\",\"targetConcept\":\"Unrelated topic\",\"expectedKeyPoints\":[\"k\"]}]");
+
+        List<ModuleContentItem> items = generator.generateProveQuestions(m, page, List.of(weak), "FREE");
+
+        assertThat(items).hasSize(2);
+        // Weakness-driven → priorScore = the TEST score (normalised match).
+        assertThat(items.get(0).getAnswerJson()).contains("\"priorScore\":0");
+        // Reinforcement (concept not in the TEST set) → priorScore null.
+        assertThat(items.get(1).getAnswerJson()).contains("\"priorScore\":null");
+    }
+
+    @Test
+    void provePrompt_testSummaryUsesRealConceptNames_notUnknown() {
+        // FIX-adjacent regression: with a targetConcept on the TEST result, the PROVE
+        // prompt's test summary reads "Compliment bridging: 0.00", never "unknown: 0.00".
+        LearningModule m = proveModule("mod-ts");
+        WikiPage page = WikiPage.create("av-1", "sales", "Sales", "content");
+        when(itemRepository.countByModuleIdAndStage(anyString(), anyString())).thenReturn(0);
+        lenient().when(itemRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-gen"), anyString()))
+                .thenReturn("[]");
+        ModuleProgress weak = new ModuleProgress();
+        weak.setTargetConcept("Compliment bridging");
+        weak.setScore(BigDecimal.ZERO);
+
+        generator.generateProveQuestions(m, page, List.of(weak), "FREE");
+
+        ArgumentCaptor<String> cap = ArgumentCaptor.forClass(String.class);
+        verify(geminiCompletion, atLeastOnce())
+                .complete(anyInt(), cap.capture(), eq("module-prove-gen"), anyString());
+        assertThat(cap.getValue()).contains("Compliment bridging:").doesNotContain("unknown:");
+    }
 }

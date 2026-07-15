@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -352,6 +353,16 @@ public class ModuleContentGenerator {
             // which stalled module completion.
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt, "module-prove-gen", page.getAvatarId());
 
+            // Each tested concept → the student's TEST score, for PROVE selection
+            // provenance (priorScore). Normalised (trim/lowercase) so slight label drift
+            // between the TEST and PROVE generations still matches.
+            Map<String, BigDecimal> conceptScores = new HashMap<>();
+            for (ModuleProgress r : testResults) {
+                if (r.getTargetConcept() != null && r.getScore() != null) {
+                    conceptScores.putIfAbsent(r.getTargetConcept().trim().toLowerCase(), r.getScore());
+                }
+            }
+
             List<ModuleContentItem> items = new ArrayList<>();
             for (Map<String, Object> q : parsed) {
                 ModuleContentItem item = new ModuleContentItem();
@@ -365,9 +376,15 @@ public class ModuleContentGenerator {
                 @SuppressWarnings("unchecked")
                 List<String> keyPoints = (List<String>) q.getOrDefault("expectedKeyPoints", List.of());
                 String target = (String) q.getOrDefault("targetConcept", "");
-                item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
-                        "expectedKeyPoints", keyPoints,
-                        "targetConcept", target)));
+                Map<String, Object> answer = new HashMap<>();
+                answer.put("expectedKeyPoints", keyPoints);
+                answer.put("targetConcept", target);
+                // Selection provenance: the student's TEST score on this concept — null
+                // when this is a reinforcement question (the concept wasn't in the TEST
+                // set, i.e. not weakness-driven). Drives the client's targeting/comeback UI.
+                answer.put("priorScore",
+                        target.isBlank() ? null : conceptScores.get(target.trim().toLowerCase()));
+                item.setAnswerJson(objectMapper.writeValueAsString(answer));
 
                 item.setTierRequired(tier);
                 item.setCreatedAt(Instant.now());
@@ -582,11 +599,15 @@ public class ModuleContentGenerator {
                 the statement is true or false and walk through the reasoning. Do NOT
                 describe what the question tests or mention "the student".
 
+                "targetConcept" is the ONE specific concept from the material this tests —
+                a short label (2-4 words, e.g. "compliment bridging"), drawn ONLY from the
+                material.
+
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
-                [{"statement":"...","isTrue":true,"explanation":"..."}]
+                [{"statement":"...","isTrue":true,"explanation":"...","targetConcept":"..."}]
                 """.formatted(n, level, guidanceSection, content);
 
         try {
@@ -607,7 +628,8 @@ public class ModuleContentGenerator {
                         Map.of("statement", parsed.get(i).getOrDefault("statement", ""))));
                 item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
                         "isTrue", parsed.get(i).getOrDefault("isTrue", true),
-                        "explanation", parsed.get(i).getOrDefault("explanation", ""))));
+                        "explanation", parsed.get(i).getOrDefault("explanation", ""),
+                        "targetConcept", parsed.get(i).getOrDefault("targetConcept", ""))));
                 item.setSortOrder(offset + i);
                 item.setTierRequired("FREE");
                 item.setCreatedAt(Instant.now());
@@ -651,11 +673,15 @@ public class ModuleContentGenerator {
                 person, "you..."): name the mistake and walk through the correct approach.
                 Do NOT describe what the exercise tests or mention "the student".
 
+                "targetConcept" is the ONE specific concept from the material this tests —
+                a short label (2-4 words, e.g. "compliment bridging"), drawn ONLY from the
+                material.
+
                 Content:
                 %s
 
                 Reply ONLY with JSON:
-                {"problem":"...","wrongSolution":"...","errorDescription":"...","correctSolution":"..."}
+                {"problem":"...","wrongSolution":"...","errorDescription":"...","correctSolution":"...","targetConcept":"..."}
                 """.formatted(level, guidanceSection, content);
 
         try {
@@ -678,7 +704,8 @@ public class ModuleContentGenerator {
                     "wrongSolution", parsed.getOrDefault("wrongSolution", ""))));
             item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
                     "errorDescription", parsed.getOrDefault("errorDescription", ""),
-                    "correctSolution", parsed.getOrDefault("correctSolution", ""))));
+                    "correctSolution", parsed.getOrDefault("correctSolution", ""),
+                    "targetConcept", parsed.getOrDefault("targetConcept", ""))));
             item.setSortOrder(200); // spot-mistake at sort_order 200
             item.setTierRequired("FREE");
             item.setCreatedAt(Instant.now());
@@ -711,11 +738,15 @@ public class ModuleContentGenerator {
                 the ideal answer and the reasoning. Do NOT describe what the question
                 assesses or mention "the student".
 
+                "targetConcept" is the ONE specific concept from the material this tests —
+                a short label (2-4 words, e.g. "compliment bridging"), drawn ONLY from the
+                material.
+
                 Content:
                 %s
 
                 Reply ONLY with a JSON array:
-                [{"question":"...","answer":"...","explanation":"...","difficulty":"easy"}]
+                [{"question":"...","answer":"...","explanation":"...","difficulty":"easy","targetConcept":"..."}]
                 """.formatted(n, level, guidanceSection, content);
 
         try {
@@ -737,7 +768,8 @@ public class ModuleContentGenerator {
                                 "difficulty", parsed.get(i).getOrDefault("difficulty", "easy"))));
                 item.setAnswerJson(objectMapper.writeValueAsString(Map.of(
                         "answer", parsed.get(i).getOrDefault("answer", ""),
-                        "explanation", parsed.get(i).getOrDefault("explanation", ""))));
+                        "explanation", parsed.get(i).getOrDefault("explanation", ""),
+                        "targetConcept", parsed.get(i).getOrDefault("targetConcept", ""))));
                 item.setSortOrder(offset + i);
                 item.setTierRequired("FREE");
                 item.setCreatedAt(Instant.now());
