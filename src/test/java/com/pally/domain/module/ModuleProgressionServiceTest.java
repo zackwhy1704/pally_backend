@@ -1030,6 +1030,35 @@ class ModuleProgressionServiceTest {
                 .doesNotContain("answerJson");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void serve_proveItem_carriesTargetingMetadata_withoutLeakingTheReference() throws Exception {
+        // PROVE targeting badge needs targetConcept + priorScore PRE-answer; the reference
+        // answer (expectedKeyPoints) must NEVER ride the serve.
+        LearningModule module = buildModule("mod-pv", "PROVE");
+        when(moduleRepository.findById("mod-pv")).thenReturn(Optional.of(module));
+        when(itemRepository.countByModuleIdAndStage("mod-pv", "PROVE")).thenReturn(1);
+        ModuleContentItem it = new ModuleContentItem();
+        it.setId("pv1");
+        it.setStage("PROVE");
+        it.setType("PROVE_QUESTION");
+        it.setContentJson("{\"question\":\"Explain\"}");
+        it.setAnswerJson("{\"expectedKeyPoints\":[\"secret ref\"],"
+                + "\"targetConcept\":\"Compliment bridging\",\"priorScore\":0.0}");
+        it.setSortOrder(0);
+        when(itemRepository.findServableByModuleIdAndStageOrderBySortOrder("mod-pv", "PROVE"))
+                .thenReturn(List.of(it));
+
+        Map<String, Object> result = service.startModule("mod-pv", "user-1");
+        Map<String, Object> m = ((List<Map<String, Object>>) result.get("items")).get(0);
+
+        assertThat(m).containsEntry("targetConcept", "Compliment bridging")
+                .containsEntry("priorScore", 0.0);
+        assertThat(objectMapper.writeValueAsString(m))
+                .as("the PROVE reference answer must never leak at serve")
+                .doesNotContain("expectedKeyPoints").doesNotContain("secret ref");
+    }
+
     private LearningModule buildModule(String id, String stage) {
         LearningModule m = new LearningModule();
         m.setId(id);
