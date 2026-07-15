@@ -32,6 +32,11 @@ public record QuizQuestionResponse(
         String question,
         List<String> options,
         String sourcePageSlug,
+        // Provenance metadata (SAFE — never reveals the correct option): the source page
+        // title (for a "from your notes" chip) and why this question was chosen
+        // ("WEAK_TOPIC:{concept}" when weak-first selected it, else null).
+        String pageTitle,
+        String selectionReason,
         Integer correctIndex,
         String explanation
 ) {
@@ -44,6 +49,7 @@ public record QuizQuestionResponse(
     public static QuizQuestionResponse from(QuizQuestion q, boolean exposeKey) {
         return new QuizQuestionResponse(
                 q.id(), q.question(), q.options(), q.sourcePageSlug(),
+                q.sourcePageTitle(), q.selectionReason(),   // SAFE provenance — always sent
                 exposeKey ? q.correctIndex() : null,
                 exposeKey ? q.explanation() : null);
     }

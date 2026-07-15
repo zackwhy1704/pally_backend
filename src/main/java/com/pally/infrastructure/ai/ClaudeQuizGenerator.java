@@ -110,17 +110,20 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
             for (Map<String, Object> q : parsed) {
                 @SuppressWarnings("unchecked")
                 List<String> opts = (List<String>) q.get("options");
+                // Map the model's echoed sourcePage back to a REAL wiki slug (it often
+                // returns the title) so the weakness/mastery signal keys on
+                // WikiPage.getSlug(), not a title.
+                String slug = resolveSlug(pages, (String) q.getOrDefault("sourcePage", ""));
                 questions.add(new QuizQuestion(
                         IdGenerator.newId(),
                         avatarId,
                         (String) q.get("question"),
                         opts,
                         ((Number) q.get("correctIndex")).intValue(),
-                        // Map the model's echoed sourcePage back to a REAL wiki slug
-                        // (it often returns the title) so the weakness/mastery signal
-                        // keys on WikiPage.getSlug(), not a title.
-                        resolveSlug(pages, (String) q.getOrDefault("sourcePage", "")),
-                        (String) q.getOrDefault("explanation", "")
+                        slug,
+                        (String) q.getOrDefault("explanation", ""),
+                        titleForSlug(pages, slug), // provenance: the source page title
+                        null                       // selectionReason — set by the use case
                 ));
             }
 
@@ -215,6 +218,15 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
      * normalised slug/title; falls back to the sole page's slug (single-page quiz)
      * or the raw value.
      */
+    /** The title of the page with this (already-resolved) slug, or null. */
+    private static String titleForSlug(List<WikiPage> pages, String slug) {
+        if (slug == null) return null;
+        for (WikiPage p : pages) {
+            if (slug.equals(p.getSlug())) return p.getTitle();
+        }
+        return null;
+    }
+
     static String resolveSlug(List<WikiPage> pages, String raw) {
         if (pages == null || pages.isEmpty()) return raw == null ? "" : raw;
         String norm = normalizeKey(raw);

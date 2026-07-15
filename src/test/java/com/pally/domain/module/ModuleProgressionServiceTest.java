@@ -1001,6 +1001,35 @@ class ModuleProgressionServiceTest {
         assertThat(items.get(0)).containsKey("answerJson").doesNotContainKey("revealJson");
     }
 
+    // ── Adaptive provenance: TEST targetConcept copy-through + serve provenance ──
+
+    @Test
+    void submitTest_copiesItemTargetConcept_ontoProgressRow() {
+        // The item carries targetConcept in answerJson; grading must mirror the PROVE
+        // extraction so PROVE's testSummary later reads real concept names.
+        stubHotTakeSubmit(hotTake("{\"isTrue\":true,\"targetConcept\":\"Closing the sale\"}"));
+        ModuleProgress saved = submitHotTake("AGREE");
+        assertThat(saved.getTargetConcept()).isEqualTo("Closing the sale");
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.DETERMINISTIC);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void serve_attachesSourcePageProvenance_withNoAnswerLeak() throws Exception {
+        // Provenance metadata (from the module's page) rides every served item; NO answer
+        // content (targetConcept / isTrue / answerJson) may ride along.
+        Map<String, Object> m = serveOneTestItem(testItem("h1", "HOT_TAKE",
+                "{\"statement\":\"s\"}", "{\"isTrue\":true,\"targetConcept\":\"Closing\"}"));
+        assertThat(m).containsEntry("sourcePageTitle", "Title")   // buildModule title
+                .containsEntry("sourcePageSlug", "slug");
+        String json = objectMapper.writeValueAsString(m);
+        assertThat(json)
+                .as("provenance is metadata only — no answer content in the served item")
+                .doesNotContain("isTrue")
+                .doesNotContain("targetConcept")
+                .doesNotContain("answerJson");
+    }
+
     private LearningModule buildModule(String id, String stage) {
         LearningModule m = new LearningModule();
         m.setId(id);

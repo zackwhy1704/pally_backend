@@ -208,6 +208,18 @@ public class GetDailyQuizUseCase {
         List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised);
         log.info("[Pipeline:Quiz] Generated {} questions for avatarId={}", questions.size(), avatarId);
 
+        // Weak-first provenance: a question drawn from one of the student's weak pages is
+        // tagged "WEAK_TOPIC:{concept}" so the client can badge "Reviewing your weak spot".
+        // (Metadata only — never reveals the answer. The daily cache stores the tag with it.)
+        if (!weakSlugs.isEmpty()) {
+            questions = questions.stream()
+                    .map(q -> weakSlugs.contains(q.sourcePageSlug())
+                            ? q.withSelectionReason("WEAK_TOPIC:"
+                                + (q.sourcePageTitle() != null ? q.sourcePageTitle() : q.sourcePageSlug()))
+                            : q)
+                    .toList();
+        }
+
         // NOTE: the SERVER answer key is persisted at the SERVING chokepoint
         // (QuizService.serveGradable), not here, so every served quiz — cache
         // hit or miss — is guaranteed to have a key. See that method's doc.

@@ -122,7 +122,7 @@ class WeaknessLoopSmokeTest extends IntegrationTestBase {
             List<WikiPage> pages = inv.getArgument(1);
             return pages.stream().map(p -> new QuizQuestion(
                     IdGenerator.newId(), avId, "Q: " + p.getSlug(),
-                    List.of("a", "b", "c", "d"), 0, p.getSlug(), "because")).toList();
+                    List.of("a", "b", "c", "d"), 0, p.getSlug(), "because", null, null)).toList();
         });
         lenient().when(topicRouter.route(any(), any(), any())).thenReturn(List.of());
         // onMasteryUpdated → rebuildFor → compileWithTier: keep it a clean no-op so

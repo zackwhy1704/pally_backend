@@ -69,7 +69,7 @@ class GetDailyQuizUseCaseTest {
 
         List<QuizQuestion> generated = List.of(new QuizQuestion(
                 "q1", AVATAR_ID, "What is 1/2 of 4?",
-                List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2."));
+                List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2.", null, null));
         when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(generated);
 
         List<QuizQuestion> first = useCase.execute(AVATAR_ID, USER_ID);
@@ -92,7 +92,7 @@ class GetDailyQuizUseCaseTest {
         when(wikiRepository.findByAvatarId(AVATAR_ID)).thenReturn(List.of(page));
         List<QuizQuestion> generated = List.of(new QuizQuestion(
                 "q1", AVATAR_ID, "What is 1/2 of 4?",
-                List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2."));
+                List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2.", null, null));
 
         CountDownLatch generatorEntered = new CountDownLatch(1);
         CountDownLatch releaseGenerator = new CountDownLatch(1);
@@ -144,7 +144,7 @@ class GetDailyQuizUseCaseTest {
                 "A fraction shows part of a whole.");
         when(wikiRepository.findByAvatarId(corpus)).thenReturn(List.of(page));
         List<QuizQuestion> generated = List.of(new QuizQuestion(
-                "q1", AVATAR_ID, "1/2 of 4?", List.of("1", "2"), 1, "fractions", "two"));
+                "q1", AVATAR_ID, "1/2 of 4?", List.of("1", "2"), 1, "fractions", "two", null, null));
         when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(generated);
 
         List<QuizQuestion> result = useCase.execute(AVATAR_ID, USER_ID);
@@ -250,6 +250,28 @@ class GetDailyQuizUseCaseTest {
         assertThat(capturePool(AVATAR_ID).stream().map(WikiPage::getSlug).toList())
                 .as("a weak slug matching no page must not reorder the pool")
                 .containsExactly("low", "mid", "high");
+    }
+
+    @Test
+    void execute_tagsWeakSlugQuestionsWithSelectionReason_othersNull() {
+        // Provenance: a question from a weak page is tagged "WEAK_TOPIC:{title}"; one from
+        // a non-weak page stays null. Drives the client's "reviewing your weak spot" badge.
+        when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(personal(AVATAR_ID, USER_ID)));
+        when(wikiRepository.findByAvatarId(AVATAR_ID))
+                .thenReturn(List.of(page(AVATAR_ID, "alpha"), page(AVATAR_ID, "beta")));
+        when(weaknessProfileService.weakSlugsFor(USER_ID, Subject.MATHS)).thenReturn(List.of("alpha"));
+        QuizQuestion weakQ = new QuizQuestion(
+                "qa", AVATAR_ID, "Qa", List.of("1", "2"), 0, "alpha", "e", "Alpha", null);
+        QuizQuestion okQ = new QuizQuestion(
+                "qb", AVATAR_ID, "Qb", List.of("1", "2"), 0, "beta", "e", "Beta", null);
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(List.of(weakQ, okQ));
+
+        List<QuizQuestion> result = useCase.execute(AVATAR_ID, USER_ID);
+
+        QuizQuestion a = result.stream().filter(q -> "alpha".equals(q.sourcePageSlug())).findFirst().orElseThrow();
+        QuizQuestion b = result.stream().filter(q -> "beta".equals(q.sourcePageSlug())).findFirst().orElseThrow();
+        assertThat(a.selectionReason()).isEqualTo("WEAK_TOPIC:Alpha");
+        assertThat(b.selectionReason()).isNull();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

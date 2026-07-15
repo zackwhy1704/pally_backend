@@ -27,7 +27,7 @@ class QuizVerificationTest {
     }
 
     private QuizQuestion q(String question, List<String> options, int correctIndex) {
-        return new QuizQuestion("id", "avatar", question, options, correctIndex, "slug", "");
+        return new QuizQuestion("id", "avatar", question, options, correctIndex, "slug", "", null, null);
     }
 
     // ── Correct answers pass through unchanged ────────────────────────────────
