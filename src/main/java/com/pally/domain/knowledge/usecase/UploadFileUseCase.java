@@ -163,9 +163,9 @@ public class UploadFileUseCase {
         String normalised = contentType != null ? contentType.toLowerCase().split(";")[0].trim() : "";
         if (!ALLOWED_MIME_TYPES.contains(normalised)) {
             log.warn("[Pipeline:Upload] Rejected unsupported MIME type={} avatarId={}", contentType, avatarId);
-            return new UploadResult.Failure(
+            return UploadResult.Failure.badInput(
                     "Unsupported file type '" + contentType + "'. "
-                    + "Please upload a PDF, plain text (.txt), or a photo (JPEG/PNG/WEBP).", null);
+                    + "Please upload a PDF, plain text (.txt), or a photo (JPEG/PNG/WEBP).");
         }
 
         KnowledgeFile.UploadType uploadType = resolveUploadType(normalised);
@@ -234,7 +234,9 @@ public class UploadFileUseCase {
             log.error("Extraction failure for fileId={}", fileId, e);
             kf.markFailed();
             knowledgeRepository.save(kf);
-            return new UploadResult.Failure("Text extraction failed: " + e.getMessage(), e);
+            // Corrupt/encrypted/malformed PDF operating on an in-memory byte array —
+            // a content problem, not a server I/O fault. 422, not 500.
+            return UploadResult.Failure.badInput("Text extraction failed: " + e.getMessage());
         }
 
         // Empty-text guard: if extraction produced nothing (e.g. a scanned
@@ -253,7 +255,7 @@ public class UploadFileUseCase {
                       + "(2) the page is at a steep angle — hold the camera directly above, "
                       + "(3) handwriting is very light — try higher contrast. "
                       + "Tip: crop to just the notes before uploading.";
-            return new UploadResult.Failure(ocrFailMsg, null);
+            return UploadResult.Failure.badInput(ocrFailMsg);
         }
 
         // Pathological-file SAFETY bound only (not a quality/size ceiling). A large-
@@ -266,9 +268,9 @@ public class UploadFileUseCase {
                     fileId, extractedText.length(), estPages, uploadRejectChars);
             kf.markFailed();
             knowledgeRepository.save(kf);
-            return new UploadResult.Failure(
+            return UploadResult.Failure.badInput(
                     "This file is extremely large (~" + estPages + " pages) and can't be processed. "
-                    + "Please upload a smaller document.", null);
+                    + "Please upload a smaller document.");
         }
 
         // ── OCR Quality Gate (image uploads only) ───────────────────────────
@@ -282,7 +284,7 @@ public class UploadFileUseCase {
             if (qualityResult.quality() == OcrQualityGate.Quality.REJECTED) {
                 kf.markFailed();
                 knowledgeRepository.save(kf);
-                return new UploadResult.Failure(qualityResult.reason(), null);
+                return UploadResult.Failure.badInput(qualityResult.reason());
             }
             // Use cleaned text from the quality gate
             extractedText = qualityResult.cleanedText();
@@ -298,14 +300,15 @@ public class UploadFileUseCase {
         // DuplicateContentException is a PallyException → 409 handled by GlobalExceptionHandler.
         deduplicator.check(avatarId, extractedText, file.getOriginalFilename());
 
-        // Relevance check (skippable when user explicitly opts in via "Add Anyway")
-        // Fix 2: Skip relevance for STEM image uploads — OCR garbles math notation
-        // so the relevance model can't judge content quality from text alone.
-        if (!skipRelevance && isStemImageUpload(uploadType, avatarId)) {
-            log.info("[Upload] Skipping relevance check for STEM image upload fileId={}", fileId);
-            skipRelevance = true;
-        }
-
+        // Relevance check (skippable only when the user explicitly opts in via
+        // "Add Anyway"). F2 fix: STEM photo uploads are NO LONGER skipped wholesale.
+        // OCR garbles math notation so the numeric TOPIC score is unreliable for a
+        // photo — but the studyMaterial classifier ("is this educational content at
+        // all, or a receipt/form/selfie?") is robust to garbling. So a STEM photo
+        // still runs the check; we just don't enforce the topic score on it. This
+        // keeps legit homework photos while rejecting a receipt photo (the QA-1.2
+        // false-accept), whose title previously leaked into the NEXT upload's
+        // relevance prompt (the cross-file "reason" bleed).
         if (!skipRelevance) {
             var avatar = avatarRepository.findById(avatarId)
                     .orElseThrow(() -> new AvatarNotFoundException(avatarId));
@@ -328,13 +331,14 @@ public class UploadFileUseCase {
                 rel = new RelevanceScore(1.0, "Check unavailable");
             }
 
-            // Topically-BOUNDED subjects gate on the topic score; GENERAL (unbounded) has
-            // no topic to be off-topic from, so it bypasses the topic score and gates on the
-            // study-material floor instead (reject a receipt/selfie, accept any study material).
-            boolean irrelevant = avatar.getSubject().isTopicallyBounded()
-                    ? rel.value() < RELEVANCE_THRESHOLD
-                    : !rel.studyMaterial();
-            if (irrelevant) {
+            // A non-study-material upload (receipt/invoice/form/selfie) is ALWAYS
+            // rejected, on EVERY subject — a receipt is not notes even on a
+            // topic-bounded avatar. (Previously topic-bounded subjects ignored
+            // studyMaterial and gated on the topic score alone → the F2 hole.)
+            // Topic-bounded subjects ADDITIONALLY reject clearly off-topic content
+            // via the numeric score — except a STEM photo, whose OCR-derived score
+            // is untrustworthy (only its studyMaterial verdict is enforced).
+            if (shouldRejectRelevance(avatar.getSubject(), uploadType, rel)) {
                 kf.markIrrelevant();
                 knowledgeRepository.save(kf);
                 log.info("File fileId={} marked irrelevant subject={} score={} studyMaterial={}",
@@ -435,16 +439,30 @@ public class UploadFileUseCase {
      * Returns true if the upload is an image AND the avatar's subject is STEM.
      * STEM image OCR garbles equations, making relevance scores unreliable.
      */
-    private boolean isStemImageUpload(KnowledgeFile.UploadType uploadType, String avatarId) {
-        if (uploadType != KnowledgeFile.UploadType.PHOTO) return false;
-        return avatarRepository.findById(avatarId)
-                .map(a -> isStemSubject(a.getSubject()))
-                .orElse(false);
-    }
-
     static boolean isStemSubject(com.pally.domain.avatar.Subject subject) {
         return subject == com.pally.domain.avatar.Subject.MATHS
             || subject == com.pally.domain.avatar.Subject.SCIENCE
             || subject == com.pally.domain.avatar.Subject.CODING;
+    }
+
+    /**
+     * F2 relevance gate (pure, unit-tested). Reject when the upload is not study
+     * material at all (receipt/invoice/form/selfie) on ANY subject; ADDITIONALLY
+     * reject clearly off-topic content on a topic-bounded subject via the numeric
+     * score — EXCEPT a STEM photo, whose OCR-derived topic score is untrustworthy
+     * (only its studyMaterial verdict is enforced). This closes the QA-1.2
+     * receipt-photo false-accept: previously STEM photos skipped relevance entirely
+     * AND topic-bounded subjects ignored studyMaterial.
+     */
+    static boolean shouldRejectRelevance(com.pally.domain.avatar.Subject subject,
+                                         KnowledgeFile.UploadType uploadType,
+                                         RelevanceScore rel) {
+        boolean stemPhoto = uploadType == KnowledgeFile.UploadType.PHOTO
+                && isStemSubject(subject);
+        boolean notStudyMaterial = !rel.studyMaterial();
+        boolean offTopic = !stemPhoto
+                && subject.isTopicallyBounded()
+                && rel.value() < RELEVANCE_THRESHOLD;
+        return notStudyMaterial || offTopic;
     }
 }

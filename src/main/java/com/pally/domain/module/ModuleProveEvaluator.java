@@ -90,8 +90,22 @@ public class ModuleProveEvaluator {
                     String.join(", ", expectedKeyPoints),
                     truncate(studentAnswer, 1000));
 
-            String raw = geminiCompletion.complete(MAX_TOKENS, prompt, "module-prove-eval");
-            return parseResult(raw);
+            ProveResult result = parseResult(
+                    geminiCompletion.complete(MAX_TOKENS, prompt, "module-prove-eval"));
+            if (!result.graded()) {
+                // Robust-JSON treatment (mirrors ModuleContentGenerator.robustJsonObject):
+                // model prose/markdown/truncation on the first attempt is often transient.
+                // Retry EXACTLY ONCE before falling back to UNGRADED — a parse failure must
+                // never fabricate a grade, but it also shouldn't silently lose a real answer.
+                log.info("[Module] PROVE eval unparseable on attempt 1 for item={} — retrying once",
+                        proveQuestion.getId());
+                ProveResult retry = parseResult(
+                        geminiCompletion.complete(MAX_TOKENS, prompt, "module-prove-eval-retry"));
+                if (retry.graded()) {
+                    return retry;
+                }
+            }
+            return result;
 
         } catch (Exception e) {
             log.error("[Module] PROVE evaluation failed for item={}",

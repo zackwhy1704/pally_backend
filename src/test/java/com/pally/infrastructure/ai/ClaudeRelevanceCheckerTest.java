@@ -5,6 +5,7 @@ import com.pally.domain.knowledge.RelevanceScore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -12,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -52,5 +54,26 @@ class ClaudeRelevanceCheckerTest {
         RelevanceScore score = checker.check("Maths", "", "quadratic equations notes");
 
         assertThat(score.value()).isEqualTo(1.0);
+    }
+
+    @Test
+    void prompt_pinsNonEducationalCriteria_andAntiContaminationGuard() {
+        // F2: explicit non-educational document criteria + a minimum-substance bar
+        // so a receipt/invoice/form is classified studyMaterial=false.
+        // F3: the "reason" must describe only the NEW content, never the existing
+        // knowledge summary (the cross-file "Kopi Corner receipt" bleed).
+        when(apiClient.complete(anyString(), anyInt(), anyString()))
+                .thenReturn("{\"score\":0.9,\"reason\":\"ok\",\"studyMaterial\":true}");
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+
+        checker.check("Science", "- Kopi Corner receipt", "photosynthesis notes");
+
+        verify(apiClient).complete(anyString(), anyInt(), prompt.capture());
+        String p = prompt.getValue();
+        assertThat(p).containsIgnoringCase("receipt");
+        assertThat(p).containsIgnoringCase("invoice");
+        assertThat(p).containsIgnoringCase("form");
+        assertThat(p).containsIgnoringCase("instructional material"); // min-substance bar
+        assertThat(p).contains("must describe ONLY");                 // F3 anti-contamination
     }
 }

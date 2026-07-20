@@ -158,6 +158,46 @@ class ModuleProveEvaluatorTest {
         assertThat(result.score()).isLessThanOrEqualTo(1.0);
     }
 
+    @Test
+    void evaluateAnswer_firstAttemptUnparseable_retrySucceeds_returnsGraded() throws Exception {
+        // F4: the fragile parser produced avoidable UNGRADEDs on transient model
+        // prose. With the robust-JSON retry, a first unparseable response followed by
+        // a valid one now GRADES. Fail-without-fix: pre-change there was no retry, so
+        // the first unparseable response returned UNGRADED (graded=false).
+        ModuleContentItem item = buildProveItem(
+                "What is gravity?", "gravity", new String[]{"force"});
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval")))
+                .thenReturn("Sorry — here is my assessment in prose with no JSON at all.");
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval-retry")))
+                .thenReturn("""
+                        {"conceptCovered":true,"keyPointsHit":["force"],"keyPointsMissed":[],
+                         "feedback":"Good","score":0.8}
+                        """);
+
+        ModuleProveEvaluator.ProveResult result =
+                evaluator.evaluateAnswer(item, "Gravity is a force that pulls objects toward Earth");
+
+        assertThat(result.graded()).isTrue();
+        assertThat(result.score()).isEqualTo(0.8);
+        verify(geminiCompletion).complete(anyInt(), anyString(), eq("module-prove-eval-retry"));
+    }
+
+    @Test
+    void evaluateAnswer_bothAttemptsUnparseable_staysUngraded_afterExactlyOneRetry() throws Exception {
+        // UNGRADED remains the terminal fallback — one retry, never a fabricated score.
+        ModuleContentItem item = buildProveItem("Q", "concept", new String[]{"kp"});
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval")))
+                .thenReturn("no json here");
+        when(geminiCompletion.complete(anyInt(), anyString(), eq("module-prove-eval-retry")))
+                .thenReturn("still no json on the retry either");
+
+        ModuleProveEvaluator.ProveResult result =
+                evaluator.evaluateAnswer(item, "A reasonable-length answer about the concept");
+
+        assertThat(result.graded()).isFalse();
+        verify(geminiCompletion).complete(anyInt(), anyString(), eq("module-prove-eval-retry"));
+    }
+
     private ModuleContentItem buildProveItem(
             String question, String concept, String[] keyPoints) throws Exception {
         ModuleContentItem item = new ModuleContentItem();

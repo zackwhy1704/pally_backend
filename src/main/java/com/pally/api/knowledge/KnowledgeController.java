@@ -80,9 +80,17 @@ public class KnowledgeController {
                     .body(ApiResponse.created(seg));   // client shows the chapter picker (has `chunks`)
             case UploadResult.RelevanceWarning w -> ResponseEntity
                     .ok(ApiResponse.success(w));
-            case UploadResult.Failure f -> ResponseEntity
-                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiResponse.error(f.message(), 500));
+            case UploadResult.Failure f -> {
+                // Content problems (unreadable/corrupt/encrypted/empty PDF, illegible
+                // photo, unsupported type, too-large) are a 422 — the client sent a file
+                // that will never process; a 500 would say "server error, retry". Genuine
+                // faults (storage/OCR down) stay 500.
+                HttpStatus status = f.kind() == UploadResult.FailureKind.BAD_INPUT
+                        ? HttpStatus.UNPROCESSABLE_ENTITY
+                        : HttpStatus.INTERNAL_SERVER_ERROR;
+                yield ResponseEntity.status(status)
+                        .body(ApiResponse.error(f.message(), status.value()));
+            }
         };
     }
 

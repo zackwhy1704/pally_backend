@@ -52,9 +52,27 @@ public sealed interface UploadResult permits
 
     record RelevanceWarning(String fileId, double score, String reason) implements UploadResult {}
 
-    record Failure(String message, Throwable cause) implements UploadResult {
+    /**
+     * Distinguishes a client/content problem (a 422 — the submitted file is
+     * unreadable/corrupt/encrypted/empty/illegible, and re-uploading the SAME
+     * file will never succeed) from a genuine server fault (a 500 — storage down,
+     * OCR service unavailable). A blanket 500 falsely tells the client "server
+     * problem, retry" and pollutes error monitoring exactly at launch.
+     */
+    enum FailureKind { BAD_INPUT, SERVER_ERROR }
+
+    record Failure(String message, Throwable cause, FailureKind kind) implements UploadResult {
+        /** Back-compat: an unclassified failure is treated as a server fault (500). */
         public Failure(String message) {
-            this(message, null);
+            this(message, null, FailureKind.SERVER_ERROR);
+        }
+        public Failure(String message, Throwable cause) {
+            this(message, cause, FailureKind.SERVER_ERROR);
+        }
+
+        /** Bad/unprocessable INPUT → HTTP 422, never a 5xx. */
+        public static Failure badInput(String message) {
+            return new Failure(message, null, FailureKind.BAD_INPUT);
         }
     }
 }

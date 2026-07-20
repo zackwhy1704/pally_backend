@@ -72,12 +72,13 @@ class UploadCompileIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    void uploadFile_unsupportedMime_returnsBadRequestOrFailure() {
+    void uploadFile_unsupportedMime_returns422() {
         // Upload with an unsupported MIME type (e.g. application/zip)
         byte[] bytes = "fake zip content".getBytes(StandardCharsets.UTF_8);
         ResponseEntity<Map> response = uploadBytes(bytes, "archive.zip", "application/zip");
-        // Should be rejected — either 400 or 500 with failure message about unsupported type
-        assertThat(response.getStatusCode().value()).isIn(400, 500);
+        // F1: an unprocessable CONTENT problem is a 422, never a 5xx (a 500 would
+        // wrongly tell the client "server error, retry" for a file that never works).
+        assertThat(response.getStatusCode().value()).isEqualTo(422);
     }
 
     @Test

@@ -83,11 +83,20 @@ public class ClaudeRelevanceChecker implements RelevancePort {
                 - Below 0.3: clearly a different subject (e.g., music notes for a Maths tutor)
 
                 ALSO classify whether this is study material at all (A2). Set
-                "studyMaterial" to false ONLY when it is clearly NOT educational
-                content — e.g. a receipt, a selfie/photo of a person, a blank page,
-                a screenshot of a chat, or an unrelated document. A textbook page on
-                a DIFFERENT subject is still studyMaterial=true (just off-topic).
-                When in doubt, studyMaterial=true.
+                "studyMaterial" to false when it is NOT educational/instructional
+                content — including any administrative or transactional document
+                such as a receipt, invoice, bill, ticket, order, form, ID card or
+                certificate; a selfie or photo of a person; a blank or near-blank
+                page; a screenshot of a chat; or any document with no teachable
+                substance. To count as studyMaterial=true the content must contain
+                ACTUAL instructional material — concepts, explanations, worked
+                problems, definitions, or study notes. A textbook page on a
+                DIFFERENT subject is still studyMaterial=true (just off-topic).
+                When genuinely in doubt, studyMaterial=true.
+
+                IMPORTANT: the "reason" must describe ONLY the "New content to
+                evaluate" above — never the "Existing knowledge summary". Do not
+                mention items that appear only in the existing knowledge summary.
 
                 Respond ONLY with a JSON object (no markdown, no extra text):
                 {"score": <0.0 to 1.0>, "reason": "<one sentence explanation>", "studyMaterial": <true|false>}

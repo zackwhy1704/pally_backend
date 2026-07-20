@@ -90,14 +90,33 @@ class KnowledgeControllerTest {
     }
 
     @Test
-    void uploadFile_failure_returns500() {
+    void uploadFile_serverFaultFailure_returns500() {
+        // A genuine server fault (storage/OCR down) stays 5xx — the client SHOULD retry.
         MultipartFile file = new MockMultipartFile(
                 "file", "notes.txt", "text/plain", "content".getBytes());
         when(knowledgeService.uploadFile(anyString(), anyString(), any(MultipartFile.class), anyBoolean()))
-                .thenReturn(new UploadResult.Failure("boom"));
+                .thenReturn(new UploadResult.Failure("Storage error: boom"));
 
         var response = controller.uploadFile("user-1", "avatar-1", file, false);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @Test
+    void uploadFile_badInputFailure_returns422_withMessagePreserved() {
+        // F1: an unreadable/corrupt/encrypted/empty file is a CONTENT problem — 422,
+        // not 500. Fail-without-fix: pre-change every Failure mapped to 500, which
+        // told the client "server error, retry" for a file that never processes.
+        MultipartFile file = new MockMultipartFile(
+                "file", "corrupt.pdf", "application/pdf", "%PDF-broken".getBytes());
+        when(knowledgeService.uploadFile(anyString(), anyString(), any(MultipartFile.class), anyBoolean()))
+                .thenReturn(UploadResult.Failure.badInput(
+                        "Text extraction failed: Missing root object specification in trailer."));
+
+        var response = controller.uploadFile("user-1", "avatar-1", file, false);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().error())
+                .contains("Text extraction failed");
     }
 
     @Test
