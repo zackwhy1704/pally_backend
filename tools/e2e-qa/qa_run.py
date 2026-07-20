@@ -50,6 +50,7 @@ class Runner:
         self.spend = SpendGuard()
         self.c = ApiClient(base=args.base, dry_run=args.dry_run, spend=self.spend)
         self.findings = []          # {case, check, verdict, evidence}
+        self._all_strings = []      # every served string, for fidelity checks
         self.state = self._load_state()
 
     # ---- state ----------------------------------------------------------
@@ -108,7 +109,7 @@ class Runner:
         r = self.c.request("GET", f"/api/v1/avatars/{aid}", tag="getAvatar")
         return self.c.unwrap(r) or {}
 
-    def upload(self, aid, fixture, skip_relevance):
+    def upload(self, aid, fixture, skip_relevance, tolerate_5xx=False):
         name, ctype = fixture
         path = FIXTURES / name
         if not path.exists() and not self.args.dry_run:
@@ -117,7 +118,7 @@ class Runner:
         data = {"skipRelevance": "true"} if skip_relevance else None
         return self.c.request("POST", f"/api/v1/avatars/{aid}/files",
                               files=files, data=data, timeout=180,
-                              tag=f"upload({name})")
+                              tag=f"upload({name})", tolerate_5xx=tolerate_5xx)
 
     def poll_compile(self, aid, ceiling_s=240, interval=6):
         """Dual-signal poll: compile/status DONE|FAILED OR avatar READY+pages.
@@ -149,7 +150,9 @@ class Runner:
         for fx in BAD_FIXTURES:
             name = fx[0]
             try:
-                r = self.upload(aid, fx, skip_relevance=False)
+                # tolerate_5xx: a 5xx per distinct bad file is the finding, not a
+                # retry-storm — record it and keep probing the other 5 fixtures.
+                r = self.upload(aid, fx, skip_relevance=False, tolerate_5xx=True)
             except PhaseStop:
                 raise
             status = r.status_code
@@ -165,6 +168,10 @@ class Runner:
                     body.get("pageCount") or body.get("compileJobId")
                     or body.get("wikiPageTitles")):
                 terminal, detail = self.poll_compile(aid, ceiling_s=120)
+                if terminal in ("DONE", "READY_OK"):
+                    # a bad fixture unexpectedly compiled — disclose it against the
+                    # compile budget (don't hard-stop the gauntlet mid-probe)
+                    self.spend.compiles += 1
                 if terminal in ("TIMEOUT",):
                     self.find("QA-1.2", f"upload {name}", FAIL,
                               f"zombie: no terminal state in 120s {detail}")
@@ -202,11 +209,21 @@ class Runner:
     def sweep(self, case, label, payload):
         """Run the grounding/leak sweep over a served payload."""
         strings = rules.collect_strings(payload)
+        self._all_strings.extend(strings)
         for term, ex in rules.banned_realworld_hits(strings):
             self.find(case, f"{label}: banned real-world term '{term}'", FAIL, ex)
-        for concept, acc, nums, ex in rules.number_contradictions(strings):
-            self.find(case, f"{label}: number contradiction for '{concept}'"
-                      f" (expected {acc}, saw {nums})", FAIL, ex)
+        # number co-occurrence is advisory ONLY — the digit-near-concept heuristic
+        # false-positives on ordinals ("Hover Question 2") and MCQ distractors /
+        # scenario numbers ("report due in 15 minutes"). Never an automated FAIL;
+        # the reliable signal is the positive fidelity check (canonical value present).
+        # Collapsed to a single summary so the advisory noise can't bury real rows.
+        cooc = rules.number_contradictions(strings)
+        if cooc:
+            concepts = sorted({c for c, *_ in cooc})
+            self.find(case, f"{label}: {len(cooc)} number co-occurrence(s) flagged"
+                      f" for manual review (advisory heuristic — ordinals/scenario"
+                      f" numbers; concepts: {', '.join(concepts)})", INFO,
+                      " | ".join(ex for *_, ex in cooc[:2]))
         for ex in rules.persona_leaks(strings):
             self.find(case, f"{label}: persona/grade leak", FAIL, ex)
         for ex in rules.rubric_leaks(strings):
@@ -260,39 +277,52 @@ class Runner:
         mid = mods[0].get("id")
         weak = set()
 
-        # 2-4. walk LEARN -> TEST -> PROVE
+        # 2-5. walk LEARN -> TEST -> PROVE. Re-fetch the served stage after each
+        # step: submitting advances the server-side stage, so the next start()
+        # returns the NEXT stage's items (the missing re-fetch was the bug that
+        # re-submitted to an already-advanced stage and skipped PROVE entirely).
         served = self.start_stage(aid, mid)
-        for _ in range(4):  # LEARN, TEST, PROVE, (COMPLETE)
+        for _ in range(8):
             stage = served.get("stage")
             items = served.get("items") or []
             cs = served.get("contentStatus")
+            if stage in (None, "COMPLETE"):
+                break
             if cs in ("CONTENT_UPDATING", "CONTENT_UNAVAILABLE") or not items:
-                # transient — brief re-poll
                 self.find("QA-5.6", f"{stage} served transient ({cs})", INFO, "")
-                time.sleep(6)
+                time.sleep(8)
                 served = self.start_stage(aid, mid)
                 continue
-
-            if stage == "TEST":
+            if stage == "LEARN":
+                self.sweep("QA-1.3", "LEARN", items)
+                self.submit(aid, mid, [{"itemId": it["id"], "response": "viewed:true"}
+                                       for it in items], 20)
+            elif stage == "TEST":
                 self._test_stage(aid, mid, items, weak)
             elif stage == "PROVE":
                 self._prove_stage(aid, mid, items, weak)
                 break
-            else:  # LEARN
-                self.sweep("QA-1.3", "LEARN", items)
-                subs = [{"itemId": it["id"], "response": "viewed:true"} for it in items]
-                res, _ = self.submit(aid, mid, subs, 20)
-                served = self.start_stage(aid, mid)
+            served = self.start_stage(aid, mid)
+
+        # number-fact fidelity: canonical invented values survived compilation
+        # (a reliable positive check; contradiction detection is advisory-only)
+        grounded = [k for k, vs in rules.NUMBER_FACTS.items()
+                    if any(v.lower() in s.lower() for v in vs for s in self._all_strings)]
+        self.find("QA-1.4", f"number-fact fidelity: {len(grounded)}/"
+                  f"{len(rules.NUMBER_FACTS)} concepts' canonical values present",
+                  PASS if len(grounded) >= len(rules.NUMBER_FACTS) // 2 else INFO,
+                  grounded)
 
         self.state["weakConcepts"] = sorted(weak)
         self._save_state()
 
-        # 6. revision re-start (QA-2.2)
+        # 6. revision re-start (QA-2.2) — report the actual revision flag honestly
         rev = self.start_stage(aid, mid, charge_prove=True)
-        adv = rev.get("revision") is True or rev.get("stage") == "PROVE"
-        self.find("QA-2.2", "revision re-start {stage:PROVE, revision:true}",
-                  PASS if adv else FAIL,
-                  f"stage={rev.get('stage')} revision={rev.get('revision')}")
+        stage_ok = rev.get("stage") == "PROVE"
+        flag = rev.get("revision")
+        self.find("QA-2.2", "revision re-start returns {stage:PROVE, revision:true}",
+                  PASS if (stage_ok and flag is True) else (INFO if stage_ok else FAIL),
+                  f"stage={rev.get('stage')} revision={flag}")
         if rev.get("items"):
             self.sweep("QA-2.2", "REVISION-PROVE", rev.get("items"))
 
@@ -356,6 +386,7 @@ class Runner:
                     weak.add(key)
 
     def _prove_stage(self, aid, mid, items, weak):
+        self.spend.charge_prove_gen()   # these items are LLM-generated
         # 5. PROVE served items: targetConcept + priorScore present (QA-1.14)
         miss = [it["id"] for it in items if not it.get("targetConcept")]
         self.find("QA-1.14", "PROVE items carry targetConcept",

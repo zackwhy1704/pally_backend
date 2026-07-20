@@ -64,7 +64,7 @@ class ApiClient:
 
     # ---- core request --------------------------------------------------
     def request(self, method, path, *, json_body=None, files=None, data=None,
-                timeout=120, tag=None, expect_ok=False):
+                timeout=120, tag=None, expect_ok=False, tolerate_5xx=False):
         url = self.base + path
         label = tag or f"{method} {path}"
         if self.dry_run:
@@ -101,9 +101,11 @@ class ApiClient:
         except ValueError:
             body = None
 
-        # 5xx circuit breaker (per endpoint path, ignoring ids)
+        # 5xx circuit breaker (per endpoint path, ignoring ids). tolerate_5xx
+        # is for the rejection gauntlet, where a 5xx on a DISTINCT bad-input
+        # probe is the finding under test, not a retry-storm to guard against.
         key = _norm(path)
-        if r.status_code >= 500:
+        if r.status_code >= 500 and not tolerate_5xx:
             self._streak[key] = self._streak.get(key, 0) + 1
             if self._streak[key] >= 3:
                 self.trace.append({"call": label, "status": r.status_code,
@@ -111,11 +113,11 @@ class ApiClient:
                 raise PhaseStop(
                     f"{label} 5xx'd {self._streak[key]}x consecutively (status "
                     f"{r.status_code}) — stopping phase, not retry-storming prod")
-        else:
+        elif r.status_code < 500:
             self._streak[key] = 0
 
         rec = {"call": label, "status": r.status_code, "ms": dt,
-               "resp": _short(body if body is not None else raw)}
+               "resp": _short(_redact(body) if body is not None else _redact(raw))}
         self.trace.append(rec)
         if self.verbose:
             print(f"  {method} {path} -> {r.status_code} ({dt}ms)")
@@ -165,6 +167,27 @@ class _Resp:
     @property
     def ok(self):
         return 200 <= self.status_code < 300
+
+
+_SECRET_KEYS = {"token", "password", "devicesecret", "refreshtoken",
+                "accesstoken", "deviceSecret", "idToken"}
+
+
+def _redact(obj):
+    """Mask credential values so the committed trace/report never carries a
+    live token or password (defence-in-depth; the report also trims to the last
+    N calls, but redaction is the guarantee)."""
+    if isinstance(obj, dict):
+        return {k: ("***" if k.lower() in _SECRET_KEYS else _redact(v))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    if isinstance(obj, str):
+        # mask anything that looks like a JWT (eyJ...) regardless of key
+        import re
+        return re.sub(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+",
+                      "***JWT***", obj)
+    return obj
 
 
 def _short(v, n=600):
