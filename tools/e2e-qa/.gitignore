@@ -1,0 +1,4 @@
+# Local QA account creds + seeded-weakness state — never commit
+.qa_state.json
+__pycache__/
+*.pyc

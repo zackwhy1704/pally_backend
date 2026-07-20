@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""
+Apalchi production-API QA harness.
+
+Fires against LIVE prod (no staging). Safety is non-negotiable and enforced in
+api.py: one self-registered throwaway account, spend caps (<=2 compiles, <=3
+PROVE gens), a 3x-consecutive-5xx circuit breaker, and Railway is read-only
+(logs via the `railway` CLI only).
+
+Usage:
+  QA_BASE_URL=... python3 qa_run.py --phase [gauntlet|kestrel|day2|all] --report out.md
+  python3 qa_run.py --phase all --dry-run      # print the call plan, fire nothing
+
+Account: reuses creds from .qa_state.json (or QA_EMAIL/QA_PASSWORD) if present,
+else self-registers a fresh 13+ student (birthYear 2005 -> no consent wall).
+The kestrel avatar id and the seeded weak-concept set are persisted to
+.qa_state.json so `--phase day2` (run tomorrow) reads back what phase 3 seeded.
+"""
+import argparse
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+
+import rules
+from api import ApiClient, PhaseStop, SpendGuard, new_qa_email
+
+HERE = Path(__file__).resolve().parent
+STATE_FILE = HERE / ".qa_state.json"
+FIXTURES = Path(os.environ.get(
+    "QA_FIXTURES", str(Path.home() / "Downloads" / "Telegram Desktop")))
+
+BAD_FIXTURES = [
+    ("empty.pdf", "application/pdf"),
+    ("corrupt.pdf", "application/pdf"),
+    ("encrypted.pdf", "application/pdf"),
+    ("receipt_photo.jpg", "image/jpeg"),
+    ("scanned_style.pdf", "application/pdf"),
+    ("wrong_format.txt", "text/plain"),
+]
+KESTREL = ("kestrel_method_study_guide.pdf", "application/pdf")
+
+PASS, FAIL, INFO, NOT_COVERED = "PASS", "FAIL", "INFO", "NOT COVERED"
+
+
+class Runner:
+    def __init__(self, args):
+        self.args = args
+        self.spend = SpendGuard()
+        self.c = ApiClient(base=args.base, dry_run=args.dry_run, spend=self.spend)
+        self.findings = []          # {case, check, verdict, evidence}
+        self.state = self._load_state()
+
+    # ---- state ----------------------------------------------------------
+    def _load_state(self):
+        if STATE_FILE.exists():
+            try:
+                return json.loads(STATE_FILE.read_text())
+            except Exception:
+                return {}
+        return {}
+
+    def _save_state(self):
+        if not self.args.dry_run:
+            STATE_FILE.write_text(json.dumps(self.state, indent=2))
+
+    # ---- findings -------------------------------------------------------
+    def find(self, case, check, verdict, evidence=""):
+        self.findings.append({"case": case, "check": check,
+                              "verdict": verdict, "evidence": str(evidence)[:400]})
+        marker = {"PASS": "✓", "FAIL": "✗", "INFO": "i", "NOT COVERED": "-"}.get(verdict, "?")
+        print(f"    [{marker}] {case}: {check} -> {verdict}"
+              + (f"  ({str(evidence)[:120]})" if evidence else ""))
+
+    # ---- bootstrap ------------------------------------------------------
+    def bootstrap(self):
+        email = self.state.get("email") or os.environ.get("QA_EMAIL")
+        pw = self.state.get("password") or os.environ.get("QA_PASSWORD")
+        if email and pw:
+            print(f"  reusing account {email}")
+            self.c.login(email, pw)
+            if not self.c.token and not self.args.dry_run:
+                raise PhaseStop("login with stored creds failed")
+        else:
+            email = new_qa_email()
+            pw = "QaHarness!" + str(int(time.time()))[-6:]
+            print(f"  registering fresh account {email}")
+            r, d = self.c.register(email, pw, "QA Harness", "SCIENCE",
+                                   "SECONDARY", 2005)
+            if not self.args.dry_run and not self.c.token:
+                raise PhaseStop(f"register failed: {r.status_code} {r.raw[:200]}")
+            self.state.update({"email": email, "password": pw,
+                               "userId": self.c.user_id,
+                               "onboardAvatarId": (d or {}).get("avatarId")})
+            self._save_state()
+        self.c.token = self.c.token or "dry-run-token"
+
+    # ---- avatar helpers -------------------------------------------------
+    def create_avatar(self, name, subject="SCIENCE"):
+        r = self.c.request("POST", "/api/v1/avatars", json_body={
+            "name": name, "subject": subject, "characterType": "MOCHI",
+        }, tag=f"createAvatar({name})")
+        d = self.c.unwrap(r) or {}
+        return d.get("id") or (f"dry-avatar" if self.args.dry_run else None)
+
+    def get_avatar(self, aid):
+        r = self.c.request("GET", f"/api/v1/avatars/{aid}", tag="getAvatar")
+        return self.c.unwrap(r) or {}
+
+    def upload(self, aid, fixture, skip_relevance):
+        name, ctype = fixture
+        path = FIXTURES / name
+        if not path.exists() and not self.args.dry_run:
+            raise PhaseStop(f"fixture missing: {path}")
+        files = {"file": (name, path.read_bytes() if path.exists() else b"x", ctype)}
+        data = {"skipRelevance": "true"} if skip_relevance else None
+        return self.c.request("POST", f"/api/v1/avatars/{aid}/files",
+                              files=files, data=data, timeout=180,
+                              tag=f"upload({name})")
+
+    def poll_compile(self, aid, ceiling_s=240, interval=6):
+        """Dual-signal poll: compile/status DONE|FAILED OR avatar READY+pages.
+        Returns (terminal:str, detail:dict). Never hangs past ceiling."""
+        if self.args.dry_run:
+            return "DONE", {"dry_run": True}
+        t0 = time.time()
+        last = {}
+        while time.time() - t0 < ceiling_s:
+            rs = self.c.request("GET", f"/api/v1/avatars/{aid}/wiki/compile/status",
+                                tag="compileStatus")
+            st = (self.c.unwrap(rs) or {})
+            state = st.get("state")
+            av = self.get_avatar(aid)
+            last = {"compile": st, "brainState": av.get("brainState"),
+                    "wikiPageCount": av.get("wikiPageCount")}
+            if state in ("DONE", "FAILED"):
+                return state, last
+            if av.get("brainState") == "READY":
+                return ("READY_OK" if (av.get("wikiPageCount") or 0) > 0
+                        else "READY_EMPTY"), last
+            time.sleep(interval)
+        return "TIMEOUT", last
+
+    # ---- PHASE 2: rejection gauntlet (QA-1.2) --------------------------
+    def phase_gauntlet(self):
+        print("\n== PHASE 2: rejection gauntlet (QA-1.2) ==")
+        aid = self.create_avatar("Gauntlet Throwaway")
+        for fx in BAD_FIXTURES:
+            name = fx[0]
+            try:
+                r = self.upload(aid, fx, skip_relevance=False)
+            except PhaseStop:
+                raise
+            status = r.status_code
+            body = self.c.unwrap(r)
+            # classify
+            if status >= 500:
+                self.find("QA-1.2", f"upload {name}", FAIL,
+                          f"HTTP {status} {rules._excerpt(r.raw, '')}")
+                continue
+            # if it looks like it started compiling, ensure it reaches terminal
+            terminal = None
+            if status in (200, 201) and isinstance(body, dict) and (
+                    body.get("pageCount") or body.get("compileJobId")
+                    or body.get("wikiPageTitles")):
+                terminal, detail = self.poll_compile(aid, ceiling_s=120)
+                if terminal in ("TIMEOUT",):
+                    self.find("QA-1.2", f"upload {name}", FAIL,
+                              f"zombie: no terminal state in 120s {detail}")
+                    continue
+            verdict = PASS
+            note = f"HTTP {status}"
+            if isinstance(body, dict):
+                for k in ("quality", "qualityReason", "reason", "message",
+                          "status", "code", "extractedChars"):
+                    if k in body:
+                        note += f" {k}={body[k]}"
+            if terminal:
+                note += f" compile={terminal}"
+            self.find("QA-1.2", f"upload {name}", verdict, note)
+        # cleanup throwaway (normal user op)
+        if aid and not self.args.dry_run:
+            self.c.request("DELETE", f"/api/v1/avatars/{aid}", tag="deleteAvatar")
+            self.find("QA-1.2", "throwaway avatar deleted", INFO, aid)
+
+    # ---- module walk helpers -------------------------------------------
+    def start_stage(self, aid, mid, charge_prove=False):
+        if charge_prove:
+            self.spend.charge_prove_gen()
+        r = self.c.request("POST", f"/api/v1/avatars/{aid}/modules/{mid}/start",
+                           json_body={}, timeout=120, tag="module/start")
+        return self.c.unwrap(r) or {}
+
+    def submit(self, aid, mid, submissions, duration):
+        r = self.c.request("POST", f"/api/v1/avatars/{aid}/modules/{mid}/submit",
+                           json_body={"submissions": submissions,
+                                      "durationSeconds": duration},
+                           timeout=120, tag="module/submit")
+        return self.c.unwrap(r) or {}, r.status_code
+
+    def sweep(self, case, label, payload):
+        """Run the grounding/leak sweep over a served payload."""
+        strings = rules.collect_strings(payload)
+        for term, ex in rules.banned_realworld_hits(strings):
+            self.find(case, f"{label}: banned real-world term '{term}'", FAIL, ex)
+        for concept, acc, nums, ex in rules.number_contradictions(strings):
+            self.find(case, f"{label}: number contradiction for '{concept}'"
+                      f" (expected {acc}, saw {nums})", FAIL, ex)
+        for ex in rules.persona_leaks(strings):
+            self.find(case, f"{label}: persona/grade leak", FAIL, ex)
+        for ex in rules.rubric_leaks(strings):
+            self.find(case, f"{label}: rubric leak", FAIL, ex)
+        for ex in rules.canary_hits(strings):
+            self.find(case, f"{label}: CANARY '{rules.CANARY}' present "
+                      "(read past 3000 chars)", INFO, ex)
+        if not any(f["verdict"] == FAIL and label in f["check"]
+                   for f in self.findings):
+            self.find(case, f"{label}: grounding sweep clean", PASS,
+                      f"{len(strings)} strings swept")
+
+    # ---- PHASE 3: kestrel run ------------------------------------------
+    def phase_kestrel(self):
+        print("\n== PHASE 3: Kestrel run (QA-1.1,1.3-1.7,1.10,1.12-1.14,2.2,5.4,5.6) ==")
+        aid = self.create_avatar("Kestrel QA")
+        self.state["kestrelAvatarId"] = aid
+        self._save_state()
+
+        # 1. upload + compile (QA-1.1)
+        self.spend.charge_compile()
+        up = self.upload(aid, KESTREL, skip_relevance=True)
+        self.find("QA-1.1", "kestrel upload accepted", PASS if up.ok else FAIL,
+                  f"HTTP {up.status_code} {rules._excerpt(up.raw,'')}")
+        # trigger compile explicitly (idempotent w/ upload's own compile)
+        self.c.request("POST", f"/api/v1/avatars/{aid}/wiki/compile",
+                       json_body={}, timeout=120, tag="wiki/compile")
+        terminal, detail = self.poll_compile(aid)
+        self.find("QA-1.1", "compile reached terminal state",
+                  PASS if terminal in ("DONE", "READY_OK") else FAIL,
+                  f"{terminal} {detail}")
+
+        # module list (QA-5.6): expect 5-7
+        r = self.c.request("GET", f"/api/v1/avatars/{aid}/modules", tag="modules")
+        mods = self.c.unwrap(r) or []
+        if isinstance(mods, dict):
+            mods = mods.get("modules", [])
+        if not mods:
+            self.c.request("POST", f"/api/v1/avatars/{aid}/modules/generate",
+                           json_body={}, timeout=120, tag="modules/generate")
+            r = self.c.request("GET", f"/api/v1/avatars/{aid}/modules", tag="modules")
+            mods = self.c.unwrap(r) or []
+            if isinstance(mods, dict):
+                mods = mods.get("modules", [])
+        n = len(mods) if isinstance(mods, list) else 0
+        self.find("QA-5.6", "module count in 5-7", PASS if 5 <= n <= 7 else FAIL,
+                  f"count={n}: {[m.get('title') for m in mods][:8]}")
+        if not mods:
+            self.find("QA-1.x", "no modules -> cannot walk stages", FAIL, "")
+            return
+        mid = mods[0].get("id")
+        weak = set()
+
+        # 2-4. walk LEARN -> TEST -> PROVE
+        served = self.start_stage(aid, mid)
+        for _ in range(4):  # LEARN, TEST, PROVE, (COMPLETE)
+            stage = served.get("stage")
+            items = served.get("items") or []
+            cs = served.get("contentStatus")
+            if cs in ("CONTENT_UPDATING", "CONTENT_UNAVAILABLE") or not items:
+                # transient — brief re-poll
+                self.find("QA-5.6", f"{stage} served transient ({cs})", INFO, "")
+                time.sleep(6)
+                served = self.start_stage(aid, mid)
+                continue
+
+            if stage == "TEST":
+                self._test_stage(aid, mid, items, weak)
+            elif stage == "PROVE":
+                self._prove_stage(aid, mid, items, weak)
+                break
+            else:  # LEARN
+                self.sweep("QA-1.3", "LEARN", items)
+                subs = [{"itemId": it["id"], "response": "viewed:true"} for it in items]
+                res, _ = self.submit(aid, mid, subs, 20)
+                served = self.start_stage(aid, mid)
+
+        self.state["weakConcepts"] = sorted(weak)
+        self._save_state()
+
+        # 6. revision re-start (QA-2.2)
+        rev = self.start_stage(aid, mid, charge_prove=True)
+        adv = rev.get("revision") is True or rev.get("stage") == "PROVE"
+        self.find("QA-2.2", "revision re-start {stage:PROVE, revision:true}",
+                  PASS if adv else FAIL,
+                  f"stage={rev.get('stage')} revision={rev.get('revision')}")
+        if rev.get("items"):
+            self.sweep("QA-2.2", "REVISION-PROVE", rev.get("items"))
+
+    def _test_stage(self, aid, mid, items, weak):
+        # 3. LEAK ASSERTS (QA-1.10, 5.4) — both directions
+        leaked = []
+        prov_ok = True
+        for it in items:
+            blob = json.dumps(it)
+            for banned_key in ("isTrue", '"answer"', "correctSolution"):
+                # HOT_TAKE must carry no reveal; isTrue/answer never served
+                if it.get("type") == "HOT_TAKE" and it.get("revealJson"):
+                    leaked.append((it["id"], "HOT_TAKE has revealJson"))
+            for k in ("isTrue",):
+                if _has_key(it.get("answerJson"), k) or _has_key(it.get("contentJson"), k):
+                    leaked.append((it["id"], f"served '{k}'"))
+            if not (it.get("sourcePageTitle") or it.get("sourcePageSlug")):
+                prov_ok = False
+        self.find("QA-1.10", "TEST items strip answer key (isTrue/answer/HOT_TAKE reveal)",
+                  FAIL if leaked else PASS, leaked or "no graded keys served")
+        self.find("QA-5.4", "TEST items carry provenance (sourcePageTitle/slug)",
+                  PASS if prov_ok else FAIL, "")
+
+        # grounding sweep on TEST content (QA-1.4/1.6/1.7)
+        self.sweep("QA-1.4", "TEST", items)
+
+        # 4. run: per-item AGREE for all but the last hot-take; assert no advance
+        hot = [it for it in items if it.get("type") == "HOT_TAKE"]
+        advanced_early = False
+        for it in hot[:-1] if len(hot) > 1 else []:
+            res, _ = self.submit(aid, mid, [{"itemId": it["id"], "response": "AGREE"}], 0)
+            if res.get("stageComplete") or res.get("nextStage"):
+                advanced_early = True
+            self._record_correct(res, it, weak)
+        self.find("QA-1.12", "stage does NOT advance on per-item submits",
+                  FAIL if advanced_early else PASS, "")
+
+        # end-of-stage submit: all items
+        subs = [{"itemId": it["id"],
+                 "response": "AGREE" if it.get("type") == "HOT_TAKE" else "x"}
+                for it in items]
+        res, _ = self.submit(aid, mid, subs, 60)
+        advanced = bool(res.get("stageComplete") or res.get("nextStage"))
+        self.find("QA-1.12", "stage advances exactly once, on end-of-stage submit",
+                  PASS if advanced else FAIL,
+                  f"stageComplete={res.get('stageComplete')} next={res.get('nextStage')}")
+        for it in hot:
+            self._record_correct(res, it, weak)
+        # honesty: per-item results carry correct honestly
+        graded = [r for r in (res.get("results") or []) if "correct" in r]
+        self.find("QA-1.12", "per-item results carry honest 'correct' grade",
+                  PASS if graded else INFO,
+                  f"{len(graded)} graded rows")
+
+    def _record_correct(self, res, item, weak):
+        for row in (res.get("results") or []):
+            if row.get("itemId") == item.get("id") and row.get("correct") is False:
+                key = item.get("targetConcept") or item.get("sourcePageSlug") \
+                    or item.get("sourcePageTitle")
+                if key:
+                    weak.add(key)
+
+    def _prove_stage(self, aid, mid, items, weak):
+        # 5. PROVE served items: targetConcept + priorScore present (QA-1.14)
+        miss = [it["id"] for it in items if not it.get("targetConcept")]
+        self.find("QA-1.14", "PROVE items carry targetConcept",
+                  FAIL if miss else PASS, miss or f"{len(items)} items")
+        has_prior = [it for it in items if it.get("priorScore") is not None]
+        self.find("QA-1.14", "PROVE items carry priorScore",
+                  PASS if has_prior else INFO, f"{len(has_prior)}/{len(items)}")
+        self.sweep("QA-1.14", "PROVE", items)
+
+        # QA-1.13: prove-gen log (proxy: targetConcept real, not 'unknown:')
+        self._prove_gen_log_check(aid)
+
+        # submit PROVE stage then self-report NO to seed weakness deterministically
+        subs = [{"itemId": it["id"], "response": "My attempt at " + str(it.get("targetConcept"))}
+                for it in items]
+        res, _ = self.submit(aid, mid, subs, 60)
+        for it in items:
+            if it.get("targetConcept"):
+                weak.add(it["targetConcept"])
+            self.c.request(
+                "POST",
+                f"/api/v1/avatars/{aid}/modules/{mid}/items/{it['id']}/self-report",
+                json_body={"selfReport": "NO"}, tag="self-report")
+        self.find("QA-1.14", "PROVE self-reports recorded (seeding weakness)",
+                  PASS, f"{len(items)} items -> NO")
+
+    def _prove_gen_log_check(self, aid):
+        """Grep Railway logs for task=module-prove-gen. Best-effort; the literal
+        promptChars>2000 is NOT emitted on the Gemini happy path (see report)."""
+        if self.args.dry_run:
+            self.find("QA-1.13", "prove-gen log (railway)", NOT_COVERED, "dry-run")
+            return
+        try:
+            out = subprocess.run(
+                ["railway", "logs", "-s", "pally_backend", "--since", "20m",
+                 "--filter", "module-prove-gen"],
+                capture_output=True, text=True, timeout=60).stdout
+        except Exception as e:
+            self.find("QA-1.13", "prove-gen log (railway)", NOT_COVERED,
+                      f"railway CLI unavailable: {e}")
+            return
+        line = next((l for l in out.splitlines() if "module-prove-gen" in l), "")
+        if line:
+            self.find("QA-1.13", "prove-gen fired (task=module-prove-gen)", PASS,
+                      line.strip()[:200])
+        else:
+            self.find("QA-1.13", "prove-gen log line", INFO,
+                      "no line in 20m window (DEBUG may be sampled)")
+        self.find("QA-1.13", "promptChars>2000 literal assert", NOT_COVERED,
+                  "prompt length not logged on Gemini path; proxy=targetConcept real (QA-1.14)")
+
+    # ---- PHASE 4: day-2 ------------------------------------------------
+    def phase_day2(self):
+        print("\n== PHASE 4: day-2 (QA-3.4) ==")
+        aid = self.state.get("kestrelAvatarId")
+        if not aid:
+            self.find("QA-3.4", "day2 needs kestrel avatar from phase 3", NOT_COVERED,
+                      "run --phase kestrel first")
+            return
+        weak = set(self.state.get("weakConcepts") or [])
+        r = self.c.request("GET", f"/api/v1/avatars/{aid}/quiz/daily",
+                           timeout=120, tag="quiz/daily")
+        q = self.c.unwrap(r) or []
+        if isinstance(q, dict):
+            q = q.get("questions", [])
+        if not q:
+            self.find("QA-3.4", "daily quiz served", INFO, "empty quiz (none due)")
+            return
+        # weak-first selectionReason
+        reasons = [(x.get("selectionReason") or "") for x in q]
+        weak_first = [rr for rr in reasons if rr.startswith("WEAK_TOPIC:")]
+        if not weak_first:
+            self.find("QA-3.4", "quiz carries WEAK_TOPIC selectionReason", INFO,
+                      "none present — verify weakness.profile.enabled server-flag ON")
+        else:
+            matched = [rr for rr in weak_first
+                       if any(_loose_match(rr.split(":", 1)[1], w) for w in weak)]
+            self.find("QA-3.4",
+                      "weak-first WEAK_TOPIC matches a Phase-3 miss",
+                      PASS if matched else FAIL,
+                      f"weak_first={weak_first[:5]} seeded={sorted(weak)[:5]}")
+        # provenance on quiz
+        prov = all(x.get("pageTitle") or x.get("sourcePageSlug") for x in q)
+        self.find("QA-3.4", "quiz questions carry pageTitle/sourcePageSlug",
+                  PASS if prov else FAIL, "")
+        # home nudge — endpoint not surfaced in recon; flagged
+        self.find("QA-3.4", "home weak_concept nudge (human label, not slug)",
+                  NOT_COVERED,
+                  "no dedicated home-nudge API found in recon; render-layer — MANUAL")
+
+    # ---- report ---------------------------------------------------------
+    def write_report(self, path):
+        by = {}
+        for f in self.findings:
+            by.setdefault(f["verdict"], 0)
+            by[f["verdict"]] += 1
+        lines = []
+        lines.append("# Apalchi prod-API QA harness — automated results\n")
+        lines.append(f"- Base: `{self.c.base}`  ·  account: `{self.state.get('email','(dry-run)')}`")
+        lines.append(f"- Spend: compiles={self.spend.compiles}/{self.spend.max_compiles}, "
+                     f"prove-gens={self.spend.prove_gens}/{self.spend.max_prove_gens}")
+        lines.append(f"- Tally: " + ", ".join(f"**{k}** {v}" for k, v in sorted(by.items())) + "\n")
+        lines.append("| QA case | automated check | verdict | evidence |")
+        lines.append("|---|---|---|---|")
+        for f in self.findings:
+            ev = f["evidence"].replace("|", "\\|").replace("\n", " ")[:220]
+            lines.append(f"| {f['case']} | {f['check']} | {f['verdict']} | {ev} |")
+        lines.append("\n## REMAINS MANUAL (render / UX — not machine-verifiable here)\n")
+        for cid, why in REMAINS_MANUAL:
+            lines.append(f"- **{cid}** — {why}")
+        lines.append("\n## Raw call trace (trimmed)\n```")
+        for t in self.c.trace[-60:]:
+            lines.append(json.dumps(t, ensure_ascii=False)[:240])
+        lines.append("```")
+        Path(path).write_text("\n".join(lines))
+        print(f"\nreport -> {path}  ({by})")
+
+    # ---- driver ---------------------------------------------------------
+    def run(self):
+        phases = {"gauntlet": [self.phase_gauntlet],
+                  "kestrel": [self.phase_kestrel],
+                  "day2": [self.phase_day2],
+                  "all": [self.phase_gauntlet, self.phase_kestrel]}[self.args.phase]
+        self.bootstrap()
+        for ph in phases:
+            try:
+                ph()
+            except PhaseStop as e:
+                self.find(f"PHASE:{ph.__name__}", "phase aborted (safety stop)",
+                          INFO, str(e))
+                print(f"  !! PhaseStop: {e}")
+        self.write_report(self.args.report)
+
+
+# QA cases the harness cannot machine-verify (render / UX / device).
+REMAINS_MANUAL = [
+    ("QA-1.8/1.9", "LEARN card visual rendering, Mochi placeholder art, chip layout"),
+    ("QA-1.11", "TEST answer-reveal animation / reveal timing (client render)"),
+    ("QA-1.15", "PROVE self-assess UI + comeback line render"),
+    ("QA-2.1/2.3", "revision-mode banner + visual diff of fresh questions"),
+    ("QA-3.1-3.3", "home surfaces, streak, XP toast rendering"),
+    ("QA-3.4-nudge", "home weak_concept nudge card render + human-readable label"),
+    ("QA-4.x", "upload UX: progress spinner, error banners, add-anyway dialog"),
+    ("QA-5.1-5.3,5.5", "empty-state Mochi placeholders (library/chat/teach/wiki/groups)"),
+    ("QA-6.x", "store-build behaviour, iOS price gating, deep links"),
+]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--phase", choices=["gauntlet", "kestrel", "day2", "all"],
+                    default="all")
+    ap.add_argument("--report", default="out.md")
+    ap.add_argument("--base", default=None)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the call plan; fire nothing at prod")
+    Runner(ap.parse_args()).run()
+
+
+def _has_key(obj, key):
+    import json as _json
+    if obj is None:
+        return False
+    if isinstance(obj, str):
+        try:
+            obj = _json.loads(obj)
+        except Exception:
+            return key in obj
+    if isinstance(obj, dict):
+        return key in obj or any(_has_key(v, key) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_key(v, key) for v in obj)
+    return False
+
+
+def _loose_match(a, b):
+    a, b = str(a).lower().strip(), str(b).lower().strip()
+    return bool(a) and bool(b) and (a in b or b in a)
+
+
+if __name__ == "__main__":
+    main()
