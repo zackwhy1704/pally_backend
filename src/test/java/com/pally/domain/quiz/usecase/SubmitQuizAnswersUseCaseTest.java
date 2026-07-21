@@ -43,6 +43,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -68,6 +69,7 @@ class SubmitQuizAnswersUseCaseTest {
     @Mock QuizAnswerKeyRepository answerKeyRepository;
     @Mock ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
     @Mock com.pally.domain.quiz.QuizIdempotencyRepository idempotencyRepository;
+    @Mock com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
 
     @InjectMocks SubmitQuizAnswersUseCase useCase;
 
@@ -181,6 +183,61 @@ class SubmitQuizAnswersUseCaseTest {
 
         verify(referralService).onFirstQuizAnswer(USER);
         verify(badgeService).grantFirstAction(USER, BadgeService.BadgeType.FIRST_QUIZ);
+    }
+
+    // ── weakness-brain refresh on quiz submit (fix/weakset-refresh-on-quiz-submit) ──
+    // The materialization behaviour (matured miss history → WeaknessState contains
+    // the slug; unchanged weak-set → debounce skip) is pinned in
+    // WeaknessProfileServiceTest. These pin the NEW QUIZ-SIDE TRIGGER: the submit
+    // now fires the same guarded, best-effort refresh the module sites use, closing
+    // the staleness window so the next quiz's weak-first bias reads a current set.
+
+    private void stubHappyQuiz() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(anyString(), anyString(), any(),
+                anyInt(), anyInt(), anyInt())).thenReturn(award(20, 10, false, 1.0));
+    }
+
+    @Test
+    void quizSubmit_refreshesWeaknessBrain_whenFlagEnabled() {
+        // Fail-without-fix: pre-change the quiz submit never triggered a refresh, so
+        // the weak-set stayed stale until an unrelated module event — the next quiz
+        // read a stale (often empty) set and weak-first never fired.
+        stubHappyQuiz();
+        when(weaknessProfileService.isEnabled()).thenReturn(true);
+
+        useCase.execute(new AnswerSubmission(AVATAR, USER, Map.of("q1", 0)),
+                Map.of("q1", 0));
+
+        verify(weaknessProfileService).onMasteryUpdated(USER, AVATAR);
+    }
+
+    @Test
+    void quizSubmit_doesNotRefreshWeakness_whenFlagOff() {
+        stubHappyQuiz();
+        when(weaknessProfileService.isEnabled()).thenReturn(false);
+
+        useCase.execute(new AnswerSubmission(AVATAR, USER, Map.of("q1", 0)),
+                Map.of("q1", 0));
+
+        verify(weaknessProfileService, never()).onMasteryUpdated(anyString(), anyString());
+    }
+
+    @Test
+    void quizSubmit_weaknessRefreshFailure_neverAffectsTheQuizResult() {
+        // Best-effort: a refresh throw must be swallowed — the quiz result stands.
+        stubHappyQuiz();
+        when(weaknessProfileService.isEnabled()).thenReturn(true);
+        doThrow(new RuntimeException("weakness recompute blew up"))
+                .when(weaknessProfileService).onMasteryUpdated(USER, AVATAR);
+
+        QuizResult result = useCase.execute(
+                new AnswerSubmission(AVATAR, USER, Map.of("q1", 0)), Map.of("q1", 0));
+
+        assertThat(result).isNotNull();
+        assertThat(result.total()).isEqualTo(1);
     }
 
     @Test

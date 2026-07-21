@@ -106,6 +106,12 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   quiz-level adaptation" product call are the gate.
 - **Closes it:** design the module→weak-set contribution (which signals, what weight, how they
   blend with quiz attempts/ratio) + product sign-off, then extend the signal repository.
+- **Note (fix/weakset-refresh-on-quiz-submit):** the TRIGGER-TIMING gap — the quiz submit not
+  refreshing its own weak-set snapshot, so weak-first read a stale set — was fixed SEPARATELY
+  from this gated input question. `SubmitQuizAnswersUseCase` now calls the same guarded
+  best-effort `weaknessProfileService.onMasteryUpdated` the module sites use. That changed only
+  WHEN the surface refreshes (closing the staleness window), NOT WHAT feeds it. This #10 (module
+  signals as an INPUT to the weak-set) remains gated and untouched.
 
 ### 6. Mastery visibly moves only at COMPLETE — TEST-completion mastery update (GATED)
 - **What:** `updateMastery` runs only when a stage advances INTO COMPLETE (and on self-report),

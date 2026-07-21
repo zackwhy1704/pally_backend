@@ -551,20 +551,18 @@ class Runner:
                       NOT_COVERED,
                       f"weakSlugs empty ({prior_attempts} wrong-quiz day(s) on THIS avatar). "
                       "Weak-first CODE verified via the '[Pipeline:Quiz] weak-first bias "
-                      "weakSlugs=N' log. E2E flip needs TWO things: (1) >=2 wrong-quiz days "
-                      "(quiz_question_results attempts>=2 & correctRatio<0.6), AND (2) a MODULE "
-                      "PROVE event AFTER that history matures — the weak-set is a materialized "
-                      "WeaknessState written ONLY by onMasteryUpdated (a module event), never by "
-                      "the quiz submit itself. A pure day2-only run cannot flip it.")
+                      "weakSlugs=N' log. E2E flip needs >=2 wrong-quiz days per slug "
+                      "(quiz_question_results attempts>=2 & correctRatio<0.6). The quiz submit "
+                      "itself now refreshes the weak-set (fix/weakset-refresh-on-quiz-submit), so "
+                      "repeated day2 runs converge with NO extra trigger: expect PASS by day 2-3 "
+                      "on this avatar via the real user path.")
 
-        # Seed the CORRECT weakness signal: submit deliberately-wrong answers to the
-        # daily quiz. Writes quiz_question_results (this-day attempt). NOTE: this does
-        # NOT trigger materialization — the quiz submit does not call onMasteryUpdated
-        # (confirmed 2026-07-21 via prod log: weakSlugs stayed 0 after a module PROVE
-        # ran pre-seeding). Materialization is a MODULE PROVE event; to field-flip
-        # weak-first the harness must, once >=2 days are accumulated, drive a revision
-        # PROVE self-report on the kestrel avatar to re-materialize, THEN re-serve the
-        # quiz. Tracked as the day2 materialization-trigger enhancement.
+        # Seed the weakness signal via the REAL user path: submit deliberately-wrong
+        # answers to the daily quiz. Writes quiz_question_results AND (post
+        # fix/weakset-refresh-on-quiz-submit) triggers onMasteryUpdated at the end of
+        # the submit, re-materialising the weak-set from the now-current history. Once
+        # >=2 wrong-quiz days per slug accumulate, a later day2 SERVE reads the
+        # populated set and weak-first fires — no separate module trigger needed.
         self._seed_quiz_weakness(aid, q)
 
         # home nudge — endpoint not surfaced in recon; render-layer
