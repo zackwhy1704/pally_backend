@@ -5,6 +5,7 @@ import com.pally.api.avatar.dto.AvatarResponse;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
@@ -153,5 +154,57 @@ class AvatarMapperTest {
         assertThat(out).allSatisfy(r -> assertThat(r.mochiConfig()).isNull());
         verify(orgClassRepository, never()).findAllById(any());
         verify(orgClassRepository, never()).findById(any());
+    }
+
+    // ── Segmented-compile honesty: derived AvatarResponse surface ────────────────────
+
+    @Test
+    void derivation_pendingChunkFileAndNonReadyBrain_awaitingChapterSelectionTrue() {
+        // Late-segmentation state: a non-READY brain with a PENDING_CHUNK chapter to pick.
+        Avatar a = personalAvatar();
+        a.setBrainState(Avatar.BrainState.PENDING_RECOMPILE); // non-READY
+        KnowledgeFile parent = KnowledgeFile.create(
+                a.getUserId(), a.getUserId(), "book.pdf", "key", KnowledgeFile.UploadType.PDF);
+        parent.markSegmented();
+        KnowledgeFile chunk = KnowledgeFile.createChunk(parent, "Chapter 1", 1, 20, 20, "text");
+        when(knowledgeRepository.findByAvatarId(a.getId())).thenReturn(List.of(parent, chunk));
+
+        AvatarResponse resp = mapper.toResponse(a);
+
+        assertThat(resp.awaitingChapterSelection()).isTrue();
+        assertThat(resp.pendingChapterCount()).isGreaterThanOrEqualTo(1);
+        // Brain state stays one of the existing enum values — no new enum leaked.
+        assertThat(resp.brainState()).isEqualTo("PENDING_RECOMPILE");
+        assertThat(resp.compileFailureReason()).isNull();
+    }
+
+    @Test
+    void derivation_readyAvatarWithNoPendingFiles_awaitingFalseCountZeroReasonNull() {
+        // Regression: a normal READY avatar carries none of the new honesty flags.
+        Avatar a = personalAvatar(); // create() defaults to BrainState.READY
+        // findByAvatarId default (from @BeforeEach) is an empty file list.
+
+        AvatarResponse resp = mapper.toResponse(a);
+
+        assertThat(resp.awaitingChapterSelection()).isFalse();
+        assertThat(resp.pendingChapterCount()).isEqualTo(0);
+        assertThat(resp.compileFailureReason()).isNull();
+    }
+
+    @Test
+    void derivation_allFailedNoPagesNonReadyBrain_surfacesHonestFailureReason() {
+        Avatar a = personalAvatar();
+        a.setBrainState(Avatar.BrainState.PENDING_RECOMPILE); // non-READY
+        a.setWikiPageCount(0); // no real content
+        KnowledgeFile failed = KnowledgeFile.create(
+                a.getUserId(), a.getUserId(), "blurry.pdf", "key", KnowledgeFile.UploadType.PDF);
+        failed.markFailed();
+        when(knowledgeRepository.findByAvatarId(a.getId())).thenReturn(List.of(failed));
+
+        AvatarResponse resp = mapper.toResponse(a);
+
+        assertThat(resp.compileFailureReason()).isNotNull();
+        assertThat(resp.awaitingChapterSelection()).isFalse();
+        assertThat(resp.pendingChapterCount()).isEqualTo(0);
     }
 }

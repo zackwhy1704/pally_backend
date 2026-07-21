@@ -83,6 +83,31 @@ public class CompileWikiUseCase {
         }
     }
 
+    /// Honest file-state inventory: counts EVERY {@link KnowledgeFile.Status}, not just
+    /// ready/failed/processing. A file parked in SEGMENTED / PENDING_CHUNK / IRRELEVANT
+    /// used to be invisible to the inventory — the 156-page-PDF incident, where a
+    /// compile-time-segmented file landed in a state nothing counted, so the zero-ready
+    /// branch mislabelled it and the scheduler flipped the brain to a silent READY-empty.
+    record Inventory(long total, long ready, long failed, long processing,
+                     long segmented, long pendingChunk, long irrelevant) {}
+
+    /// Package-private + static so it is unit-testable in isolation (the counts feed both
+    /// the [Pipeline:Compile] log line and the state-aware zero-ready signal).
+    static Inventory inventory(List<KnowledgeFile> files) {
+        long ready = 0, failed = 0, processing = 0, segmented = 0, pendingChunk = 0, irrelevant = 0;
+        for (KnowledgeFile f : files) {
+            switch (f.getStatus()) {
+                case READY         -> ready++;
+                case FAILED        -> failed++;
+                case PROCESSING    -> processing++;
+                case SEGMENTED     -> segmented++;
+                case PENDING_CHUNK -> pendingChunk++;
+                case IRRELEVANT    -> irrelevant++;
+            }
+        }
+        return new Inventory(files.size(), ready, failed, processing, segmented, pendingChunk, irrelevant);
+    }
+
     /// Bounded variant — runs the compile on the {@link AiTaskExecutorConfig}
     /// pool so concurrent compiles can never exhaust the web tier or the
     /// Claude budget. A flooded queue surfaces a 503 to the caller via
@@ -145,13 +170,17 @@ public class CompileWikiUseCase {
         }
 
         // ── Pipeline log: file inventory ─────────────────────────────────────
+        // Counts EVERY KnowledgeFile.Status (not just ready/failed/processing) so a file
+        // parked in SEGMENTED / PENDING_CHUNK / IRRELEVANT is visible AND can drive an
+        // honest zero-ready signal below (the 156-page-PDF incident: the file landed in a
+        // state the old inventory didn't count → the brain flipped to a silent READY-empty).
         List<KnowledgeFile> allFiles = knowledgeRepository.findByAvatarId(avatarId);
-        long readyCount   = allFiles.stream().filter(f -> f.getStatus() == KnowledgeFile.Status.READY).count();
-        long failedCount  = allFiles.stream().filter(f -> f.getStatus() == KnowledgeFile.Status.FAILED).count();
-        long processingCount = allFiles.stream().filter(f -> f.getStatus() == KnowledgeFile.Status.PROCESSING).count();
-        long existingPages   = wikiRepository.countActiveByAvatarId(avatarId);
-        log.info("[Pipeline:Compile] avatarId={} files: total={} ready={} failed={} processing={} existingWikiPages={}",
-                avatarId, allFiles.size(), readyCount, failedCount, processingCount, existingPages);
+        Inventory inv = inventory(allFiles);
+        long existingPages = wikiRepository.countActiveByAvatarId(avatarId);
+        log.info("[Pipeline:Compile] avatarId={} files: total={} ready={} failed={} processing={} "
+                + "segmented={} pendingChunk={} irrelevant={} existingWikiPages={}",
+                avatarId, inv.total(), inv.ready(), inv.failed(), inv.processing(),
+                inv.segmented(), inv.pendingChunk(), inv.irrelevant(), existingPages);
 
         List<KnowledgeFile> readyFiles = allFiles.stream()
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
@@ -174,15 +203,28 @@ public class CompileWikiUseCase {
                 }
                 return new CompileResult(0, 0, List.of());
             }
-            // total>0 but zero READY: a commit-race victim (a just-picked chunk not yet
-            // visible) OR a legitimately all-FAILED avatar. Do NOT archive — wiping an
-            // established brain on a transient zero-ready read is a worse bug than the race
-            // that exposed it. Signal the scheduler for a SINGLE retry (self-heals a race;
-            // gives up after one try on all-FAILED). Brain stays non-READY until it resolves.
-            log.warn("[Pipeline:Compile] zero READY of {} files for avatarId={} (failed={} processing={}) "
-                    + "— NOT archiving (brain preserved), requesting single retry.",
-                    allFiles.size(), avatarId, failedCount, processingCount);
-            return new CompileResult(0, 0, List.of(), "skipped-zero-ready-retry", 0, 0);
+            // total>0 but zero READY: NEVER archive — wiping an established brain on a
+            // transient zero-ready read is a worse bug than the race that exposed it.
+            // Return a STATE-AWARE signal (no schema change — just the CompileResult.tierServed
+            // String) so the scheduler reacts honestly instead of retrying-once-then-lying:
+            //   • processing>0                         → extraction still running; poll with backoff.
+            //   • processing==0 & (segmented|pending)>0 → waiting on the USER to pick chapters.
+            //   • else                                  → all FAILED/IRRELEVANT (a real failure).
+            // Brain stays non-READY until it genuinely resolves.
+            String signal;
+            if (inv.processing() > 0) {
+                signal = "zero-ready-processing";
+            } else if (inv.segmented() + inv.pendingChunk() > 0) {
+                signal = "zero-ready-awaiting-selection";
+            } else {
+                signal = "zero-ready-failed";
+            }
+            log.warn("[Pipeline:Compile] zero READY of {} files for avatarId={} "
+                    + "(failed={} processing={} segmented={} pendingChunk={} irrelevant={}) "
+                    + "— NOT archiving (brain preserved), signal={}.",
+                    inv.total(), avatarId, inv.failed(), inv.processing(), inv.segmented(),
+                    inv.pendingChunk(), inv.irrelevant(), signal);
+            return new CompileResult(0, 0, List.of(), signal, 0, 0);
         }
 
         // ── Incremental compile: only feed NEW files to the AI compiler ──────

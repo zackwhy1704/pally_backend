@@ -69,5 +69,21 @@ public record AvatarResponse(
         /// class-bound CENTRE_CLASS avatar; null/absent for PERSONAL and for the
         /// hidden class corpus. The mobile uses it to call leave-class.
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String classId
+        String classId,
+        // ── Segmented-compile honesty (additive, DERIVED at response-build time) ──────
+        // These three fields are computed from LIVE knowledge-file states in the mapper —
+        // NOT persisted, NO schema change, and brainState stays one of the existing enum
+        // values {READY, PENDING_RECOMPILE, COMPILING}. Old clients ignore them; new
+        // clients render "chapters ready to pick" / an honest failure message instead of
+        // staring at a silent READY-empty (or forever-non-READY) brain.
+        /// True when the brain is non-READY, has NO ready files, and there are
+        /// SEGMENTED/PENDING_CHUNK files — i.e. compile-time segmentation produced
+        /// chapters the USER must pick before anything compiles.
+        boolean awaitingChapterSelection,
+        /// Number of PENDING_CHUNK (pickable) chapters. 0 when not awaiting selection.
+        int pendingChapterCount,
+        /// A short, honest failure message shown ONLY when the brain is non-READY, has no
+        /// ready files, every file is FAILED/IRRELEVANT, and no wiki pages exist. Null otherwise.
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String compileFailureReason
 ) {}

@@ -61,11 +61,18 @@ public class WikiRecompileScheduler {
     private final ConcurrentHashMap<String, Long>               firstQueuedAt  = new ConcurrentHashMap<>();
     private final Set<String>                                    inFlight       = ConcurrentHashMap.newKeySet();
     private final Set<String>                                    dirtyAgain     = ConcurrentHashMap.newKeySet();
-    /// Single-shot guard for the zero-ready-with-files retry (Fix B): an avatar whose
-    /// compile found files but none READY gets exactly ONE 2-min retry (race self-heal)
-    /// before we give up (all-FAILED avatars must not retry forever). Cleared on any
-    /// non-zero-ready outcome.
-    private final Set<String>                                    zeroReadyRetried = ConcurrentHashMap.newKeySet();
+    /// Per-avatar attempt counter for the zero-ready-PROCESSING re-poll loop (GATED-LITE):
+    /// when a compile finds files present but none READY *because extraction is still
+    /// running*, we RE-RUN the compile on an escalating backoff so a later attempt re-reads
+    /// file states (and naturally falls into awaiting-selection / failed once processing
+    /// finishes). Bounded by {@link #ZERO_READY_PROCESSING_BACKOFF_MIN} (~28 min ceiling),
+    /// then we give up HONESTLY — brain left non-READY, never a silent READY-empty. Cleared
+    /// on any terminal outcome (awaiting-selection, failed, a real compile, or the ceiling).
+    private final ConcurrentHashMap<String, Integer>            zeroReadyProcessingAttempts = new ConcurrentHashMap<>();
+
+    /// Escalating re-poll delays (minutes) for the zero-ready-processing loop: 1→2→5…,
+    /// summing to ~28 min before an honest give-up. Index = attempt number (0-based).
+    private static final int[] ZERO_READY_PROCESSING_BACKOFF_MIN = {1, 2, 5, 5, 5, 5, 5};
 
     // Daily compile budget guard: counts compiles per avatar per UTC day.
     // Prevents a spam-uploading user from triggering unbounded Gemini calls.
@@ -253,27 +260,10 @@ public class WikiRecompileScheduler {
             // failed to persist) looks like a full success to the teacher.
             CompileWikiUseCase.CompileResult result = compileWikiUseCase.execute(avatarId);
             recordRecompileStatus(avatarId, result);
-            // Fix B: the compile found files but none READY (a commit-race victim whose
-            // pick isn't visible yet, OR a legitimately all-FAILED avatar). CompileWiki
-            // did NOT archive (never wipe a brain on a transient zero-ready). Retry ONCE:
-            // a race self-heals on the retry; an all-FAILED avatar stops after one try
-            // (never a forever loop) and keeps whatever pages it already had.
-            if ("skipped-zero-ready-retry".equals(result.tierServed())) {
-                if (zeroReadyRetried.add(avatarId)) {
-                    deferBrainReady = true; // leave brain non-READY until the retry resolves
-                    timer.schedule(() -> requestRecompile(avatarId), 2,
-                            java.util.concurrent.TimeUnit.MINUTES);
-                    log.warn("[Debounce] zero READY files (but files exist) for avatar={} — "
-                            + "single retry in 2min; brain left non-READY, pages NOT archived", avatarId);
-                } else {
-                    zeroReadyRetried.remove(avatarId);
-                    log.error("[Debounce] zero READY files AGAIN after retry for avatar={} — giving up: "
-                            + "leaving existing pages intact, marking READY. Files likely all FAILED/"
-                            + "PROCESSING; check the [Pipeline:Compile] inventory line.", avatarId);
-                }
-            } else {
-                zeroReadyRetried.remove(avatarId); // any real outcome resets the single-shot guard
-            }
+            // GATED-LITE: the compile found files but none READY. CompileWiki NEVER archives
+            // here (never wipe a brain on a transient zero-ready); it returns a STATE-AWARE
+            // signal so we react honestly instead of retrying-once-then-lying-READY-empty.
+            deferBrainReady = handleZeroReadySignal(avatarId, result.tierServed());
         } catch (Exception e) {
             failed = true;
             boolean isTimeout = e.getMessage() == null
@@ -302,6 +292,75 @@ public class WikiRecompileScheduler {
                 // Uses timer (not aiTaskExecutor) to avoid blocking the pool.
                 timer.schedule(() -> requestRecompile(avatarId), 2, java.util.concurrent.TimeUnit.MINUTES);
                 log.info("[Debounce] Retry scheduled in 2min for avatar={}", avatarId);
+            }
+        }
+    }
+
+    /**
+     * React to a state-aware zero-ready signal from CompileWikiUseCase without EVER marking a
+     * brain READY-empty. Returns {@code true} when the brain must be left non-READY (the caller
+     * then skips markReady in its finally). Package-private for unit testing.
+     *
+     * <ul>
+     *   <li>{@code zero-ready-processing} — extraction still running: RE-RUN the compile on an
+     *       escalating backoff (each re-run re-reads file states, so it naturally moves to
+     *       awaiting-selection / failed once processing finishes) up to a ~28-min ceiling, then
+     *       give up HONESTLY (still non-READY). NOT a single 2-min shot.</li>
+     *   <li>{@code zero-ready-awaiting-selection} — waiting on the USER to pick chapters: no
+     *       retry loop; leave non-READY. The AvatarResponse.awaitingChapterSelection field tells
+     *       the client.</li>
+     *   <li>{@code zero-ready-failed} — all FAILED/IRRELEVANT: mark READY ONLY if real wiki pages
+     *       already exist (that content is honest); with zero pages leave non-READY (marking
+     *       READY-empty would be the silent lie). AvatarResponse.compileFailureReason surfaces it.</li>
+     *   <li>anything else (a real compile outcome) — clear the attempt guard, proceed normally.</li>
+     * </ul>
+     */
+    boolean handleZeroReadySignal(String avatarId, String tierServed) {
+        String signal = tierServed == null ? "" : tierServed;
+        switch (signal) {
+            case "zero-ready-processing" -> {
+                int attempt = zeroReadyProcessingAttempts.merge(avatarId, 1, Integer::sum) - 1;
+                if (attempt < ZERO_READY_PROCESSING_BACKOFF_MIN.length) {
+                    int delayMin = ZERO_READY_PROCESSING_BACKOFF_MIN[attempt];
+                    // Re-run the WHOLE compile so it re-reads live file states — not a blind
+                    // retry of a stale inventory hoping extraction finished.
+                    timer.schedule(() -> requestRecompile(avatarId), delayMin, TimeUnit.MINUTES);
+                    log.warn("[Debounce] zero READY (extraction still PROCESSING) for avatar={} — "
+                            + "re-poll #{} in {}min; brain left non-READY (NOT marked READY-empty)",
+                            avatarId, attempt + 1, delayMin);
+                } else {
+                    zeroReadyProcessingAttempts.remove(avatarId);
+                    log.error("[Debounce] zero READY still PROCESSING after {} re-polls (~{}min) for "
+                            + "avatar={} — giving up HONESTLY: brain left non-READY, NOT marked READY-empty. "
+                            + "Extraction appears stuck; check the [Pipeline:Compile] inventory line.",
+                            ZERO_READY_PROCESSING_BACKOFF_MIN.length,
+                            java.util.Arrays.stream(ZERO_READY_PROCESSING_BACKOFF_MIN).sum(), avatarId);
+                }
+                return true; // leave non-READY in every processing sub-case (including give-up)
+            }
+            case "zero-ready-awaiting-selection" -> {
+                zeroReadyProcessingAttempts.remove(avatarId);
+                log.warn("[Debounce] zero READY, chapters awaiting selection for avatar={} — brain left "
+                        + "non-READY, NO retry loop (waiting on the user to pick chapters). "
+                        + "AvatarResponse.awaitingChapterSelection surfaces this to the client.", avatarId);
+                return true;
+            }
+            case "zero-ready-failed" -> {
+                zeroReadyProcessingAttempts.remove(avatarId);
+                long pages = wikiRepository.countActiveByAvatarId(avatarId);
+                if (pages > 0) {
+                    log.warn("[Debounce] zero READY, all files FAILED/IRRELEVANT for avatar={} but {} "
+                            + "existing wiki page(s) — marking READY (that content is real).", avatarId, pages);
+                    return false; // real content exists → honest to present READY
+                }
+                log.error("[Debounce] zero READY, all files FAILED/IRRELEVANT AND zero wiki pages for "
+                        + "avatar={} — leaving brain non-READY (honest failure); NOT marking READY-empty. "
+                        + "AvatarResponse.compileFailureReason surfaces this to the client.", avatarId);
+                return true;
+            }
+            default -> {
+                zeroReadyProcessingAttempts.remove(avatarId); // any real outcome resets the guard
+                return false;
             }
         }
     }

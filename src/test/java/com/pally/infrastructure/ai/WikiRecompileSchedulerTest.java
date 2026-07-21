@@ -171,40 +171,77 @@ class WikiRecompileSchedulerTest {
         }
     }
 
-    // ── Fix B: zero-ready-with-files → single retry, brain not READY, no wipe ─
+    // ── GATED-LITE: state-aware zero-ready signals → never a silent READY-empty ─
 
     @Test
-    void zeroReadyWithFiles_firstTime_leavesBrainNonReady() throws InterruptedException {
-        when(wikiRepository.countActiveByAvatarId("av-zr")).thenReturn(0); // immediate branch
-        when(compileWikiUseCase.execute("av-zr")).thenReturn(new CompileWikiUseCase.CompileResult(
-                0, 0, List.of(), "skipped-zero-ready-retry", 0, 0));
+    void zeroReadyAwaitingSelection_leavesBrainNonReady_noMarkReady() throws InterruptedException {
+        // The late-segmentation case: SEGMENTED/PENDING_CHUNK files, waiting on the user to
+        // pick chapters. Today (pre-fix) this flipped the brain to READY-empty after the
+        // single retry; the honest behaviour is to leave it non-READY.
+        when(wikiRepository.countActiveByAvatarId("av-sel")).thenReturn(0); // immediate branch, 0 pages
+        when(compileWikiUseCase.execute("av-sel")).thenReturn(new CompileWikiUseCase.CompileResult(
+                0, 0, List.of(), "zero-ready-awaiting-selection", 0, 0));
 
-        scheduler.requestRecompile("av-zr");
+        scheduler.requestRecompile("av-sel");
 
         Awaitility.await().atMost(2, TimeUnit.SECONDS)
-                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-zr"));
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-sel"));
         Thread.sleep(300); // let runCompile's finally run
-        // A skip that followed an explicit request must NOT present a "ready" empty brain.
-        verify(brainStateService, never()).markReady("av-zr");
+        verify(brainStateService, never()).markReady("av-sel");
     }
 
     @Test
-    void zeroReadyWithFiles_secondTime_givesUpSingleShot_andMarksReady() throws InterruptedException {
-        when(wikiRepository.countActiveByAvatarId("av-zr2")).thenReturn(0);
-        when(compileWikiUseCase.execute("av-zr2")).thenReturn(new CompileWikiUseCase.CompileResult(
-                0, 0, List.of(), "skipped-zero-ready-retry", 0, 0));
+    void zeroReadyProcessing_defersAndDoesNotGiveUpAfterOneShot() throws InterruptedException {
+        // Extraction still running. The OLD single-shot marked the brain READY on the SECOND
+        // zero-ready; the processing loop must keep deferring on backoff — never READY-empty.
+        when(wikiRepository.countActiveByAvatarId("av-proc")).thenReturn(0);
+        when(compileWikiUseCase.execute("av-proc")).thenReturn(new CompileWikiUseCase.CompileResult(
+                0, 0, List.of(), "zero-ready-processing", 0, 0));
 
-        scheduler.requestRecompile("av-zr2"); // 1st → defer, no markReady
+        scheduler.requestRecompile("av-proc"); // 1st
         Awaitility.await().atMost(2, TimeUnit.SECONDS)
-                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-zr2"));
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-proc"));
         Thread.sleep(200); // 1st runCompile finishes, inFlight cleared
 
-        scheduler.requestRecompile("av-zr2"); // 2nd (simulates the retry) → give up
+        scheduler.requestRecompile("av-proc"); // 2nd — what the old single-shot treated as give-up
         Awaitility.await().atMost(2, TimeUnit.SECONDS)
-                .untilAsserted(() -> verify(compileWikiUseCase, times(2)).execute("av-zr2"));
-        // markReady fires exactly ONCE — only on the give-up (never a third attempt).
+                .untilAsserted(() -> verify(compileWikiUseCase, times(2)).execute("av-proc"));
+        Thread.sleep(300);
+
+        // Not abandoned after one shot: still deferring, NEVER a silent READY-empty.
+        verify(brainStateService, never()).markReady("av-proc");
+    }
+
+    @Test
+    void zeroReadyFailed_zeroPages_givesUpHonestly_neverMarksReadyEmpty() throws InterruptedException {
+        // All files FAILED/IRRELEVANT and no existing wiki pages → honest give-up. Marking
+        // READY here would be the silent READY-empty lie.
+        when(wikiRepository.countActiveByAvatarId("av-fail")).thenReturn(0); // 0 pages everywhere
+        when(compileWikiUseCase.execute("av-fail")).thenReturn(new CompileWikiUseCase.CompileResult(
+                0, 0, List.of(), "zero-ready-failed", 0, 0));
+
+        scheduler.requestRecompile("av-fail");
+
         Awaitility.await().atMost(2, TimeUnit.SECONDS)
-                .untilAsserted(() -> verify(brainStateService, times(1)).markReady("av-zr2"));
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-fail"));
+        Thread.sleep(300);
+        verify(brainStateService, never()).markReady("av-fail");
+    }
+
+    @Test
+    void zeroReadyFailed_withExistingPages_marksReady_thatContentIsReal() throws InterruptedException {
+        // Zero READY files but the avatar already has real wiki pages → honest to present
+        // READY (we keep the real content; we don't wipe it).
+        when(wikiRepository.countActiveByAvatarId("av-fail2")).thenReturn(3); // debounce path AND pages>0
+        when(compileWikiUseCase.execute("av-fail2")).thenReturn(new CompileWikiUseCase.CompileResult(
+                0, 0, List.of(), "zero-ready-failed", 0, 0));
+
+        scheduler.requestRecompile("av-fail2");
+
+        Awaitility.await().atMost(DEBOUNCE_MS * 3 + 1000, TimeUnit.MILLISECONDS)
+                .untilAsserted(() -> verify(compileWikiUseCase, times(1)).execute("av-fail2"));
+        Awaitility.await().atMost(2, TimeUnit.SECONDS)
+                .untilAsserted(() -> verify(brainStateService, atLeastOnce()).markReady("av-fail2"));
     }
 
     // ── Test 2: Max-wait ceiling ─────────────────────────────────────────────
