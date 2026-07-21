@@ -50,6 +50,37 @@ class KnowledgeControllerTest {
     }
 
     @Test
+    void uploadFile_segmented_returns201_andChunksSurviveSerialization() throws Exception {
+        // HTTP-boundary contract pin (was MISSING): a Segmented upload must return the
+        // Segmented WHOLE and serialize its `chunks` + `parentFileId` into the JSON body —
+        // that is what the web reads to open the chapter picker. The use-case-layer test
+        // (UploadChunkRoutingTest) pins only the return TYPE, not serialization; a future
+        // mapper change (e.g. a narrowed projection) could silently drop `chunks` and stay
+        // green. Fail-without-fix if chunks ever stop reaching JSON.
+        MultipartFile file = new MockMultipartFile(
+                "file", "big.pdf", "application/pdf", "%PDF-large".getBytes());
+        var seg = new UploadResult.Segmented("parent-1", List.of(
+                new UploadResult.ChunkInfo("chunk-1", "Chapter 1", 1, 40, 40),
+                new UploadResult.ChunkInfo("chunk-2", "Chapter 2", 41, 80, 40)));
+        when(knowledgeService.uploadFile(anyString(), anyString(), any(MultipartFile.class), anyBoolean()))
+                .thenReturn(seg);
+
+        var response = controller.uploadFile("user-1", "avatar-1", file, false);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody()).isNotNull();
+        // The controller returns the Segmented WHOLE (not a narrowed projection).
+        assertThat(response.getBody().data()).isInstanceOf(UploadResult.Segmented.class);
+        // And it serializes to JSON carrying chunks + parentFileId + chunkId (the web contract).
+        String json = new com.fasterxml.jackson.databind.ObjectMapper()
+                .writeValueAsString(response.getBody());
+        assertThat(json).contains("\"parentFileId\":\"parent-1\"");
+        assertThat(json).contains("\"chunks\"");
+        assertThat(json).contains("\"chunkId\":\"chunk-1\"");
+        assertThat(json).contains("\"title\":\"Chapter 1\"");
+    }
+
+    @Test
     void uploadFile_emptyFile_returns400_andServiceNotCalled() {
         MultipartFile emptyFile = new MockMultipartFile(
                 "file", "empty.txt", "text/plain", new byte[0]);
