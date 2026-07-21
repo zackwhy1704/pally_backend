@@ -549,13 +549,14 @@ class Runner:
             self.find("QA-3.4",
                       "weak-first WEAK_TOPIC selectionReason present",
                       NOT_COVERED,
-                      f"weakSlugs empty ({prior_attempts} wrong-quiz day(s) on THIS avatar). "
-                      "Weak-first CODE verified via the '[Pipeline:Quiz] weak-first bias "
-                      "weakSlugs=N' log. E2E flip needs >=2 wrong-quiz days per slug "
-                      "(quiz_question_results attempts>=2 & correctRatio<0.6). The quiz submit "
-                      "itself now refreshes the weak-set (fix/weakset-refresh-on-quiz-submit), so "
-                      "repeated day2 runs converge with NO extra trigger: expect PASS by day 2-3 "
-                      "on this avatar via the real user path.")
+                      f"weakSlugs empty at THIS serve ({prior_attempts} wrong-quiz day(s)). "
+                      "The daily quiz is cached per SGT-day (GetDailyQuizUseCase), so this "
+                      "serve reflects the weak-set AS OF today's first generation. The quiz "
+                      "submit now materialises the weak-set (fix/weakset-refresh-on-quiz-submit "
+                      "— FIELD-PROVEN 2026-07-21: a 2nd wrong submit logged '[Weakness] recompile "
+                      "weak=5'), so the flip surfaces on the NEXT SGT-day's FRESH serve (cache "
+                      "rollover) once >=2 attempts/slug have accumulated. Run day2 again tomorrow "
+                      "and this asserts PASS via the real user path — no extra trigger.")
 
         # Seed the weakness signal via the REAL user path: submit deliberately-wrong
         # answers to the daily quiz. Writes quiz_question_results AND (post
