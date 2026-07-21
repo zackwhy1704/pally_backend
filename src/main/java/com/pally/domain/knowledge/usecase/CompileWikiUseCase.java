@@ -88,13 +88,20 @@ public class CompileWikiUseCase {
     /// used to be invisible to the inventory — the 156-page-PDF incident, where a
     /// compile-time-segmented file landed in a state nothing counted, so the zero-ready
     /// branch mislabelled it and the scheduler flipped the brain to a silent READY-empty.
+    /// {@code totalChars} — sum of every file's extracted-text length (all states, not
+    /// just READY). Added so a zero-READY / FAILED compile records HOW MUCH text the
+    /// files actually held: "0 ready but 180k chars present" vs "0 ready, 0 chars"
+    /// are very different diagnoses, and the old inventory line couldn't tell them apart
+    /// (the Sales-Game FAILED-verdict investigation — a FAILED verdict must stay
+    /// diagnosable forever without a re-run).
     record Inventory(long total, long ready, long failed, long processing,
-                     long segmented, long pendingChunk, long irrelevant) {}
+                     long segmented, long pendingChunk, long irrelevant, long totalChars) {}
 
     /// Package-private + static so it is unit-testable in isolation (the counts feed both
     /// the [Pipeline:Compile] log line and the state-aware zero-ready signal).
     static Inventory inventory(List<KnowledgeFile> files) {
         long ready = 0, failed = 0, processing = 0, segmented = 0, pendingChunk = 0, irrelevant = 0;
+        long totalChars = 0;
         for (KnowledgeFile f : files) {
             switch (f.getStatus()) {
                 case READY         -> ready++;
@@ -104,8 +111,10 @@ public class CompileWikiUseCase {
                 case PENDING_CHUNK -> pendingChunk++;
                 case IRRELEVANT    -> irrelevant++;
             }
+            totalChars += f.getExtractedText() != null ? f.getExtractedText().length() : 0;
         }
-        return new Inventory(files.size(), ready, failed, processing, segmented, pendingChunk, irrelevant);
+        return new Inventory(files.size(), ready, failed, processing, segmented,
+                pendingChunk, irrelevant, totalChars);
     }
 
     /// Bounded variant — runs the compile on the {@link AiTaskExecutorConfig}
@@ -178,9 +187,9 @@ public class CompileWikiUseCase {
         Inventory inv = inventory(allFiles);
         long existingPages = wikiRepository.countActiveByAvatarId(avatarId);
         log.info("[Pipeline:Compile] avatarId={} files: total={} ready={} failed={} processing={} "
-                + "segmented={} pendingChunk={} irrelevant={} existingWikiPages={}",
+                + "segmented={} pendingChunk={} irrelevant={} totalChars={} existingWikiPages={}",
                 avatarId, inv.total(), inv.ready(), inv.failed(), inv.processing(),
-                inv.segmented(), inv.pendingChunk(), inv.irrelevant(), existingPages);
+                inv.segmented(), inv.pendingChunk(), inv.irrelevant(), inv.totalChars(), existingPages);
 
         List<KnowledgeFile> readyFiles = allFiles.stream()
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY)
@@ -279,6 +288,21 @@ public class CompileWikiUseCase {
         }
 
         List<WikiPage> existingWikiPages = wikiRepository.findByAvatarId(avatarId);
+
+        // DELETE-DURING-COMPILE GUARD (the cheapest correct one): re-check the avatar
+        // still EXISTS right before the expensive Gemini/Claude generation. A teacher/
+        // student who deletes the avatar mid-compile otherwise burns real AI spend, then
+        // the persist hits an avatar_id FK violation and the brain gets flipped to a
+        // phantom READY. There is no cooperative cancel hook threaded into the compiler
+        // call (it is a WebClient request with its own timeout), so an existence re-check
+        // just before the spend is the correct guard. NB: a delete that lands while the
+        // call is already IN FLIGHT can't be caught here — that spend is unavoidable
+        // without a cancel hook — but the abort still stops the orphan-page persist.
+        if (avatarRepository.findById(avatarId).isEmpty()) {
+            log.warn("[Pipeline:Compile] avatarId={} was DELETED mid-compile — aborting BEFORE "
+                    + "generation (no AI spend, no orphan wiki pages).", avatarId);
+            return new CompileResult(0, 0, List.of(), "aborted-avatar-deleted", 0, 0);
+        }
 
         WikiCompilerPort.CompileOutput compileOutput;
         try {
@@ -483,6 +507,17 @@ public class CompileWikiUseCase {
 
             log.info("[Pipeline:BatchCompile] Batch {}/{}: {} files, {} chars",
                     i + 1, batches.size(), batch.size(), batchChars);
+
+            // DELETE-DURING-COMPILE GUARD (same family as execute()): a delete part-way
+            // through a multi-batch compile must stop the REMAINING batches burning AI
+            // spend on a dead avatar. Re-checked each iteration (cheap DB read) so the
+            // abort is prompt; already-persisted batches are safe.
+            if (avatarRepository.findById(avatarId).isEmpty()) {
+                log.warn("[Pipeline:BatchCompile] avatarId={} was DELETED mid-compile — aborting "
+                        + "remaining batches (batch {}/{}); no further AI spend.",
+                        avatarId, i + 1, batches.size());
+                break;
+            }
 
             try {
                 List<WikiPage> existingWikiPages = wikiRepository.findByAvatarId(avatarId);

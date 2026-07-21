@@ -121,4 +121,43 @@ class CompileWikiUseCaseZeroReadyTest {
         assertThat(inv.pendingChunk()).isEqualTo(1);
         assertThat(inv.irrelevant()).isEqualTo(1);
     }
+
+    @Test
+    void inventory_totalChars_sumsExtractedTextAcrossEveryFileState() {
+        // Char total is summed for ALL files regardless of status (a FAILED file's text
+        // still counts) so a zero-READY/FAILED compile records how much text was present.
+        KnowledgeFile ready = KnowledgeFile.create("av", "u", "a.pdf", "key", KnowledgeFile.UploadType.PDF);
+        ready.markReady(1);
+        ready.setExtractedText("12345");           // 5 chars
+        KnowledgeFile failed = KnowledgeFile.create("av", "u", "b.pdf", "key", KnowledgeFile.UploadType.PDF);
+        failed.markFailed();
+        failed.setExtractedText("abc");            // 3 chars, counted despite FAILED
+        KnowledgeFile empty = KnowledgeFile.create("av", "u", "c.pdf", "key", KnowledgeFile.UploadType.PDF);
+        // null extractedText → contributes 0, never NPEs
+
+        CompileWikiUseCase.Inventory inv = CompileWikiUseCase.inventory(List.of(ready, failed, empty));
+
+        assertThat(inv.total()).isEqualTo(3);
+        assertThat(inv.totalChars()).isEqualTo(8);
+    }
+
+    @Test
+    void avatarDeletedMidCompile_abortsBeforeGeneration_noAiSpend() {
+        // findById: PRESENT at the top of execute() (compile proceeds), then EMPTY at the
+        // pre-generation existence re-check (the avatar was deleted mid-compile).
+        when(avatarRepository.findById("av"))
+                .thenReturn(Optional.of(mock(Avatar.class)), Optional.empty());
+
+        KnowledgeFile ready = KnowledgeFile.create("av", "u", "f.pdf", "key", KnowledgeFile.UploadType.PDF);
+        ready.markReady(1);
+        ready.setExtractedText("real notes with enough extracted text to compile");
+        when(knowledgeRepository.findByAvatarId("av")).thenReturn(List.of(ready));
+
+        CompileWikiUseCase.CompileResult r = useCase.execute("av");
+
+        // The guard returns the abort signal instead of invoking the (unmocked/null)
+        // wikiCompiler — proof generation never ran, so no AI spend and no orphan-page
+        // persist (which would have hit the avatar_id FK violation).
+        assertThat(r.tierServed()).isEqualTo("aborted-avatar-deleted");
+    }
 }

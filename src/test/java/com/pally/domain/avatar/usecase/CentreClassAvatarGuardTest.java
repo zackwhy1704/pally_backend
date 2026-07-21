@@ -2,6 +2,7 @@ package com.pally.domain.avatar.usecase;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
+import com.pally.domain.chat.port.ChatSessionCachePort;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.shared.exception.BusinessException;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.when;
 class CentreClassAvatarGuardTest {
 
     @Mock AvatarRepository avatarRepository;
+    @Mock ChatSessionCachePort chatSessionCachePort;
 
     private static final String USER_ID = "student-1";
     private static final String AVATAR_ID = "avatar-1";
@@ -49,7 +51,7 @@ class CentreClassAvatarGuardTest {
 
     @Test
     void delete_classAvatar_isForbidden_andNeverDeletes() {
-        DeleteAvatarUseCase useCase = new DeleteAvatarUseCase(avatarRepository);
+        DeleteAvatarUseCase useCase = new DeleteAvatarUseCase(avatarRepository, chatSessionCachePort);
         when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(classAvatar()));
 
         assertThatThrownBy(() -> useCase.execute(AVATAR_ID, USER_ID))
@@ -60,7 +62,7 @@ class CentreClassAvatarGuardTest {
 
     @Test
     void delete_personalAvatar_succeeds() {
-        DeleteAvatarUseCase useCase = new DeleteAvatarUseCase(avatarRepository);
+        DeleteAvatarUseCase useCase = new DeleteAvatarUseCase(avatarRepository, chatSessionCachePort);
         when(avatarRepository.findById(AVATAR_ID)).thenReturn(Optional.of(personalAvatar()));
 
         useCase.execute(AVATAR_ID, USER_ID);
