@@ -38,8 +38,31 @@ NUMBER_FACTS = {
 # invention (QA-1.3 / 1.4).
 BANNED_REAL_WORLD = [
     "Pomodoro", "Eisenhower", "GTD", "Getting Things Done", "time-boxing",
-    "deep work", "Parkinson's Law", "Parkinson’s Law",
+    "Parkinson's Law", "Parkinson’s Law",
 ]
+
+# "deep work" is deliberately NOT a plain substring ban. The Kestrel source itself
+# says the Stoop is "a session of deep, undivided work", so a flashcard compressing
+# that to "deep work" is DESCRIPTIVE derivation from source language — not an import
+# of Cal Newport's NAMED method, which is what the ban targets. Trip ONLY on a named-
+# method use: title-cased "Deep Work", "deep work" framed as a method/technique/
+# framework, or attributed to Newport. (Refined 2026-07-21 after a non-deterministic
+# flashcard run false-positived on descriptive usage — see the "deep work" triage.
+# Do not re-litigate: lowercase descriptive "deep work" is fine.)
+_DEEP_WORK_METHOD_FRAMING = re.compile(
+    r"deep work.{0,25}(?:method|technique|framework)"
+    r"|(?:method|technique|framework).{0,25}deep work",
+    re.IGNORECASE,
+)
+
+
+def _deep_work_as_named_method(s):
+    if re.search(r"\bDeep Work\b", s):   # title case → Newport's named method
+        return True
+    low = s.lower()
+    if "newport" in low:
+        return True
+    return bool(_DEEP_WORK_METHOD_FRAMING.search(low))
 
 # The truncation canary. Planted past the 3000-char mark in the source; if it
 # surfaces in ANY served string the compiler read past 3000 chars. Not a
@@ -93,6 +116,9 @@ def banned_realworld_hits(strings):
         for term in BANNED_REAL_WORLD:
             if term.lower() in low:
                 hits.append((term, _excerpt(s, term)))
+        # "deep work" — named-method use only (descriptive derivation is allowed).
+        if _deep_work_as_named_method(s):
+            hits.append(("deep work (as a named method)", _excerpt(s, "deep work")))
     return hits
 
 
