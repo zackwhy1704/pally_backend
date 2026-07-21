@@ -22,11 +22,14 @@ class PhaseStop(Exception):
 
 
 class SpendGuard:
-    def __init__(self, max_compiles=2, max_prove_gens=3):
+    # Budgets (this run): <=3 compiles, <=3 PROVE-gens, <=2 chat-turns PER chat test.
+    def __init__(self, max_compiles=3, max_prove_gens=3, max_chat_turns=2):
         self.max_compiles = max_compiles
         self.max_prove_gens = max_prove_gens
+        self.max_chat_turns = max_chat_turns
         self.compiles = 0
         self.prove_gens = 0
+        self.chat_turns = 0
 
     def charge_compile(self):
         if self.compiles >= self.max_compiles:
@@ -39,6 +42,16 @@ class SpendGuard:
             raise PhaseStop(
                 f"spend guard: PROVE-gen cap reached ({self.max_prove_gens})")
         self.prove_gens += 1
+
+    def charge_chat_turn(self):
+        # Per-chat-test cap (reset by reset_chat_turns before each chat test).
+        if self.chat_turns >= self.max_chat_turns:
+            raise PhaseStop(
+                f"spend guard: chat-turn cap reached ({self.max_chat_turns} per chat test)")
+        self.chat_turns += 1
+
+    def reset_chat_turns(self):
+        self.chat_turns = 0
 
 
 class ApiClient:
@@ -126,6 +139,65 @@ class ApiClient:
         if expect_ok and not (200 <= r.status_code < 300):
             raise PhaseStop(f"{label} expected 2xx, got {r.status_code}: {_short(raw)}")
         return resp
+
+    # ---- SSE chat ------------------------------------------------------
+    def chat_sse(self, avatar_id, message, module_id=None, timeout=120, tag=None):
+        """POST an SSE chat turn and drain the event stream.
+
+        Returns (status_code, joined_delta_text, events) where events is a list
+        of (event_type, data). The chat endpoint streams `delta`/`done`/`error`
+        events; a 4xx/403 gate writes a JSON error body BEFORE the stream, so we
+        surface that raw too. Best-effort — a partial stream is captured, not
+        an exception."""
+        label = tag or f"chat {avatar_id}"
+        if self.dry_run:
+            self.trace.append({"dry_run": True, "call": label, "body": {"message": message}})
+            print(f"  [dry-run] POST /api/v1/avatars/{avatar_id}/chat  msg={_short(message,60)}")
+            return 200, "(dry-run reply)", [("done", "")]
+        url = f"{self.base}/api/v1/avatars/{avatar_id}/chat"
+        headers = {"Accept": "text/event-stream", "Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        body = {"message": message}
+        if module_id:
+            body["moduleId"] = module_id
+        t0 = time.time()
+        deltas, events, raw_err = [], [], None
+        try:
+            with self.s.post(url, data=json.dumps(body), headers=headers,
+                             stream=True, timeout=timeout) as r:
+                status = r.status_code
+                ctype = r.headers.get("Content-Type", "")
+                if "text/event-stream" not in ctype:
+                    # a gate / error — JSON body, not a stream
+                    raw_err = r.text
+                else:
+                    cur_event = "message"
+                    for line in r.iter_lines(decode_unicode=True):
+                        if line is None:
+                            continue
+                        if line.startswith("event:"):
+                            cur_event = line[len("event:"):].strip()
+                        elif line.startswith("data:"):
+                            data = line[len("data:"):]
+                            if data.startswith(" "):
+                                data = data[1:]
+                            events.append((cur_event, data))
+                            if cur_event in ("message", "delta"):
+                                deltas.append(data)
+                        elif line == "":
+                            cur_event = "message"
+        except requests.RequestException as e:
+            self.trace.append({"call": label, "error": str(e)})
+            return 0, "", []
+        dt = int((time.time() - t0) * 1000)
+        text = "".join(deltas)
+        self.trace.append({"call": label, "status": status, "ms": dt,
+                           "resp": _short(_redact(raw_err if raw_err else text))})
+        if self.verbose:
+            print(f"  POST /api/v1/avatars/{avatar_id}/chat -> {status} "
+                  f"({dt}ms, {len(text)} chars, {len(events)} events)")
+        return status, (raw_err if raw_err else text), events
 
     # ---- convenience ---------------------------------------------------
     def unwrap(self, resp):
