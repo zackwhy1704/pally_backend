@@ -241,6 +241,10 @@ class Runner:
         print("\n== PHASE 3: Kestrel run (QA-1.1,1.3-1.7,1.10,1.12-1.14,2.2,5.4,5.6) ==")
         aid = self.create_avatar("Kestrel QA")
         self.state["kestrelAvatarId"] = aid
+        # A fresh avatar has NO quiz history — reset the day2 quiz-miss accumulator
+        # so quizWrongAnswerDays always refers to THIS avatar (else weak-first
+        # reporting counts misses on a discarded avatar and lies about maturity).
+        self.state["quizWrongAnswerDays"] = 0
         self._save_state()
 
         # 1. upload + compile (QA-1.1)
@@ -545,15 +549,22 @@ class Runner:
             self.find("QA-3.4",
                       "weak-first WEAK_TOPIC selectionReason present",
                       NOT_COVERED,
-                      f"weakSlugs empty (only {prior_attempts} wrong-quiz day(s) accumulated; "
-                      "quiz weakness needs quiz_question_results attempts>=2 & correctRatio<0.6 "
-                      "— PROVE self-reports do NOT feed it). Weak-first CODE verified via the "
-                      "'[Pipeline:Quiz] weak-first bias weakSlugs=N' log; e2e needs ≥2 wrong-quiz days.")
+                      f"weakSlugs empty ({prior_attempts} wrong-quiz day(s) on THIS avatar). "
+                      "Weak-first CODE verified via the '[Pipeline:Quiz] weak-first bias "
+                      "weakSlugs=N' log. E2E flip needs TWO things: (1) >=2 wrong-quiz days "
+                      "(quiz_question_results attempts>=2 & correctRatio<0.6), AND (2) a MODULE "
+                      "PROVE event AFTER that history matures — the weak-set is a materialized "
+                      "WeaknessState written ONLY by onMasteryUpdated (a module event), never by "
+                      "the quiz submit itself. A pure day2-only run cannot flip it.")
 
         # Seed the CORRECT weakness signal: submit deliberately-wrong answers to the
-        # daily quiz. Writes quiz_question_results (this-day attempt) + fires the
-        # onMasteryUpdated debounce. Repeated daily runs cross MIN_ATTEMPTS=2 so a
-        # later run observes weak-first fire. A normal user op; no generation spend.
+        # daily quiz. Writes quiz_question_results (this-day attempt). NOTE: this does
+        # NOT trigger materialization — the quiz submit does not call onMasteryUpdated
+        # (confirmed 2026-07-21 via prod log: weakSlugs stayed 0 after a module PROVE
+        # ran pre-seeding). Materialization is a MODULE PROVE event; to field-flip
+        # weak-first the harness must, once >=2 days are accumulated, drive a revision
+        # PROVE self-report on the kestrel avatar to re-materialize, THEN re-serve the
+        # quiz. Tracked as the day2 materialization-trigger enhancement.
         self._seed_quiz_weakness(aid, q)
 
         # home nudge — endpoint not surfaced in recon; render-layer
