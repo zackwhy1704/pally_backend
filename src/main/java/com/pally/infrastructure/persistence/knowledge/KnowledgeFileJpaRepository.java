@@ -19,8 +19,17 @@ public interface KnowledgeFileJpaRepository extends JpaRepository<KnowledgeFileJ
     /** Has this file already been segmented into child chunks? (sweep-guard idempotency) */
     boolean existsByParentFileId(String parentFileId);
 
-    boolean existsByAvatarIdAndContentHashAndStatusNot(
-            String avatarId, String contentHash, KnowledgeFile.Status status);
+    /**
+     * Exact-hash presence check for dedup: does an existing file with this content
+     * hash count as PRESENT in the brain? Statuses passed in = the "counts as present"
+     * set (READY/PROCESSING/SEGMENTED/PENDING_CHUNK). An IN-list (not a NOT-equals on a
+     * single status) so FAILED *and* IRRELEVANT are both excluded, and a future third
+     * terminal status can't silently re-open the "re-upload of a rejected file → 409" bug.
+     * (Replaced the former ...AndStatusNot(FAILED) query, which left IRRELEVANT counted
+     * as present and blocked legitimate re-uploads of subject-mismatched files.)
+     */
+    boolean existsByAvatarIdAndContentHashAndStatusIn(
+            String avatarId, String contentHash, Collection<KnowledgeFile.Status> statuses);
 
     /**
      * Accepted TOP-LEVEL uploads (not chunks) in the window — the doc-cap count.

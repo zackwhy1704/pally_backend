@@ -6,6 +6,7 @@ import com.pally.shared.exception.DuplicateContentException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -27,7 +28,7 @@ class ContentDeduplicatorTest {
         // Default: no exact duplicate. lenient so pure hash/Jaccard tests don't
         // need to stub the repo at all.
         org.mockito.Mockito.lenient()
-                .when(fileRepo.existsByAvatarIdAndContentHashAndStatusNot(any(), any(), any()))
+                .when(fileRepo.existsByAvatarIdAndContentHashAndStatusIn(any(), any(), any()))
                 .thenReturn(false);
     }
 
@@ -56,7 +57,7 @@ class ContentDeduplicatorTest {
 
     @Test
     void check_exactDuplicate_throwsDuplicateContentException() {
-        when(fileRepo.existsByAvatarIdAndContentHashAndStatusNot(eq("av1"), any(), any()))
+        when(fileRepo.existsByAvatarIdAndContentHashAndStatusIn(eq("av1"), any(), any()))
                 .thenReturn(true);
         KnowledgeFileJpaEntity existing = makeEntity("photosynthesis.pdf", "hash1");
         when(fileRepo.findByAvatarId("av1")).thenReturn(List.of(existing));
@@ -68,6 +69,45 @@ class ContentDeduplicatorTest {
                     assertThat(ex.getKind()).isEqualTo(DuplicateContentException.Kind.EXACT);
                     assertThat(ex.getSimilarity()).isEqualTo(1.0);
                 });
+    }
+
+    @Test
+    void check_exactHashCheck_asksToExcludeBothFailedAndIrrelevant() {
+        // The exact-hash presence query must be asked with the "present in brain" set —
+        // excluding FAILED *and* IRRELEVANT — so a rejected file's hash never blocks a
+        // re-upload. Fail-without-fix: pre-change the query was StatusNot(FAILED), which
+        // left IRRELEVANT counted as present (the exact bug this pins).
+        when(fileRepo.existsByAvatarIdAndContentHashAndStatusIn(eq("av1"), any(), any()))
+                .thenReturn(false);
+
+        deduplicator.check("av1", "some brand new text", "new.pdf");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Collection<KnowledgeFile.Status>> captor =
+                ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(fileRepo).existsByAvatarIdAndContentHashAndStatusIn(eq("av1"), any(), captor.capture());
+        assertThat(captor.getValue())
+                .contains(KnowledgeFile.Status.READY, KnowledgeFile.Status.PROCESSING,
+                          KnowledgeFile.Status.SEGMENTED, KnowledgeFile.Status.PENDING_CHUNK)
+                .doesNotContain(KnowledgeFile.Status.FAILED, KnowledgeFile.Status.IRRELEVANT);
+    }
+
+    @Test
+    void check_nearDuplicateAgainstIrrelevantFile_isSkipped_matchingTheDocComment() {
+        // The doc comment says BOTH checks skip IRRELEVANT. Pin check 2 (Jaccard): an
+        // IRRELEVANT file with near-identical text must NOT be treated as a duplicate.
+        String base = "photosynthesis is the process by which plants use sunlight "
+                + "water and carbon dioxide to produce oxygen and energy in the form of sugar "
+                + "chlorophyll absorbs light energy the light reactions occur in the thylakoids "
+                + "the calvin cycle occurs in the stroma of the chloroplast";
+        String newText = base + " additional minor note about chlorophyll";
+        KnowledgeFileJpaEntity irrelevant = makeEntityWithText("sales_game.pdf", base + " different ending");
+        irrelevant.setStatus(KnowledgeFile.Status.IRRELEVANT);
+        when(fileRepo.findByAvatarId("av1")).thenReturn(List.of(irrelevant));
+
+        // No throw — the IRRELEVANT sibling is not a duplicate to dedup against.
+        assertThatCode(() -> deduplicator.check("av1", newText, "new.pdf"))
+                .doesNotThrowAnyException();
     }
 
     // ── Jaccard similarity ────────────────────────────────────────────────────

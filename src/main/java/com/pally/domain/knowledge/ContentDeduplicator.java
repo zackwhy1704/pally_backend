@@ -28,13 +28,28 @@ import java.util.Set;
  *       angle, or the same content saved as a different filename.</li>
  * </ol>
  *
- * <p>Both checks skip files that are in FAILED or IRRELEVANT status — we only
- * deduplicate against content that's actually in the brain.
+ * <p>Both checks only deduplicate against content that's actually PRESENT in the
+ * brain — i.e. status in {@link #PRESENT_STATUSES} (READY/PROCESSING/SEGMENTED/
+ * PENDING_CHUNK). Files that were rejected (FAILED extraction, IRRELEVANT subject
+ * mismatch) do NOT count as present, so re-uploading the same content after a
+ * rejection (e.g. with skipRelevance) is allowed through, not blocked as a duplicate.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class ContentDeduplicator {
+
+    /**
+     * Statuses that count as "content is actually in the brain" for dedup. An explicit
+     * allow-list (not a NOT-equals on FAILED alone) so BOTH the exact-hash and Jaccard
+     * checks exclude FAILED *and* IRRELEVANT identically, and a future terminal status
+     * can't silently re-open the "re-upload of a rejected file → 409" bug.
+     */
+    static final Set<KnowledgeFile.Status> PRESENT_STATUSES = Set.of(
+            KnowledgeFile.Status.READY,
+            KnowledgeFile.Status.PROCESSING,
+            KnowledgeFile.Status.SEGMENTED,
+            KnowledgeFile.Status.PENDING_CHUNK);
 
     /** Jaccard similarity at or above which we consider files near-duplicates. */
     static final double SIMILAR_THRESHOLD = 0.75;
@@ -58,14 +73,15 @@ public class ContentDeduplicator {
 
         String hash = sha256(normalise(newText));
 
-        // 1. Exact hash check — O(1) via indexed DB query
-        boolean exactExists = fileRepo.existsByAvatarIdAndContentHashAndStatusNot(
-                avatarId, hash, KnowledgeFile.Status.FAILED);
+        // 1. Exact hash check — O(1) via indexed DB query. Only a PRESENT-status file
+        // counts as a duplicate (excludes FAILED + IRRELEVANT), matching check 2 below.
+        boolean exactExists = fileRepo.existsByAvatarIdAndContentHashAndStatusIn(
+                avatarId, hash, PRESENT_STATUSES);
         if (exactExists) {
             // Find the original filename for a nicer error message
             String original = fileRepo.findByAvatarId(avatarId).stream()
                     .filter(f -> hash.equals(f.getContentHash())
-                              && f.getStatus() != KnowledgeFile.Status.FAILED)
+                              && PRESENT_STATUSES.contains(f.getStatus()))
                     .map(KnowledgeFileJpaEntity::getFileName)
                     .findFirst()
                     .orElse("an existing file");
@@ -81,8 +97,7 @@ public class ContentDeduplicator {
 
         List<KnowledgeFileJpaEntity> existing = fileRepo.findByAvatarId(avatarId);
         for (KnowledgeFileJpaEntity kf : existing) {
-            if (kf.getStatus() == KnowledgeFile.Status.FAILED
-                    || kf.getStatus() == KnowledgeFile.Status.IRRELEVANT) continue;
+            if (!PRESENT_STATUSES.contains(kf.getStatus())) continue;
             if (kf.getExtractedText() == null || kf.getExtractedText().isBlank()) continue;
 
             Set<String> existingTokens = tokenise(kf.getExtractedText());
