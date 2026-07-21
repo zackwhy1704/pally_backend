@@ -60,13 +60,15 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 - **Closes it:** render the last hot-take's verdict from the end-of-stage submit `results[]`
   before advancing, or add a non-advancing per-item grade endpoint.
 
-### 3. SPOT_MISTAKE / CHALLENGE are UNGRADED by design
-- **What:** of the TEST types, only HOT_TAKE has a discrete key. SPOT_MISTAKE
-  (`errorDescription`/`correctSolution` free text) and CHALLENGE (open-ended) have no discrete
-  key, so they stay UNGRADED (never a client-trusted or guessed score).
-- **Accepted risk:** these TEST items contribute no mastery signal.
-- **Closes it:** convert SPOT_MISTAKE to a keyed (multiple-choice) format, or route CHALLENGE
-  through the PROVE self-assessment path.
+### 3. CHALLENGE is UNGRADED by design — SPOT_MISTAKE now self-checked (feat/sm-self-check)
+- **What:** of the TEST types, only HOT_TAKE has a discrete key. **SPOT_MISTAKE is now a
+  self-checked SELF_REPORT signal** (student types a diagnosis → self-assesses "were you
+  right?" → recorded at the 0.30 self-report trust weight, same as PROVE; `feat/sm-self-check`).
+  CHALLENGE (open-ended) still has no signal — its explanation-reveal has the same hollow shape
+  SM had; the same self-check treatment applies almost verbatim if SM proves out.
+- **Accepted risk:** CHALLENGE TEST items still contribute no mastery signal.
+- **Closes it:** apply the SPOT_MISTAKE self-check pattern to CHALLENGE (typed answer → reveal →
+  self-check → SELF_REPORT), or LLM-grade both (see #5).
 
 ### 4. Exam-readiness UI label for self-report-only concepts — CLOSED (merged 2026-07-10)
 `signalType` added to pally `ExamConceptMastery` + a "Self-assessed" caption on
@@ -84,6 +86,26 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   student's own text can't be a client-authoritative grade).
 - **Closes it:** decide the product value vs per-submit cost; if yes, reuse the PROVE evaluator
   path with a TEST-appropriate trust weight and metering.
+- **Update (feat/sm-self-check):** SPOT_MISTAKE now CAPTURES the student's typed diagnosis on
+  the progress row (`responseJson`) — so the training/eval input for LLM grading is now being
+  collected in the field. When this is picked up, the SM diagnosis text is already there to
+  grade; only CHALLENGE would still need capture wiring.
+
+### 10. Unify weakness inputs (module signals → weak-set)? — GATED
+- **What:** the quiz-materialized weak-set (`WeaknessProfileService.weakSlugsFor`) is fed ONLY
+  by quiz answer history (`WeaknessSignalRepositoryAdapter` reads `quiz_question_results`:
+  `attempts>=2 AND correctRatio<0.6`). Module outcomes (TEST hot-takes, PROVE/SM self-reports)
+  do NOT contribute rows to it — they drive only in-module PROVE re-targeting. So a concept a
+  student first fumbles in a module TEST/SM is NOT badged by the next day's quiz until they also
+  miss it in quizzes twice. The two adaptive loops (module, quiz) are connected by nothing.
+- **Why deferred / GATED:** wiring module signals into the weak-set is NOT a one-liner — it is a
+  slug-keyed aggregation of concept-keyed, trust-tiered signals (hot-take w1.0 / self-report
+  w0.3) into an attempts/ratio model, i.e. a WEAKNESS-SEMANTICS design decision needing product
+  sign-off. Module items now carry `sourcePageSlug` (933d0f4), so slug-keyed inclusion is
+  mechanically possible — but the trust-weighting design and the "does a module miss deserve
+  quiz-level adaptation" product call are the gate.
+- **Closes it:** design the module→weak-set contribution (which signals, what weight, how they
+  blend with quiz attempts/ratio) + product sign-off, then extend the signal repository.
 
 ### 6. Mastery visibly moves only at COMPLETE — TEST-completion mastery update (GATED)
 - **What:** `updateMastery` runs only when a stage advances INTO COMPLETE (and on self-report),
