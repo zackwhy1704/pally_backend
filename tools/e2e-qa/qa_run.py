@@ -360,13 +360,37 @@ class Runner:
         self.find("QA-1.12", "stage does NOT advance on per-item submits",
                   FAIL if advanced_early else PASS, "")
 
+        # SPOT_MISTAKE self-check plan (feat/sm-self-check): each SM item gets a
+        # typed diagnosis (response) + an alternating YES / NOT_QUITE selfCheck.
+        # With >=3 SM items the 3rd is left WITHOUT a selfCheck, so a single
+        # end-of-stage submit exercises the mixed present/absent advancement pin
+        # against prod. sm_plan: itemId -> (selfCheck|None, diagnosis).
+        sm_items = [it for it in items if it.get("type") == "SPOT_MISTAKE"]
+        sm_plan = {}
+        for i, it in enumerate(sm_items):
+            diag = f"QA diagnosis for {it.get('sourcePageSlug') or it['id']}"
+            sc = None if (len(sm_items) >= 3 and i == 2) \
+                else ("YES" if i % 2 == 0 else "NOT_QUITE")
+            sm_plan[it["id"]] = (sc, diag)
+
         # end-of-stage submit: all items
-        subs = [{"itemId": it["id"],
-                 "response": "AGREE" if it.get("type") == "HOT_TAKE" else "x"}
-                for it in items]
+        subs = []
+        for it in items:
+            if it["id"] in sm_plan:
+                sc, diag = sm_plan[it["id"]]
+                s = {"itemId": it["id"], "response": diag}
+                if sc:
+                    s["selfCheck"] = sc
+                subs.append(s)
+            else:
+                subs.append({"itemId": it["id"],
+                             "response": "AGREE" if it.get("type") == "HOT_TAKE" else "x"})
         res, _ = self.submit(aid, mid, subs, 60)
         advanced = bool(res.get("stageComplete") or res.get("nextStage"))
-        self.find("QA-1.12", "stage advances exactly once, on end-of-stage submit",
+        mixed = sm_plan and any(sc for sc, _ in sm_plan.values()) \
+            and any(sc is None for sc, _ in sm_plan.values())
+        self.find("QA-1.12", "stage advances exactly once, on end-of-stage submit"
+                  + (" (with MIXED SM self-checks present/absent)" if mixed else ""),
                   PASS if advanced else FAIL,
                   f"stageComplete={res.get('stageComplete')} next={res.get('nextStage')}")
         for it in hot:
@@ -377,6 +401,11 @@ class Runner:
                   PASS if graded else INFO,
                   f"{len(graded)} graded rows")
 
+        # SM self-check round-trip (QA-1.6): items with a selfCheck come back
+        # selfReported (SELF_REPORT signal), NEVER machine-graded, and the typed
+        # diagnosis persists on the progress row.
+        self._assert_sm_round_trip(aid, mid, sm_plan, res)
+
     def _record_correct(self, res, item, weak):
         for row in (res.get("results") or []):
             if row.get("itemId") == item.get("id") and row.get("correct") is False:
@@ -384,6 +413,44 @@ class Runner:
                     or item.get("sourcePageTitle")
                 if key:
                     weak.add(key)
+
+    def _assert_sm_round_trip(self, aid, mid, sm_plan, submit_res):
+        """Field-verify feat/sm-self-check: selfReported signal + never-graded +
+        diagnosis persisted. No-op (INFO) when the module's TEST stage has no SM."""
+        with_check = [iid for iid, (sc, _) in sm_plan.items() if sc]
+        if not with_check:
+            self.find("QA-1.6", "SM self-check round-trip", INFO,
+                      "no SPOT_MISTAKE items in this module's TEST stage")
+            return
+        by_id = {r.get("itemId"): r for r in (submit_res.get("results") or [])}
+        reported = [iid for iid in with_check
+                    if by_id.get(iid, {}).get("selfReported") is True]
+        self.find("QA-1.6", "SM self-check → SELF_REPORT signal (selfReported in results)",
+                  PASS if len(reported) == len(with_check) else FAIL,
+                  f"{len(reported)}/{len(with_check)} SM items selfReported")
+        machine = [iid for iid in with_check
+                   if by_id.get(iid, {}).get("graded") is True]
+        self.find("QA-1.6", "SM self-check is NEVER machine-graded (graded=false)",
+                  FAIL if machine else PASS, machine or "no SM row graded=true")
+        # Diagnosis persisted — re-read the module detail and match responseJson.
+        # Tolerant: if the detail view doesn't surface prior-stage rows, report INFO
+        # (the selfReported assertion above already proves the write path fired).
+        if self.args.dry_run:
+            return
+        d = self.c.unwrap(self.c.request(
+            "GET", f"/api/v1/avatars/{aid}/modules/{mid}", tag="module/detail")) or {}
+        det = d.get("module") if isinstance(d.get("module"), dict) else d
+        ditems = det.get("items") if isinstance(det, dict) else None
+        rj = {it.get("id"): it.get("responseJson")
+              for it in (ditems or []) if isinstance(it, dict)}
+        matched = sum(1 for iid in with_check
+                      if rj.get(iid) == sm_plan[iid][1])
+        found_any = any(iid in rj for iid in with_check)
+        self.find("QA-1.6", "SM typed diagnosis persisted on the progress row",
+                  PASS if (found_any and matched == len(with_check))
+                  else (INFO if not found_any else FAIL),
+                  f"{matched}/{len(with_check)} responseJson matched"
+                  + ("" if found_any else " (detail view omits prior-stage rows)"))
 
     def _prove_stage(self, aid, mid, items, weak):
         self.spend.charge_prove_gen()   # these items are LLM-generated
