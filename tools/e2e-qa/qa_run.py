@@ -446,7 +446,6 @@ class Runner:
             self.find("QA-3.4", "day2 needs kestrel avatar from phase 3", NOT_COVERED,
                       "run --phase kestrel first")
             return
-        weak = set(self.state.get("weakConcepts") or [])
         r = self.c.request("GET", f"/api/v1/avatars/{aid}/quiz/daily",
                            timeout=120, tag="quiz/daily")
         q = self.c.unwrap(r) or []
@@ -455,27 +454,73 @@ class Runner:
         if not q:
             self.find("QA-3.4", "daily quiz served", INFO, "empty quiz (none due)")
             return
-        # weak-first selectionReason
-        reasons = [(x.get("selectionReason") or "") for x in q]
-        weak_first = [rr for rr in reasons if rr.startswith("WEAK_TOPIC:")]
-        if not weak_first:
-            self.find("QA-3.4", "quiz carries WEAK_TOPIC selectionReason", INFO,
-                      "none present — verify weakness.profile.enabled server-flag ON")
-        else:
-            matched = [rr for rr in weak_first
-                       if any(_loose_match(rr.split(":", 1)[1], w) for w in weak)]
-            self.find("QA-3.4",
-                      "weak-first WEAK_TOPIC matches a Phase-3 miss",
-                      PASS if matched else FAIL,
-                      f"weak_first={weak_first[:5]} seeded={sorted(weak)[:5]}")
-        # provenance on quiz
+
+        # provenance on quiz (always assertable)
         prov = all(x.get("pageTitle") or x.get("sourcePageSlug") for x in q)
         self.find("QA-3.4", "quiz questions carry pageTitle/sourcePageSlug",
                   PASS if prov else FAIL, "")
-        # home nudge — endpoint not surfaced in recon; flagged
+
+        # weak-first selectionReason. IMPORTANT: the weakness profile the quiz reads
+        # (WeaknessProfileService.weakSlugsFor) is materialized from QUIZ ANSWER
+        # HISTORY (quiz_question_results via findTopicMastery: attempts>=2 AND
+        # correctRatio<0.6), NOT from PROVE self-reports. So weak-first only fires
+        # once the account has ≥2 days of wrong daily-quiz answers per topic — a
+        # genuinely multi-day accumulation (daily reset, Asia/Singapore). A single
+        # session cannot synthesise it. We record the wrong signal seeded in Phase 3
+        # (PROVE) was insufficient, and SEED THE CORRECT SIGNAL below for future runs.
+        reasons = [(x.get("selectionReason") or "") for x in q]
+        weak_first = [rr for rr in reasons if rr.startswith("WEAK_TOPIC:")]
+        prior_attempts = self.state.get("quizWrongAnswerDays", 0)
+        if weak_first:
+            self.find("QA-3.4", "weak-first WEAK_TOPIC selectionReason present",
+                      PASS, f"weak_first={weak_first[:5]} after {prior_attempts} wrong-quiz day(s)")
+        else:
+            self.find("QA-3.4",
+                      "weak-first WEAK_TOPIC selectionReason present",
+                      NOT_COVERED,
+                      f"weakSlugs empty (only {prior_attempts} wrong-quiz day(s) accumulated; "
+                      "quiz weakness needs quiz_question_results attempts>=2 & correctRatio<0.6 "
+                      "— PROVE self-reports do NOT feed it). Weak-first CODE verified via the "
+                      "'[Pipeline:Quiz] weak-first bias weakSlugs=N' log; e2e needs ≥2 wrong-quiz days.")
+
+        # Seed the CORRECT weakness signal: submit deliberately-wrong answers to the
+        # daily quiz. Writes quiz_question_results (this-day attempt) + fires the
+        # onMasteryUpdated debounce. Repeated daily runs cross MIN_ATTEMPTS=2 so a
+        # later run observes weak-first fire. A normal user op; no generation spend.
+        self._seed_quiz_weakness(aid, q)
+
+        # home nudge — endpoint not surfaced in recon; render-layer
         self.find("QA-3.4", "home weak_concept nudge (human label, not slug)",
                   NOT_COVERED,
                   "no dedicated home-nudge API found in recon; render-layer — MANUAL")
+
+    def _seed_quiz_weakness(self, aid, questions):
+        """Submit wrong answers so the quiz-history weakness signal accumulates."""
+        import uuid
+        answers, correct_map, topic_map = {}, {}, {}
+        for x in questions:
+            qid = x.get("id")
+            n = len(x.get("options") or []) or 4
+            ci = x.get("correctIndex")
+            # deliberately wrong: pick an index != correctIndex (0 unless correct is 0)
+            wrong = 1 if (ci == 0) else 0
+            answers[qid] = wrong
+            if ci is not None:
+                correct_map[qid] = ci
+            topic_map[qid] = x.get("sourcePageSlug") or x.get("sourcePage") or ""
+        body = {"answers": answers, "correctMap": correct_map, "topicMap": topic_map,
+                "durationSeconds": 30, "idempotencyKey": str(uuid.uuid4())}
+        r = self.c.request("POST", f"/api/v1/avatars/{aid}/quiz/answers",
+                           json_body=body, timeout=120, tag="quiz/answers(seed-wrong)")
+        ok = r.ok
+        if ok and not self.args.dry_run:
+            self.state["quizWrongAnswerDays"] = self.state.get("quizWrongAnswerDays", 0) + 1
+            self._save_state()
+        self.find("QA-3.4", "seed weakness via wrong daily-quiz answers "
+                  "(accumulates quiz_question_results for a later weak-first assert)",
+                  PASS if ok else INFO,
+                  f"submitted {len(answers)} wrong; wrong-quiz days now "
+                  f"{self.state.get('quizWrongAnswerDays', 0)} (weak-first fires at >=2)")
 
     # ---- report ---------------------------------------------------------
     def write_report(self, path):

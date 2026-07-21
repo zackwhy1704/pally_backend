@@ -1,5 +1,25 @@
 # Apalchi prod-API QA harness — automated results
 
+> ## UPDATE 2026-07-21 — post-fix field validation + day-2 (deployed `1e6c991`, `profile=prod`, verified via `/actuator/info`)
+>
+> ### Rejection gauntlet re-run — the fix's field validation (QA-1.2). Result flipped from the findings below to clean:
+> | Fixture | Pre-fix | Post-fix (`1e6c991`) | Finding closed |
+> |---|---|---|---|
+> | empty / corrupt / encrypted / scanned PDF | HTTP **500** | HTTP **422** | **F1** ✓ |
+> | receipt_photo.jpg | 201 `GOOD` + **compiled** | **200 refused** (RelevanceWarning), **no compile** | **F2** ✓ |
+> | receipt reason | cross-file "Kopi Corner" bleed | *"This is a receipt from a coffee shop…"* — its **own** file | **F3** ✓ |
+> | wrong_format.txt reason | "A Kopi Corner receipt…" (wrong file) | *"…not a PDF…no educational material"* — its **own** content | **F3** ✓ |
+>
+> **6/6 PASS, zero generation spend** (receipt now refused *before* compile). The gauntlet phase is hereby the standing F1/F2 regression test — re-run before every store submission.
+>
+> ### Day-2 (QA-3.4) — weak-first quiz:
+> - **Provenance:** PASS — quiz questions carry `pageTitle`/`sourcePageSlug`.
+> - **Weak-first `WEAK_TOPIC` selection:** **CODE-VERIFIED, e2e NOT COVERED this run.** The flag-gated code path executes (prod log: `[Pipeline:Quiz] weak-first bias weakSlugs=0 matchedInPool=0` — it reads `weakSlugsFor` and orders the pool). It emitted no `WEAK_TOPIC` because the weakness profile is empty. **Root cause (traced to source):** the quiz's weakness signal is materialized from **quiz answer history** (`quiz_question_results` via `findTopicMastery`: `attempts>=2 AND correctRatio<0.6`), **NOT** from PROVE self-reports. Phase-3 seeded weakness via PROVE self-reports → wrong signal → profile stayed empty. This is a **harness seeding-path limitation, not a product defect** (empty-profile → default-order fallback is documented, correct behaviour).
+> - **Corrected for future runs:** `--phase day2` now submits deliberately-wrong daily-quiz answers (seeds `quiz_question_results`; a normal user op, no generation spend). Weak-first is a genuinely **multi-day** feature (MIN_ATTEMPTS=2, once-per-day Asia/Singapore reset) — so a positive `WEAK_TOPIC` assertion needs ≥2 wrong-quiz days accumulated. This run seeded **day 1**; re-running `--phase day2` on ≥2 subsequent days will let weak-first fire and the assertion turn PASS.
+> - **Home weak-concept nudge:** NOT COVERED (render-layer; no dedicated API — MANUAL visual check).
+>
+> ### Behaviour to know (NOT a bug): the `skipRelevance=true` "Add Anyway" override still lets a user force any file (incl. a receipt) past the relevance gate — deliberate user agency, correctly logged (`Skipping relevance check … (user override)`). **A forced-in receipt in future QA is override-working-as-designed, not an F2 regression.** F2 only governs the DEFAULT (non-override) path.
+
 - **Base:** `https://pallybackend-production.up.railway.app` (live prod) · account: self-registered throwaway `qa-…@qa.apalchi.local` (13+ student, no consent wall)
 - **Spend (disclosed honestly):** PROVE-gens 2/3. Compiles this run = **2** — 1 kestrel PDF (budgeted) **+ 1 incidental**: `receipt_photo.jpg` unexpectedly passed the relevance gate and auto-compiled (308 OCR chars, trivial cost). Session incl. the earlier buggy run-1 = **3 compiles = 2 kestrel-PDF (within the ≤2 fixture-PDF budget) + 1 receipt-JPG**. Flagged, not hidden.
 - **Tally:** PASS 20 · FAIL 4 · INFO 6 · NOT COVERED 1
