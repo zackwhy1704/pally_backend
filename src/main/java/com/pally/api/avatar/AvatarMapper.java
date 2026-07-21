@@ -128,13 +128,28 @@ public class AvatarMapper {
                 !brainReady && !anyReadyFile && (pendingChunks + segmented) > 0;
         int pendingChapterCount = (int) pendingChunks;
         // Honest failure: non-READY brain, no ready files, every file FAILED/IRRELEVANT, no pages.
+        // FAILED (extraction couldn't read the file) and IRRELEVANT (extraction worked, but the
+        // content doesn't match the class subject) are DIFFERENT causes and must not share one
+        // sentence — a subject-mismatched book must not be told "we couldn't read enough text".
         boolean allFailedOrIrrelevant = !files.isEmpty() && files.stream().allMatch(
                 f -> f.getStatus() == KnowledgeFile.Status.FAILED
                   || f.getStatus() == KnowledgeFile.Status.IRRELEVANT);
-        String compileFailureReason =
-                (!brainReady && !anyReadyFile && allFailedOrIrrelevant && avatar.getWikiPageCount() == 0)
-                        ? "We couldn't read enough text from this file — try a clearer scan or a text-based PDF."
-                        : null;
+        String compileFailureReason = null;
+        if (!brainReady && !anyReadyFile && allFailedOrIrrelevant && avatar.getWikiPageCount() == 0) {
+            boolean anyFailed = files.stream().anyMatch(f -> f.getStatus() == KnowledgeFile.Status.FAILED);
+            boolean anyIrrelevant = files.stream().anyMatch(f -> f.getStatus() == KnowledgeFile.Status.IRRELEVANT);
+            if (anyFailed && anyIrrelevant) {
+                // Mixed batch: name both causes honestly rather than picking one blanket.
+                compileFailureReason = "Some files couldn't be read (try a clearer scan or a text-based PDF), "
+                        + "and others don't match your class's subject — check they're the right material.";
+            } else if (anyIrrelevant) {
+                compileFailureReason = "This file doesn't seem to match your class's subject — "
+                        + "double check it's the right material, or upload something else.";
+            } else {
+                compileFailureReason = "We couldn't read enough text from this file — "
+                        + "try a clearer scan or a text-based PDF.";
+            }
+        }
 
         // Class avatars wear a server-derived "uniform" — band colour, subject
         // glyph, initials — computed deterministically. PERSONAL avatars carry

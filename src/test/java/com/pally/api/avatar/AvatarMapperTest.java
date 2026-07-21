@@ -192,7 +192,7 @@ class AvatarMapperTest {
     }
 
     @Test
-    void derivation_allFailedNoPagesNonReadyBrain_surfacesHonestFailureReason() {
+    void derivation_allFailedNoPagesNonReadyBrain_surfacesExtractionFailureReason() {
         Avatar a = personalAvatar();
         a.setBrainState(Avatar.BrainState.PENDING_RECOMPILE); // non-READY
         a.setWikiPageCount(0); // no real content
@@ -203,8 +203,53 @@ class AvatarMapperTest {
 
         AvatarResponse resp = mapper.toResponse(a);
 
-        assertThat(resp.compileFailureReason()).isNotNull();
+        // A genuine extraction failure gets the "couldn't read enough text" copy, not the
+        // subject-mismatch copy.
+        assertThat(resp.compileFailureReason()).contains("couldn't read enough text");
+        assertThat(resp.compileFailureReason()).doesNotContain("match your class's subject");
         assertThat(resp.awaitingChapterSelection()).isFalse();
         assertThat(resp.pendingChapterCount()).isEqualTo(0);
+    }
+
+    @Test
+    void derivation_allIrrelevantNoPagesNonReadyBrain_surfacesSubjectMismatchReason_notExtractionCopy() {
+        // The Sales Game incident: a file that EXTRACTED fine (~340k chars) but scored 0.05
+        // relevance to a Maths class was marked IRRELEVANT. It must NOT be told "we couldn't
+        // read enough text" — that's the wizard lying about a status the pipeline knows.
+        // Fail-without-fix: pre-change every IRRELEVANT-only avatar got the extraction string.
+        Avatar a = personalAvatar();
+        a.setBrainState(Avatar.BrainState.PENDING_RECOMPILE); // non-READY
+        a.setWikiPageCount(0);
+        KnowledgeFile irrelevant = KnowledgeFile.create(
+                a.getUserId(), a.getUserId(), "sales_game.pdf", "key", KnowledgeFile.UploadType.PDF);
+        irrelevant.markIrrelevant();
+        when(knowledgeRepository.findByAvatarId(a.getId())).thenReturn(List.of(irrelevant));
+
+        AvatarResponse resp = mapper.toResponse(a);
+
+        assertThat(resp.compileFailureReason()).contains("match your class's subject");
+        assertThat(resp.compileFailureReason()).doesNotContain("couldn't read enough text");
+    }
+
+    @Test
+    void derivation_mixedFailedAndIrrelevant_namesBothCauses_notASingleBlanketString() {
+        // Mixed batch: one file failed extraction, one is subject-mismatched. A single blanket
+        // sentence is wrong for one of them either way — the message must acknowledge both.
+        Avatar a = personalAvatar();
+        a.setBrainState(Avatar.BrainState.PENDING_RECOMPILE); // non-READY
+        a.setWikiPageCount(0);
+        KnowledgeFile failed = KnowledgeFile.create(
+                a.getUserId(), a.getUserId(), "blurry.pdf", "key", KnowledgeFile.UploadType.PDF);
+        failed.markFailed();
+        KnowledgeFile irrelevant = KnowledgeFile.create(
+                a.getUserId(), a.getUserId(), "sales_game.pdf", "key", KnowledgeFile.UploadType.PDF);
+        irrelevant.markIrrelevant();
+        when(knowledgeRepository.findByAvatarId(a.getId())).thenReturn(List.of(failed, irrelevant));
+
+        AvatarResponse resp = mapper.toResponse(a);
+
+        // Both causes named — neither file is mislabeled by a blanket string.
+        assertThat(resp.compileFailureReason()).contains("couldn't be read");
+        assertThat(resp.compileFailureReason()).contains("match your class's subject");
     }
 }
