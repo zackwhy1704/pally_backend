@@ -108,11 +108,33 @@ public class AvatarMapper {
 
     /** Shared body — builds the DTO given a pre-resolved Mochi config (may be null). */
     private AvatarResponse toResponse(Avatar avatar, MochiConfig mochiConfig) {
-        int fileCount = (int) knowledgeRepository.findByAvatarId(avatar.getId())
-                .stream()
+        List<KnowledgeFile> files = knowledgeRepository.findByAvatarId(avatar.getId());
+        int fileCount = (int) files.stream()
                 .filter(f -> f.getStatus() == KnowledgeFile.Status.READY
                           || f.getStatus() == KnowledgeFile.Status.PROCESSING)
                 .count();
+
+        // ── Segmented-compile honesty: derive the additive client surface from LIVE file
+        // states (nothing persisted, no schema change, brainState untouched). ────────────
+        boolean brainReady = avatar.getBrainState() == Avatar.BrainState.READY;
+        boolean anyReadyFile = files.stream().anyMatch(f -> f.getStatus() == KnowledgeFile.Status.READY);
+        long pendingChunks = files.stream()
+                .filter(f -> f.getStatus() == KnowledgeFile.Status.PENDING_CHUNK).count();
+        long segmented = files.stream()
+                .filter(f -> f.getStatus() == KnowledgeFile.Status.SEGMENTED).count();
+        // Awaiting the user to pick chapters: non-READY brain, no ready files, but
+        // compile-time segmentation left SEGMENTED/PENDING_CHUNK files to choose from.
+        boolean awaitingChapterSelection =
+                !brainReady && !anyReadyFile && (pendingChunks + segmented) > 0;
+        int pendingChapterCount = (int) pendingChunks;
+        // Honest failure: non-READY brain, no ready files, every file FAILED/IRRELEVANT, no pages.
+        boolean allFailedOrIrrelevant = !files.isEmpty() && files.stream().allMatch(
+                f -> f.getStatus() == KnowledgeFile.Status.FAILED
+                  || f.getStatus() == KnowledgeFile.Status.IRRELEVANT);
+        String compileFailureReason =
+                (!brainReady && !anyReadyFile && allFailedOrIrrelevant && avatar.getWikiPageCount() == 0)
+                        ? "We couldn't read enough text from this file — try a clearer scan or a text-based PDF."
+                        : null;
 
         // Class avatars wear a server-derived "uniform" — band colour, subject
         // glyph, initials — computed deterministically. PERSONAL avatars carry
@@ -151,7 +173,10 @@ public class AvatarMapper {
                 mochiConfig,
                 // Only a student's class-bound avatar exposes its classId (used by
                 // the mobile leave-class action); the corpus has classId == null.
-                avatar.isCentreClass() ? avatar.getClassId() : null
+                avatar.isCentreClass() ? avatar.getClassId() : null,
+                awaitingChapterSelection,
+                pendingChapterCount,
+                compileFailureReason
         );
     }
 

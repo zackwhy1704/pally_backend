@@ -32,6 +32,29 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 
 # OPEN (code — actionable)
 
+## Test harness gaps
+
+### Large-PDF / segmentation compile fixture (budget-bounded)
+- **What:** there is no test fixture that drives a real large, image-heavy PDF (or a
+  compile-time-segmented file) end-to-end through the upload → OCR → compile pipeline. The
+  segmented-compile-honesty work (state-aware zero-ready signals + derived
+  `AvatarResponse.awaitingChapterSelection` / `compileFailureReason`) is pinned by
+  *unit* tests that feed synthetic `KnowledgeFile` states — not by a real oversized document
+  moving through the actual segmentation path.
+- **Incident this class would catch:** a web upload of a 156-page image-heavy PDF landed the
+  file in a state the compile inventory didn't count (`CompileWikiUseCase:406`
+  `segmentOversizedLegacyFiles` flips the parent → SEGMENTED, children → PENDING_CHUNK **at
+  compile time**, so the upload response never carried the chunks). The zero-READY branch
+  mislabelled it and the scheduler flipped the brain to a **silent READY-empty** — the student
+  saw an empty brain with no explanation.
+- **Why deferred:** a faithful fixture needs a real multi-MB scanned PDF asset + OCR, which is
+  slow and burns AI budget in CI; it must be budget-bounded (a small committed fixture that
+  still exercises the compile-time segmentation branch, not the full 156-page document).
+- **Closes it:** a bounded integration test that (a) seeds an oversized top-level READY file,
+  (b) runs `executeBatched`, asserts the parent goes SEGMENTED + children PENDING_CHUNK, and
+  (c) a subsequent `execute` returns `zero-ready-awaiting-selection` and the avatar mapper
+  derives `awaitingChapterSelection=true` — reproducing the incident without a live LLM call.
+
 ## Grading harness & trust
 
 ### 1. Quiz keyless client-map fallback (`SubmitQuizAnswersUseCase:187`)
