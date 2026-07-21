@@ -85,5 +85,11 @@ public record AvatarResponse(
         /// A short, honest failure message shown ONLY when the brain is non-READY, has no
         /// ready files, every file is FAILED/IRRELEVANT, and no wiki pages exist. Null otherwise.
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String compileFailureReason
+        String compileFailureReason,
+        /// Machine-readable cause paired with compileFailureReason so the client can pick the
+        /// right RECOVERY affordance without string-matching the copy: "IRRELEVANT" (subject
+        /// mismatch — recompile is a dead end, the user must re-upload, e.g. skipRelevance),
+        /// "FAILED" (extraction failed — recompile is valid), or "MIXED". Null when no failure.
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String compileFailureKind
 ) {}
