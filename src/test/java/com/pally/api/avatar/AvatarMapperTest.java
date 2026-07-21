@@ -189,6 +189,7 @@ class AvatarMapperTest {
         assertThat(resp.awaitingChapterSelection()).isFalse();
         assertThat(resp.pendingChapterCount()).isEqualTo(0);
         assertThat(resp.compileFailureReason()).isNull();
+        assertThat(resp.compileFailureKind()).isNull();
     }
 
     @Test
@@ -207,6 +208,7 @@ class AvatarMapperTest {
         // subject-mismatch copy.
         assertThat(resp.compileFailureReason()).contains("couldn't read enough text");
         assertThat(resp.compileFailureReason()).doesNotContain("match your class's subject");
+        assertThat(resp.compileFailureKind()).isEqualTo("FAILED");
         assertThat(resp.awaitingChapterSelection()).isFalse();
         assertThat(resp.pendingChapterCount()).isEqualTo(0);
     }
@@ -229,6 +231,9 @@ class AvatarMapperTest {
 
         assertThat(resp.compileFailureReason()).contains("match your class's subject");
         assertThat(resp.compileFailureReason()).doesNotContain("couldn't read enough text");
+        // The machine-readable kind lets the client pick the re-upload affordance (recompile
+        // is a dead end for a relevance rejection) without string-matching the copy.
+        assertThat(resp.compileFailureKind()).isEqualTo("IRRELEVANT");
     }
 
     @Test
@@ -251,5 +256,6 @@ class AvatarMapperTest {
         // Both causes named — neither file is mislabeled by a blanket string.
         assertThat(resp.compileFailureReason()).contains("couldn't be read");
         assertThat(resp.compileFailureReason()).contains("match your class's subject");
+        assertThat(resp.compileFailureKind()).isEqualTo("MIXED");
     }
 }

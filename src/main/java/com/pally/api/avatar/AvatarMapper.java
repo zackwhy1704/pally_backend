@@ -135,6 +135,7 @@ public class AvatarMapper {
                 f -> f.getStatus() == KnowledgeFile.Status.FAILED
                   || f.getStatus() == KnowledgeFile.Status.IRRELEVANT);
         String compileFailureReason = null;
+        String compileFailureKind = null;
         if (!brainReady && !anyReadyFile && allFailedOrIrrelevant && avatar.getWikiPageCount() == 0) {
             boolean anyFailed = files.stream().anyMatch(f -> f.getStatus() == KnowledgeFile.Status.FAILED);
             boolean anyIrrelevant = files.stream().anyMatch(f -> f.getStatus() == KnowledgeFile.Status.IRRELEVANT);
@@ -142,12 +143,15 @@ public class AvatarMapper {
                 // Mixed batch: name both causes honestly rather than picking one blanket.
                 compileFailureReason = "Some files couldn't be read (try a clearer scan or a text-based PDF), "
                         + "and others don't match your class's subject — check they're the right material.";
+                compileFailureKind = "MIXED";
             } else if (anyIrrelevant) {
                 compileFailureReason = "This file doesn't seem to match your class's subject — "
                         + "double check it's the right material, or upload something else.";
+                compileFailureKind = "IRRELEVANT";
             } else {
                 compileFailureReason = "We couldn't read enough text from this file — "
                         + "try a clearer scan or a text-based PDF.";
+                compileFailureKind = "FAILED";
             }
         }
 
@@ -191,7 +195,8 @@ public class AvatarMapper {
                 avatar.isCentreClass() ? avatar.getClassId() : null,
                 awaitingChapterSelection,
                 pendingChapterCount,
-                compileFailureReason
+                compileFailureReason,
+                compileFailureKind
         );
     }
 
