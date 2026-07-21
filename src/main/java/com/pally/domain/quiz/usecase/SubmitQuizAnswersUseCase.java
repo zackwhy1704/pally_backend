@@ -2,6 +2,7 @@ package com.pally.domain.quiz.usecase;
 
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.usecase.AvatarSlotGuard;
+import com.pally.domain.weakness.WeaknessProfileService;
 import com.pally.domain.progress.ActivityLogService;
 import com.pally.domain.progress.BadgeService;
 import com.pally.domain.user.UserRepository;
@@ -61,6 +62,7 @@ public class SubmitQuizAnswersUseCase {
     private final com.pally.domain.progress.XpService xpService;
     private final AvatarSlotGuard avatarSlotGuard;
     private final QuizAnswerKeyRepository answerKeyRepository;
+    private final WeaknessProfileService weaknessProfileService;
     /// Self-proxy so the best-effort per-question result write runs in its OWN
     /// REQUIRES_NEW transaction; a self-invocation would bypass the proxy and
     /// keep it inside the primary tx (the bug we are fixing).
@@ -359,6 +361,22 @@ public class SubmitQuizAnswersUseCase {
                     : misconception.get(0);
             matrix = new QuizResult.MasteryMatrix(
                     mastered, misconception, luckyGuess, knownGap, priority);
+        }
+
+        // Refresh the weakness brain now that this submit changed quiz history —
+        // the SAME guarded, best-effort trigger the module sites use
+        // (ModuleProgressionService:411/:780). This closes the staleness window
+        // between "quiz history changed" and "weak-set snapshot refreshed" so the
+        // NEXT daily quiz's weak-first bias reads a current set. It changes only
+        // WHEN the surface refreshes, not WHAT feeds it (the recompute still reads
+        // quiz history only). The debounce makes repeat submits cheap.
+        if (weaknessProfileService.isEnabled()) {
+            try {
+                weaknessProfileService.onMasteryUpdated(
+                        submission.userId(), submission.avatarId());
+            } catch (Exception ignored) {
+                // best-effort — the quiz result stands
+            }
         }
 
         return new QuizResult(
