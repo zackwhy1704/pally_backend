@@ -794,6 +794,138 @@ class ModuleProgressionServiceTest {
         assertThat(saved.getScore()).isNull();
     }
 
+    // ── SPOT_MISTAKE self-check (feat/sm-self-check) ─────────────────────────
+
+    private ModuleContentItem spotMistake() {
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("item-1");
+        item.setStage("TEST");
+        item.setType("SPOT_MISTAKE");
+        item.setAnswerJson("{\"errorDescription\":\"e\",\"correctSolution\":\"c\","
+                + "\"targetConcept\":\"C\"}");
+        return item;
+    }
+
+    private ModuleProgress submitSpotMistake(Map<String, String> submission) {
+        service.submitAnswers("mod-1", "user-1", List.of(submission));
+        org.mockito.ArgumentCaptor<ModuleProgress> cap =
+                org.mockito.ArgumentCaptor.forClass(ModuleProgress.class);
+        verify(progressRepository).save(cap.capture());
+        return cap.getValue();
+    }
+
+    @Test
+    void spotMistake_selfCheckYes_recordsSelfReportScore1_andPersistsTypedDiagnosis() {
+        // The typed diagnosis is persisted (responseJson) and "Yes, I was right" is a
+        // low-trust SELF_REPORT at score 1.0 — NEVER a machine grade. Fail-without-fix:
+        // pre-change SM always fell through to UNGRADED null-signal.
+        stubHotTakeSubmit(spotMistake());
+        ModuleProgress saved = submitSpotMistake(Map.of(
+                "itemId", "item-1",
+                "response", "The second step flips the inequality sign wrongly",
+                "selfCheck", "YES"));
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.SELF_REPORT);
+        assertThat(saved.getScore()).isEqualByComparingTo(BigDecimal.ONE);
+        assertThat(saved.getResponseJson())
+                .isEqualTo("The second step flips the inequality sign wrongly");
+    }
+
+    @Test
+    void spotMistake_selfCheckNotQuite_recordsSelfReportScore0() {
+        stubHotTakeSubmit(spotMistake());
+        ModuleProgress saved = submitSpotMistake(Map.of(
+                "itemId", "item-1", "response", "I guessed the wrong line",
+                "selfCheck", "NOT_QUITE"));
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.SELF_REPORT);
+        assertThat(saved.getScore()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void spotMistake_noSelfCheck_staysUngradedNullSignal_legacyHonorSystemPreserved() {
+        // A legacy client (or a reveal with no self-check) sends no selfCheck field →
+        // the row must stay UNGRADED null-signal, exactly as before — so legacy SM rows
+        // remain EXCLUDED from mastery (never resurrected as a false signal).
+        stubHotTakeSubmit(spotMistake());
+        ModuleProgress saved = submitSpotMistake(Map.of(
+                "itemId", "item-1", "response", "some text but no self-check"));
+        assertThat(saved.getSignalType()).isEqualTo(GradingSignal.UNGRADED);
+        assertThat(saved.getScore()).isNull();
+    }
+
+    @Test
+    void submitAnswers_testStageWithMixedSpotMistakeSelfChecks_advancesExactlyOnce() {
+        // THE UNTOUCHABLE INVARIANT: stage advancement is decided ONLY by the servable/
+        // completed count, never by whether SM self-checks are present. A 3-item TEST
+        // stage (hot-take + SM-with-selfcheck + SM-without) advances EXACTLY ONCE on the
+        // end-of-stage submit. Fail-without-fix would be any change that made the SM
+        // scoring branch alter stageComplete or the save count.
+        LearningModule module = buildModule("mod-1", "TEST");
+        module.setAvatarId("avatar-1");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(hotTake("{\"isTrue\":true}")));
+        ModuleContentItem sm1 = spotMistake(); sm1.setId("sm-1");
+        ModuleContentItem sm2 = spotMistake(); sm2.setId("sm-2");
+        when(itemRepository.findById("sm-1")).thenReturn(Optional.of(sm1));
+        when(itemRepository.findById("sm-2")).thenReturn(Optional.of(sm2));
+        when(progressRepository.findByModuleIdAndUserIdAndItemId(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(itemRepository.countServableByModuleIdAndStage("mod-1", "TEST")).thenReturn(3);
+        when(progressRepository.countByModuleIdAndUserIdAndStage("mod-1", "user-1", "TEST"))
+                .thenReturn(3);
+
+        Map<String, Object> result = service.submitAnswers("mod-1", "user-1", List.of(
+                Map.of("itemId", "item-1", "response", "AGREE"),
+                Map.of("itemId", "sm-1", "response", "diag A", "selfCheck", "YES"),  // present
+                Map.of("itemId", "sm-2", "response", "diag B")));                    // absent
+
+        assertThat(result.get("stageComplete")).isEqualTo(true);
+        assertThat(result.get("nextStage")).isEqualTo("PROVE");
+        verify(moduleRepository, times(1)).save(any());   // advanced exactly once
+    }
+
+    @Test
+    void mastery_includesSpotMistakeSelfReport_atSelfReportWeight() {
+        // SM self-check flows through the EXISTING blend at the SAME 0.30 self-report
+        // weight as PROVE — no new weighting code. SM "Not quite" (SELF_REPORT 0.0) +
+        // PROVE YES (SELF_REPORT 1.0): (0.30*0.0 + 0.30*1.0)/2 = 0.15 → 15.00. If the SM
+        // row were EXCLUDED it would be 30.00 — so 15.00 proves inclusion at 0.30.
+        LearningModule module = buildModule("mod-1", "COMPLETE");
+        module.setAvatarId("avatar-1");
+        module.setWikiPageSlug("photosynthesis");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItem proveItem = new ModuleContentItem();
+        proveItem.setId("prove-1");
+        proveItem.setStage("PROVE");
+        proveItem.setType("PROVE_QUESTION");
+        proveItem.setAnswerJson("{\"targetConcept\":\"C\"}");
+        when(itemRepository.findById("prove-1")).thenReturn(Optional.of(proveItem));
+
+        ModuleProgress smRow = new ModuleProgress();
+        smRow.setStage("TEST");
+        smRow.setScore(BigDecimal.ZERO);
+        smRow.setSignalType(GradingSignal.SELF_REPORT);   // the SM self-check row (Not quite)
+
+        ModuleProgress proveRow = new ModuleProgress();
+        proveRow.setModuleId("mod-1");
+        proveRow.setUserId("user-1");
+        proveRow.setItemId("prove-1");
+        proveRow.setStage("PROVE");
+        proveRow.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "prove-1"))
+                .thenReturn(Optional.of(proveRow));
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(progressRepository.findByModuleIdAndUserId("mod-1", "user-1"))
+                .thenReturn(List.of(smRow, proveRow));
+        when(weaknessProfileService.isEnabled()).thenReturn(false);
+
+        service.submitSelfReport("mod-1", "user-1", "prove-1", SelfReport.YES);
+
+        assertThat(module.getMasteryPct()).isEqualByComparingTo(new BigDecimal("15.00"));
+    }
+
     @Test
     void mastery_blendsTestDeterministicAndProveSelfReport_atTheirWeights() {
         // A correct HOT_TAKE (DETERMINISTIC 1.0) + a PROVE self-report YES (0.30)

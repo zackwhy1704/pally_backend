@@ -332,6 +332,20 @@ public class ModuleProgressionService {
                         log.info("[Module] HOT_TAKE item={} no usable raw choice "
                                 + "(reason=no-rawChoice, legacy client) — UNGRADED", itemId);
                     }
+                } else if (ContentItemType.SPOT_MISTAKE.name().equals(item.getType())) {
+                    // SPOT_MISTAKE self-check (Tier 2, LOW-TRUST SELF_REPORT — NEVER
+                    // machine grading, exactly like PROVE self-assessment). The student
+                    // TYPED a diagnosis (persisted above as responseJson) and then
+                    // self-assessed "were you right?": YES→1.0, NOT_QUITE→0.0, recorded
+                    // at the identical 0.30 self-report trust weight. An ABSENT selfCheck
+                    // (legacy client, or the honor-system reveal with no typed diagnosis)
+                    // leaves the row UNGRADED null-signal — byte-for-byte the old
+                    // behaviour, so legacy SM rows stay excluded from mastery.
+                    Boolean right = parseSelfCheck(sub.get("selfCheck"));
+                    if (right != null) {
+                        score = right ? BigDecimal.ONE : BigDecimal.ZERO;
+                        signal = GradingSignal.SELF_REPORT;
+                    }
                 }
                 progress.setScore(score);
                 progress.setSignalType(signal);
@@ -346,9 +360,15 @@ public class ModuleProgressionService {
                     // non-critical — legacy pre-tag item leaves targetConcept null
                 }
                 itemResult.put("answerJson", item.getAnswerJson());
+                // `graded` is TRUE only for a system-asserted grade (DETERMINISTIC).
+                // A SPOT_MISTAKE self-check is NEVER graded=true — it's a low-trust
+                // self-report; expose it distinctly so the client never renders it as
+                // a machine verdict.
                 itemResult.put("graded", signal == GradingSignal.DETERMINISTIC);
                 if (signal == GradingSignal.DETERMINISTIC) {
                     itemResult.put("correct", score.compareTo(BigDecimal.ONE) == 0);
+                } else if (signal == GradingSignal.SELF_REPORT) {
+                    itemResult.put("selfReported", true);
                 }
             } else {
                 // LEARN: completion marker (not a graded signal).
@@ -781,6 +801,18 @@ public class ModuleProgressionService {
         String r = response.trim().toUpperCase();
         if (r.equals("AGREE") || r.equals("TRUE")) return true;
         if (r.equals("DISAGREE") || r.equals("FALSE")) return false;
+        return null;
+    }
+
+    /// Maps a SPOT_MISTAKE self-check to the student's "was I right?" claim.
+    /// YES → true (score 1.0), NOT_QUITE → false (score 0.0), anything else
+    /// (incl. null/legacy) → null → UNGRADED (never a guessed grade). This is a
+    /// self-report, never a machine grade.
+    private static Boolean parseSelfCheck(String v) {
+        if (v == null) return null;
+        String s = v.trim().toUpperCase();
+        if (s.equals("YES") || s.equals("RIGHT") || s.equals("TRUE")) return true;
+        if (s.equals("NOT_QUITE") || s.equals("NO") || s.equals("FALSE")) return false;
         return null;
     }
 
