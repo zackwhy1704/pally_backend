@@ -99,6 +99,12 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
      * Reset the idle timer on a real chat turn. Touch-only: never CREATES a loop for an
      * inactive avatar (a turn without an open session leaves the cache cold rather than
      * spinning up an unbounded ping loop — chat-open owns starting keepalive).
+     *
+     * <p>Called ONLY from the /chat turn. /photo-question(-vision) is DELIBERATELY excluded:
+     * {@code SolvePhotoQuestionsUseCase} doesn't use the cached system blocks, so a photo-only
+     * session reads nothing from the warm cache — letting keepalive lapse is economically right
+     * (resumption costs ~one cache write, matched by the pings avoided). Do NOT add a
+     * recordActivity() call to the photo-question paths "for consistency".
      */
     @Override
     public void recordActivity(String avatarId) {
