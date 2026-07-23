@@ -9,6 +9,15 @@
 - **Unledgered ≠ tracked.** A defect you can see on a screenshot but that has no line here
   is invisible, not "known" — file the entry the moment a gap is known, not after it's fixed.
   (The 0–1 vs 0–100 "2600% mastery" family bug sat in shipped code for weeks with no entry.)
+- **An entry needs its EVIDENCE and a TRIGGER, or it gets re-litigated / rots into backlog.**
+  Record the observed facts the decision rests on, not just the conclusion — a decision without
+  its evidence is re-opened from intuition the first time someone finds the diff size annoying.
+  (The per-user-attribution entry lists the actual executors seen at `AiUsageMeter.record(…)` —
+  `ai-task-N`, `reactor-http-epoll-N`, `virtual-N`, never `tomcat-handler-N` — so the
+  "just use a ThreadLocal" question is settled by evidence, not re-argued.) And name the EVENT
+  that should surface it again, preferring an operationally sharp trigger over a calendar one:
+  "the P3 spend cap trips and you need to know which avatar burned it" beats "post-launch".
+  Without a trigger, pickup depends on someone rediscovering the entry.
 - **Audits must sweep the OLD SIBLINGS of a new surface, not just the diff.** When a rule is
   locked ("a bearer token alone can never delete an account"), grep every sibling of the
   changed code and re-audit the ones the rule now implicates. (`DELETE /account/me` was
@@ -213,6 +222,52 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 - **Closes it:** capture `message_start` usage and, on stream error, record a `success=false`
   row with whatever usage the stream reported (same billed-but-failed rule as the unary path's
   `meterBilledFailure`).
+
+### Per-USER cost attribution — the ledger records spend correctly, but mostly against `user_id = NULL`
+- **What:** `ai_usage` totals are correct; the *attribution* columns are not. Only
+  `GeminiWikiCompiler` (compile) and `CacheKeepAliveService` pass a real userId. Every Claude
+  seam records `record(null, null, …)` — `ClaudeApiClient:158/239/270/396/556`,
+  `ClaudeChatProxy:85` (chat, the largest single line), both OCR services. So
+  `GET /api/v1/admin/ai-cost`'s per-user rollup is dominated by a `"(none)"` bucket and the
+  per-user numbers it *does* show are essentially compile spend only.
+- **NOT on the launch path:** the P3 spend cap needs TOTAL spend, which the ledger already gives
+  correctly. This is analytics / unit-economics (cost-per-student), not a launch blocker.
+- **Why deferred:** it is a signature refactor across four layers, not a local fix — 11 metering
+  seams, 4 domain ports (`ChatPort`, `OcrPort`, `RelevancePort`, `QuizGeneratorPort`), ~25 main
+  files and **20 test files**, incl. `IntegrationTestBase` (a shared fixture stubbing all four
+  ports, so every Testcontainers test recompiles). Days-before-submission work competing with the
+  visual walk / store forms / DPIA.
+- **Transport decision — EXPLICIT PARAM, not a ThreadLocal (settled, don't re-litigate):** metering
+  never runs on the thread that held the request context. Observed executors at `record(…)`:
+  `ai-task-N` (compile pool), `reactor-http-epoll-N` (streaming chat), `ForkJoinPool.commonPool-N`
+  (moderation), `virtual-N` (keepalive), `scheduling-N` (summariser) — never `tomcat-handler-N`.
+  A ThreadLocal set in the controller is empty at every one of them, so it reproduces today's
+  nulls with *worse* diagnosability: an invisible empty context instead of a greppable literal
+  `record(null, null, …)`. A hybrid is worse still — it swaps a compiler guarantee for a rule
+  ("pass it explicitly on async paths") that isn't locally decidable, since e.g.
+  `CacheKeepAliveService` reads as ordinary synchronous code but runs on a scheduler's virtual
+  thread. Explicit params make the compiler the enforcement mechanism: a twelfth AI call site
+  cannot silently lose attribution, because it won't build.
+- **Design constraint — do NOT make `AiPrincipal` a record of two nullable fields**, or the same
+  ambiguity is rebuilt one layer up. `null` currently means three different things; name them:
+  `AiPrincipal.of(userId, avatarId)` (attributed) · `AiPrincipal.avatarOnly(avatarId)` (compile
+  paths, no user in scope) · `AiPrincipal.system(String reason)` (keepalive prewarm, scheduled
+  reconciler). Carry the reason into `purpose_label` so a ledger-integrity query can separate
+  *unattributable by design* from *attribution lost*. (Same lesson as the segmented-compile
+  incident: the bug was distinct states collapsed into a count that didn't include them.)
+- **Trigger (pick this up when either fires, not on a backlog sweep):** (a) the P3 spend cap trips
+  and you need to know WHICH avatar/user burned it — the cap tells you there's a problem but not
+  where, so attribution is the missing half of the alert; or (b) a centre / BIG-room conversation
+  asks for cost-per-student.
+- **Closes it:** thread `AiPrincipal` through the 11 seams + 4 ports, and add a guard test in the
+  style of `DomainLayeringGuardTest` asserting no `AiUsageMeter.record` call site passes a
+  constant-null principal.
+- **Cheap partial, if a slice is ever wanted before the full pass:** `GeminiCompletionService`
+  *already* takes an `avatarId`; 4 of its 10 call sites just don't pass the one already in scope
+  (`TopicRouter`, `ChatSessionSummariser`, `ModuleProveEvaluator`, `ClassBriefService`). That is a
+  no-port-change, no-test-churn edit — but it buys per-*avatar* on four minor paths, not
+  per-*user*, and leaves chat (the big line) untouched. Low value; listed only so the option is
+  costed rather than rediscovered.
 
 ### Flashcard model lever (Haiku → gemini-2.5-flash) — CODE MERGED, only the OPERATOR FLIP remains
 - **Code shipped** (merged `0b55908`): `ClaudeFlashcardGenerator` routes through
