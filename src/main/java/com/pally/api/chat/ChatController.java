@@ -57,6 +57,7 @@ public class ChatController {
     private final SolvePhotoQuestionsUseCase solvePhotoQuestionsUseCase;
     private final com.pally.domain.consent.ConsentGuard consentGuard;
     private final ChatRateLimiter chatRateLimiter;
+    private final com.pally.domain.chat.port.ChatSessionCachePort chatSessionCachePort;
 
     /**
      * Streams a chat response from the avatar via Server-Sent Events.
@@ -99,6 +100,12 @@ public class ChatController {
             writeJsonError(response, 403, "PARENT_LINK_REQUIRED", e.getReason(), e.getMessage());
             return;
         }
+
+        // A real, permitted chat turn — reset the keepalive idle timer so an active
+        // session stays warm and an abandoned one self-terminates once turns stop.
+        // Touch-only (never starts a loop), so it cannot leak.
+        chatSessionCachePort.recordActivity(avatarId);
+
         response.setContentType("text/event-stream");
         response.setCharacterEncoding("UTF-8");
         response.setHeader("Cache-Control", "no-cache");

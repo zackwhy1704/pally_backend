@@ -14,4 +14,12 @@ public interface ChatSessionCachePort {
 
     /** Stop the keepalive ticker when the user leaves the chat screen. */
     void stopKeepalive(String avatarId);
+
+    /**
+     * Signal a real chat turn so an ACTIVE keepalive resets its idle timer. Lets an
+     * abandoned session (one that never cleanly stopped) self-terminate after the idle
+     * window instead of pinging until the process restarts. A no-op when no keepalive is
+     * active — a turn never CREATES a ping loop here (chat-open does that via startKeepalive).
+     */
+    void recordActivity(String avatarId);
 }

@@ -31,6 +31,13 @@ import java.util.concurrent.TimeUnit;
 public class CacheKeepAliveService implements ChatSessionCachePort {
 
     private static final int KEEPALIVE_INTERVAL_MINUTES = 4;
+    /**
+     * Stop pinging after this long with no chat turn. Keepalive only pays off while a
+     * session is live (break-even is roughly one turn per ~11 min of pinging); past this
+     * the user has left, so a still-running loop is pure waste. Bounds the cost of a
+     * session that never cleanly stopped (client crash / navigate-away without session-end).
+     */
+    private static final int IDLE_TIMEOUT_MINUTES = 15;
 
     private final ClaudeApiClient claudeClient;
     private final ClaudeContextAssembler assembler;
@@ -40,6 +47,8 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
     private final com.pally.domain.cost.AiUsageMeter aiUsageMeter;
 
     private final Map<String, ScheduledFuture<?>> activeTasks = new ConcurrentHashMap<>();
+    /** Last real chat turn (or start) per active avatar — drives the idle self-terminate. */
+    private final Map<String, java.time.Instant> lastActivity = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler =
             Executors.newScheduledThreadPool(4, Thread.ofVirtual().factory());
 
@@ -49,6 +58,7 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
      */
     public void startKeepalive(String avatarId) {
         stopKeepalive(avatarId);
+        lastActivity.put(avatarId, java.time.Instant.now());
 
         // Pre-warm cache immediately (non-blocking) so first user message has warm cache.
         // Anthropic reports 50-85% TTFT reduction when cache is hit on first turn.
@@ -73,6 +83,7 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
      * Stop keepalive when user closes chat or navigates away.
      */
     public void stopKeepalive(String avatarId) {
+        lastActivity.remove(avatarId);
         ScheduledFuture<?> existing = activeTasks.remove(avatarId);
         if (existing != null) {
             existing.cancel(false);
@@ -84,11 +95,40 @@ public class CacheKeepAliveService implements ChatSessionCachePort {
         return activeTasks.containsKey(avatarId);
     }
 
+    /**
+     * Reset the idle timer on a real chat turn. Touch-only: never CREATES a loop for an
+     * inactive avatar (a turn without an open session leaves the cache cold rather than
+     * spinning up an unbounded ping loop — chat-open owns starting keepalive).
+     */
+    @Override
+    public void recordActivity(String avatarId) {
+        if (activeTasks.containsKey(avatarId)) {
+            lastActivity.put(avatarId, java.time.Instant.now());
+        }
+    }
+
+    /** Pure idle decision (package-private for testing): no chat turn since {@code last}
+     *  for at least the idle window. Null last (never active) is never idle. */
+    static boolean isIdle(java.time.Instant last, java.time.Instant now) {
+        return last != null
+                && java.time.Duration.between(last, now).toMinutes() >= IDLE_TIMEOUT_MINUTES;
+    }
+
     // Haiku cache threshold — must match ClaudeContextAssembler.CACHE_MIN_TOKENS
     private static final int CACHE_MIN_TOKENS = 2048;
 
     private void pingCache(String avatarId) {
         try {
+            // Idle self-terminate: no chat turn for IDLE_TIMEOUT_MINUTES → the user has
+            // left (or the session never cleanly stopped). Stop pinging instead of running
+            // until the process restarts. Checked here (every interval) so a stale loop
+            // costs at most one extra ping past the window.
+            if (isIdle(lastActivity.get(avatarId), java.time.Instant.now())) {
+                log.debug("[CacheKeepalive] Idle >={}m — stopping avatar={}", IDLE_TIMEOUT_MINUTES, avatarId);
+                stopKeepalive(avatarId);
+                return;
+            }
+
             var avatar = avatarRepo.findById(avatarId).orElse(null);
             if (avatar == null) {
                 stopKeepalive(avatarId);
