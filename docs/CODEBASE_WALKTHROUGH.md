@@ -194,12 +194,15 @@ Every segment is clamped to a max page count, so a fat chapter becomes "Ch 3 (pa
      `zero-ready-processing` | `zero-ready-awaiting-selection` | `zero-ready-failed`.
 4. **Incremental filter** — "needs compile" = `compiled_by IS NULL` (a true completion marker, not
    merely "has a `wiki_page_sources` row", so a partially-failed segmented file is resumed).
+   Nothing outstanding → early return with `tierServed = "skipped-all-compiled"`.
 5. **Zero-source guard** — all-empty text → skip (don't burn budget on every deploy's reconcile).
 6. **Delete-during-compile guard** (line 301) — re-check the avatar exists right before the spend.
 7. `wikiCompiler.compileWithTier(...)` → `persistenceService.persistDrafts(...)`.
 8. **Orphan archive** — surviving slugs = this run's slugs ∪ slugs owned by previously-compiled
    READY files (fixing a bug where incremental compiles archived everything else).
-9. **`compiledBy` stamped only if pages were produced** — a 0-page result must stay re-compilable.
+9. **Cache invalidation** — `cacheInvalidationService.onWikiContentChanged`, outside the persist
+   transaction (best-effort cache work never blocks or rolls back a compile).
+10. **`compiledBy` stamped only if pages were produced** — a 0-page result must stay re-compilable.
 
 Two extra entry points:
 - `executeBounded` — runs on the bounded AI pool with a 4-minute wait; `RejectedExecutionException`
@@ -408,7 +411,13 @@ Robustness patterns you'll see repeated (this is the "fix the family" rule in ac
 - `MICRO_CARD_TOKENS = 3000` vs `MAX_TOKENS = 1500` — micro-cards were truncating and dropping the
   whole LEARN batch.
 
-### 5.2 Groundedness gate — `domain/knowledge/groundedness/`
+### 5.2 Groundedness gate
+
+Spans two packages — read them together, the safety argument doesn't survive being split:
+- `domain/knowledge/groundedness/` — `ClaimExtractor`, `GroundednessVerifier`, `EntailmentJudge` (port)
+- `infrastructure/ai/ClaudeEntailmentJudge` — the judge adapter
+- `domain/module/ModuleContentGenerator` — the **only** caller (`tagGroundedness`, line 222).
+  Nothing else in the codebase invokes the verifier.
 
 The anti-hallucination pass, cheap → expensive:
 
@@ -416,28 +425,62 @@ The anti-hallucination pass, cheap → expensive:
 ClaimExtractor (no LLM)  →  lexical pre-pass (no LLM)  →  ONE batched EntailmentJudge call
 ```
 
-1. **`ClaimExtractor`** — deterministically pulls checkable sentences, tagging each `hardFact`
-   (number / formula / date / multi-word named entity). A bare definition
-   ("Mitochondria is the powerhouse") is deliberately **soft** — bias toward precision.
+1. **`ClaimExtractor`** (static, no LLM) — splits into sentences and keeps only those that are a
+   hard fact **or** contain a definitional verb (`is/are/means/equals/defined as/refers to/…`);
+   pure soft elaboration is dropped entirely, not kept as a soft claim. Also skipped: <8 chars,
+   questions, scaffolding prefixes ("let's", "for example", "remember"…), and — see below —
+   headings. `hardFact` = contains a digit, a formula/operator (`= √ × ÷ ± ∑ ∫ ≈ ≤ ≥ ^ a/b`), or a
+   multi-word Title-Case named entity. A bare definition ("Mitochondria is the powerhouse") is
+   deliberately **soft** — bias toward precision.
 2. **Pre-pass** (`GroundednessVerifier.sourceCoverage`, line 157) — claim-token coverage by the best
    matching source sentence **or adjacent-sentence pair**; ≥ `groundedness.high-overlap` (0.6) →
-   SUPPORTED for free. Critically, a hard-fact claim only short-circuits if **all its numbers appear
-   in the source** (`numbersCovered`) — otherwise 1789→1798 would sail through on high overlap.
+   `Action.CLEAN`/`SUPPORTED` for free. Critically, a hard-fact claim only short-circuits if **all
+   its numbers appear in the source** (`numbersCovered`) — otherwise 1789→1798 would sail through
+   on high overlap.
 3. **Judge** — exactly **one** batched `ClaudeEntailmentJudge` call for all low-overlap claims, and
-   only if at least one is a hard fact. It **fails closed** after one retry (unparseable →
-   NOT_IN_SOURCE → flagged for teacher review).
+   only if at least one of them is a hard fact. If none is, every low-overlap claim is `ALLOW`ed at
+   **zero** LLM calls. Soft claims in a batch that does fire ride along for free.
 
-Decision table: SUPPORTED → CLEAN · CONTRADICTED → CONTRADICTED · NOT_IN_SOURCE + hardFact → FLAG ·
-NOT_IN_SOURCE + soft → ALLOW (legitimate lesson-building is never flagged).
+Decision table (`mapVerdict`): SUPPORTED → CLEAN · CONTRADICTED → CONTRADICTED ·
+NOT_IN_SOURCE + hardFact → FLAG · NOT_IN_SOURCE + soft → ALLOW (legitimate lesson-building is
+never flagged).
 
-**Scoping** (`GROUNDED_TYPES`, line 205): only `MICRO_CARD` and `PROVE_QUESTION` are checked.
-`SPOT_MISTAKE`, `HOT_TAKE` and `CHALLENGE` are *invented practice by design* — grounding them is a
-category error (77% of prod flags were exactly that: "F = m + a" flagged as contradicting the notes,
-when that IS the planted mistake). Positive allow-list, so a future 6th type isn't grounded by default.
+#### The two failure directions — they are opposite, and that is deliberate
 
-`recordCalibration` (line 204) logs a **sample** of what's being flagged when the running flag rate
-exceeds `groundedness.flag-rate-ceiling` (0.20) — the rule is fix the over-firing, never relax the
-ceiling to silence the warning.
+- **The judge fails CLOSED.** `ClaudeEntailmentJudge.judge` retries once; still unparseable (or an
+  empty array, or a short array) → every unresolved claim becomes `NOT_IN_SOURCE`. Combined with the
+  decision table that means **hard facts get FLAGged for teacher review; soft claims are still
+  ALLOWed.** A judge outage does not flag everything — it flags the fact-bearing claims only.
+- **The caller fails OPEN.** `ModuleContentGenerator.tagGroundedness` wraps the whole per-item check
+  in try/catch and logs `skipping (fail open)` — so an exception anywhere in the gate means the item
+  ships **untagged**. A blank/absent source page (`page.getContent()` null or blank) likewise skips
+  grounding entirely.
+
+So: a *parse* failure is conservative, an *exception* is permissive. Don't read "fails closed" as a
+property of the gate as a whole.
+
+#### Two preconditions that make fail-closed safe — do not remove either
+
+`ClaudeEntailmentJudge`'s javadoc is explicit that failing closed is only safe because both of these
+landed first. Remove one and fail-closed becomes an over-reject flood:
+
+1. **Type scoping** — `GROUNDED_TYPES` in **`domain/module/ModuleContentGenerator.java` line 205**
+   (note: *not* in the groundedness package): only `MICRO_CARD` and `PROVE_QUESTION` are checked.
+   `SPOT_MISTAKE`, `HOT_TAKE` and `CHALLENGE` are *invented practice by design* — grounding them is a
+   category error (a 2026-07-13 prod classification found 77% of all flags were on these three:
+   "F = m + a" flagged as contradicting the notes, when that IS the planted mistake). Positive
+   allow-list, so a 6th `ContentItemType` would not be grounded by default (there are 5 today).
+2. **Heading/title filtering** — `ClaimExtractor.isHeadingOrTitle`: a short, majority-Title-Case,
+   non-period-terminated line is not a proposition and is dropped. Without it, `NAMED_ENTITY` treats
+   a micro-card title ("The Never-Ending Journey!") as a hard fact and flags it as ungrounded.
+   Period-terminated lines are always kept, so "Water boils at 100 degrees Celsius" survives.
+
+`recordCalibration` (line 204) logs a **sample** of what's being flagged once **≥20 items have been
+checked** (the sample gate — it stays quiet below that) and the running flag rate exceeds
+`groundedness.flag-rate-ceiling` (0.20). The rule is to fix the over-firing (coverage precision /
+hard-fact classifier), never to relax the ceiling to silence the warning. Note the direction trap
+called out in the source: *lowering* `high-overlap` widens the pre-pass and yields **fewer** flags;
+*raising* it flags **more**.
 
 ### 5.3 Progression + health
 
