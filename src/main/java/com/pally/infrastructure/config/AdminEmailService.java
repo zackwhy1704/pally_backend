@@ -51,4 +51,12 @@ public class AdminEmailService {
         if (email == null || email.isBlank()) return false;
         return adminEmails.contains(email.trim().toLowerCase());
     }
+
+    /**
+     * The configured admin recipient addresses (unmodifiable; empty when {@code ADMIN_EMAILS}
+     * is unset). Used to fan out operational notifications (e.g. content reports) to admins.
+     */
+    public Set<String> recipients() {
+        return adminEmails;
+    }
 }
