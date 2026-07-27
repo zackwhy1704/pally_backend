@@ -6,6 +6,7 @@ import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaEntity;
 import com.pally.infrastructure.persistence.flag.UserFeatureFlagJpaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +26,17 @@ public class FeatureFlagService {
     private final UserFeatureFlagJpaRepository flagRepo;
     private final UserRepository userRepository;
     private final AdminEmailService adminEmailService;
+
+    /**
+     * GLOBAL voice-input kill-switch, operator-controlled via the Railway
+     * {@code VOICE_INPUT_ENABLED} env var (default OFF — fail-closed; children's
+     * voice-to-cloud-STT stays dark until explicitly turned on, pending DPIA).
+     * Returned to EVERY user as the {@code voice_input} flag so the mic can be
+     * flipped on/off remotely with no client redeploy. Same env-driven pattern as
+     * {@code is_admin} from ADMIN_EMAILS.
+     */
+    @Value("${voice.input.enabled:${VOICE_INPUT_ENABLED:false}}")
+    private boolean voiceInputEnabled;
 
     /**
      * Returns every enabled flag for the given user, plus the derived
@@ -48,6 +60,10 @@ public class FeatureFlagService {
 
         // Groups are now open to all users — always return true
         flags.put("groups_enabled", true);
+
+        // Global voice-input flag (Railway VOICE_INPUT_ENABLED) — same for every user;
+        // the client gates the mic on this so voice can be toggled without a client redeploy.
+        flags.put("voice_input", voiceInputEnabled);
         return flags;
     }
 
