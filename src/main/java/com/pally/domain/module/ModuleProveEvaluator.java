@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.ai.GeminiCompletionService;
+import com.pally.infrastructure.ai.PromptLanguage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -54,7 +55,7 @@ public class ModuleProveEvaluator {
      * @param studentAnswer the student's free-text answer
      * @return evaluation result
      */
-    public ProveResult evaluateAnswer(ModuleContentItem proveQuestion, String studentAnswer) {
+    public ProveResult evaluateAnswer(ModuleContentItem proveQuestion, String studentAnswer, String contentLanguage) {
         if (studentAnswer == null || studentAnswer.trim().length() < 5) {
             return ProveResult.ungraded("Try writing a bit more to show what you know!");
         }
@@ -88,7 +89,9 @@ public class ModuleProveEvaluator {
                     question,
                     targetConcept,
                     String.join(", ", expectedKeyPoints),
-                    truncate(studentAnswer, 1000));
+                    truncate(studentAnswer, 1000))
+                    // V124: the student-facing "feedback" follows the module's language; JSON keys stay ASCII.
+                    + PromptLanguage.directive(contentLanguage);
 
             ProveResult result = parseResult(
                     geminiCompletion.complete(MAX_TOKENS, prompt, "module-prove-eval"));
