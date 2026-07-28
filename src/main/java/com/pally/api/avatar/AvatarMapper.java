@@ -196,7 +196,8 @@ public class AvatarMapper {
                 awaitingChapterSelection,
                 pendingChapterCount,
                 compileFailureReason,
-                compileFailureKind
+                compileFailureKind,
+                avatar.getContentLanguage()
         );
     }
 

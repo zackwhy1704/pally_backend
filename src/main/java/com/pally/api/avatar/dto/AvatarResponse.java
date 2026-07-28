@@ -91,5 +91,8 @@ public record AvatarResponse(
         /// mismatch — recompile is a dead end, the user must re-upload, e.g. skipRelevance),
         /// "FAILED" (extraction failed — recompile is valid), or "MIXED". Null when no failure.
         @JsonInclude(JsonInclude.Include.NON_NULL)
-        String compileFailureKind
+        String compileFailureKind,
+        /// Language the AI generates this avatar's content in ('en' | 'zh') — V124. Always present.
+        /// Clients read it to render generated content appropriately and to prefill the picker.
+        String contentLanguage
 ) {}

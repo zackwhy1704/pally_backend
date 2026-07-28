@@ -62,7 +62,7 @@ public class AvatarController {
     ) {
         Avatar avatar = createAvatarUseCase.execute(
                 userId, request.name(), request.subject(), request.characterType(),
-                request.gradeLevel(), request.curriculumType()
+                request.gradeLevel(), request.curriculumType(), request.contentLanguage()
         );
         AvatarResponse response = avatarMapper.toResponse(avatar);
         return ResponseEntity
@@ -160,6 +160,25 @@ public class AvatarController {
             @Valid @RequestBody UpdateTestDateRequest request
     ) {
         Avatar avatar = updateAvatarSettingsUseCase.updateTestDate(avatarId, userId, request.testDate());
+        return ResponseEntity.ok(ApiResponse.success(avatarMapper.toResponse(avatar)));
+    }
+
+    /**
+     * Sets the language the avatar generates content in ('en' | 'zh') — V124. An unsupported value
+     * returns 400 (never a silent default). NOTE: changing this does NOT retag existing artifacts —
+     * pages/modules/flashcards keep their compile-time language, so the avatar generates NEW material
+     * in the new language while old material stays as it was. Recompile a page to regenerate it.
+     *
+     * @return 200 OK with the updated avatar; 400 if the language is unsupported
+     */
+    @PatchMapping("/{avatarId}/content-language")
+    public ResponseEntity<ApiResponse<AvatarResponse>> updateContentLanguage(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @RequestBody Map<String, String> body
+    ) {
+        String lang = com.pally.domain.i18n.SupportedLanguage.validate(body.get("contentLanguage"));
+        Avatar avatar = updateAvatarSettingsUseCase.updateContentLanguage(avatarId, userId, lang);
         return ResponseEntity.ok(ApiResponse.success(avatarMapper.toResponse(avatar)));
     }
 

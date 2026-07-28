@@ -88,6 +88,14 @@ class AvatarMapperTest {
     }
 
     @Test
+    void response_carriesContentLanguage_defaultEn_andZh() {
+        assertThat(mapper.toResponse(personalAvatar()).contentLanguage()).isEqualTo("en");
+        Avatar zh = personalAvatar();
+        zh.setContentLanguage("zh");
+        assertThat(mapper.toResponse(zh).contentLanguage()).isEqualTo("zh");
+    }
+
+    @Test
     void singleGet_centreClassAvatarWithNoConfig_mochiConfigIsNull() {
         OrgClassJpaEntity bare = new OrgClassJpaEntity();
         bare.setId(CLASS_ID); // mochiConfig stays null

@@ -10,5 +10,8 @@ public record CreateAvatarRequest(
         @NotNull(message = "Subject is required") Subject subject,
         @NotNull(message = "Character type is required") CharacterType characterType,
         String gradeLevel,
-        String curriculumType
+        String curriculumType,
+        /// Language the AI generates this avatar's content in ('en' | 'zh') — V124. Optional; absent
+        /// defaults to 'en'. A present-but-unsupported value is rejected with 400 in the use case.
+        String contentLanguage
 ) {}

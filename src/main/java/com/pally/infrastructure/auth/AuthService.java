@@ -471,6 +471,8 @@ public class AuthService {
                 user.getAccountStatus() != null ? user.getAccountStatus() : "ACTIVE");
         m.put("defaultAnswerMode",
                 user.getDefaultAnswerMode() != null ? user.getDefaultAnswerMode() : "GUIDE");
+        m.put("preferredLocale",
+                user.getPreferredLocale() != null ? user.getPreferredLocale() : "en");
         m.put("role", user.getRole() != null ? user.getRole() : "USER");
         m.put("isCentreStaff", isCentreStaff);
         m.put("isOwner", isOwner);
@@ -482,6 +484,18 @@ public class AuthService {
         String normalized = "ANSWER".equalsIgnoreCase(mode) ? "ANSWER" : "GUIDE";
         userRepo.findById(userId).ifPresent(u -> {
             u.setDefaultAnswerMode(normalized);
+            userRepo.save(u);
+        });
+    }
+
+    /// Update the user's preferred UI locale ('en' | 'zh'). Rejects an unsupported value with a 400
+    /// (never silently defaults). This is UI chrome only — it does NOT change any avatar's
+    /// content_language, and it never retags existing artifacts.
+    @Transactional
+    public void updatePreferredLocale(String userId, String locale) {
+        String normalized = com.pally.domain.i18n.SupportedLanguage.validate(locale); // 400 if unsupported
+        userRepo.findById(userId).ifPresent(u -> {
+            u.setPreferredLocale(normalized);
             userRepo.save(u);
         });
     }
