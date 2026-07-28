@@ -67,8 +67,8 @@ class ModuleGeneratorMergeParityTest {
     void microCards_studentVsTeacherGuidance_identicalItemSet_andLiveStatus() {
         when(gemini.complete(anyInt(), any(), any())).thenReturn(
                 "[{\"title\":\"Photosynthesis\",\"body\":\"light to chemical energy\",\"keyTerms\":[\"light\"]}]");
-        List<ModuleContentItem> student = gen.generateMicroCards("m1", "content", "P5", "Science", "FREE", "", "av-test");
-        List<ModuleContentItem> teacher = gen.generateMicroCards("m1", "content", "P5", "Science", "FREE", GUIDANCE, "av-test");
+        List<ModuleContentItem> student = gen.generateMicroCards("m1", "content", "P5", "Science", "FREE", "", "av-test", "en");
+        List<ModuleContentItem> teacher = gen.generateMicroCards("m1", "content", "P5", "Science", "FREE", GUIDANCE, "av-test", "en");
         assertSameStructure(student, teacher);
         assertThat(student.get(0).getStage()).isEqualTo("LEARN");
         assertThat(student.get(0).getType()).isEqualTo("MICRO_CARD");
@@ -81,8 +81,8 @@ class ModuleGeneratorMergeParityTest {
         when(gemini.complete(anyInt(), any(), any())).thenReturn(
                 "{\"problem\":\"2+2=5\",\"wrongSolution\":\"added wrong\","
                         + "\"errorDescription\":\"arithmetic slip\",\"correctSolution\":\"2+2=4\"}");
-        List<ModuleContentItem> student = gen.generateSpotMistake("m1", "content", "P5", "Science", "", "av-test");
-        List<ModuleContentItem> teacher = gen.generateSpotMistake("m1", "content", "P5", "Science", GUIDANCE, "av-test");
+        List<ModuleContentItem> student = gen.generateSpotMistake("m1", "content", "P5", "Science", "", "av-test", "en");
+        List<ModuleContentItem> teacher = gen.generateSpotMistake("m1", "content", "P5", "Science", GUIDANCE, "av-test", "en");
         assertSameStructure(student, teacher);
         assertThat(student.get(0).getType()).isEqualTo("SPOT_MISTAKE");
         assertThat(student.get(0).getSortOrder()).isEqualTo(200);
@@ -92,8 +92,8 @@ class ModuleGeneratorMergeParityTest {
     void challenges_studentVsTeacherGuidance_identicalItemSet() {
         when(gemini.complete(anyInt(), any(), any())).thenReturn(
                 "[{\"question\":\"Explain X\",\"answer\":\"because Y\",\"explanation\":\"Z\",\"difficulty\":\"easy\"}]");
-        List<ModuleContentItem> student = gen.generateChallenges("m1", "content", "P5", "Science", "FREE", "", "av-test");
-        List<ModuleContentItem> teacher = gen.generateChallenges("m1", "content", "P5", "Science", "FREE", GUIDANCE, "av-test");
+        List<ModuleContentItem> student = gen.generateChallenges("m1", "content", "P5", "Science", "FREE", "", "av-test", "en");
+        List<ModuleContentItem> teacher = gen.generateChallenges("m1", "content", "P5", "Science", "FREE", GUIDANCE, "av-test", "en");
         assertSameStructure(student, teacher);
         assertThat(student.get(0).getType()).isEqualTo("CHALLENGE");
         assertThat(student.get(0).getSortOrder()).isEqualTo(300);

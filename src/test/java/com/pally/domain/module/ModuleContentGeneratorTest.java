@@ -459,7 +459,7 @@ class ModuleContentGeneratorTest {
                 .thenReturn("[{\"statement\":\"S\",\"isTrue\":true,\"explanation\":\"E\","
                         + "\"targetConcept\":\"Compliment bridging\"}]");
         List<ModuleContentItem> items = generator.generateHotTakes(
-                "m", "content", "a student", "Sales", "FREE", "", "av");
+                "m", "content", "a student", "Sales", "FREE", "", "av", "en");
         assertThat(items.get(0).getAnswerJson()).contains("\"targetConcept\":\"Compliment bridging\"");
     }
 

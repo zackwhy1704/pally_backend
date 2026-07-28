@@ -10,6 +10,7 @@ import com.pally.domain.knowledge.groundedness.GroundednessVerifier;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.ai.GeminiCompletionService;
+import com.pally.infrastructure.ai.PromptLanguage;
 import com.pally.shared.util.IdGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -82,10 +83,11 @@ public class ModuleContentGenerator {
         List<ModuleContentItem> allItems = new ArrayList<>();
 
         // ── AI work — NO transaction held across these ──────────────────────
-        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId())); // LEARN
-        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId()));    // TEST
-        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId()));
-        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId()));
+        String lang = avatar.getContentLanguage();
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId(), lang)); // LEARN
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId(), lang));    // TEST
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId(), lang));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId(), lang));
         tagGroundedness(page, allItems);
 
         // ── Short transactional persist ─────────────────────────────────────
@@ -124,10 +126,11 @@ public class ModuleContentGenerator {
 
         // ── AI work — NO transaction held across these ──────────────────────
         List<ModuleContentItem> allItems = new ArrayList<>();
-        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId()));
-        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId()));
-        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, guidanceSection, avatar.getId()));
-        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId()));
+        String lang = avatar.getContentLanguage();
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId(), lang));
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId(), lang));
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, guidanceSection, avatar.getId(), lang));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, guidanceSection, avatar.getId(), lang));
         // The merged generators build LIVE-style items; the teacher regenerate path marks them
         // DRAFT here (previously buildDraftItem set status="DRAFT" per item), so a regen preview
         // is never persisted as live content.
@@ -172,11 +175,12 @@ public class ModuleContentGenerator {
                 : "a student";
         String subject = avatar.getSubject().label();
         String content = truncate(page.getContent(), 3000);
+        String lang = avatar.getContentLanguage();
         List<ModuleContentItem> items = switch (t) {
-            case MICRO_CARD -> generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId());
-            case HOT_TAKE -> generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId());
-            case SPOT_MISTAKE -> generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId());
-            case CHALLENGE -> generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId());
+            case MICRO_CARD -> generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId(), lang);
+            case HOT_TAKE -> generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId(), lang);
+            case SPOT_MISTAKE -> generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId(), lang);
+            case CHALLENGE -> generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId(), lang);
             case PROVE_QUESTION -> List.of(); // adaptive path — reaper retires a stray blank PROVE
         };
         items.forEach(i -> i.setStatus("LIVE"));
@@ -525,7 +529,7 @@ public class ModuleContentGenerator {
     // the centre regenerate path. Items are identical either way (draft-ness lives in the
     // persist path, not the item), so one method replaces the old a/b twins.
     List<ModuleContentItem> generateMicroCards(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId, String contentLanguage) {
         int n = "CENTRE".equals(tier) ? 6 : 4;
 
         String prompt = """
@@ -542,7 +546,8 @@ public class ModuleContentGenerator {
 
                 Reply ONLY with a JSON array:
                 [{"title":"...","body":"...","keyTerms":["..."]}]
-                """.formatted(n, level, subject, guidanceSection, content);
+                """.formatted(n, level, subject, guidanceSection, content)
+                + PromptLanguage.directive(contentLanguage);
 
         try {
             // B2: higher token budget + lenient salvage of complete elements before a
@@ -582,7 +587,7 @@ public class ModuleContentGenerator {
     // ── TEST: hot takes ──────────────────────────────────────────────────
 
     List<ModuleContentItem> generateHotTakes(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId, String contentLanguage) {
         int n = "CENTRE".equals(tier) ? 3 : 2;
 
         String prompt = """
@@ -608,7 +613,8 @@ public class ModuleContentGenerator {
 
                 Reply ONLY with a JSON array:
                 [{"statement":"...","isTrue":true,"explanation":"...","targetConcept":"..."}]
-                """.formatted(n, level, guidanceSection, content);
+                """.formatted(n, level, guidanceSection, content)
+                + PromptLanguage.directive(contentLanguage);
 
         try {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt,
@@ -650,7 +656,7 @@ public class ModuleContentGenerator {
     // ── TEST: spot the mistake ───────────────────────────────────────────
 
     List<ModuleContentItem> generateSpotMistake(
-            String moduleId, String content, String level, String subject, String guidanceSection, String avatarId) {
+            String moduleId, String content, String level, String subject, String guidanceSection, String avatarId, String contentLanguage) {
 
         String prompt = """
                 Write ONE plausible but WRONG worked solution for a problem from this content.
@@ -682,7 +688,8 @@ public class ModuleContentGenerator {
 
                 Reply ONLY with JSON:
                 {"problem":"...","wrongSolution":"...","errorDescription":"...","correctSolution":"...","targetConcept":"..."}
-                """.formatted(level, guidanceSection, content);
+                """.formatted(level, guidanceSection, content)
+                + PromptLanguage.directive(contentLanguage);
 
         try {
             Map<String, Object> parsed = robustJsonObject(MAX_TOKENS, prompt,
@@ -721,7 +728,7 @@ public class ModuleContentGenerator {
     // ── TEST: challenges ─────────────────────────────────────────────────
 
     List<ModuleContentItem> generateChallenges(
-            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId) {
+            String moduleId, String content, String level, String subject, String tier, String guidanceSection, String avatarId, String contentLanguage) {
         int n = "CENTRE".equals(tier) ? 3 : 1;
 
         String prompt = """
@@ -747,7 +754,8 @@ public class ModuleContentGenerator {
 
                 Reply ONLY with a JSON array:
                 [{"question":"...","answer":"...","explanation":"...","difficulty":"easy","targetConcept":"..."}]
-                """.formatted(n, level, guidanceSection, content);
+                """.formatted(n, level, guidanceSection, content)
+                + PromptLanguage.directive(contentLanguage);
 
         try {
             List<Map<String, Object>> parsed = robustJsonArray(MAX_TOKENS, prompt,
