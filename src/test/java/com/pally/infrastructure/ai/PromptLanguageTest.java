@@ -35,7 +35,7 @@ class PromptLanguageTest {
         assertThat(d).contains("华语");
         assertThat(d).contains("巴士");
         assertThat(d).contains("Hanyu Pinyin");
-        assertThat(d).contains("never mix in Traditional");
+        assertThat(d).contains("Traditional Chinese characters"); // "Never output Traditional Chinese characters…"
         // Contract-preservation: JSON keys / SOURCE: marker stay ASCII.
         assertThat(d).contains("SOURCE:");
         assertThat(d).containsIgnoringCase("JSON key");

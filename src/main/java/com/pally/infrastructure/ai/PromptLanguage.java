@@ -39,16 +39,33 @@ public final class PromptLanguage {
         return !directive(contentLanguage).isEmpty();
     }
 
-    // NEEDS-NATIVE-REVIEW — machine-drafted Singapore Simplified-Chinese instruction. A native
-    // SG educator MUST vet this before ship: it shapes EVERY zh artifact the AI generates, and a
-    // 公交车-style mainlandism in a P3 华文 class is a first-contact credibility failure. The
-    // instruction is written in English (the model reads it) and directs Chinese OUTPUT; it keeps
-    // JSON keys / slugs / the SOURCE: citation marker in ASCII so the language-agnostic contracts
-    // (parser, groundedness) still hold.
+    // Operator-provided Singapore Simplified-Chinese instruction (replaced the initial machine
+    // draft). It shapes EVERY zh artifact the AI generates, so a final native-SG-educator sign-off
+    // on the SG-specific vocabulary (德士/组屋/HDB, 华语-not-中文) is still wise before wide rollout.
+    // Written in English (the model reads it) and directs Chinese OUTPUT; it keeps JSON keys / slugs
+    // / the SOURCE: citation marker in ASCII so the language-agnostic contracts (parser,
+    // groundedness) still hold. NB: this is appended to ONE-SHOT generation prompts with strict JSON
+    // schemas — deliberately excludes interactive-tutor clauses (bilingual-on-request, "define +
+    // example + common mistake" scaffolds) that would fight those fixed output contracts.
     private static final String ZH_DIRECTIVE =
-            "\n\nRespond entirely in Simplified Chinese using Singapore conventions: "
-            + "use 华语 (not 中文), 巴士 (not 公交车), and Hanyu Pinyin for any romanization; "
-            + "never mix in Traditional characters. "
-            + "Keep every JSON key, slug, enum value, and the literal \"SOURCE:\" citation marker "
-            + "exactly as specified in English/ASCII — translate only the human-readable prose.";
+            "\n\nRespond entirely in Simplified Chinese (简体中文) using Singapore Mandarin conventions. "
+          + "Use 华语 (never 中文 when referring to the language), 巴士 (not 公交车), 德士 (not 出租车), "
+          + "组屋 (not 小区/住宅区 where HDB is intended), and 手机号码 (not 手机号). "
+          + "Prefer Singapore/Malaysia vocabulary where appropriate while remaining easily understood by all Mandarin speakers. "
+          + "Never output Traditional Chinese characters unless they appear inside quoted source material, proper names, code, or user input. "
+          + "Use standard Hanyu Pinyin with tone marks (e.g. nǐ hǎo, xuéshēng) whenever romanization is required; "
+          + "never use Wade-Giles, Zhuyin, Tongyong Pinyin, or numbered tones unless explicitly requested. "
+          + "For educational content, use clear, natural, age-appropriate language, defining uncommon vocabulary the first time it appears. "
+          + "When introducing technical terms, give the Chinese term first followed by the English term in parentheses on first mention only "
+          + "(e.g. 机器学习 (Machine Learning)); thereafter use the Chinese term consistently unless the English term is required. "
+          + "Preserve all mathematical notation, formulas, chemical symbols, programming code, JSON, XML, HTML, Markdown, URLs, email addresses, "
+          + "file paths, API names, class names, function names, variable names, enum values, identifiers, slugs, placeholders, and other machine-readable text exactly as provided. "
+          + "Keep every JSON key, slug, enum value, placeholder token, template variable, and the literal \"SOURCE:\" citation marker "
+          + "exactly in English/ASCII — translate only human-readable prose. "
+          + "Do not translate code comments if they are explicitly marked to remain in English. "
+          + "Maintain the original structure, numbering, bullet lists, tables, whitespace-sensitive formatting, and Markdown unless instructed otherwise. "
+          + "Keep brand names, product names, company names, proper nouns, and official titles in their official form unless a widely accepted Simplified Chinese name exists. "
+          + "Use full-width Chinese punctuation (，。！？；：（）《》【】) in prose, but preserve ASCII punctuation inside code, JSON, Markdown syntax, URLs, and other machine-readable text. "
+          + "Avoid mixing English into normal prose except for established technical terminology, proper nouns, or when explicitly requested. "
+          + "If the user requests bilingual output, present Chinese first and English second unless instructed otherwise.";
 }
