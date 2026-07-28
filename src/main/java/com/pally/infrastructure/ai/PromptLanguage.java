@@ -39,6 +39,28 @@ public final class PromptLanguage {
         return !directive(contentLanguage).isEmpty();
     }
 
+    /**
+     * Chat-specific output-language rule appended to the CACHED Block-1 hard-rules prefix.
+     *
+     * <p>Returns "" for 'en' (and null/blank/unknown) so the English Block-1 is BYTE-IDENTICAL: the
+     * shared 1h cache prefix is unchanged, so every English chat turn keeps hitting cache. A change
+     * here would be INVISIBLE to the cost ledger (it cannot see cache hits) — hence the append MUST
+     * stay conditional, pinned by a fail-without-fix byte-identical guard. A 'zh' avatar gets a
+     * distinct but stable prefix (shared across zh users on the same subject; larger, so it still
+     * clears the cache-write token threshold).
+     *
+     * <p>This is a CHAT rule, NOT the JSON-oriented generation {@link #directive}: it drops the
+     * schema clauses, preserves the literal SOURCE:[slug] citation marker in ASCII, and folds in the
+     * conversational carry-ins (stay in the language; reproduce the student's own words verbatim).
+     */
+    public static String chatBlock1Rule(String contentLanguage) {
+        if (contentLanguage == null) return "";
+        String lang = contentLanguage.trim().toLowerCase();
+        if (lang.isEmpty() || lang.equals("en")) return "";
+        if (lang.equals("zh")) return ZH_CHAT_BLOCK1_RULE;
+        return "";
+    }
+
     // Operator-provided Singapore Simplified-Chinese instruction (replaced the initial machine
     // draft). It shapes EVERY zh artifact the AI generates, so a final native-SG-educator sign-off
     // on the SG-specific vocabulary (德士/组屋/HDB, 华语-not-中文) is still wise before wide rollout.
@@ -47,6 +69,18 @@ public final class PromptLanguage {
     // groundedness) still hold. NB: this is appended to ONE-SHOT generation prompts with strict JSON
     // schemas — deliberately excludes interactive-tutor clauses (bilingual-on-request, "define +
     // example + common mistake" scaffolds) that would fight those fixed output contracts.
+    // NEEDS-NATIVE-REVIEW — chat companion to ZH_DIRECTIVE (a live tutor dialogue, not one-shot JSON).
+    // Appended CONDITIONALLY to the cached chat Block-1; keeps SOURCE:[slug] in ASCII and folds in the
+    // two conversational carry-ins (stay in the language; reproduce the student's words verbatim).
+    private static final String ZH_CHAT_BLOCK1_RULE =
+            "\nRULE 6 — OUTPUT LANGUAGE:\n"
+          + "Respond in Simplified Chinese using Singapore conventions (华语 not 中文, 巴士 not 公交车, "
+          + "Hanyu Pinyin for romanization; never Traditional characters). "
+          + "Keep the literal SOURCE:[slug] citation marker and all page slugs in English/ASCII. "
+          + "Never switch languages unexpectedly — stay in Chinese unless the student explicitly asks for a "
+          + "translation or a language comparison. "
+          + "When quoting or correcting the student's own words, reproduce them exactly first, then respond.\n";
+
     private static final String ZH_DIRECTIVE =
             "\n\nRespond entirely in Simplified Chinese (简体中文) using Singapore Mandarin conventions. "
           + "Use 华语 (never 中文 when referring to the language), 巴士 (not 公交车), 德士 (not 出租车), "

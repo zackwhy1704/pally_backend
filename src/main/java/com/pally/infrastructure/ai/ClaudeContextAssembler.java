@@ -360,7 +360,9 @@ public class ClaudeContextAssembler {
 
     // ── Block builders ────────────────────────────────────────────────────────
 
-    private String buildBlock1HardRules(Avatar avatar) {
+    // Package-private (not private) so the byte-identical cache-prefix guard can call it directly —
+    // see ClaudeContextAssemblerBlock1LanguageTest.
+    String buildBlock1HardRules(Avatar avatar) {
         // IMPORTANT: Any change here invalidates 1h cache for ALL users on this subject.
         // Keep byte-for-byte identical across requests — no timestamps, no request IDs.
         String template = """
@@ -393,7 +395,13 @@ public class ClaudeContextAssembler {
                 RULE 5 — LANGUAGE:
                 Short sentences. No jargon without explanation. Emoji are encouraged. 🎓
                 """;
-        return safeFormat("block1", template, avatar.getSubject().label(), avatar.getSubject().label());
+        String block1 = safeFormat("block1", template, avatar.getSubject().label(), avatar.getSubject().label());
+        // V124 output-language rule. CONDITIONAL: chatBlock1Rule returns "" for 'en', so the English
+        // Block-1 is BYTE-IDENTICAL to pre-change — the shared 1h cache prefix is preserved and every
+        // English chat turn keeps hitting cache. A cache miss here is invisible to the cost ledger, so
+        // an UNCONDITIONAL append would silently regress English cost; the append stays conditional and
+        // is pinned by a fail-without-fix guard. A zh avatar gets a distinct, still-cacheable prefix.
+        return block1 + PromptLanguage.chatBlock1Rule(avatar.getContentLanguage());
     }
 
     private String buildBlock2AvatarConfig(Avatar avatar) {

@@ -56,4 +56,23 @@ class PromptLanguageTest {
         assertThat(PromptLanguage.isTranslated(null)).isFalse();
         assertThat(PromptLanguage.isTranslated("zh")).isTrue();
     }
+
+    @Test
+    void chatBlock1Rule_emptyForEnglish_soCachedPrefixIsByteIdentical() {
+        assertThat(PromptLanguage.chatBlock1Rule("en")).isEmpty();
+        assertThat(PromptLanguage.chatBlock1Rule(null)).isEmpty();
+        assertThat(PromptLanguage.chatBlock1Rule("")).isEmpty();
+        assertThat(PromptLanguage.chatBlock1Rule("fr")).isEmpty();
+    }
+
+    @Test
+    void chatBlock1Rule_zh_isChatShaped_notTheJsonGenerationDirective() {
+        String r = PromptLanguage.chatBlock1Rule("zh");
+        assertThat(r).contains("华语");
+        assertThat(r).contains("SOURCE:[slug]");                 // citation contract, ASCII
+        assertThat(r).contains("Never switch languages");        // carry-in #1
+        assertThat(r).contains("reproduce them exactly first");  // carry-in #2
+        // Chat rule, not the generation directive: no JSON-schema clause.
+        assertThat(r).doesNotContain("JSON key");
+    }
 }

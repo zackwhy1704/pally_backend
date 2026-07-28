@@ -201,7 +201,8 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
 
     // ── Prompt building ────────────────────────────────────────────────────────
 
-    private String buildPrompt(Avatar avatar, String wikiContext,
+    // Package-private (not private) for the byte-identical-en guard — see ClaudePhotoQuestionSolverLanguageTest.
+    String buildPrompt(Avatar avatar, String wikiContext,
                                 List<String> questions,
                                 List<VisualClassification> classifications) {
         StringBuilder numbered = new StringBuilder();
@@ -274,7 +275,10 @@ public class ClaudePhotoQuestionSolver implements PhotoQuestionPort {
                 wikiContext,
                 numbered,
                 questions.size()
-        );
+        )
+        // V124: answer the student's homework in the avatar's content_language (empty for 'en' →
+        // byte-identical). Only the main answer prompt — classifyVisual stays English (enum labels).
+        + PromptLanguage.directive(avatar.getContentLanguage());
     }
 
     // ── Response parsing ───────────────────────────────────────────────────────
