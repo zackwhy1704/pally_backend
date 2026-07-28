@@ -70,7 +70,7 @@ class GetDailyQuizUseCaseTest {
         List<QuizQuestion> generated = List.of(new QuizQuestion(
                 "q1", AVATAR_ID, "What is 1/2 of 4?",
                 List.of("1", "2", "3", "4"), 1, "fractions", "Half of 4 is 2.", null, null));
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(generated);
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenReturn(generated);
 
         List<QuizQuestion> first = useCase.execute(AVATAR_ID, USER_ID);
         List<QuizQuestion> second = useCase.execute(AVATAR_ID, USER_ID);
@@ -79,7 +79,7 @@ class GetDailyQuizUseCaseTest {
         assertThat(second)
                 .as("second tap within the same SGT day must be a cache HIT")
                 .isEqualTo(generated);
-        verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList());
+        verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList(), anyString());
     }
 
     @Test
@@ -96,7 +96,7 @@ class GetDailyQuizUseCaseTest {
 
         CountDownLatch generatorEntered = new CountDownLatch(1);
         CountDownLatch releaseGenerator = new CountDownLatch(1);
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenAnswer(inv -> {
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenAnswer(inv -> {
             // Leader is now inside generation and holds the in-flight slot.
             generatorEntered.countDown();
             releaseGenerator.await(5, TimeUnit.SECONDS);
@@ -121,7 +121,7 @@ class GetDailyQuizUseCaseTest {
         }
 
         // The invariant: exactly ONE generation despite two concurrent first-taps.
-        verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList());
+        verify(quizGeneratorPort, times(1)).generate(eq(AVATAR_ID), anyList(), anyString());
     }
 
     @Test
@@ -145,7 +145,7 @@ class GetDailyQuizUseCaseTest {
         when(wikiRepository.findByAvatarId(corpus)).thenReturn(List.of(page));
         List<QuizQuestion> generated = List.of(new QuizQuestion(
                 "q1", AVATAR_ID, "1/2 of 4?", List.of("1", "2"), 1, "fractions", "two", null, null));
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(generated);
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenReturn(generated);
 
         List<QuizQuestion> result = useCase.execute(AVATAR_ID, USER_ID);
 
@@ -174,7 +174,7 @@ class GetDailyQuizUseCaseTest {
         // The student is weak on gamma (its slug is in their per-student signal).
         when(weaknessProfileService.weakSlugsFor(USER_ID, Subject.MATHS))
                 .thenReturn(List.of("gamma"));
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(List.of());
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenReturn(List.of());
 
         useCase.execute(AVATAR_ID, USER_ID);
 
@@ -196,7 +196,7 @@ class GetDailyQuizUseCaseTest {
         when(avatarRepository.findById("stu-2")).thenReturn(Optional.of(classStudent("stu-2", "user-2", corpus)));
         when(weaknessProfileService.weakSlugsFor("user-1", Subject.MATHS)).thenReturn(List.of("gamma"));
         when(weaknessProfileService.weakSlugsFor("user-2", Subject.MATHS)).thenReturn(List.of("alpha"));
-        when(quizGeneratorPort.generate(anyString(), anyList())).thenReturn(List.of());
+        when(quizGeneratorPort.generate(anyString(), anyList(), anyString())).thenReturn(List.of());
 
         useCase.execute("stu-1", "user-1");
         useCase.execute("stu-2", "user-2");
@@ -221,7 +221,7 @@ class GetDailyQuizUseCaseTest {
                 pageWithCertainty(AVATAR_ID, "low", 0.1),
                 pageWithCertainty(AVATAR_ID, "mid", 0.5)));
         when(weaknessProfileService.weakSlugsFor(USER_ID, Subject.MATHS)).thenReturn(List.of());
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(List.of());
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenReturn(List.of());
 
         useCase.execute(AVATAR_ID, USER_ID);
 
@@ -243,7 +243,7 @@ class GetDailyQuizUseCaseTest {
                 pageWithCertainty(AVATAR_ID, "mid", 0.5)));
         when(weaknessProfileService.weakSlugsFor(USER_ID, Subject.MATHS))
                 .thenReturn(List.of("nonexistent-topic"));
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(List.of());
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenReturn(List.of());
 
         useCase.execute(AVATAR_ID, USER_ID);
 
@@ -264,7 +264,7 @@ class GetDailyQuizUseCaseTest {
                 "qa", AVATAR_ID, "Qa", List.of("1", "2"), 0, "alpha", "e", "Alpha", null);
         QuizQuestion okQ = new QuizQuestion(
                 "qb", AVATAR_ID, "Qb", List.of("1", "2"), 0, "beta", "e", "Beta", null);
-        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList())).thenReturn(List.of(weakQ, okQ));
+        when(quizGeneratorPort.generate(eq(AVATAR_ID), anyList(), anyString())).thenReturn(List.of(weakQ, okQ));
 
         List<QuizQuestion> result = useCase.execute(AVATAR_ID, USER_ID);
 
@@ -279,7 +279,7 @@ class GetDailyQuizUseCaseTest {
     @SuppressWarnings("unchecked")
     private List<WikiPage> capturePool(String avatarId) {
         ArgumentCaptor<List<WikiPage>> cap = ArgumentCaptor.forClass(List.class);
-        verify(quizGeneratorPort).generate(eq(avatarId), cap.capture());
+        verify(quizGeneratorPort).generate(eq(avatarId), cap.capture(), anyString());
         return cap.getValue();
     }
 

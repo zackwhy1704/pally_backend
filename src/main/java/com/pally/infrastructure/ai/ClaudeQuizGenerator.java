@@ -56,7 +56,7 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
     );
 
     @Override
-    public List<QuizQuestion> generate(String avatarId, List<WikiPage> pages) {
+    public List<QuizQuestion> generate(String avatarId, List<WikiPage> pages, String contentLanguage) {
         String material = pages.stream()
                 .map(p -> "[slug: " + p.getSlug() + "] " + p.getTitle() + ": " + p.getContent())
                 .collect(Collectors.joining("\n\n"));
@@ -77,7 +77,8 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
 
                 Material:
                 %s
-                """.formatted(material);
+                """.formatted(material)
+                + PromptLanguage.directive(contentLanguage);
 
         try {
             long start0 = System.currentTimeMillis();

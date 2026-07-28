@@ -117,7 +117,7 @@ class WeaknessLoopSmokeTest extends IntegrationTestBase {
     @BeforeEach
     void stubsAndGate() {
         // Generator echo: one question per page, carrying sourcePageSlug.
-        lenient().when(quizGeneratorPort.generate(anyString(), anyList())).thenAnswer(inv -> {
+        lenient().when(quizGeneratorPort.generate(anyString(), anyList(), anyString())).thenAnswer(inv -> {
             String avId = inv.getArgument(0);
             List<WikiPage> pages = inv.getArgument(1);
             return pages.stream().map(p -> new QuizQuestion(
@@ -416,7 +416,7 @@ class WeaknessLoopSmokeTest extends IntegrationTestBase {
         quizService.getDailyQuiz(s.userId(), s.avatarId());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<WikiPage>> cap = ArgumentCaptor.forClass(List.class);
-        verify(quizGeneratorPort).generate(eq(s.avatarId()), cap.capture());
+        verify(quizGeneratorPort).generate(eq(s.avatarId()), cap.capture(), anyString());
         return cap.getValue().stream().map(WikiPage::getSlug).toList();
     }
 

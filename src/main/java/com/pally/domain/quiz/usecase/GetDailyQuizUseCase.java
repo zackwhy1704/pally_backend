@@ -205,7 +205,11 @@ public class GetDailyQuizUseCase {
         wikiRepository.recordQuizUsage(wikiSourceId,
                 prioritised.stream().map(WikiPage::getSlug).toList());
 
-        List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised);
+        // Generate in the (student) avatar's content_language. Empty/en → byte-identical English.
+        // NB: for a CENTRE_CLASS student reading a corpus, the class's language ideally drives this;
+        // refined once artifacts carry content_language (1b.5). Null-safe to 'en'.
+        String contentLanguage = avatar != null ? avatar.getContentLanguage() : "en";
+        List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised, contentLanguage);
         log.info("[Pipeline:Quiz] Generated {} questions for avatarId={}", questions.size(), avatarId);
 
         // Weak-first provenance: a question drawn from one of the student's weak pages is
