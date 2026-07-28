@@ -41,6 +41,11 @@ public class LearningModuleJpaEntity {
     @Column(nullable = false, length = 20)
     private String tier;
 
+    /// Language the module's content was generated in ('en' | 'zh') — V124. Maps the
+    /// learning_module.content_language column (NOT NULL DEFAULT 'en'); defaulted 'en' here too.
+    @Column(name = "content_language", nullable = false, length = 10)
+    private String contentLanguage = "en";
+
     @Column(name = "mastery_pct")
     private BigDecimal masteryPct;
 

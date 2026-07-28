@@ -78,6 +78,9 @@ public class ModuleContentGenerator {
         module.setTier(tier);
         module.setMasteryPct(BigDecimal.ZERO);
         module.setCreatedAt(Instant.now());
+        // V124: tag the module with the MATERIAL's language (the source page), so downstream
+        // prove-answer evaluation follows the module's language. Empty/en → byte-identical.
+        module.setContentLanguage(page.getContentLanguage());
 
         String content = truncate(page.getContent(), 3000);
         List<ModuleContentItem> allItems = new ArrayList<>();
