@@ -28,6 +28,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -74,9 +75,9 @@ class WikiPagePersistResilienceTest {
         var good = new WikiCompilerPort.WikiPageDraft("good", "Good Page", "content A");
         var bad = new WikiCompilerPort.WikiPageDraft("bad", "Bad Page", "content B");
 
-        when(selfMock.writeSingleDraft(eq("av-1"), eq("good"), any(), anyList()))
+        when(selfMock.writeSingleDraft(eq("av-1"), eq("good"), any(), anyList(), anyString()))
                 .thenReturn(new WikiPagePersistenceService.WriteResult(true, "Good Page"));
-        when(selfMock.writeSingleDraft(eq("av-1"), eq("bad"), any(), anyList()))
+        when(selfMock.writeSingleDraft(eq("av-1"), eq("bad"), any(), anyList(), anyString()))
                 .thenThrow(new DataIntegrityViolationException(
                         "value too long for type character varying — conflict_note"));
 
@@ -99,9 +100,9 @@ class WikiPagePersistResilienceTest {
         var good = new WikiCompilerPort.WikiPageDraft("good", "Good Page", "content A");
         var dup = new WikiCompilerPort.WikiPageDraft("dup", "Dup Page", "content B");
 
-        when(selfMock.writeSingleDraft(eq("av-1"), eq("good"), any(), anyList()))
+        when(selfMock.writeSingleDraft(eq("av-1"), eq("good"), any(), anyList(), anyString()))
                 .thenReturn(new WikiPagePersistenceService.WriteResult(true, "Good Page"));
-        when(selfMock.writeSingleDraft(eq("av-1"), eq("dup"), any(), anyList()))
+        when(selfMock.writeSingleDraft(eq("av-1"), eq("dup"), any(), anyList(), anyString()))
                 .thenThrow(new DataIntegrityViolationException(
                         "duplicate key value violates unique constraint "
                         + "\"wiki_pages_avatar_id_slug_key\""));

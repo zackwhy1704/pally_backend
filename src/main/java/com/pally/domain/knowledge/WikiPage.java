@@ -46,6 +46,11 @@ public final class WikiPage {
     // retrieval/grounding text. The single highest-impact cheap retrieval lift:
     // it disambiguates a page for the model even when the query is terse.
     private String context;
+    // Language the page's content was GENERATED in ('en' | 'zh') — V124. An attribute of the
+    // artifact, tagged from the avatar at compile time, so downstream generators (flashcards,
+    // teach-eval, prove, quiz) follow the MATERIAL's language, not the reader's. Defaults to 'en'
+    // by DECISION (existing/legacy pages read 'en' from the V124 column default, never a null).
+    private String contentLanguage = "en";
 
     private WikiPage(
             String id, String avatarId, String slug,
@@ -257,6 +262,16 @@ public final class WikiPage {
     /** Sets the contextual chunk summary, null-tolerant. */
     public void setContext(String context) {
         this.context = context;
+    }
+
+    /** Language the content was generated in ('en' | 'zh') — V124. Never null; 'en' by default. */
+    public String getContentLanguage() {
+        return contentLanguage != null ? contentLanguage : "en";
+    }
+
+    /** Tags the page's content language; null/blank falls back to 'en' (the decision, not an accident). */
+    public void setContentLanguage(String contentLanguage) {
+        this.contentLanguage = (contentLanguage != null && !contentLanguage.isBlank()) ? contentLanguage : "en";
     }
 
     /**

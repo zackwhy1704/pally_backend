@@ -104,6 +104,11 @@ public class WikiPageJpaEntity {
     @Column(name = "context", columnDefinition = "TEXT")
     private String context;
 
+    /// Language the page's content was generated in ('en' | 'zh') — V124. NOT NULL DEFAULT 'en'
+    /// at the column, defaulted 'en' here too, so legacy rows and any unset path read 'en'.
+    @Column(name = "content_language", nullable = false, length = 10)
+    private String contentLanguage = "en";
+
     public static WikiPageJpaEntity fromDomain(WikiPage wp) {
         WikiPageJpaEntity e = new WikiPageJpaEntity();
         e.id = wp.getId();
@@ -128,6 +133,7 @@ public class WikiPageJpaEntity {
         e.verifiedBy = wp.getVerifiedBy();
         e.conflictNote = wp.getConflictNote();
         e.context = wp.getContext();
+        e.contentLanguage = wp.getContentLanguage();
         return e;
     }
 
@@ -141,6 +147,7 @@ public class WikiPageJpaEntity {
         wp.setVerifiedBy(verifiedBy);
         wp.setConflictNote(conflictNote);
         wp.setContext(context);
+        wp.setContentLanguage(contentLanguage); // null-safe in the domain setter → legacy nulls read 'en'
         return wp;
     }
 }
