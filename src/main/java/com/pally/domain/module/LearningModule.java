@@ -26,4 +26,7 @@ public class LearningModule {
     private BigDecimal masteryPct;
     private Instant createdAt;
     private Instant completedAt;
+    // Language the module's content was generated in ('en' | 'zh') — V124. Set at generation from the
+    // source page (the material), so prove-answer evaluation follows the module's language. Default 'en'.
+    private String contentLanguage = "en";
 }

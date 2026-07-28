@@ -58,6 +58,7 @@ public class LearningModuleRepositoryAdapter implements LearningModuleRepository
         m.setMasteryPct(e.getMasteryPct());
         m.setCreatedAt(e.getCreatedAt());
         m.setCompletedAt(e.getCompletedAt());
+        m.setContentLanguage(e.getContentLanguage() != null ? e.getContentLanguage() : "en");
         return m;
     }
 
@@ -73,6 +74,7 @@ public class LearningModuleRepositoryAdapter implements LearningModuleRepository
         e.setMasteryPct(m.getMasteryPct());
         e.setCreatedAt(m.getCreatedAt());
         e.setCompletedAt(m.getCompletedAt());
+        e.setContentLanguage(m.getContentLanguage());
         return e;
     }
 }
