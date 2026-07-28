@@ -209,6 +209,11 @@ public class UserJpaEntity {
     @Column(name = "family_goal_json", columnDefinition = "TEXT")
     private String familyGoalJson;
 
+    /// UI-chrome language the user chose ('en' | 'zh') — V124. Independent of any
+    /// avatar's content_language. Defaults to 'en' so existing rows are unaffected.
+    @Column(name = "preferred_locale", nullable = false, length = 10)
+    private String preferredLocale = "en";
+
     public static UserJpaEntity newUser(String id) {
         UserJpaEntity e = new UserJpaEntity();
         e.id = id;
@@ -253,6 +258,7 @@ public class UserJpaEntity {
         u.setScreenTimeMinutes(screenTimeMinutes);
         u.setLinkCode(linkCode);
         u.setLinkCodeExpiresAt(linkCodeExpiresAt);
+        u.setPreferredLocale(preferredLocale != null ? preferredLocale : "en");
         return u;
     }
 }

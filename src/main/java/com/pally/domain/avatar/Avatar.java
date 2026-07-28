@@ -48,6 +48,10 @@ public final class Avatar {
     private String cosmeticEyewear;    // accessory slot ids — inert until layered art
     private String cosmeticClothes;
     private String cosmeticShoes;
+    // Language the AI generates this avatar's content in ('en' | 'zh') — V124.
+    // Set post-construction from the JPA row (not part of reconstitute()), mirroring
+    // classId/kind. Independent of the owner's preferred_locale. Defaults to 'en'.
+    private String contentLanguage = "en";
 
     private Avatar(
             String id,
@@ -342,4 +346,8 @@ public final class Avatar {
     public void setCosmeticClothes(String v)    { this.cosmeticClothes = v; }
     public String getCosmeticShoes()            { return cosmeticShoes; }
     public void setCosmeticShoes(String v)      { this.cosmeticShoes = v; }
+
+    // ── Content language (V124) ──────────────────────────────────────────────
+    public String getContentLanguage()          { return contentLanguage != null ? contentLanguage : "en"; }
+    public void setContentLanguage(String v)    { this.contentLanguage = (v != null && !v.isBlank()) ? v : "en"; }
 }

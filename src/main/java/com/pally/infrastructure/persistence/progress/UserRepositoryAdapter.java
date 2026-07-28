@@ -312,5 +312,6 @@ public class UserRepositoryAdapter implements UserRepository {
         entity.setTrialStartedAt(user.getTrialStartedAt());
         entity.setTrialEndsAt(user.getTrialEndsAt());
         entity.setLastSlotChangeAt(user.getLastSlotChangeAt());
+        entity.setPreferredLocale(user.getPreferredLocale());
     }
 }

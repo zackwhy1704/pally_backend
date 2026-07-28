@@ -39,6 +39,11 @@ public class User {
     private String cohortLabel;
     private String role = "USER";
 
+    /// UI-chrome language the user chose ('en' | 'zh'). Independent of any avatar's
+    /// content_language — a child with an English phone UI can be in a 华文 class.
+    /// Defaults to 'en' so every existing account is unaffected.
+    private String preferredLocale = "en";
+
     // ── Parental controls ─────────────────────────────────────────────────
     private boolean screenTimeEnabled;
     private int screenTimeMinutes = 60;
