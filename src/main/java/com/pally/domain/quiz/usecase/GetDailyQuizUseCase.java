@@ -205,10 +205,11 @@ public class GetDailyQuizUseCase {
         wikiRepository.recordQuizUsage(wikiSourceId,
                 prioritised.stream().map(WikiPage::getSlug).toList());
 
-        // Generate in the (student) avatar's content_language. Empty/en → byte-identical English.
-        // NB: for a CENTRE_CLASS student reading a corpus, the class's language ideally drives this;
-        // refined once artifacts carry content_language (1b.5). Null-safe to 'en'.
-        String contentLanguage = avatar != null ? avatar.getContentLanguage() : "en";
+        // Generate in the LANGUAGE OF THE MATERIAL (the source pages), not the reader's avatar —
+        // correct for a CENTRE_CLASS student reading a corpus in the class's language (1b.5a tags
+        // pages at compile). Pages for an avatar share a language; default 'en' if somehow empty.
+        // Empty/en → directive is "" → byte-identical English.
+        String contentLanguage = prioritised.isEmpty() ? "en" : prioritised.get(0).getContentLanguage();
         List<QuizQuestion> questions = quizGeneratorPort.generate(avatarId, prioritised, contentLanguage);
         log.info("[Pipeline:Quiz] Generated {} questions for avatarId={}", questions.size(), avatarId);
 

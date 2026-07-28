@@ -16,6 +16,7 @@ import com.pally.infrastructure.persistence.module.LearningModuleJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
@@ -25,19 +26,18 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * Part A wiring inside writeSingleDraft: a detected conflict opens a teacher review
- * entry (newest value stays live for students), and a teacher-RESOLVED page is locked
- * — a recompile that would change it opens a NEW entry and does NOT overwrite.
+ * 1b.5a: the page's content_language is tagged from the avatar at the single write chokepoint
+ * (writeSingleDraft — every compile route, including per-draft persistDrafts, flows through it).
+ * Language is an attribute of the ARTIFACT (the material), so downstream flashcard/teach/prove/quiz
+ * follow it rather than the reader. Captures the saved WikiPage on both the create and recompile
+ * branches. 'en' is the default by decision — never a null reaching the tag.
  */
 @ExtendWith(MockitoExtension.class)
-class WikiConflictWiringTest {
+class WikiPageLanguageTaggingTest {
 
     @Mock WikiRepository wikiRepository;
     @Mock AvatarRepository avatarRepository;
@@ -54,7 +54,7 @@ class WikiConflictWiringTest {
     private WikiPagePersistenceService service;
 
     private static final String AV = "av-1";
-    private static final String SLUG = "mitochondria";
+    private static final String SLUG = "photosynthesis";
 
     @BeforeEach
     void setUp() {
@@ -66,40 +66,40 @@ class WikiConflictWiringTest {
     }
 
     private WikiCompilerPort.WikiPageDraft draft(String content) {
-        return new WikiCompilerPort.WikiPageDraft(SLUG, "Mitochondria", content);
+        return new WikiCompilerPort.WikiPageDraft(SLUG, "Photosynthesis", content);
+    }
+
+    private WikiPage captureSaved(String contentLanguage) {
+        ArgumentCaptor<WikiPage> cap = ArgumentCaptor.forClass(WikiPage.class);
+        when(wikiRepository.save(cap.capture())).thenAnswer(inv -> inv.getArgument(0));
+        service.writeSingleDraft(AV, SLUG, draft("content"), List.of(), contentLanguage);
+        return cap.getValue();
     }
 
     @Test
-    void detectedConflictOnUpdate_opensATeacherEntry_andKeepsNewestLive() {
-        WikiPage existing = WikiPage.create(AV, SLUG, "Mitochondria",
-                "The mitochondria produces 38 ATP per glucose molecule.");
+    void newPage_taggedZh_whenAvatarIsZh() {
+        when(wikiRepository.findByAvatarIdAndSlug(AV, SLUG)).thenReturn(Optional.empty());
+        assertThat(captureSaved("zh").getContentLanguage()).isEqualTo("zh");
+    }
+
+    @Test
+    void newPage_taggedEn_whenAvatarIsEn() {
+        when(wikiRepository.findByAvatarIdAndSlug(AV, SLUG)).thenReturn(Optional.empty());
+        assertThat(captureSaved("en").getContentLanguage()).isEqualTo("en");
+    }
+
+    @Test
+    void recompile_retagsToCurrentLanguage() {
+        // An existing en page recompiled with new content in a zh class → the artifact is retagged zh.
+        WikiPage existing = WikiPage.create(AV, SLUG, "Photosynthesis", "old content");
+        assertThat(existing.getContentLanguage()).isEqualTo("en"); // starts en
         when(wikiRepository.findByAvatarIdAndSlug(AV, SLUG)).thenReturn(Optional.of(existing));
-        when(wikiConflictService.isResolvedLocked(AV, SLUG)).thenReturn(false);
-        when(wikiRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(wikiConflictService.isResolvedLocked(AV, SLUG)).thenReturn(false);
 
-        service.writeSingleDraft(AV, SLUG,
-                draft("The mitochondria produces 36 ATP per glucose molecule."), List.of(), "en");
+        ArgumentCaptor<WikiPage> cap = ArgumentCaptor.forClass(WikiPage.class);
+        when(wikiRepository.save(cap.capture())).thenAnswer(inv -> inv.getArgument(0));
+        service.writeSingleDraft(AV, SLUG, draft("brand new content"), List.of(), "zh");
 
-        // Teacher review entry opened with the concrete deterministic clash.
-        verify(wikiConflictService).open(eq(AV), eq(SLUG), any(), any(),
-                contains("38"), eq("DETERMINISTIC"));
-        // Newest value still applied (last-write-wins live for students).
-        verify(wikiRepository).save(any());
-    }
-
-    @Test
-    void recompileOfAResolvedPage_opensNewEntry_andDoesNotOverwrite() {
-        WikiPage resolved = WikiPage.create(AV, SLUG, "Mitochondria",
-                "The mitochondria produces 36 ATP per glucose molecule.");
-        when(wikiRepository.findByAvatarIdAndSlug(AV, SLUG)).thenReturn(Optional.of(resolved));
-        when(wikiConflictService.isResolvedLocked(AV, SLUG)).thenReturn(true);
-
-        WikiPagePersistenceService.WriteResult r = service.writeSingleDraft(AV, SLUG,
-                draft("The mitochondria produces 38 ATP per glucose molecule."), List.of(), "en");
-
-        // A new conflict is queued; the resolved page is NOT overwritten.
-        verify(wikiConflictService).open(eq(AV), eq(SLUG), any(), any(), any(), any());
-        verify(wikiRepository, never()).save(any());
-        assertThat(r.created()).isFalse();
+        assertThat(cap.getValue().getContentLanguage()).isEqualTo("zh");
     }
 }

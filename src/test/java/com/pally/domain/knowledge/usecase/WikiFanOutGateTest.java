@@ -63,7 +63,7 @@ class WikiFanOutGateTest {
         var draft = new WikiPageDraft("photosynthesis", "Photosynthesis",
                 "Plants convert light into   chemical energy.");
 
-        service().writeSingleDraft("av-1", "photosynthesis", draft, List.of());
+        service().writeSingleDraft("av-1", "photosynthesis", draft, List.of(), "en");
 
         verify(hintTreeGenerator, never()).generateForPage(anyString(), any());
         verify(flashcardGenerator, never()).regenerateForPage(anyString(), any());
@@ -75,7 +75,7 @@ class WikiFanOutGateTest {
         var draft = new WikiPageDraft("photosynthesis", "Photosynthesis",
                 "Photosynthesis happens in the chloroplasts and produces glucose and oxygen.");
 
-        service().writeSingleDraft("av-1", "photosynthesis", draft, List.of());
+        service().writeSingleDraft("av-1", "photosynthesis", draft, List.of(), "en");
 
         verify(hintTreeGenerator, times(1)).generateForPage(anyString(), any());
         verify(flashcardGenerator, times(1)).regenerateForPage(anyString(), any());

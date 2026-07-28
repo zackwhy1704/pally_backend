@@ -126,7 +126,7 @@ public class WikiPagePersistenceService {
                 // the batch. A failure is recorded with its slug + cause and we move
                 // on — partial content is far better than a blanket 400.
                 WriteResult r = selfProvider.getObject()
-                        .writeSingleDraft(avatarId, slug, draft, sourceFiles);
+                        .writeSingleDraft(avatarId, slug, draft, sourceFiles, avatar.getContentLanguage());
                 if (r.created()) created++; else updated++;
                 pageTitles.add(r.title());
             } catch (Exception e) {
@@ -200,7 +200,8 @@ public class WikiPagePersistenceService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public WriteResult writeSingleDraft(String avatarId, String slug,
                                         WikiCompilerPort.WikiPageDraft draft,
-                                        List<KnowledgeFile> sourceFiles) {
+                                        List<KnowledgeFile> sourceFiles,
+                                        String contentLanguage) {
         var existing = wikiRepository.findByAvatarIdAndSlug(avatarId, slug);
         WikiPage savedPage;
         boolean created;
@@ -225,6 +226,9 @@ public class WikiPagePersistenceService {
             ConflictResult conflict = detectConflict(oldContent, draft.content());
             existingPage.updateContent(
                     draft.title(), draft.content(), WikiPage.Certainty.INFERRED);
+            // Recompile regenerates content in the CURRENT language → retag (V124). A resolved-locked
+            // page returned earlier without an updateContent, so its stored language is untouched.
+            existingPage.setContentLanguage(contentLanguage);
             if (conflict.conflict()) {
                 existingPage.markConflict();
                 if (conflict.note() != null) {
@@ -269,6 +273,7 @@ public class WikiPagePersistenceService {
         } else {
             WikiPage newPage = WikiPage.create(
                     avatarId, slug, draft.title(), draft.content());
+            newPage.setContentLanguage(contentLanguage); // V124 — tag from the avatar at the single write chokepoint
             if (draft.prerequisites() != null
                     && !draft.prerequisites().isEmpty()) {
                 newPage.setPrerequisiteSlugs(

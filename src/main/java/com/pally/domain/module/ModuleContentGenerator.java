@@ -349,7 +349,8 @@ public class ModuleContentGenerator {
                 Output ONLY the JSON array — no prose, no preamble, no markdown fences.
                 Start your reply with [ and end with ]. Shape:
                 [{"question":"...","targetConcept":"...","expectedKeyPoints":["..."],"difficulty":"easy/medium/hard"}]
-                """.formatted(page.getTitle(), testSummary, truncate(page.getContent(), 3000), n);
+                """.formatted(page.getTitle(), testSummary, truncate(page.getContent(), 3000), n)
+                + PromptLanguage.directive(page.getContentLanguage());
 
         try {
             // Robust parse (retry + salvage from prose/truncation) — the fragile
