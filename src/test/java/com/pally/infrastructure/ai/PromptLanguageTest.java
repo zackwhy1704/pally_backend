@@ -39,6 +39,9 @@ class PromptLanguageTest {
         // Contract-preservation: JSON keys / SOURCE: marker stay ASCII.
         assertThat(d).contains("SOURCE:");
         assertThat(d).containsIgnoringCase("JSON key");
+        // One-shot-safe rules folded in from the operator directive.
+        assertThat(d).contains("Be consistent");
+        assertThat(d).contains("Cantonese");
     }
 
     @Test

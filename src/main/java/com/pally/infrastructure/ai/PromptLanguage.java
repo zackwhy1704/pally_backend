@@ -67,5 +67,11 @@ public final class PromptLanguage {
           + "Keep brand names, product names, company names, proper nouns, and official titles in their official form unless a widely accepted Simplified Chinese name exists. "
           + "Use full-width Chinese punctuation (，。！？；：（）《》【】) in prose, but preserve ASCII punctuation inside code, JSON, Markdown syntax, URLs, and other machine-readable text. "
           + "Avoid mixing English into normal prose except for established technical terminology, proper nouns, or when explicitly requested. "
-          + "If the user requests bilingual output, present Chinese first and English second unless instructed otherwise.";
+          + "If the user requests bilingual output, present Chinese first and English second unless instructed otherwise. "
+          // One-shot-safe rules folded in from the operator directive (the interactive-tutor and
+          // schema-conflicting clauses were deliberately left for the chat system prompt / omitted).
+          + "Be consistent: once a translation for a technical term is introduced, reuse it throughout. "
+          + "Prefer simpler vocabulary for less-advanced learners, but do not oversimplify technical concepts. "
+          + "Avoid Cantonese, Taiwanese-Mandarin expressions, and Mainland-only slang unless they are explicitly the subject. "
+          + "Do not append Pinyin to every sentence — use it only for new or difficult vocabulary, not routine text.";
 }
