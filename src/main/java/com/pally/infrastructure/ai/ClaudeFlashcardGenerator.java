@@ -62,7 +62,7 @@ public class ClaudeFlashcardGenerator {
         flashcardRepository.deleteByAvatarIdAndSourceSlug(
                 avatarId, page.getSlug());
         List<FlashCard> cards = generateFromContent(
-                avatarId, page.getSlug(), page.getTitle(), page.getContent());
+                avatarId, page.getSlug(), page.getTitle(), page.getContent(), page.getContentLanguage());
         // Cards-per-page counter so a model-swap quality regression is visible in the
         // first day's logs (grep "[Flashcard] cards/page"). The evidence gate's failure
         // mode was 0-card pages (thinking-ON silently ate the output budget) — surface
@@ -87,7 +87,7 @@ public class ClaudeFlashcardGenerator {
     }
 
     private List<FlashCard> generateFromContent(
-            String avatarId, String slug, String title, String content) {
+            String avatarId, String slug, String title, String content, String contentLanguage) {
         if (content == null || content.isBlank()) return List.of();
 
         String prompt = """
@@ -102,7 +102,8 @@ public class ClaudeFlashcardGenerator {
 
                 Reply with ONLY a JSON array (no markdown fence, no commentary):
                 [{"front":"...","back":"..."}, ...]
-                """.formatted(title, truncate(content, 2500));
+                """.formatted(title, truncate(content, 2500))
+                + PromptLanguage.directive(contentLanguage);
 
         String raw;
         try {

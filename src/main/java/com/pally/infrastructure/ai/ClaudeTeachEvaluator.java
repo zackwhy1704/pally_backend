@@ -90,7 +90,8 @@ public class ClaudeTeachEvaluator {
                 """.formatted(
                 page.getTitle(),
                 truncate(page.getContent(), 2500),
-                truncate(explanation, 1500));
+                truncate(explanation, 1500))
+                + PromptLanguage.directive(page.getContentLanguage());
     }
 
     private TeachResponse parseResponse(String raw) {

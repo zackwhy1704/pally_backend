@@ -1,11 +1,13 @@
 package com.pally.domain.module;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pally.domain.knowledge.WikiPage;
 import com.pally.infrastructure.ai.GeminiCompletionService;
 import com.pally.infrastructure.ai.PromptLanguage;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,5 +69,28 @@ class ModuleContentGeneratorLanguageTest {
     void challenges_englishByteIdentical_zhAppendsDirective() {
         assertByteIdenticalEn(lang ->
                 gen.generateChallenges("m", "content", "a student", "Science", "FREE", "", "av", lang));
+    }
+
+    // PROVE reads the language from the PAGE (1b.3b, post-1b.5a) — not a lang param.
+    private String provePromptForPageLanguage(String pageLang) {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        when(gemini.complete(anyInt(), captor.capture(), anyString(), anyString()))
+                .thenReturn("[{\"k\":\"v\"}]");
+        WikiPage page = WikiPage.create("av", "slug", "Title", "content");
+        page.setContentLanguage(pageLang);
+        LearningModule module = new LearningModule();
+        module.setId("m");
+        module.setAvatarId("av");
+        gen.generateProveQuestions(module, page, List.of(), "FREE");
+        return captor.getValue();
+    }
+
+    @Test
+    void proveQuestions_englishByteIdentical_zhFollowsThePage() {
+        String en = provePromptForPageLanguage("en");
+        String zh = provePromptForPageLanguage("zh");
+        assertThat(en).doesNotContain("华语");
+        assertThat(zh).isEqualTo(en + PromptLanguage.directive("zh"));
+        assertThat(zh).contains("华语");
     }
 }
