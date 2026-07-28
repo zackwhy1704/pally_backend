@@ -74,6 +74,38 @@ class AvatarJpaEntityTest {
     }
 
     @Test
+    void contentLanguage_defaultsToEn_forNewAvatar() {
+        // V124: a freshly created avatar generates in English until explicitly set,
+        // so existing centres are unaffected when the column lands.
+        Avatar avatar = Avatar.create("user-1", "My Mochi", Subject.SCIENCE, CharacterType.MOCHI);
+
+        AvatarJpaEntity entity = AvatarJpaEntity.fromDomain(avatar);
+
+        assertThat(avatar.getContentLanguage()).isEqualTo("en");
+        assertThat(entity.getContentLanguage()).isEqualTo("en");
+        assertThat(entity.toDomain().getContentLanguage()).isEqualTo("en");
+    }
+
+    @Test
+    void contentLanguage_roundTrips_forZhAvatar() {
+        Avatar avatar = Avatar.create("user-1", "华文", Subject.LANGUAGES, CharacterType.MOCHI);
+        avatar.setContentLanguage("zh");
+
+        Avatar roundTripped = AvatarJpaEntity.fromDomain(avatar).toDomain();
+
+        assertThat(roundTripped.getContentLanguage()).isEqualTo("zh");
+    }
+
+    @Test
+    void contentLanguage_blankOrNull_fallsBackToEn() {
+        Avatar avatar = Avatar.create("user-1", "My Mochi", Subject.SCIENCE, CharacterType.MOCHI);
+        avatar.setContentLanguage(null);
+        assertThat(avatar.getContentLanguage()).isEqualTo("en");
+        avatar.setContentLanguage("   ");
+        assertThat(avatar.getContentLanguage()).isEqualTo("en");
+    }
+
+    @Test
     void centreClassAvatar_kindRoundTrips_andSetsCentreFlag() {
         Avatar avatar = Avatar.create("user-1", "P4 Math", Subject.MATHS, CharacterType.MOCHI);
         avatar.markCentreClassAvatar();

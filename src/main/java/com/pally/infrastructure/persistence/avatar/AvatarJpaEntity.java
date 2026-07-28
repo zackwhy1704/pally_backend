@@ -113,6 +113,11 @@ public class AvatarJpaEntity {
     @Column(name = "cosmetic_shoes", length = 40)
     private String cosmeticShoes;
 
+    /// Language the AI generates this avatar's content in ('en' | 'zh') — V124.
+    /// Independent of the owner's preferred_locale. Defaults to 'en'.
+    @Column(name = "content_language", nullable = false, length = 10)
+    private String contentLanguage = "en";
+
     public static AvatarJpaEntity fromDomain(Avatar avatar) {
         AvatarJpaEntity entity = new AvatarJpaEntity();
         entity.id = avatar.getId();
@@ -142,6 +147,7 @@ public class AvatarJpaEntity {
         entity.cosmeticEyewear = avatar.getCosmeticEyewear();
         entity.cosmeticClothes = avatar.getCosmeticClothes();
         entity.cosmeticShoes = avatar.getCosmeticShoes();
+        entity.contentLanguage = avatar.getContentLanguage();
         return entity;
     }
 
@@ -163,6 +169,7 @@ public class AvatarJpaEntity {
         a.setCosmeticEyewear(cosmeticEyewear);
         a.setCosmeticClothes(cosmeticClothes);
         a.setCosmeticShoes(cosmeticShoes);
+        a.setContentLanguage(contentLanguage);
         return a;
     }
 }
