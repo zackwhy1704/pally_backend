@@ -38,6 +38,8 @@ class ClassBriefServiceTest {
     @Mock GeminiCompletionService geminiCompletion;
     @Mock ClaudeApiClient claudeClient;
     @Mock ModelRouter modelRouter;
+    @Mock OrgClassRepository orgClassRepository;
+    @Mock com.pally.domain.avatar.AvatarRepository avatarRepository;
 
     private ClassBriefService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -61,7 +63,8 @@ class ClassBriefServiceTest {
     void setUp() {
         service = new ClassBriefService(
                 briefRepo, progressRepo, assignmentRepo, userRepo,
-                geminiCompletion, claudeClient, modelRouter, objectMapper);
+                geminiCompletion, claudeClient, modelRouter, objectMapper,
+                orgClassRepository, avatarRepository);
     }
 
     // ── gather() ──────────────────────────────────────────────────────────────
@@ -133,7 +136,7 @@ class ClassBriefServiceTest {
                 Map.of("Student #1", "Alice"),          // nameByAnon
                 1);
 
-        String result = service.generate(inputs);
+        String result = service.generate(inputs, "en");
         assertThat(result).contains("openWith");
     }
 
@@ -148,7 +151,7 @@ class ClassBriefServiceTest {
         ClassBriefService.BriefInputs inputs = new ClassBriefService.BriefInputs(
                 List.of(), List.of(), Map.of(), Map.of(), 1);
 
-        String result = service.generate(inputs);
+        String result = service.generate(inputs, "en");
         assertThat(result).contains("openWith");
         verify(claudeClient).complete(anyString(), anyInt(), anyString(), eq("class-brief"));
     }
@@ -164,7 +167,7 @@ class ClassBriefServiceTest {
         ClassBriefService.BriefInputs inputs = new ClassBriefService.BriefInputs(
                 List.of(), List.of(), Map.of(), Map.of(), 1);
 
-        assertThatThrownBy(() -> service.generate(inputs))
+        assertThatThrownBy(() -> service.generate(inputs, "en"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("unparseable");
     }

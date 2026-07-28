@@ -57,6 +57,9 @@ public class ClassBriefService {
     private final ClaudeApiClient claudeClient;
     private final ModelRouter modelRouter;
     private final ObjectMapper objectMapper;
+    // Class-report language = the CLASS avatar's content_language (single source of truth; same as ClassReport).
+    private final OrgClassRepository orgClassRepository;
+    private final com.pally.domain.avatar.AvatarRepository avatarRepository;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -97,7 +100,11 @@ public class ClassBriefService {
             throw new BusinessException("No students with progress data found for this class", 404);
         }
 
-        String briefJson = generate(inputs);
+        String contentLanguage = orgClassRepository.findCorpusAvatarIdByClassId(classId)
+                .flatMap(avatarRepository::findById)
+                .map(com.pally.domain.avatar.Avatar::getContentLanguage)
+                .orElse("en");
+        String briefJson = generate(inputs, contentLanguage);
 
         // Persist the anon map so re-identification is stable across roster changes.
         String anonMapJson;
@@ -220,8 +227,8 @@ public class ClassBriefService {
 
     // ── Generate phase ────────────────────────────────────────────────────────
 
-    String generate(BriefInputs inputs) {
-        String prompt = buildPrompt(inputs);
+    String generate(BriefInputs inputs, String contentLanguage) {
+        String prompt = buildPrompt(inputs, contentLanguage);
         String raw = geminiCompletion.complete(BRIEF_MAX_TOKENS, prompt, BRIEF_TASK);
 
         try {
@@ -241,7 +248,7 @@ public class ClassBriefService {
         }
     }
 
-    private String buildPrompt(BriefInputs inputs) {
+    private String buildPrompt(BriefInputs inputs, String contentLanguage) {
         StringBuilder sb = new StringBuilder();
         sb.append("""
                 You are an instructional coach briefing a teacher before their next class.
@@ -285,7 +292,8 @@ public class ClassBriefService {
                         ss.anonId(), ss.passRate(), ss.weakConcepts()));
             }
         }
-        return sb.toString();
+        // V124: teacher brief follows the class's language (empty for 'en' → byte-identical). JSON keys ASCII.
+        return sb.toString() + com.pally.infrastructure.ai.PromptLanguage.directive(contentLanguage);
     }
 
 

@@ -33,6 +33,8 @@ class ClassReportGeneratorTest {
     @Mock ClaudeApiClient claudeClient;
     @Mock ModelRouter modelRouter;
     @Mock ClassReportStore store;
+    @Mock OrgClassRepository orgClassRepository;
+    @Mock com.pally.domain.avatar.AvatarRepository avatarRepository;
     // Real rules validator — these tests use substantive narratives, so it passes them
     // through; a separate suite (RulesOutputValidatorTest) proves the drop behaviour.
     @org.mockito.Spy com.pally.domain.content.OutputValidator outputValidator =
