@@ -35,6 +35,10 @@ public class ClassReportGenerator {
     private final ModelRouter modelRouter;
     private final ClassReportStore store;
     private final com.pally.domain.content.OutputValidator outputValidator;
+    // Resolve the report's language from the CLASS avatar (the corpus that tagged every page + module) —
+    // one source of truth, not a separate org/class-table field that could disagree with the artifacts.
+    private final OrgClassRepository orgClassRepository;
+    private final com.pally.domain.avatar.AvatarRepository avatarRepository;
 
     /**
      * Async entry point. Always terminal: persists {@code ready} on success
@@ -78,7 +82,13 @@ public class ClassReportGenerator {
         }
 
         String conceptSummary = buildConceptSummary(concepts);
-        String prompt = buildPrompt(conceptSummary);
+        // Report language = the CLASS's content_language (its corpus avatar's) — the artifact follows the
+        // material, same principle as every generator. One load; default 'en' if the class has no corpus.
+        String contentLanguage = orgClassRepository.findCorpusAvatarIdByClassId(classId)
+                .flatMap(avatarRepository::findById)
+                .map(com.pally.domain.avatar.Avatar::getContentLanguage)
+                .orElse("en");
+        String prompt = buildPrompt(conceptSummary, contentLanguage);
         return claudeClient.complete(modelRouter.getHaikuModel(), MAX_TOKENS, prompt, REPORT_TASK);
     }
 
@@ -95,12 +105,21 @@ public class ClassReportGenerator {
         return sb.toString();
     }
 
-    private String buildPrompt(String conceptSummary) {
+    // Package-private for the byte-identical-en + honesty-preservation guard (ClassReportLanguageTest).
+    String buildPrompt(String conceptSummary, String contentLanguage) {
         // NOTE: use .replace, NOT .formatted — the template contains a literal '%'
         // ("below 60%"), which String.format reads as a conversion specifier and
         // throws UnknownFormatConversionException on. (This was a latent bug in the
         // original synchronous service, swallowed into a 503.)
-        return """
+        //
+        // Reword ONLY the prose-style guideline off "plain English" for a non-en report (so the model
+        // isn't told to write English while the appended directive says Chinese). The English path keeps
+        // the exact original line → byte-identical. This is COPY-LEVEL only: the honesty guideline
+        // ("Do NOT invent data not present above") and every analytical instruction are untouched.
+        String proseLine = com.pally.infrastructure.ai.PromptLanguage.isTranslated(contentLanguage)
+                ? "- Write in flowing prose without headers or bullet points — flowing paragraphs only"
+                : "- Write in plain English without headers or bullet points — flowing paragraphs only";
+        return ("""
                 You are an educational analytics assistant helping a teacher understand their class.
                 Write a concise class performance report (4-6 short paragraphs) covering:
                 1. Overall strengths — concepts the class has mastered well
@@ -115,8 +134,9 @@ public class ClassReportGenerator {
                 - Be specific and reference the concept names from the data
                 - Keep each paragraph concise (2-3 sentences)
                 - Use encouraging, professional tone
-                - Write in plain English without headers or bullet points — flowing paragraphs only
+                %PROSE%
                 - Do NOT invent data not present above
-                """.replace("%DATA%", conceptSummary);
+                """).replace("%PROSE%", proseLine).replace("%DATA%", conceptSummary)
+                + com.pally.infrastructure.ai.PromptLanguage.directive(contentLanguage);
     }
 }
