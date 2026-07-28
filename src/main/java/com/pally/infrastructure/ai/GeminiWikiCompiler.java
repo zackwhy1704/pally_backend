@@ -523,7 +523,9 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
         }
     }
 
-    private String buildPrompt(Avatar avatar, List<KnowledgeFile> files,
+    // Package-private (not private) so PromptLanguage's byte-identical-en golden guard can call
+    // it directly — see GeminiWikiCompilerLanguageTest.
+    String buildPrompt(Avatar avatar, List<KnowledgeFile> files,
                                 List<WikiPage> existingPages) {
         StringBuilder sb = new StringBuilder();
         // A MARKING_CORPUS avatar compiles a teacher's marking standard into
@@ -561,6 +563,10 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 is prepended to the page for retrieval, so make it specific.
                 [{"slug":"lowercase-hyphen","title":"Title","content":"markdown","context":"This page covers <what> within <subject/topic>.","prerequisites":["slug-a"]}]
                 """);
+
+        // Output-language directive (V124). Empty for content_language 'en' → the English prompt
+        // is byte-identical; only a non-en avatar appends the Singapore-conventions instruction.
+        sb.append(PromptLanguage.directive(avatar.getContentLanguage()));
 
         return sb.toString();
     }

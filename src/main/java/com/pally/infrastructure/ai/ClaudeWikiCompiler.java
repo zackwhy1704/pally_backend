@@ -286,6 +286,10 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 preserve the information.
                 """);
 
+        // Output-language directive (V124). Empty for 'en' → byte-identical English prompt;
+        // only a non-en avatar appends the Singapore-conventions instruction.
+        sb.append(PromptLanguage.directive(avatar.getContentLanguage()));
+
         return sb.toString();
     }
 
