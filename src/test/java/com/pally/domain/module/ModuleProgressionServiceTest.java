@@ -508,7 +508,7 @@ class ModuleProgressionServiceTest {
                 .thenReturn(Optional.empty());
         when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        when(proveEvaluator.evaluateAnswer(eq(item), eq("My answer")))
+        when(proveEvaluator.evaluateAnswer(eq(item), eq("My answer"), anyString()))
                 .thenReturn(ModuleProveEvaluator.ProveResult.ok(
                         true, List.of("kp1"), List.of(), "Great!", 0.85));
 
@@ -672,7 +672,7 @@ class ModuleProgressionServiceTest {
         item.setContentJson("{\"question\":\"Q\",\"targetConcept\":\"C\"}");
         item.setAnswerJson("{\"targetConcept\":\"C\"}");
         when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
-        when(proveEvaluator.evaluateAnswer(eq(item), any()))
+        when(proveEvaluator.evaluateAnswer(eq(item), any(), anyString()))
                 .thenReturn(ModuleProveEvaluator.ProveResult.ungraded("eval down"));
         when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
                 .thenReturn(Optional.empty());

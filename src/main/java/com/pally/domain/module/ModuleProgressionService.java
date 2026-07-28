@@ -290,7 +290,7 @@ public class ModuleProgressionService {
                 // until the student self-assesses (a separate low-trust SELF_REPORT
                 // signal via the self-report endpoint).
                 ModuleProveEvaluator.ProveResult evalResult =
-                        proveEvaluator.evaluateAnswer(item, response);
+                        proveEvaluator.evaluateAnswer(item, response, module.getContentLanguage());
                 progress.setScore(null);
                 progress.setSignalType(GradingSignal.UNGRADED);
 

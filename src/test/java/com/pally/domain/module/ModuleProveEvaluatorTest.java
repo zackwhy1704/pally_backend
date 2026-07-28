@@ -2,6 +2,8 @@ package com.pally.domain.module;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pally.infrastructure.ai.GeminiCompletionService;
+import com.pally.infrastructure.ai.PromptLanguage;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,7 +40,7 @@ class ModuleProveEvaluatorTest {
                         """);
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "Plants use sunlight and CO2 with water to make food");
+                evaluator.evaluateAnswer(item, "Plants use sunlight and CO2 with water to make food", "en");
 
         assertThat(result.conceptCovered()).isTrue();
         assertThat(result.keyPointsHit()).containsExactly("sunlight", "carbon dioxide", "water");
@@ -60,7 +62,7 @@ class ModuleProveEvaluatorTest {
                         """);
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "Water turns into gas");
+                evaluator.evaluateAnswer(item, "Water turns into gas", "en");
 
         assertThat(result.conceptCovered()).isFalse();
         assertThat(result.keyPointsHit()).hasSize(1);
@@ -73,7 +75,7 @@ class ModuleProveEvaluatorTest {
         ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
 
-        ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, "ok");
+        ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, "ok", "en");
 
         // Never a false 0 — a non-answer is UNGRADED (no signal), not score 0.0.
         assertThat(result.graded()).isFalse();
@@ -88,7 +90,7 @@ class ModuleProveEvaluatorTest {
         ModuleContentItem item = new ModuleContentItem();
         item.setId("item-1");
 
-        ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, null);
+        ModuleProveEvaluator.ProveResult result = evaluator.evaluateAnswer(item, null, "en");
 
         assertThat(result.graded()).isFalse();
         verifyNoInteractions(geminiCompletion);
@@ -103,7 +105,7 @@ class ModuleProveEvaluatorTest {
                 .thenReturn("I can't evaluate this right now sorry");
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth");
+                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth", "en");
 
         // The fail-open bug: a malformed LLM response must NOT become score 0.0.
         assertThat(result.graded()).isFalse();
@@ -122,7 +124,7 @@ class ModuleProveEvaluatorTest {
                 .thenReturn("{\"conceptCovered\":true,\"feedback\":\"nice work\"}");
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth");
+                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth", "en");
 
         assertThat(result.graded()).isFalse();
     }
@@ -136,7 +138,7 @@ class ModuleProveEvaluatorTest {
                 .thenReturn("{\"conceptCovered\":true,\"score\":\"high\",\"feedback\":\"ok\"}");
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth");
+                evaluator.evaluateAnswer(item, "Gravity pulls things down towards Earth", "en");
 
         assertThat(result.graded()).isFalse();
     }
@@ -153,7 +155,7 @@ class ModuleProveEvaluatorTest {
                         """);
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "The answer is clear and correct");
+                evaluator.evaluateAnswer(item, "The answer is clear and correct", "en");
 
         assertThat(result.score()).isLessThanOrEqualTo(1.0);
     }
@@ -175,7 +177,7 @@ class ModuleProveEvaluatorTest {
                         """);
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "Gravity is a force that pulls objects toward Earth");
+                evaluator.evaluateAnswer(item, "Gravity is a force that pulls objects toward Earth", "en");
 
         assertThat(result.graded()).isTrue();
         assertThat(result.score()).isEqualTo(0.8);
@@ -192,10 +194,28 @@ class ModuleProveEvaluatorTest {
                 .thenReturn("still no json on the retry either");
 
         ModuleProveEvaluator.ProveResult result =
-                evaluator.evaluateAnswer(item, "A reasonable-length answer about the concept");
+                evaluator.evaluateAnswer(item, "A reasonable-length answer about the concept", "en");
 
         assertThat(result.graded()).isFalse();
         verify(geminiCompletion).complete(anyInt(), anyString(), eq("module-prove-eval-retry"));
+    }
+
+    @Test
+    void feedbackPrompt_isByteIdenticalEn_zhFollowsModuleLanguage() throws Exception {
+        // 1b.5b tags the module; ModuleProgressionService passes module.getContentLanguage() here.
+        ModuleContentItem item = buildProveItem("What is photosynthesis?", "energy conversion", new String[]{"light", "sugar"});
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        when(geminiCompletion.complete(anyInt(), captor.capture(), anyString()))
+                .thenReturn("{\"conceptCovered\":true,\"keyPointsHit\":[],\"keyPointsMissed\":[],\"feedback\":\"ok\",\"score\":0.5}");
+
+        evaluator.evaluateAnswer(item, "Plants turn light into sugar", "en");
+        String en = captor.getValue();
+        evaluator.evaluateAnswer(item, "Plants turn light into sugar", "zh");
+        String zh = captor.getValue();
+
+        assertThat(en).doesNotContain("华语");
+        assertThat(zh).isEqualTo(en + PromptLanguage.directive("zh"));
+        assertThat(zh).contains("华语");
     }
 
     private ModuleContentItem buildProveItem(
