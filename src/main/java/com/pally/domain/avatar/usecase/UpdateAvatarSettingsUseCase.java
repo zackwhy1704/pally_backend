@@ -51,6 +51,24 @@ public class UpdateAvatarSettingsUseCase {
     }
 
     /**
+     * Updates the language the avatar generates content in ('en' | 'zh') — V124. Validated: an
+     * unsupported value is rejected with a 400, never silently defaulted.
+     *
+     * <p>IMPORTANT — this does NOT retag existing artifacts. Wiki pages, learning modules, and
+     * flashcards keep the language they were COMPILED in (content_language is a self-contained
+     * property of each artifact). So flipping an avatar to 'zh' makes it generate NEW material in
+     * Chinese while previously-compiled material stays in its original language. This is by design,
+     * not a bug — recompile a page to regenerate it in the new language.
+     */
+    public Avatar updateContentLanguage(String avatarId, String userId, String contentLanguage) {
+        Avatar avatar = requireStudentEditable(avatarId, userId);
+        avatar.setContentLanguage(com.pally.domain.i18n.SupportedLanguage.validate(contentLanguage));
+        Avatar saved = avatarRepository.save(avatar);
+        log.info("Updated contentLanguage avatarId={} lang={}", avatarId, saved.getContentLanguage());
+        return saved;
+    }
+
+    /**
      * Updates the optional teacher-specified method preferences.
      * Null or blank input clears the field; over-limit input is rejected upstream.
      */

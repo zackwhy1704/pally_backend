@@ -38,11 +38,11 @@ public class CreateAvatarUseCase {
     private final ConsentGuard consentGuard;
 
     public Avatar execute(String userId, String name, Subject subject, CharacterType characterType) {
-        return execute(userId, name, subject, characterType, null, null);
+        return execute(userId, name, subject, characterType, null, null, null);
     }
 
     public Avatar execute(String userId, String name, Subject subject, CharacterType characterType,
-                          String gradeLevel, String curriculumType) {
+                          String gradeLevel, String curriculumType, String contentLanguage) {
         log.info("Creating avatar for userId={} name={} subject={} grade={}", userId, name, subject, gradeLevel);
 
         // PDPA gate: creating a personal tutor (which persists data) requires ACTIVE.
@@ -67,6 +67,9 @@ public class CreateAvatarUseCase {
         }
 
         Avatar avatar = Avatar.create(userId, name, subject, characterType, gradeLevel, curriculumType);
+        // V124: absent → 'en'; a present value is validated (unsupported → 400, never silent-default).
+        avatar.setContentLanguage(contentLanguage == null || contentLanguage.isBlank()
+                ? "en" : com.pally.domain.i18n.SupportedLanguage.validate(contentLanguage));
         Avatar saved = avatarRepository.save(avatar);
 
         // New avatar starts with wikiPageCount = 0.

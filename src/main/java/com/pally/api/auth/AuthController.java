@@ -382,6 +382,20 @@ public class AuthController {
                 Map.of("defaultAnswerMode", mode.equalsIgnoreCase("ANSWER") ? "ANSWER" : "GUIDE")));
     }
 
+    /// Update the user's preferred UI locale ('en' | 'zh'). Called from Settings → Language and,
+    /// at account creation, mirrored from the onboarding language picker. UI chrome only — this does
+    /// NOT change what language any avatar generates in (that's the avatar's content_language) and it
+    /// never retags existing artifacts. An unsupported value returns 400, not a silent default.
+    @PatchMapping("/settings/locale")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updatePreferredLocale(
+            @AuthenticationPrincipal String userId,
+            @RequestBody Map<String, String> body
+    ) {
+        String locale = com.pally.domain.i18n.SupportedLanguage.validate(body.get("preferredLocale"));
+        authService.updatePreferredLocale(userId, locale);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("preferredLocale", locale)));
+    }
+
     // ── Centre invite (public — no auth required) ─────────────────────────────
 
     @GetMapping("/invite/{token}")
