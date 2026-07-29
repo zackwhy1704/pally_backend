@@ -53,8 +53,9 @@ public class ModerationService {
      * Fails safe: HIGH-severity categories block even when the classifier is uncertain.
      */
     public ModerationResult screenInput(String userId, String avatarId,
-                                         String messageId, String text) {
-        return screen(userId, avatarId, messageId, text, "INPUT");
+                                         String messageId, String text,
+                                         String contentLanguage) {
+        return screen(userId, avatarId, messageId, text, "INPUT", contentLanguage);
     }
 
     /**
@@ -62,12 +63,14 @@ public class ModerationService {
      * Same fail-safe semantics.
      */
     public ModerationResult screenOutput(String userId, String avatarId,
-                                          String messageId, String text) {
-        return screen(userId, avatarId, messageId, text, "OUTPUT");
+                                          String messageId, String text,
+                                          String contentLanguage) {
+        return screen(userId, avatarId, messageId, text, "OUTPUT", contentLanguage);
     }
 
     private ModerationResult screen(String userId, String avatarId,
-                                     String messageId, String text, String source) {
+                                     String messageId, String text, String source,
+                                     String contentLanguage) {
         if (text == null || text.isBlank()) return safe();
 
         String prompt = """
@@ -114,12 +117,12 @@ public class ModerationService {
                     source, category, severity, source, userId);
 
             return new ModerationResult(true, category, severity,
-                    buildSafeReply(category));
+                    buildSafeReply(category, contentLanguage));
 
         } catch (Exception ex) {
             // Classifier failed — fail-safe for HIGH-risk patterns via simple keyword check
             log.warn("[Moderation] Classifier failed: {}; applying keyword fallback", ex.getMessage());
-            return keywordFallback(userId, avatarId, messageId, text, source);
+            return keywordFallback(userId, avatarId, messageId, text, source, contentLanguage);
         }
     }
 
@@ -128,7 +131,8 @@ public class ModerationService {
      * Only catches the most obvious HIGH-severity patterns.
      */
     private ModerationResult keywordFallback(String userId, String avatarId,
-                                              String messageId, String text, String source) {
+                                              String messageId, String text, String source,
+                                              String contentLanguage) {
         String lower = text.toLowerCase();
         if (lower.contains("kill myself") || lower.contains("want to die") ||
                 lower.contains("end my life") || lower.contains("suicide") ||
@@ -139,7 +143,7 @@ public class ModerationService {
             return new ModerationResult(true,
                     ChatSafetyFlagJpaEntity.CAT_SELF_HARM,
                     ChatSafetyFlagJpaEntity.SEV_HIGH,
-                    buildSafeReply(ChatSafetyFlagJpaEntity.CAT_SELF_HARM));
+                    buildSafeReply(ChatSafetyFlagJpaEntity.CAT_SELF_HARM, contentLanguage));
         }
         return safe();
     }
@@ -166,16 +170,29 @@ public class ModerationService {
         }
     }
 
-    private String buildSafeReply(String category) {
+    /**
+     * The child-safe reply, in the avatar's content language so a zh session never
+     * gets an English refusal (a jarring leak on first contact). Falls back to
+     * English for any non-zh / unknown language. zh strings are machine drafts
+     * pending a native-SG-educator review — but a reasonable zh message beats an
+     * English one leaking into a Chinese chat.
+     */
+    private String buildSafeReply(String category, String contentLanguage) {
+        boolean zh = "zh".equalsIgnoreCase(contentLanguage);
         return switch (category) {
-            case "SELF_HARM" ->
-                "I care about you, and I want you to be safe. 💙 If you're going through a tough time, "
-                + "please talk to a grown-up you trust — a parent, teacher, or school counsellor. "
-                + "You don't have to face it alone. I'm here to help with your studies whenever you're ready.";
-            default ->
-                "Let's keep our conversations focused on studying and learning! "
-                + "If you need to talk about something else, please reach out to a grown-up. "
-                + "What topic would you like to study today? 📚";
+            case "SELF_HARM" -> zh
+                ? "我很关心你，也希望你平平安安。💙 如果你正在经历一段难熬的时光，"
+                    + "请找一位你信任的大人聊一聊——爸爸妈妈、老师，或者学校辅导员。"
+                    + "你不必独自面对。等你准备好了，我随时都在这里陪你学习。"
+                : "I care about you, and I want you to be safe. 💙 If you're going through a tough time, "
+                    + "please talk to a grown-up you trust — a parent, teacher, or school counsellor. "
+                    + "You don't have to face it alone. I'm here to help with your studies whenever you're ready.";
+            default -> zh
+                ? "我们还是把话题放在学习上吧！如果你想聊别的，请找身边的大人聊一聊。"
+                    + "今天你想学习哪个内容呢？📚"
+                : "Let's keep our conversations focused on studying and learning! "
+                    + "If you need to talk about something else, please reach out to a grown-up. "
+                    + "What topic would you like to study today? 📚";
         };
     }
 

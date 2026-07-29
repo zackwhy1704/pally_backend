@@ -90,7 +90,7 @@ class SendMessageUseCaseOpenPathTest {
         lenient().when(premiumService.resolveTier(anyString())).thenReturn(SubscriptionTier.FREE);
         lenient().when(premiumService.resolveTierContext(anyString()))
                 .thenReturn(new PremiumService.TierContext(SubscriptionTier.FREE, false));
-        lenient().when(moderationService.screenInput(anyString(), anyString(), any(), anyString()))
+        lenient().when(moderationService.screenInput(anyString(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(new ModerationService.ModerationResult(false, "SAFE", "SAFE", null));
         lenient().when(consentGuard.isPending(anyString())).thenReturn(false);
         lenient().when(modelRouter.forChat(anyString(), any())).thenReturn("claude-haiku-4-5-20251001");

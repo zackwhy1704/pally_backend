@@ -263,7 +263,7 @@ public class SendMessageUseCase {
         // Moderation: screen the child's input BEFORE calling the model.
         // Fails safe: HIGH-severity → replace with caring redirect, never deliver raw content.
         ModerationService.ModerationResult inputMod = moderationService.screenInput(
-                userId, avatarId, null, userMessage);
+                userId, avatarId, null, userMessage, avatar.getContentLanguage());
         if (inputMod.flagged() && inputMod.isHighSeverity()) {
             log.warn("[Chat] Input blocked by moderation cat={} user={}", inputMod.category(), userId);
             String safeReply = inputMod.safeReply();
@@ -407,7 +407,8 @@ public class SendMessageUseCase {
                         final String replySnapshot = cleanReply;
                         CompletableFuture.runAsync(() -> {
                             try {
-                                moderationService.screenOutput(userId, avatarId, savedId, replySnapshot);
+                                moderationService.screenOutput(userId, avatarId, savedId, replySnapshot,
+                                        avatar.getContentLanguage());
                             } catch (Exception e) {
                                 log.warn("[Chat] Post-hoc moderation failed for msg={}: {}",
                                         savedId, e.getMessage());

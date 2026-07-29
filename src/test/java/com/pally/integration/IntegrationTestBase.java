@@ -350,7 +350,7 @@ public abstract class IntegrationTestBase {
      * that don't care about moderation don't need to configure it.
      */
     protected void stubModerationPassthrough() {
-        lenient().when(moderationService.screenInput(anyString(), anyString(), any(), anyString()))
+        lenient().when(moderationService.screenInput(anyString(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(new ModerationService.ModerationResult(
                         false, "SAFE", "SAFE", null));
     }
