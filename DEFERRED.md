@@ -41,6 +41,33 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 
 # OPEN (code — actionable)
 
+## Moderation / child-safety
+
+### Context-blind moderation false-positives on material-grounded comprehension questions
+- **What:** the chat-input moderation classifier (`ModerationService.screen`) screens the raw
+  message text **in isolation** — it never sees the uploaded study material or the topic. So a
+  legitimate reading-comprehension question about a CHARACTER in the text reads as the CHILD
+  disclosing their own personal data, and gets HIGH-severity blocked.
+- **Evidence (confirmed in prod `chat_safety_flags`, 2026-07-29):** 「小峰每天乘搭几号巴士上学？」
+  ("which bus does Xiaofeng take to school?" — 小峰 is a character in the P3 华文 passage) →
+  `category=PERSONAL_DATA severity=HIGH source=INPUT`, twice. Those two rows are the ONLY flags in
+  the entire table — i.e. every real-world firing of this classifier so far has been this
+  false-positive class. `SendMessageUseCase` blocks on `flagged() && isHighSeverity()`, so the
+  child got a refusal instead of an answer. (The refusal's ENGLISH-in-a-zh-session leak is fixed
+  separately, `ModerationService.buildSafeReply` now follows content_language.)
+- **Why not a quick fix:** it's a prompt/context problem on a CHILD-SAFETY path, not threshold
+  tuning. Candidate fixes each carry risk and need a real disclosure-vs-comprehension test set
+  before shipping: (a) clarify the PERSONAL_DATA rubric — "the CHILD sharing THEIR OWN info, NOT a
+  question about a person in the study material"; (b) pass the classifier minimal context (topic /
+  "this is a question about uploaded material"); (c) stop hard-blocking PERSONAL_DATA at INPUT the
+  way SELF_HARM is blocked. Weakening a child-safety gate on a hunch is exactly what not to do
+  without measurement.
+- **Closes it:** a labelled fixture set (genuine child-disclosure examples + material-grounded
+  comprehension questions) that a prompt/rubric change must pass — reduce the false-positive class
+  WITHOUT letting a real disclosure through. Measure both directions before/after.
+- **Trigger:** a student reports the tutor refusing to answer questions from their own notes; or
+  the corrected-fixture E2E chat re-runs and the comprehension question is refused again.
+
 ## Extraction integrity
 
 ### Character-class loss in PDF extraction is undetected (silent, no gate)
