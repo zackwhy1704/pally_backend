@@ -231,9 +231,11 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
     static String resolveSlug(List<WikiPage> pages, String raw) {
         if (pages == null || pages.isEmpty()) return raw == null ? "" : raw;
         String norm = normalizeKey(raw);
+        // 1. exact slug (case-insensitive)
         for (WikiPage p : pages) {
             if (p.getSlug() != null && p.getSlug().equalsIgnoreCase(raw)) return p.getSlug();
         }
+        // 2. normalised slug or title
         if (!norm.isEmpty()) {
             for (WikiPage p : pages) {
                 if (normalizeKey(p.getSlug()).equals(norm)
@@ -242,9 +244,52 @@ public class ClaudeQuizGenerator implements QuizGeneratorPort {
                 }
             }
         }
-        // Unambiguous single-page quiz → attribute to that page; else best-effort raw.
+        // 3. unambiguous single-page quiz → attribute to that page
         if (pages.size() == 1) return pages.get(0).getSlug();
-        return raw == null ? "" : raw;
+        // 4. Near-miss romanisation: the model routinely echoes a slug one or two
+        //    characters off the canonical one (e.g. "wo-de-linri-reading" for
+        //    "wo-de-linli-reading" — 里 romanised inconsistently between compile
+        //    and quiz-gen). Pick the CLOSEST real slug by edit distance, but only
+        //    when it is unambiguously closest and within a sane bound, so a true
+        //    guess doesn't confidently mis-attribute.
+        if (!norm.isEmpty()) {
+            String bestSlug = null;
+            int bestD = Integer.MAX_VALUE, nextD = Integer.MAX_VALUE;
+            for (WikiPage p : pages) {
+                int d = editDistance(norm, normalizeKey(p.getSlug()));
+                if (d < bestD) { nextD = bestD; bestD = d; bestSlug = p.getSlug(); }
+                else if (d < nextD) { nextD = d; }
+            }
+            if (bestSlug != null && bestD < nextD
+                    && bestD <= Math.max(2, norm.length() / 3)) {
+                return bestSlug;
+            }
+        }
+        // 5. Last resort: NEVER return a slug that isn't a real page. A dangling
+        //    sourcePageSlug silently breaks source-jump AND the weakness/mastery
+        //    signal (which keys on the slug); a wrong-but-real page degrades
+        //    gracefully, a non-existent one does not. Attribute to the first page.
+        return pages.get(0).getSlug();
+    }
+
+    /** Levenshtein distance for the near-miss slug match. Small inputs (slugs);
+     *  iterative two-row to keep it allocation-light. */
+    private static int editDistance(String a, String b) {
+        if (a.equals(b)) return 0;
+        int n = a.length(), m = b.length();
+        if (n == 0) return m;
+        if (m == 0) return n;
+        int[] prev = new int[m + 1], cur = new int[m + 1];
+        for (int j = 0; j <= m; j++) prev[j] = j;
+        for (int i = 1; i <= n; i++) {
+            cur[0] = i;
+            for (int j = 1; j <= m; j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] t = prev; prev = cur; cur = t;
+        }
+        return prev[m];
     }
 
     /** Lowercase alphanumeric-only key so "Dividing Fractions" == "dividing-fractions". */
