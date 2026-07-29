@@ -1,6 +1,7 @@
 package com.pally.infrastructure.ocr;
 
 import com.pally.domain.knowledge.port.OcrPort;
+import com.pally.shared.util.TextSanitizer;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -52,7 +53,7 @@ public class PdfTextExtractor implements OcrPort {
     public PdfExtractionResult extractFromBytes(byte[] bytes) throws IOException {
         try (PDDocument document = Loader.loadPDF(bytes)) {
             PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
+            String text = TextSanitizer.stripUnstorableChars(stripper.getText(document));
             int pageCount = document.getNumberOfPages();
             log.debug("Extracted {} chars from {} PDF pages", text.length(), pageCount);
             return new PdfExtractionResult(text, pageCount);
@@ -81,7 +82,7 @@ public class PdfTextExtractor implements OcrPort {
     public String extractText(byte[] fileBytes, String mimeType) {
         try (PDDocument document = Loader.loadPDF(fileBytes)) {
             PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
+            String text = TextSanitizer.stripUnstorableChars(stripper.getText(document));
             log.debug("OcrPort extraction: {} chars from PDF", text.length());
             return text;
         } catch (IOException e) {
@@ -146,7 +147,7 @@ public class PdfTextExtractor implements OcrPort {
             PDFTextStripper stripper = new PDFTextStripper();
             stripper.setStartPage(startPage);
             stripper.setEndPage(endPage);
-            return stripper.getText(document);
+            return TextSanitizer.stripUnstorableChars(stripper.getText(document));
         }
     }
 
@@ -163,7 +164,7 @@ public class PdfTextExtractor implements OcrPort {
             for (int p = 1; p <= total; p++) {
                 stripper.setStartPage(p);
                 stripper.setEndPage(p);
-                pages.add(stripper.getText(document));
+                pages.add(TextSanitizer.stripUnstorableChars(stripper.getText(document)));
             }
         }
         return pages;
