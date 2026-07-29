@@ -65,6 +65,10 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 - **Closes it:** a labelled fixture set (genuine child-disclosure examples + material-grounded
   comprehension questions) that a prompt/rubric change must pass — reduce the false-positive class
   WITHOUT letting a real disclosure through. Measure both directions before/after.
+- **Chinese-launch weighting:** this bites zh comprehension HARDER than en. Chinese reading passages
+  are dense with named characters doing everyday things — taking buses, living in HDB blocks, visiting
+  grandmothers — which is exactly the surface that reads as personal disclosure out of context. Treat
+  as a **Chinese-launch precondition**, more than a general-launch one.
 - **Trigger:** a student reports the tutor refusing to answer questions from their own notes; or
   the corrected-fixture E2E chat re-runs and the comprehension question is refused again.
 
@@ -438,7 +442,7 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 
 ## Grounding, provenance & trust surfacing
 
-### Web "Generate narration" hits an UNIMPLEMENTED backend endpoint — HIGH (teacher-facing feature is dead)
+### Web "Generate narration" — UI already GATED OFF; only the unbuilt backend endpoint remains (not a live dead button)
 - **What (verified 2026-07-15, investigation-only):** memoly's live `NarrationAction`
   (`NarrationAction.tsx:29,46` → `api.generateNarration`, `api.ts:1360-1361`) POSTs to
   `/api/v1/centre/organizations/{orgId}/classes/{classId}/modules/{moduleId}/narration/generate`
