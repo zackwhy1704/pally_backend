@@ -1,6 +1,7 @@
 package com.pally.domain.knowledge;
 
 import com.pally.shared.util.IdGenerator;
+import com.pally.shared.util.TextSanitizer;
 
 import java.time.Instant;
 
@@ -58,7 +59,10 @@ public final class KnowledgeFile {
         this.uploadType = uploadType;
         this.status = status;
         this.createdAt = createdAt;
-        this.extractedText = extractedText;
+        // Sanitize at the domain boundary so NO KnowledgeFile (parent OR chunk —
+        // chunks are built via this constructor, not the setter) can carry a NUL /
+        // control char into the extracted_text column (SQLState 22021 → 400).
+        this.extractedText = TextSanitizer.stripUnstorableChars(extractedText);
     }
 
     public static KnowledgeFile create(
@@ -155,7 +159,7 @@ public final class KnowledgeFile {
     public String getExtractedText()     { return extractedText; }
     public String getContentHash()       { return contentHash; }
 
-    public void setExtractedText(String text) { this.extractedText = text; }
+    public void setExtractedText(String text) { this.extractedText = TextSanitizer.stripUnstorableChars(text); }
     public void setContentHash(String hash)   { this.contentHash = hash; }
     public String getOcrEngine()              { return ocrEngine; }
     public void setOcrEngine(String engine)   { this.ocrEngine = engine; }

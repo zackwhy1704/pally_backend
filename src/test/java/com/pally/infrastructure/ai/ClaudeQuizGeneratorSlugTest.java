@@ -43,4 +43,26 @@ class ClaudeQuizGeneratorSlugTest {
         assertThat(ClaudeQuizGenerator.resolveSlug(one, "garbled model output"))
                 .isEqualTo("dividing-fractions");
     }
+
+    // ── zh near-miss romanisation (the E2E finding) ──────────────────────────
+    // The compiler emits "wo-de-linli-reading" (里 = lǐ → "li"); the quiz-gen echoes
+    // "wo-de-linri-reading" — one char off. Multi-page, so the sole-page fallback
+    // can't save it. It must resolve to the REAL page, never leak the dangling slug.
+    private final List<WikiPage> zhPages = List.of(
+            WikiPage.create("av", "wo-de-linli-reading", "我的邻里：阅读短文", "..."),
+            WikiPage.create("av", "wo-de-linli-vocabulary", "我的邻里：词语学习", "..."));
+
+    @Test
+    void resolvesNearMissRomanisationToTheRealSlug() {
+        assertThat(ClaudeQuizGenerator.resolveSlug(zhPages, "wo-de-linri-reading"))
+                .isEqualTo("wo-de-linli-reading");
+    }
+
+    @Test
+    void multiPageUnresolvableNeverReturnsADanglingSlug() {
+        // Total garbage against multiple pages → must still be a REAL page slug
+        // (a non-existent sourcePageSlug silently breaks source-jump + mastery).
+        String resolved = ClaudeQuizGenerator.resolveSlug(zhPages, "zzz-not-a-page-at-all");
+        assertThat(zhPages.stream().map(WikiPage::getSlug)).contains(resolved);
+    }
 }
