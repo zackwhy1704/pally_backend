@@ -41,6 +41,36 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 
 # OPEN (code — actionable)
 
+## Extraction integrity
+
+### Character-class loss in PDF extraction is undetected (silent, no gate)
+- **What:** a PDF whose text layer uses a subset font with no usable ToUnicode map for a
+  glyph class extracts that class as nothing — silently. Observed 2026-07-29 on a P3 华文
+  fixture (`p3_huawen_wo_de_linli.pdf`): PDFBox extracted all CJK perfectly but dropped
+  EVERY ASCII digit — `grep -o "[0-9]" <extracted>` returned nothing while CJK was intact.
+  A bus number "218" vanished before it ever reached the model; the lesson still compiled
+  clean and looked complete. Worse than the NUL blocker (now fixed, `335fa80`): NUL failed
+  loudly with a 400; this fails silently — prices, dates, question numbers, measurements,
+  page refs all disappear while the artifact reads as whole.
+- **Evidence:** `OcrQualityGate` (the only extraction-quality gate) runs on **PHOTO uploads
+  only** — PDFs skip it entirely (`UploadFileUseCase` bypasses it for PDF/TEXT). And it
+  scores `isLetterOrDigit` in AGGREGATE (letters and digits interchangeable), so a document
+  that kept all its letters but lost all its digits passes every ratio check. `extractedChars`
+  / `degraded` are counts/flags, not per-class presence checks. There is no code anywhere
+  that asks "should this document have had digits, and does the extracted text have any?".
+- **Why not the naive fix:** "zero digits ⇒ broken" false-positives on legitimately
+  digit-free prose — for a 华文 comprehension passage that is common, not exotic. Testing a
+  downstream symptom mis-fires; the honest detector tests the CAUSE.
+- **Closes it:** a ToUnicode-coverage check on the PDF's embedded fonts (PDFBox exposes
+  `PDFont` per glyph run; a font used for rendering with no ToUnicode CMap → its glyphs are
+  unreliable to extract) that, when a rendering font lacks ToUnicode, triggers the vision-OCR
+  fallback (already wired for images via `ResilientOcrService`) instead of trusting the
+  text layer. Design decision on the action (warn / OCR-fallback / flag `degraded`) belongs
+  with this entry, not in the NUL-sanitize branch.
+- **Trigger:** a student uploads a CJK worksheet and the generated quiz/lesson is missing
+  every number (or a teacher reports "the AI dropped all the prices/dates"). Also re-surface
+  it when the corrected-fixture E2E re-runs the "218" number-fidelity trap.
+
 ## Test harness gaps
 
 ### Large-PDF / segmentation compile fixture (budget-bounded)
