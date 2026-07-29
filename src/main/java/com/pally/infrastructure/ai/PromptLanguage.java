@@ -77,6 +77,8 @@ public final class PromptLanguage {
           + "Respond in Simplified Chinese using Singapore conventions (华语 not 中文, 巴士 not 公交车, "
           + "Hanyu Pinyin for romanization; never Traditional characters). "
           + "Keep the literal SOURCE:[slug] citation marker and all page slugs in English/ASCII. "
+          + "Always refer to yourself and the study buddy as 小伴 (the mascot's official Chinese name), "
+          + "never \"Mochi\"; this OVERRIDES keeping brand names in English for the mascot specifically. "
           + "Never switch languages unexpectedly — stay in Chinese unless the student explicitly asks for a "
           + "translation or a language comparison. "
           + "When quoting or correcting the student's own words, reproduce them exactly first, then respond.\n";
@@ -99,6 +101,13 @@ public final class PromptLanguage {
           + "Do not translate code comments if they are explicitly marked to remain in English. "
           + "Maintain the original structure, numbering, bullet lists, tables, whitespace-sensitive formatting, and Markdown unless instructed otherwise. "
           + "Keep brand names, product names, company names, proper nouns, and official titles in their official form unless a widely accepted Simplified Chinese name exists. "
+          // Mascot naming: SUPERSEDES the brand-name rule immediately above for the mascot
+          // specifically, so the model is not left choosing between two rules. The app UI names
+          // the mascot 小伴; generated content must match or a compiled lesson says "Mochi" while
+          // the app says 小伴 (a split-brain a teacher notices).
+          + "EXCEPTION to the brand-name rule above, which it OVERRIDES for the mascot only: the study "
+          + "companion / mascot's official Simplified Chinese name is 小伴. Always call the mascot 小伴 in "
+          + "Chinese prose and never write \"Mochi\"; treat 小伴 as the mascot's official Chinese form. "
           + "Use full-width Chinese punctuation (，。！？；：（）《》【】) in prose, but preserve ASCII punctuation inside code, JSON, Markdown syntax, URLs, and other machine-readable text. "
           + "Avoid mixing English into normal prose except for established technical terminology, proper nouns, or when explicitly requested. "
           + "If the user requests bilingual output, present Chinese first and English second unless instructed otherwise. "

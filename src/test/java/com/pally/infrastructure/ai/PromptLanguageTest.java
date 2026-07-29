@@ -42,6 +42,11 @@ class PromptLanguageTest {
         // One-shot-safe rules folded in from the operator directive.
         assertThat(d).contains("Be consistent");
         assertThat(d).contains("Cantonese");
+        // Mascot naming: 小伴 is the mascot's Chinese name AND it explicitly overrides the
+        // brand-name rule, so the model isn't left choosing between two instructions.
+        assertThat(d).contains("小伴");
+        assertThat(d).contains("never write \"Mochi\"");
+        assertThat(d).containsIgnoringCase("OVERRIDES");
     }
 
     @Test
@@ -72,6 +77,7 @@ class PromptLanguageTest {
         assertThat(r).contains("SOURCE:[slug]");                 // citation contract, ASCII
         assertThat(r).contains("Never switch languages");        // carry-in #1
         assertThat(r).contains("reproduce them exactly first");  // carry-in #2
+        assertThat(r).contains("小伴");                            // mascot's Chinese name in chat
         // Chat rule, not the generation directive: no JSON-schema clause.
         assertThat(r).doesNotContain("JSON key");
     }
