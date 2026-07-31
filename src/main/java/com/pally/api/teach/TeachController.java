@@ -88,7 +88,8 @@ public class TeachController {
             int durationSeconds = DurationClamp.clamp(request.durationSeconds());
             activityLogService.log(userId, avatarId,
                     ActivityLogService.TYPE_QUIZ, durationSeconds, result.xpEarned());
-            result = result.withLevel(credit.levelledUp(), credit.newLevel());
+            result = result.withLevel(credit.levelledUp(), credit.newLevel(),
+                    credit.unlockedRewardLabel());
         }
 
         log.info("[Teach] user={} avatar={} slug={} score={}/{} xp={} level={} certaintyDelta={}",

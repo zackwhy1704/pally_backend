@@ -145,6 +145,41 @@ class SubmitQuizAnswersUseCaseTest {
     }
 
     @Test
+    void quizSubmit_levelCrossingWithReward_carriesRewardLabelIntoQuizResult() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        var creditResult = new UserRepository.XpResult(
+                300, 1, 2, true, "New Mochi colour");
+        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt()))
+                .thenReturn(new XpService.QuizAward(30, 15, 20, 1.0, false, 0,
+                        0, 0, creditResult));
+
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0));
+        QuizResult result = useCase.execute(sub, Map.of("q1", 0));
+
+        assertThat(result.levelledUp()).isTrue();
+        assertThat(result.newLevel()).isEqualTo(2);
+        assertThat(result.rewardLabel()).isEqualTo("New Mochi colour");
+    }
+
+    @Test
+    void quizSubmit_noLevelCrossing_rewardLabelIsNull() {
+        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
+        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
+        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
+        when(xpService.awardForQuiz(eq(USER), eq(AVATAR), eq(Subject.MATHS),
+                anyInt(), anyInt(), anyInt()))
+                .thenReturn(award(30, 15, true, 1.5));
+
+        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0));
+        QuizResult result = useCase.execute(sub, Map.of("q1", 0));
+
+        assertThat(result.rewardLabel()).isNull();
+    }
+
+    @Test
     void quizSubmit_missingAvatar_passesNullSubject_doesNotCrash() {
         when(avatarRepository.existsByIdAndUserId(AVATAR, USER))
                 .thenReturn(true);

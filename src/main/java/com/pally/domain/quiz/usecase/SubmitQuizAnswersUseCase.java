@@ -381,7 +381,8 @@ public class SubmitQuizAnswersUseCase {
 
         return new QuizResult(
                 IdGenerator.newId(), correct, total, xpEarned, starsEarned,
-                levelledUp, newLevel, matrix, List.copyOf(feedback));
+                levelledUp, newLevel, credit.unlockedRewardLabel(),
+                matrix, List.copyOf(feedback));
     }
 
     /// Persists the best-effort per-question result rows in their OWN

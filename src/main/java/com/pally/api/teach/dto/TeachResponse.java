@@ -12,6 +12,10 @@ import java.util.List;
  * @param levelledUp       {@code true} when this credit pushed the user
  *                          across a level threshold
  * @param newLevel         user's level after the credit
+ * @param rewardLabel      what was unlocked crossing into newLevel, or
+ *                          {@code null} when nothing was (no crossing, or
+ *                          a crossing with no reward tier); already
+ *                          locale-resolved server-side
  */
 public record TeachResponse(
         int score,
@@ -23,6 +27,7 @@ public record TeachResponse(
         String feedback,
         boolean levelledUp,
         int newLevel,
+        String rewardLabel,
         Status status
 ) {
     /** Whether the evaluator actually produced a grade. EVAL_FAILED (parse/blank/
@@ -36,20 +41,20 @@ public record TeachResponse(
                          List<String> missedConcepts,
                          String followUpQuestion, String feedback) {
         this(score, totalConcepts, xpEarned, coveredConcepts, missedConcepts,
-                followUpQuestion, feedback, false, 0, Status.OK);
+                followUpQuestion, feedback, false, 0, null, Status.OK);
     }
 
     /** No grade was produced — the client shows a retry, not a score. Nothing
      *  should persist (no XP: xpEarned is 0; no certainty: totalConcepts is 0). */
     public static TeachResponse evalFailed(String feedback) {
         return new TeachResponse(0, 0, 0, List.of(), List.of(), null, feedback,
-                false, 0, Status.EVAL_FAILED);
+                false, 0, null, Status.EVAL_FAILED);
     }
 
     /** Returns a copy with the level signals populated (status preserved). */
-    public TeachResponse withLevel(boolean levelledUp, int newLevel) {
+    public TeachResponse withLevel(boolean levelledUp, int newLevel, String rewardLabel) {
         return new TeachResponse(score, totalConcepts, xpEarned,
                 coveredConcepts, missedConcepts, followUpQuestion, feedback,
-                levelledUp, newLevel, status);
+                levelledUp, newLevel, rewardLabel, status);
     }
 }

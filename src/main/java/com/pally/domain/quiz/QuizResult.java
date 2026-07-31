@@ -22,6 +22,7 @@ public record QuizResult(
         int starsEarned,
         boolean levelledUp,
         int newLevel,
+        String rewardLabel,
         MasteryMatrix masteryMatrix,
         List<QuestionFeedback> feedback
 ) {
@@ -29,14 +30,14 @@ public record QuizResult(
     public QuizResult(String sessionId, int score, int total, int xpEarned,
                       int starsEarned, boolean levelledUp, int newLevel) {
         this(sessionId, score, total, xpEarned, starsEarned, levelledUp,
-                newLevel, null, List.of());
+                newLevel, null, null, List.of());
     }
 
     public QuizResult(String sessionId, int score, int total, int xpEarned,
                       int starsEarned, boolean levelledUp, int newLevel,
                       MasteryMatrix masteryMatrix) {
         this(sessionId, score, total, xpEarned, starsEarned, levelledUp,
-                newLevel, masteryMatrix, List.of());
+                newLevel, null, masteryMatrix, List.of());
     }
 
     /** Lists hold the slug (or questionId fallback) per quadrant. */

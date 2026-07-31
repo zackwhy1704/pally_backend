@@ -158,8 +158,23 @@ class ChatOrchestrationServiceTest {
         verify(badgeService).grantFirstAction("user-1", BadgeService.BadgeType.FIRST_CHAT);
         verify(badgeService).checkAndGrantMilestones("user-1");
 
-        assertThat(result).containsKeys("levelledUp", "newLevel", "alreadyCreditedToday");
+        assertThat(result).containsKeys("levelledUp", "newLevel", "rewardLabel", "alreadyCreditedToday");
         assertThat(result.get("levelledUp")).isEqualTo(false);
+        assertThat(result.get("rewardLabel")).isNull();
+    }
+
+    @Test
+    void sessionEnd_levelCrossingWithReward_carriesRewardLabel() {
+        var creditResult = new UserRepository.XpResult(
+                200, 1, 2, true, "New Mochi colour");
+        var award = new XpService.ChatAward(5, 0, false, creditResult);
+        when(xpService.awardForChat("user-1", "avatar-1")).thenReturn(award);
+
+        Map<String, Object> result = service.sessionEnd("user-1", "avatar-1");
+
+        assertThat(result.get("levelledUp")).isEqualTo(true);
+        assertThat(result.get("newLevel")).isEqualTo(2);
+        assertThat(result.get("rewardLabel")).isEqualTo("New Mochi colour");
     }
 
     @Test

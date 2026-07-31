@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -91,18 +92,21 @@ public class ChatOrchestrationService {
      * <p>XP/badge/activity-log side-effects are swallowed on failure so a
      * transient DB error never surfaces to the user as a session-end failure.
      *
-     * @return map with {@code levelledUp}, {@code newLevel}, {@code alreadyCreditedToday}
+     * @return map with {@code levelledUp}, {@code newLevel}, {@code rewardLabel},
+     *         {@code alreadyCreditedToday}
      */
     public Map<String, Object> sessionEnd(String userId, String avatarId) {
         chatSessionCachePort.stopKeepalive(avatarId);
 
         boolean levelledUp = false;
         int newLevel = 0;
+        String rewardLabel = null;
         boolean alreadyCredited = false;
         try {
             var award = xpService.awardForChat(userId, avatarId);
             levelledUp = award.creditResult().levelledUp();
             newLevel = award.creditResult().newLevel();
+            rewardLabel = award.creditResult().unlockedRewardLabel();
             alreadyCredited = award.alreadyCreditedToday();
             if (!alreadyCredited) {
                 activityLogService.log(userId, avatarId,
@@ -115,10 +119,14 @@ public class ChatOrchestrationService {
             log.warn("[ChatOrchestration] session-end side-effects failed for user={} avatar={}",
                     userId, avatarId);
         }
-        return Map.of(
-                "levelledUp", levelledUp,
-                "newLevel", newLevel,
-                "alreadyCreditedToday", alreadyCredited);
+        // HashMap, not Map.of — rewardLabel is null on most calls (no level
+        // crossed, or a crossing with no reward tier), and Map.of forbids null.
+        Map<String, Object> result = new HashMap<>();
+        result.put("levelledUp", levelledUp);
+        result.put("newLevel", newLevel);
+        result.put("rewardLabel", rewardLabel);
+        result.put("alreadyCreditedToday", alreadyCredited);
+        return result;
     }
 
     /**

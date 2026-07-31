@@ -8,11 +8,14 @@ import java.util.List;
  * <p>{@code levelledUp} + {@code newLevel} let the client fire the
  * level-up celebration whenever this credit pushes the user across a
  * threshold — the quiz path already did this; photo questions now match.
+ * {@code rewardLabel} names what was unlocked (null when nothing was, or
+ * the crossing has no reward tier); already locale-resolved server-side.
  */
 public record PhotoQuestionResponse(
         List<QuestionAnswerDto> answers,
         int xpEarned,
         String sourceWikiPage,
         boolean levelledUp,
-        int newLevel
+        int newLevel,
+        String rewardLabel
 ) {}

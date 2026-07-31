@@ -99,11 +99,26 @@ call sites), and the client has exactly ONE choke point to extend (`LevelUpContr
 not four. The locale-aware fix at the computation site (`UserRepositoryAdapter`, Residual #1's
 sibling above) already resolves the right language — this follow-up is pure plumbing + one new
 UI element in `_CelebrationLayer`, not new decisions about what to say.
-**Closes it:** (1) backend: add `unlockedRewardLabel` to each of the 4 response DTOs, next to the
-existing `newLevel`/`levelledUp` fields; (2) client: extend `LevelUpController.maybeCelebrate`'s
-signature with `String? rewardLabel` and thread it from each of the 4 call sites; (3) client:
-`_CelebrationLayer` renders it when non-null (3 of 9 reward labels mention "Mochi" literally —
-apply `{mascot}` the same way every other mascot-bearing string does).
+**CLOSED (2026-07-31, `feat/level-up-reward-label-wiring`):** all 3 steps shipped as sized.
+`rewardLabel`/`unlockedRewardLabel` threaded into all 4 response producers
+(`QuizResult`, `PhotoQuestionResponse`, `ChatOrchestrationService.sessionEnd`'s map,
+`TeachResponse.withLevel`) from the same `XpResult`/`creditResult()` object each already read
+`newLevel`/`levelledUp` from — no new lookups. Client: `LevelUpController.maybeCelebrate` +
+`LevelUpOverlay.show` gained `String? rewardLabel`; `_CelebrationLayer` renders a 🎁 chip when
+non-null. **CORRECTION to this entry's own sizing note:** {mascot} substitution does NOT apply
+client-side — the label arrives ALREADY locale-resolved server-side (en says "Mochi" literally,
+zh says "小伴" literally, both baked in by `SupportedLanguage.resolve`), so the client renders it
+verbatim, exactly like `nextUnlockLabel`/`reward.label` already do on the progress/roadmap screens.
+Also corrected: there are 4 BACKEND response producers but only 3 CLIENT trigger points — photo-
+question's level-up does NOT skip celebration as first assumed; it feeds the SAME `pendingLevelUp`
+(now `pendingRewardLabel` too) state `chat_view_model.dart`'s session-end path uses, surfaced
+through `chat_screen.dart`'s one listener. Tests: byte-identical-en-path assertions carried through
+(snapshot tests already covered en/zh at the catalog level); new backend tests on the 4 producers'
+threading + a `TeachResponse.withLevel` unit test; new client tests on `QuizState`/`ChatState`
+copyWith, `TeachEvaluation.fromJson`, and 2 widget-test files (`LevelUpOverlay`, `LevelUpController`)
+proving the chip renders/doesn't render correctly including a zh-string-renders-verbatim case.
+Also deleted a second dead-duplicate DTO found along the way: `api/chat/dto/PhotoQuestionResponse.java`
+(same shape as the `ProgressResponse` duplicate below — zero imports anywhere).
 
 ### Housekeeping found alongside (not localization, fixed anyway — trivial + zero risk)
 `src/main/java/com/pally/api/progress/dto/ProgressResponse.java` was a fully dead duplicate of the

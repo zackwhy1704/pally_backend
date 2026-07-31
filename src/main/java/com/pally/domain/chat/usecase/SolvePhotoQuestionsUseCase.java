@@ -93,6 +93,7 @@ public class SolvePhotoQuestionsUseCase {
         String sourceWikiPage = wikiPages.isEmpty() ? null : wikiPages.getFirst().getSlug();
 
         return new PhotoQuestionResponse(answers, xpEarned, sourceWikiPage,
-                award.creditResult().levelledUp(), award.creditResult().newLevel());
+                award.creditResult().levelledUp(), award.creditResult().newLevel(),
+                award.creditResult().unlockedRewardLabel());
     }
 }
