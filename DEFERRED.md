@@ -82,20 +82,28 @@ this vocabulary is SELF-CONTAINED to the achievements screen (EPIC/LEGENDARY app
 tested against real localized data instead of a guess at the shape.
 **Closes it:** small pally client PR adding `localizedAchievementRarity(l, rarity)`.
 
-### Residual #2 — `unlockedRewardLabel` is computed but has NO consumer anywhere (found, not fixed)
-`LevelRewards`'s own javadoc says "the unlock label is surfaced purely so the level-up overlay can
-name the reward" — but traced every caller of `UserRepository.addXpAndStars`/`XpResult` and the
-client's `level_up_overlay.dart`: `unlockedRewardLabel` is computed (real cost — the `LevelRewards`
-lookup loop) and returned, but NO caller anywhere reads `.unlockedRewardLabel()` — only
-`.levelledUp()`/`.newLevel()` are consumed. The level-up overlay shows level-up, never the reward
-name. This is the INVERSE of the usual "visible layer without the work layer" pattern — here the
-work exists with no visible layer consuming it. Out of scope for this localization pass (nothing
-renders it to localize FOR); the locale-aware fix at the computation site (Residual #1's sibling,
-above) is already correct and future-proofed for whenever this gets wired up.
-**Closes it:** decide whether the level-up overlay should show the reward name (a product call,
-not this pass's job) — if yes, thread `unlockedRewardLabel` into whichever response the client's
-level-up flow actually reads (`ChatOrchestrationService`/`SubmitQuizAnswersUseCase`/`TeachController`
-all discard it today).
+### Residual #2 — `unlockedRewardLabel` has NO consumer — DECIDED: missing UI element, not vestigial
+Traced the ORIGINAL commit (`799acc2`, "phase-3-backend: level-reward catalog + functional
+unlocks"): its own message says "XpResult gains `unlockedRewardLabel` so the level-up overlay can
+name what was earned" — this was intended from day one, not an accidental byproduct. Confirmed the
+client side never got wired: `LevelUpOverlay.show(context, int newLevel)`'s signature has no
+parameter slot for a label at all, and `LevelUpController.maybeCelebrate` (the SINGLE choke point
+every screen calls through — quiz/chat/teach/photo) only takes `levelledUp`/`newLevel`. **This is
+real, working, intended data nobody deleted-by-omission — a shipped-incomplete feature, not waste.
+Do NOT delete `unlockedRewardLabel`.**
+**Sizing (so it doesn't get mis-scoped like the achievement catalog was):** small, contained,
+NOT a rabbit hole — `credit.unlockedRewardLabel()` sits on the exact same `XpResult`/`creditResult()`
+object every caller already reads `.newLevel()`/`.levelledUp()` from (`SubmitQuizAnswersUseCase:312`,
+`ChatOrchestrationService:104`, `SolvePhotoQuestionsUseCase:96`, `TeachController:91` — 4 backend
+call sites), and the client has exactly ONE choke point to extend (`LevelUpController.maybeCelebrate`),
+not four. The locale-aware fix at the computation site (`UserRepositoryAdapter`, Residual #1's
+sibling above) already resolves the right language — this follow-up is pure plumbing + one new
+UI element in `_CelebrationLayer`, not new decisions about what to say.
+**Closes it:** (1) backend: add `unlockedRewardLabel` to each of the 4 response DTOs, next to the
+existing `newLevel`/`levelledUp` fields; (2) client: extend `LevelUpController.maybeCelebrate`'s
+signature with `String? rewardLabel` and thread it from each of the 4 call sites; (3) client:
+`_CelebrationLayer` renders it when non-null (3 of 9 reward labels mention "Mochi" literally —
+apply `{mascot}` the same way every other mascot-bearing string does).
 
 ### Housekeeping found alongside (not localization, fixed anyway — trivial + zero risk)
 `src/main/java/com/pally/api/progress/dto/ProgressResponse.java` was a fully dead duplicate of the
