@@ -125,6 +125,31 @@ Also deleted a second dead-duplicate DTO found along the way: `api/chat/dto/Phot
 live `domain/progress/dto/ProgressResponse.java` (identical content, zero imports anywhere) —
 deleted rather than left to rot or accidentally maintained in parallel.
 
+### CLOSED (2026-07-31, `chore/delete-dead-duplicate-dtos`): systemic `api/*/dto` dead-duplicate sweep
+Two duplicate-DTO deletions in two consecutive sessions (`ProgressResponse`, `PhotoQuestionResponse`)
+was the threshold this project has used all week to justify a scan (the ledger-title trap, the
+branch-list staleness, the guard blind spots) — one grep across `api/*/dto/` vs `domain/*/dto/`
+basenames found **twelve** more, not one: `ChatHistoryResponse`, `ChatMessageResponse`,
+`FlashcardResponse`, `ParentDashboardResponse`, `QuestionAnswerDto`, `QuizQuestionResponse`,
+`RateFlashcardRequest`, `ReadingPingRequest`, `SubmitAnswersRequest`, `SyncMessageDto`,
+`WeeklyReportDetail`, `WeeklyReportSummary`. This reframes the earlier two as the visible edge of a
+systemic leftover from whatever refactor moved DTO ownership from `api` to `domain` — not
+coincidence.
+**Verified before deleting (the blast-radius questions this deserved):** every one of the 12
+`api/*/dto/` copies had **zero imports anywhere** in `src/main` or `src/test` (checked both `import`
+statements AND bare fully-qualified references, to catch anything reflective/string-based — none
+found). One internal wrinkle: `api/parent/dto/WeeklyReportDetail.java` imports nested types
+(`SubjectMasteryDto`/`WeakAreaDto`) from `api/parent/dto/ParentDashboardResponse.java` — but that's a
+reference from ONE dead file to ANOTHER dead file in the same cleanup, not an external dependency;
+confirmed the live `domain/parent/dto/WeeklyReportDetail.java` correctly imports its own
+`domain/parent/dto/ParentDashboardResponse` twin instead. 9 of the 12 were byte-identical to their
+live `domain/*` counterpart; 3 (`QuizQuestionResponse`, `SubmitAnswersRequest`, `WeeklyReportDetail`)
+had DIVERGED in content from their live twin — still zero-import, so no live behavioral risk from
+the divergence, just further evidence these were abandoned mid-refactor rather than intentionally
+duplicated.
+Deleted all 12. Gates: `./gradlew clean compileJava compileTestJava` (clean, not incremental — to
+rule out a stale build graph masking a missed reference) + full `test` suite, both green.
+
 ## Moderation / child-safety
 
 ### Context-blind moderation false-positives on material-grounded comprehension questions
