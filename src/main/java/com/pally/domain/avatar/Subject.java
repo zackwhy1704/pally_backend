@@ -37,6 +37,32 @@ public enum Subject {
     }
 
     /**
+     * zh label — same values as pally's {@code label_localizer.dart}'s
+     * {@code localizedSubject} (copied verbatim, not re-translated, so the two
+     * never drift). Used ONLY where a subject label is baked into stored data at
+     * write time (e.g. a default avatar name) rather than resolved at client
+     * render time via the ARB resolver — most subject display goes through the
+     * client resolver instead; this exists for the write-time exception.
+     */
+    public String labelZh() {
+        return switch (this) {
+            case MATHS                -> "数学";
+            case SCIENCE              -> "科学";
+            case ENGLISH              -> "英文";
+            case HISTORY              -> "历史";
+            case CODING               -> "编程";
+            case ART                  -> "美术";
+            case GEOGRAPHY            -> "地理";
+            case LANGUAGES            -> "语言";
+            case MUSIC                -> "音乐";
+            case PHYSICAL_EDUCATION   -> "体育";
+            case HEALTH               -> "健康";
+            case LITERATURE           -> "文学";
+            case GENERAL              -> "综合";
+        };
+    }
+
+    /**
      * Whether "is this content on-topic for the subject?" is a coherent question.
      * GENERAL has no single topic, so topic-relevance scoring is meaningless for it —
      * it scores educational-but-off-"topic" content (a sales book, an accounting doc)

@@ -48,6 +48,51 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 
 # OPEN (code — actionable)
 
+## zh audit round 4, Phase A — quick-onboard content_language (CLOSED, 2026-07-31)
+
+**Correction to an earlier round's record:** an earlier pass in this same audit concluded
+"General Mochi" was a user-typed name and not a bug — that check only ever looked at the
+`create_tutor` wizard. `QuickOnboardService.java:89` (the PRIMARY signup path — the one virtually
+every new B2C user goes through, not the secondary "add another tutor" flow `create_tutor` covers)
+composed `subject.label() + " Mochi"` server-side, unconditionally in English, with no
+`contentLanguage` parameter anywhere in `QuickOnboardRequest`. Workstream 1 (mobile content_language
+gate, earlier this thread) fixed the secondary path and never reached the one that actually matters
+most — this is worse than a missed string, it was silently producing English-content avatars for
+most new signups since Workstream 1 shipped.
+
+**Traced before assuming (per the instruction to check, not guess):** `Subject.label()` is
+intentionally English-only — it's the canonical/backend form the client's `label_localizer.dart`'s
+`localizedSubject()` resolves at DISPLAY time (the established "backend-label" pattern from PR-B).
+But an avatar's default NAME is baked in at CREATE time and never re-resolved client-side (unlike
+subject/level, which get resolved at render) — so composing it from the English-only `label()` was
+never going to be fixed by adding contentLanguage alone; the name composition itself needed a zh
+branch. Added `Subject.labelZh()` — a straight switch mirroring `label()`'s shape, values copied
+VERBATIM from the client's existing `label_localizer.dart` zh strings (not re-translated, so the two
+can't drift) — used only for this write-time exception; every other subject display still goes
+through the client's resolver.
+
+**Fixed:** `QuickOnboardRequest` gains `contentLanguage` (nullable — same
+`SupportedLanguage.validate()` gate + null/blank→'en' fallback as `CreateAvatarRequest`/
+`CreateAvatarUseCase`, mirrored exactly rather than reinvented). `QuickOnboardService.execute(...)`
+composes `"数学小伴"` (no space, matching the cosmetic-name convention: subjectZh + 小伴) when
+resolved language is zh, `"Maths Mochi"` unchanged when en/absent. Byte-identical-en proven by a
+test pinning the exact pre-change avatar name for the no-contentLanguage call path every existing
+caller still uses.
+
+Gates: `./gradlew clean compileJava compileTestJava` (clean, not incremental) + full suite, both
+green. 4 new `QuickOnboardServiceTest` cases (absent→en unchanged, explicit zh→zh name+language,
+explicit en matches absent, unsupported language→400 before any persistence) + a `SubjectTest` case
+pinning every `Subject` has a non-blank, non-English `labelZh()`.
+
+**Still open, deliberately sequenced after this:** `direct_onboarding_view_model.dart`'s
+`quickOnboard()` needs to actually SEND `contentLanguage` (currently doesn't send the field at all —
+this backend change alone does nothing until the client sends it). See pally's `DEFERRED.md`. Also
+open: `LocaleController.setLanguage()` provider-invalidation gap (Phase B, separate root cause,
+separate PR) and the product decision on whether quick-onboard's own avatar-creation code path
+should be removed entirely in favor of routing everyone through `create_tutor`'s wizard (which
+already has this gate from Workstream 1) — DECIDED yes by the operator, scoped as its own follow-up
+PR pending a funnel-impact report, not bundled here.
+
 ## i18n coverage — a third content category, named (2026-07-31)
 
 **Context:** pally's client-side coverage guard (`test/guard/l10n_coverage_guard_test.dart`)

@@ -124,4 +124,76 @@ class QuickOnboardServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Rate limited");
     }
+
+    // ── zh audit round 4, Phase A: content_language threading ─────────────────
+
+    /// Byte-identical-en proof: an absent contentLanguage (the 5-arg overload every
+    /// existing caller uses) must still produce EXACTLY "Maths Mochi" and 'en' —
+    /// this pins the pre-change behavior so the new code path can't silently move it.
+    @Test
+    void execute_absentContentLanguage_defaultsToEn_avatarNameUnchanged() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.execute("kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4");
+
+        ArgumentCaptor<Avatar> captor = ArgumentCaptor.forClass(Avatar.class);
+        verify(avatarRepository).save(captor.capture());
+        Avatar avatar = captor.getValue();
+        assertThat(avatar.getName()).isEqualTo("Maths Mochi");
+        assertThat(avatar.getContentLanguage()).isEqualTo("en");
+    }
+
+    @Test
+    void execute_zhContentLanguage_avatarNameIsZhWithMascotWord_notEnglishMochi() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.execute("kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4",
+                null, null, null, "zh");
+
+        ArgumentCaptor<Avatar> captor = ArgumentCaptor.forClass(Avatar.class);
+        verify(avatarRepository).save(captor.capture());
+        Avatar avatar = captor.getValue();
+        assertThat(avatar.getContentLanguage()).isEqualTo("zh");
+        assertThat(avatar.getName()).isEqualTo("数学小伴");
+        assertThat(avatar.getName()).doesNotContain("Mochi");
+    }
+
+    @Test
+    void execute_explicitEnContentLanguage_matchesAbsentBehavior() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.execute("kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4",
+                null, null, null, "en");
+
+        ArgumentCaptor<Avatar> captor = ArgumentCaptor.forClass(Avatar.class);
+        verify(avatarRepository).save(captor.capture());
+        Avatar avatar = captor.getValue();
+        assertThat(avatar.getName()).isEqualTo("Maths Mochi");
+        assertThat(avatar.getContentLanguage()).isEqualTo("en");
+    }
+
+    @Test
+    void execute_unsupportedContentLanguage_rejectedWith400() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
+
+        assertThatThrownBy(() -> service.execute(
+                "kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4",
+                null, null, null, "fr"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getHttpStatus()).isEqualTo(400);
+
+        // Rejected before persistence — no half-created avatar.
+        verify(avatarRepository, never()).save(any(Avatar.class));
+    }
 }

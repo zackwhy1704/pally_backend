@@ -24,4 +24,17 @@ class SubjectTest {
             }
         }
     }
+
+    /// labelZh() values are copied verbatim from pally's label_localizer.dart's
+    /// localizedSubject — every Subject must have one so the zh-audit-round-4
+    /// avatar-name composition (QuickOnboardService) never falls through to a
+    /// blank/English string for any subject a user can actually pick.
+    @Test
+    void everySubject_hasANonBlankZhLabel_distinctFromTheEnglishLabel() {
+        for (Subject s : Subject.values()) {
+            assertThat(s.labelZh()).as("%s labelZh", s).isNotBlank();
+            assertThat(s.labelZh()).as("%s labelZh differs from label", s)
+                    .isNotEqualTo(s.label());
+        }
+    }
 }

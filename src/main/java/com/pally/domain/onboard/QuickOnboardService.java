@@ -63,6 +63,22 @@ public class QuickOnboardService {
             Subject subject, String level, String role, Integer birthYear,
             String parentEmail
     ) {
+        return execute(email, password, displayName, subject, level, role,
+                birthYear, parentEmail, null);
+    }
+
+    /**
+     * @param contentLanguage language the AI generates this avatar's content in
+     *         ('en' | 'zh'). Optional; absent/blank defaults to 'en'. A present-but-
+     *         unsupported value is rejected with 400 — same gate as
+     *         {@code CreateAvatarUseCase}.
+     */
+    @Transactional
+    public QuickOnboardResult execute(
+            String email, String password, String displayName,
+            Subject subject, String level, String role, Integer birthYear,
+            String parentEmail, String contentLanguage
+    ) {
         // Step 1: Register or login.
         // Decide via a pre-check rather than catching register()'s 409. register()
         // is @Transactional and joins THIS transaction; a BusinessException thrown
@@ -85,10 +101,25 @@ public class QuickOnboardService {
                 authService.register(email, password, displayName, role, birthYear, parentEmail);
         log.info("[Onboard] New user registered via quick onboard userId={}", authResponse.userId());
 
-        // Step 2: Create a MOCHI avatar with the given subject
-        String avatarName = subject.label() + " Mochi";
+        // Step 2: Create a MOCHI avatar with the given subject.
+        // Null/blank contentLanguage silently defaults to 'en' (a creation-time
+        // convenience default, not an explicit user action — unlike the PATCH
+        // settings endpoint, which rejects a missing value). Present-but-unsupported
+        // still 400s via the same SupportedLanguage.validate() gate CreateAvatarUseCase
+        // uses.
+        String resolvedLanguage = contentLanguage == null || contentLanguage.isBlank()
+                ? "en"
+                : com.pally.domain.i18n.SupportedLanguage.validate(contentLanguage);
+        // The default avatar NAME is baked in at creation time and never re-localized
+        // at render (unlike subject/level, which the client resolves at display time
+        // via localizedSubject()) — so it must be composed in the right language HERE,
+        // not left to hardcode "Mochi" in English under a zh UI.
+        String avatarName = "zh".equals(resolvedLanguage)
+                ? subject.labelZh() + "小伴"
+                : subject.label() + " Mochi";
         Avatar avatar = Avatar.create(
                 authResponse.userId(), avatarName, subject, CharacterType.MOCHI, level, null);
+        avatar.setContentLanguage(resolvedLanguage);
         Avatar saved = avatarRepository.save(avatar);
 
         log.info("[Onboard] Quick onboard complete userId={} avatarId={}",

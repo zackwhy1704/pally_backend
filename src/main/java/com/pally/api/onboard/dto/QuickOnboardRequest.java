@@ -37,5 +37,10 @@ public record QuickOnboardRequest(
         /// under-13; ignored otherwise. No @NotBlank: 13+ users won't send it.
         /// Format validation is left to register()/ConsentService.
         @Size(max = 255, message = "Parent email must be 255 characters or fewer")
-        String parentEmail
+        String parentEmail,
+
+        /// Language the AI generates this avatar's content in ('en' | 'zh') — same
+        /// gate as CreateAvatarRequest. Optional; absent/blank defaults to 'en'. A
+        /// present-but-unsupported value is rejected with 400.
+        String contentLanguage
 ) {}
