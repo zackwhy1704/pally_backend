@@ -22,7 +22,8 @@ public record ProgressSummary(
         int totalQuizzesTaken,
         int averageScore,
         java.util.List<Integer> weekMinutes,
-        java.util.List<String> badges
+        java.util.List<String> badges,
+        String preferredLocale
 ) {
     public static final int MAX_LEVEL = 30;
     private static final int CURVE = 50; // xpForLevel(L) = 50 * (L - 1) * L

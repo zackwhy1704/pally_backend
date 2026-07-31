@@ -241,10 +241,11 @@ public class ProgressService {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
         int currentLevel = user.getLevel();
+        String locale = user.getPreferredLocale();
         List<Map<String, Object>> rewards = LevelRewards.all().stream()
                 .map(r -> Map.<String, Object>of(
                         "level", r.level(),
-                        "label", r.label(),
+                        "label", r.label(locale),
                         "kind", r.kind().name(),
                         "unlocked", currentLevel >= r.level()))
                 .toList();

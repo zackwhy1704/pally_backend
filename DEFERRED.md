@@ -31,6 +31,13 @@
   Reading only the low-level method wrongly reads "unmetered"; the meter lives at the caller,
   where the purpose is known. (A reconciliation pass first mis-called streaming "still open" for
   exactly this reason.)
+- **Report structural SHAPE, not just string/line count, in a Phase 0.** A short list of short
+  strings can still be a new pattern, not an application of an established recipe — string count
+  is the wrong proxy for effort twice now (the zh content_language directive threading, and the
+  achievement/level-reward catalog below: 31 short strings, but a NEW parallel-resource-bundle
+  shape in Java, not a one-line directive-append). Say explicitly whether a task is "established
+  recipe, N instances" or "new structural shape" — the second deserves its own sizing regardless
+  of how small the string count reads.
 - **Push at commit time.** On this repo, merge to `main` auto-deploys to prod (Railway).
   A held branch is not shipped; a "done" that isn't merged is not live.
 
@@ -40,6 +47,60 @@ Sections: **OPEN** (code, actionable — each needs a "closes it" line) · **OFF
 ---
 
 # OPEN (code — actionable)
+
+## i18n coverage — a third content category, named (2026-07-31)
+
+**Context:** pally's client-side coverage guard (`test/guard/l10n_coverage_guard_test.dart`)
+catches missed CLIENT strings; the `content_language`/`PromptLanguage` threading catches
+teacher-material-derived AI generation. Achievement/level-reward copy was neither — a static,
+backend-owned, non-AI-generated English catalog that both mechanisms structurally cannot see.
+Naming it so the next audit checks for siblings of THIS shape (backend static data catalogs),
+not just re-running the two mechanisms above and declaring victory.
+
+### DONE this pass: `AchievementCatalog`/`LevelRewards` localized (both en/zh authored server-side)
+`AchievementCatalog.Definition` and `LevelRewards.Reward` gained `nameZh`/`descriptionZh`/`labelZh`
+fields (pre-authored, not derived — two independent fully-authored strings, not a directive-append)
+resolved via a new `SupportedLanguage.resolve(en, zh, locale)` helper. Threaded through the THREE
+render call sites, each using a `User`/`UserJpaEntity` ALREADY loaded for another reason (read-once,
+no extra query): `AchievementController.list()`, `ProgressService.levelRoadmap()`, and
+`GetProgressUseCase.execute()` → `ProgressSummary.preferredLocale` → `ProgressResponse.from()`'s
+`nextUnlockLabel`. A FOURTH site was found mid-build, not in the original Phase 0 report:
+`UserRepositoryAdapter.addXpAndStars`'s level-up-crossing `unlockedLabel` — fixed the same way
+(`before.getPreferredLocale()`, `before` already loaded one line above). Byte-identical-en proven
+by a snapshot test (the exact pre-change hardcoded literals), not a `zh == en + directive` equality
+— there's no directive here, en and zh are independent maps. zh drafts logged in pally's
+`lib/l10n/NEEDS_NATIVE_REVIEW.md` (new "BACKEND-OWNED" section) since that's the one artifact a
+native-SG reviewer actually opens, even though the fix lives in this repo.
+
+### Residual #1 — client-side rarity-badge resolver (deferred ON PURPOSE, not forgotten)
+`Category` (STREAK/MASTERY/CURIOSITY/MILESTONE) is a code, never rendered as text — no work needed.
+`Rarity` (COMMON/RARE/EPIC/LEGENDARY) **is** rendered as text: `achievements_screen.dart` does
+`a.rarity.toLowerCase()` directly, no client-side resolver at all today. Confirmed via grep that
+this vocabulary is SELF-CONTAINED to the achievements screen (EPIC/LEGENDARY appear nowhere else in
+`lib/`) — a genuinely small, separate client PR (mirrors `localizedRarity` in `label_localizer.dart`,
+4 cases). **Deliberately sequenced AFTER this backend PR lands**, so the resolver is built and
+tested against real localized data instead of a guess at the shape.
+**Closes it:** small pally client PR adding `localizedAchievementRarity(l, rarity)`.
+
+### Residual #2 — `unlockedRewardLabel` is computed but has NO consumer anywhere (found, not fixed)
+`LevelRewards`'s own javadoc says "the unlock label is surfaced purely so the level-up overlay can
+name the reward" — but traced every caller of `UserRepository.addXpAndStars`/`XpResult` and the
+client's `level_up_overlay.dart`: `unlockedRewardLabel` is computed (real cost — the `LevelRewards`
+lookup loop) and returned, but NO caller anywhere reads `.unlockedRewardLabel()` — only
+`.levelledUp()`/`.newLevel()` are consumed. The level-up overlay shows level-up, never the reward
+name. This is the INVERSE of the usual "visible layer without the work layer" pattern — here the
+work exists with no visible layer consuming it. Out of scope for this localization pass (nothing
+renders it to localize FOR); the locale-aware fix at the computation site (Residual #1's sibling,
+above) is already correct and future-proofed for whenever this gets wired up.
+**Closes it:** decide whether the level-up overlay should show the reward name (a product call,
+not this pass's job) — if yes, thread `unlockedRewardLabel` into whichever response the client's
+level-up flow actually reads (`ChatOrchestrationService`/`SubmitQuizAnswersUseCase`/`TeachController`
+all discard it today).
+
+### Housekeeping found alongside (not localization, fixed anyway — trivial + zero risk)
+`src/main/java/com/pally/api/progress/dto/ProgressResponse.java` was a fully dead duplicate of the
+live `domain/progress/dto/ProgressResponse.java` (identical content, zero imports anywhere) —
+deleted rather than left to rot or accidentally maintained in parallel.
 
 ## Moderation / child-safety
 

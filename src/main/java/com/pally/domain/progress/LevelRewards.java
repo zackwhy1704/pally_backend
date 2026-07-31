@@ -1,5 +1,7 @@
 package com.pally.domain.progress;
 
+import com.pally.domain.i18n.SupportedLanguage;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +22,18 @@ import java.util.Map;
 public final class LevelRewards {
     private LevelRewards() {}
 
-    public record Reward(int level, String label, Kind kind) {
+    /**
+     * {@code labelZh} is a pre-authored translation, not derived from
+     * {@code label} — same static-catalog shape as {@link AchievementCatalog}.
+     * {@link #label(String)} resolves which one a caller sees; {@code label()}
+     * stays the English source of truth so existing callers are unaffected.
+     */
+    public record Reward(int level, String label, String labelZh, Kind kind) {
         public enum Kind { COSMETIC, FUNCTIONAL, BADGE, MYSTERY }
+
+        public String label(String locale) {
+            return SupportedLanguage.resolve(label, labelZh, locale);
+        }
     }
 
     /// Free users start with one tutor; L5 unlocks a second. Premium
@@ -49,15 +61,15 @@ public final class LevelRewards {
 
     static {
         Map<Integer, Reward> m = new LinkedHashMap<>();
-        m.put(2,  new Reward(2,  "New Mochi colour",            Reward.Kind.COSMETIC));
-        m.put(3,  new Reward(3,  "Cloud background unlocked",   Reward.Kind.COSMETIC));
-        m.put(5,  new Reward(5,  "Extra free Mochi slot",        Reward.Kind.FUNCTIONAL));
-        m.put(8,  new Reward(8,  "Sparkle avatar effect",        Reward.Kind.COSMETIC));
-        m.put(10, new Reward(10, "Mystery box + Level 10 badge", Reward.Kind.MYSTERY));
-        m.put(15, new Reward(15, "Golden name plate",            Reward.Kind.COSMETIC));
-        m.put(20, new Reward(20, "Streak freeze cap raised to 5", Reward.Kind.FUNCTIONAL));
-        m.put(25, new Reward(25, "Legendary Mochi frame",        Reward.Kind.COSMETIC));
-        m.put(30, new Reward(30, "Max level title — Apalchi Master", Reward.Kind.BADGE));
+        m.put(2,  new Reward(2,  "New Mochi colour",            "全新小伴配色",           Reward.Kind.COSMETIC));
+        m.put(3,  new Reward(3,  "Cloud background unlocked",   "解锁云朵背景",           Reward.Kind.COSMETIC));
+        m.put(5,  new Reward(5,  "Extra free Mochi slot",        "额外免费小伴名额",       Reward.Kind.FUNCTIONAL));
+        m.put(8,  new Reward(8,  "Sparkle avatar effect",        "闪耀头像特效",           Reward.Kind.COSMETIC));
+        m.put(10, new Reward(10, "Mystery box + Level 10 badge", "神秘宝箱 + 10级徽章",     Reward.Kind.MYSTERY));
+        m.put(15, new Reward(15, "Golden name plate",            "黄金名牌",               Reward.Kind.COSMETIC));
+        m.put(20, new Reward(20, "Streak freeze cap raised to 5", "连胜保护次数上限提升至5次", Reward.Kind.FUNCTIONAL));
+        m.put(25, new Reward(25, "Legendary Mochi frame",        "传奇小伴相框",           Reward.Kind.COSMETIC));
+        m.put(30, new Reward(30, "Max level title — Apalchi Master", "满级称号——Apalchi 大师", Reward.Kind.BADGE));
         REWARDS = Map.copyOf(m);
     }
 

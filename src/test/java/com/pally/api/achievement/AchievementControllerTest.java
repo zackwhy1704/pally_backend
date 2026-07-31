@@ -53,6 +53,13 @@ class AchievementControllerTest {
         return u;
     }
 
+    private UserJpaEntity userWithLocale(String locale) {
+        var u = new UserJpaEntity();
+        u.setLevel(1);
+        u.setPreferredLocale(locale);
+        return u;
+    }
+
     @BeforeEach
     void defaults() {
         when(userRepo.findById(USER_ID)).thenReturn(
@@ -143,5 +150,33 @@ class AchievementControllerTest {
         @SuppressWarnings("unchecked")
         var achievements = (List<Map<String, Object>>) body.get("achievements");
         assertThat(body.get("totalCount")).isEqualTo(achievements.size());
+    }
+
+    @Test
+    void list_defaultLocale_returnsEnglishNameAndDescription() {
+        // userWithStats() never sets preferredLocale — the entity default
+        // ("en") governs, proving an existing/unmigrated user sees no change.
+        var body = controller.list(USER_ID).getBody().data();
+        @SuppressWarnings("unchecked")
+        var achievements = (List<Map<String, Object>>) body.get("achievements");
+        var streak3 = achievements.stream()
+                .filter(a -> "STREAK_3".equals(a.get("id")))
+                .findFirst().orElseThrow();
+        assertThat(streak3.get("name")).isEqualTo("On a Roll");
+        assertThat(streak3.get("description")).isEqualTo("3-day streak");
+    }
+
+    @Test
+    void list_zhLocale_returnsChineseNameAndDescription() {
+        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(userWithLocale("zh")));
+
+        var body = controller.list(USER_ID).getBody().data();
+        @SuppressWarnings("unchecked")
+        var achievements = (List<Map<String, Object>>) body.get("achievements");
+        var streak3 = achievements.stream()
+                .filter(a -> "STREAK_3".equals(a.get("id")))
+                .findFirst().orElseThrow();
+        assertThat(streak3.get("name")).isNotEqualTo("On a Roll");
+        assertThat(streak3.get("description")).isNotEqualTo("3-day streak");
     }
 }

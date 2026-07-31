@@ -31,4 +31,16 @@ public final class SupportedLanguage {
         }
         return normalized;
     }
+
+    /**
+     * Picks between a pre-translated en/zh pair for a STATIC data catalog
+     * (achievement/reward copy) — distinct from {@code PromptLanguage}, which
+     * appends a directive to an LLM prompt. Here there is no "base +
+     * delta"; en and zh are two independent, fully-authored strings, so any
+     * value other than exactly "zh" (including null/blank/unknown) resolves
+     * to en — never a partial or malformed locale silently losing content.
+     */
+    public static String resolve(String en, String zh, String locale) {
+        return "zh".equals(locale) ? zh : en;
+    }
 }

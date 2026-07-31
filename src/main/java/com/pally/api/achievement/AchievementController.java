@@ -46,6 +46,7 @@ public class AchievementController {
             @AuthenticationPrincipal String userId) {
         UserJpaEntity user = userRepo.findById(userId)
                 .orElseThrow(() -> new BusinessException("User not found", 404));
+        String locale = user.getPreferredLocale();
 
         Map<String, Instant> earnedMap = new HashMap<>();
         for (UserBadgeJpaEntity row : badgeRepo.findByUserId(userId)) {
@@ -69,8 +70,8 @@ public class AchievementController {
                     correctTotal, photoCount);
             Map<String, Object> a = new HashMap<>();
             a.put("id", def.id());
-            a.put("name", def.name());
-            a.put("description", def.description());
+            a.put("name", def.name(locale));
+            a.put("description", def.description(locale));
             a.put("category", def.category().name());
             a.put("rarity", def.rarity().name());
             a.put("target", def.target());

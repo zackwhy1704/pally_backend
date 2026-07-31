@@ -41,7 +41,7 @@ public record ProgressResponse(
                 s.weekMinutes() != null ? s.weekMinutes() : List.of(),
                 s.badges() != null ? s.badges() : List.of(),
                 nextUnlock == null ? null : nextUnlock.level(),
-                nextUnlock == null ? null : nextUnlock.label()
+                nextUnlock == null ? null : nextUnlock.label(s.preferredLocale())
         );
     }
 }

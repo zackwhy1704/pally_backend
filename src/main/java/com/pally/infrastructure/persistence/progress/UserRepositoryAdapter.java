@@ -185,7 +185,7 @@ public class UserRepositoryAdapter implements UserRepository {
         if (newLevel > oldLevel) {
             for (int lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
                 var reward = LevelRewards.atLevel(lvl);
-                if (reward != null) unlockedLabel = reward.label();
+                if (reward != null) unlockedLabel = reward.label(before.getPreferredLocale());
                 if (lvl == 20) {
                     int newCap = StreakService.effectiveFreezeCap(20);
                     int granted = jpa.grantFreezesUpTo(

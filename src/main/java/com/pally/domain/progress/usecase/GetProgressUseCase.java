@@ -68,7 +68,8 @@ public class GetProgressUseCase {
                 totalQuizzesTaken,
                 averageScore,
                 activityLogService.minutesPerDayLast7(userId),
-                badgeService.getBadges(userId)
+                badgeService.getBadges(userId),
+                stats.getPreferredLocale()
         );
     }
 }
