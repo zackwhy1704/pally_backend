@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ClaudeContextAssemblerBlock1LanguageTest {
 
     private ClaudeContextAssembler assembler() {
-        return new ClaudeContextAssembler(null, null, null, null, null, null, null, null);
+        return new ClaudeContextAssembler(null, null, null, null, null, null, null);
     }
 
     private Avatar avatar(String contentLanguage) {

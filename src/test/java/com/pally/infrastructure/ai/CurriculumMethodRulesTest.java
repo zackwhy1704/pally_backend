@@ -32,7 +32,6 @@ import static org.mockito.Mockito.lenient;
 class CurriculumMethodRulesTest {
 
     @Mock WikiRepository wikiRepository;
-    @Mock com.pally.domain.chat.ChatRepository chatRepository;
     @Mock TopicRouter topicRouter;
     @Mock ChatSessionSummariser sessionSummariser;
 
@@ -41,7 +40,7 @@ class CurriculumMethodRulesTest {
     @BeforeEach
     void setUp() {
         assembler = new ClaudeContextAssembler(
-                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class), chatRepository, new ObjectMapper(),
+                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class), new ObjectMapper(),
                 sessionSummariser, new CalculatorTool(), new AlgebraTool());
 
         lenient().when(wikiRepository.getIndex(any())).thenReturn(List.of());

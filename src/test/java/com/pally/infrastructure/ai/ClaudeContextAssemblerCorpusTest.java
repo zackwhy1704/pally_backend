@@ -4,7 +4,6 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.chat.AssembledContext;
-import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.knowledge.DetectedTopic;
 import com.pally.domain.knowledge.WikiPage;
@@ -32,7 +31,6 @@ class ClaudeContextAssemblerCorpusTest {
 
     @Mock private TopicRouter topicRouter;
     @Mock private WikiRepository wikiRepository;
-    @Mock private ChatRepository chatRepository;
     @Mock private ChatSessionSummariser sessionSummariser;
     @Mock private CalculatorTool calculatorTool;
     @Mock private AlgebraTool algebraTool;
@@ -42,7 +40,7 @@ class ClaudeContextAssemblerCorpusTest {
     @BeforeEach
     void setUp() {
         assembler = new ClaudeContextAssembler(
-                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class), chatRepository,
+                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class),
                 new ObjectMapper(), sessionSummariser, calculatorTool, algebraTool);
     }
 

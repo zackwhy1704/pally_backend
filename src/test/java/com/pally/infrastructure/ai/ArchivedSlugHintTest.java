@@ -36,7 +36,6 @@ import static org.mockito.Mockito.when;
 class ArchivedSlugHintTest {
 
     @Mock WikiRepository wikiRepository;
-    @Mock com.pally.domain.chat.ChatRepository chatRepository;
     @Mock TopicRouter topicRouter;
     @Mock ChatSessionSummariser sessionSummariser;
 
@@ -50,7 +49,7 @@ class ArchivedSlugHintTest {
     @BeforeEach
     void setUp() {
         assembler = new ClaudeContextAssembler(
-                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class), chatRepository, new ObjectMapper(), sessionSummariser,
+                topicRouter, wikiRepository, org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class), new ObjectMapper(), sessionSummariser,
                 new CalculatorTool(), new AlgebraTool());
 
         avatar = Avatar.reconstitute(

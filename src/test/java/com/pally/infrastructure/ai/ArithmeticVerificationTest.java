@@ -1,7 +1,6 @@
 package com.pally.infrastructure.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.knowledge.WikiRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +24,6 @@ class ArithmeticVerificationTest {
                 mock(TopicRouter.class),
                 mock(WikiRepository.class),
                 org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class),
-                mock(ChatRepository.class),
                 new ObjectMapper(),
                 mock(ChatSessionSummariser.class),
                 new CalculatorTool(),

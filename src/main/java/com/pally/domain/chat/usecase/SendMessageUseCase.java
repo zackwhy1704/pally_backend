@@ -310,13 +310,27 @@ public class SendMessageUseCase {
         TeachingMode mode = avatar.getTeachingMode();
         boolean shouldEscape = session.shouldEscape(mode);
         boolean deflecting = topicClassifier.detectsDeflection(userMessage);
+        // Reconnects a real signal that used to be computed by a DIFFERENT
+        // builder (ClaudeContextAssembler) and silently discarded when
+        // buildBlocksWithSocraticTail replaced its last block with this
+        // use case's own block4 — see TopicClassifier.detectsFrustration.
+        // Reuses `history`, already loaded above; no new query.
+        boolean frustrated = topicClassifier.detectsFrustration(history, userMessage);
 
         if (deflecting) {
             log.debug("[Socratic] Deflection detected for avatar={} — forcing escape hatch", avatarId);
         }
+        if (frustrated) {
+            log.debug("[Socratic] Frustration detected for avatar={} — forcing escape hatch", avatarId);
+        }
 
-        if (shouldEscape || deflecting) {
+        boolean escalate = shouldEscape || deflecting || frustrated;
+        if (escalate) {
             session.markEscapeFired();
+            // Distinct booleans, not a first-match reason string — more than
+            // one can be true at once and none should be silently hidden.
+            log.info("[Socratic] Escalation triggered avatar={} attemptCountEscape={} deflection={} frustration={}",
+                    avatarId, shouldEscape, deflecting, frustrated);
         }
 
         try {
@@ -327,7 +341,7 @@ public class SendMessageUseCase {
 
         // Build Block 4 (dynamic tail — no cache) based on Socratic state
         Map<String, Object> block4 = socraticPromptBuilder.buildBlock4(
-                mode, hintTree, session.getAttemptCount(), shouldEscape || deflecting);
+                mode, hintTree, session.getAttemptCount(), escalate);
 
         // Replace Block 4 in the system blocks list
         List<Map<String, Object>> systemBlocks = buildBlocksWithSocraticTail(
@@ -354,7 +368,7 @@ public class SendMessageUseCase {
         // model receives: history depth, session memory, topic routing.
         log.info("[ChatCtx] avatarId={} historyMsgs={} mode={} topic={} escape={}",
                 avatarId, history.size(), mode, topicSlug.orElse("none"),
-                shouldEscape || deflecting);
+                escalate);
         if (history.size() > 0) {
             // Log the last user message in history so we can see topic drift
             history.stream()

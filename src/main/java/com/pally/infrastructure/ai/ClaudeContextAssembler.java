@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.chat.AssembledContext;
-import com.pally.domain.chat.ChatMessage;
-import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.knowledge.DetectedTopic;
 import com.pally.domain.knowledge.WikiPage;
@@ -83,15 +81,6 @@ public class ClaudeContextAssembler {
             "(?:magnitude|\\|[A-Za-z]\\|)\\s*(?:of\\s+)?\\(?([+-]?\\d+\\.?\\d*)\\s*[,i]\\s*([+-]?\\d+\\.?\\d*)\\s*j?\\)?",
             Pattern.CASE_INSENSITIVE);
 
-    // Fix 3 — frustration signals that trigger the Socratic unlock note
-    private static final List<Pattern> FRUSTRATION_PATTERNS = List.of(
-            Pattern.compile("don.{0,4}t understand", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("still confused", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("tell me", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("just give", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("what is the answer", Pattern.CASE_INSENSITIVE)
-    );
-
     // Extended cache TTL requires this header value sent with every request
     // Switched from extended-cache-ttl-2025-04-11 (1h TTL beta) to the stable
     // prompt-caching-2024-07-31 header (5-min TTL, no extended-TTL beta).
@@ -108,7 +97,6 @@ public class ClaudeContextAssembler {
     private final TopicRouter topicRouter;
     private final WikiRepository wikiRepository;
     private final com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
-    private final ChatRepository chatRepository;
     private final ObjectMapper objectMapper;
     private final ChatSessionSummariser sessionSummariser;
     private final CalculatorTool calculatorTool;
@@ -285,9 +273,7 @@ public class ClaudeContextAssembler {
                 ? avatar.getCorpusAvatarId() : avatar.getId();
         List<String> recentlyArchived = wikiRepository.findRecentlyArchivedSlugs(
                 archivedAvatarId, Instant.now().minus(Duration.ofDays(7)));
-        // Fix 3: pass recent chat history so the socratic-unlock check can read it.
-        List<ChatMessage> recentHistory = loadRecentHistoryForBlock4(avatar.getId());
-        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived, userMessage, recentHistory);
+        String block4 = buildBlock4DynamicTail(tier3Pages, tier4Pages, recentlyArchived, userMessage);
         Map<String, Object> b4 = new HashMap<>();
         b4.put("type", "text");
         b4.put("text", block4);
@@ -603,24 +589,8 @@ public class ClaudeContextAssembler {
                 .orElse("");
     }
 
-    /** Loads the last 10 chat messages for the avatar to feed the frustration detector. */
-    private List<ChatMessage> loadRecentHistoryForBlock4(String avatarId) {
-        try {
-            return chatRepository.findByAvatarId(avatarId, 10);
-        } catch (Exception e) {
-            log.debug("[Block4] Could not load recent history for avatarId={}: {}", avatarId, e.getMessage());
-            return List.of();
-        }
-    }
-
     private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages,
                                            List<String> recentlyArchivedSlugs, String userMessage) {
-        return buildBlock4DynamicTail(relevantPages, prereqPages, recentlyArchivedSlugs, userMessage, List.of());
-    }
-
-    private String buildBlock4DynamicTail(List<WikiPage> relevantPages, List<WikiPage> prereqPages,
-                                           List<String> recentlyArchivedSlugs, String userMessage,
-                                           List<ChatMessage> recentHistory) {
         // Dynamic per-message context — NEVER add cache_control here.
         // Contains topic-routed page highlights when available.
         var sb = new StringBuilder();
@@ -659,55 +629,7 @@ public class ClaudeContextAssembler {
             sb.append("\n## Verified calculation\n").append(calcHint).append("\n");
         }
 
-        // Fix 3 — Socratic unlock: if the student appears frustrated after several
-        // tries, allow the tutor to be more direct rather than continuing to guide.
-        if (isFrustrationTriggered(recentHistory, userMessage)) {
-            sb.append("""
-
-                ## STUDENT SUPPORT NOTE
-                This student has asked about this topic multiple times and may be frustrated.
-                It is okay to be more direct — give the answer clearly, then explain step by step.
-                Do not continue the Socratic approach if the student asks you directly for the answer.
-                """);
-            log.debug("[Block4] Socratic unlock triggered — appended student support note");
-        }
-
         return sb.toString();
-    }
-
-    /**
-     * Returns true when:
-     * <ul>
-     *   <li>The current session has ≥ 4 user-turn messages, AND</li>
-     *   <li>The last 2 user messages (including the current one) contain at least
-     *       one frustration signal keyword.</li>
-     * </ul>
-     */
-    boolean isFrustrationTriggered(List<ChatMessage> recentHistory, String currentMessage) {
-        if (recentHistory == null || recentHistory.isEmpty()) return false;
-
-        List<String> userMessages = recentHistory.stream()
-                .filter(m -> m.getRole() == ChatMessage.Role.USER)
-                .map(ChatMessage::getContent)
-                .filter(c -> c != null && !c.isBlank())
-                .toList();
-
-        if (userMessages.size() < 4) return false;
-
-        // Check the last 2 user turns (the most recent and the one before)
-        int size = userMessages.size();
-        List<String> last2 = new ArrayList<>();
-        last2.add(userMessages.get(size - 1));
-        if (size >= 2) last2.add(userMessages.get(size - 2));
-        // Also include the current message being sent
-        if (currentMessage != null && !currentMessage.isBlank()) last2.add(currentMessage);
-
-        for (String msg : last2) {
-            for (Pattern p : FRUSTRATION_PATTERNS) {
-                if (p.matcher(msg).find()) return true;
-            }
-        }
-        return false;
     }
 
     /**
