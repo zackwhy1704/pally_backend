@@ -2,11 +2,13 @@ package com.pally.domain.chat;
 
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -17,6 +19,20 @@ import java.util.stream.Collectors;
 public class TopicClassifier {
 
     private static final double MIN_SIMILARITY = 0.15;
+
+    // Relocated from ClaudeContextAssembler — this used to feed a "Socratic
+    // unlock" note into a system-prompt block that a later refactor
+    // (SendMessageUseCase.buildBlocksWithSocraticTail) silently overwrote
+    // before it ever reached the model. Same patterns, same trigger shape —
+    // a relocation to where the live escape/deflection decision is actually
+    // made, not a redesign.
+    private static final List<Pattern> FRUSTRATION_PATTERNS = List.of(
+            Pattern.compile("don.{0,4}t understand", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("still confused", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("tell me", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("just give", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("what is the answer", Pattern.CASE_INSENSITIVE)
+    );
     private static final Set<String> STOP_WORDS = Set.of(
             "a", "an", "the", "is", "are", "was", "were", "be", "been",
             "being", "have", "has", "had", "do", "does", "did", "will",
@@ -73,6 +89,41 @@ public class TopicClassifier {
                lower.contains("just tell me") || lower.contains("give me the answer") ||
                lower.contains("just give") || lower.contains("skip the hints") ||
                lower.contains("i give up");
+    }
+
+    /**
+     * Returns true when:
+     * <ul>
+     *   <li>The current session has ≥ 4 user-turn messages, AND</li>
+     *   <li>The last 2 user messages (including the current one) contain at least
+     *       one frustration signal keyword.</li>
+     * </ul>
+     */
+    public boolean detectsFrustration(List<ChatMessage> recentHistory, String currentMessage) {
+        if (recentHistory == null || recentHistory.isEmpty()) return false;
+
+        List<String> userMessages = recentHistory.stream()
+                .filter(m -> m.getRole() == ChatMessage.Role.USER)
+                .map(ChatMessage::getContent)
+                .filter(c -> c != null && !c.isBlank())
+                .toList();
+
+        if (userMessages.size() < 4) return false;
+
+        // Check the last 2 user turns (the most recent and the one before)
+        int size = userMessages.size();
+        List<String> last2 = new ArrayList<>();
+        last2.add(userMessages.get(size - 1));
+        if (size >= 2) last2.add(userMessages.get(size - 2));
+        // Also include the current message being sent
+        if (currentMessage != null && !currentMessage.isBlank()) last2.add(currentMessage);
+
+        for (String msg : last2) {
+            for (Pattern p : FRUSTRATION_PATTERNS) {
+                if (p.matcher(msg).find()) return true;
+            }
+        }
+        return false;
     }
 
     private Set<String> tokenise(String text) {
