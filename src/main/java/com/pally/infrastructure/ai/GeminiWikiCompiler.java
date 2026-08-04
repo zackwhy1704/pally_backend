@@ -592,9 +592,12 @@ public class GeminiWikiCompiler implements WikiCompilerPort {
                 5. Each page: 200-500 words — comprehensive but not overwhelming.
 
                 ## EXAMPLE OUTPUT FORMAT
-                [{"slug":"boiling-point-of-water","title":"Boiling Point of Water",
-                  "content":"## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas**.\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- Requires **2260 kJ/kg** of heat energy",
-                  "context":"Covers the boiling point of water and latent heat, within states of matter.",
+                This shows the JSON SHAPE and markdown conventions only — angle brackets mark
+                where real content goes. Do not copy any wording from this template; write the
+                actual title/content/context in whatever language this task requires.
+                [{"slug":"lowercase-hyphenated-slug","title":"<page title>",
+                  "content":"## <sub-heading>\\n<1-2 sentence explanation, **bold** for key terms>\\n\\n## Key Facts\\n- <fact 1>\\n- <fact 2>",
+                  "context":"<1-2 sentence summary: what this page covers, within its subject/topic>",
                   "prerequisites":[]}]
 
                 ## EXTRACTED CONTENT

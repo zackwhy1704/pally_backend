@@ -54,4 +54,30 @@ class GeminiWikiCompilerLanguageTest {
         assertThat(nul).isEqualTo(en);
         assertThat(nul).doesNotContain("华语");
     }
+
+    /**
+     * Root cause of the mixed en/zh compile output: a concrete English worked example
+     * ("Boiling is when water turns from liquid to gas...") sat immediately before the
+     * trailing zh directive. An in-context example is a stronger behavioral signal than a
+     * trailing instruction, so zh compiles produced English titles/content despite the
+     * directive correctly firing. The header can't be made language-conditional without
+     * breaking {@link #englishCompilePrompt_isByteIdenticalBase_zhIsBasePlusDirectiveOnly()}'s
+     * exact-equality guard (any per-language difference before the tail append fails it), so
+     * the fix is a NEUTRAL example — structure/placeholders only, for either language — not a
+     * language-conditional swap.
+     */
+    @Test
+    void examplePromptTemplate_carriesNoConcreteEnglishProse_forEitherLanguage() {
+        GeminiWikiCompiler c = compiler();
+        String en = c.buildPrompt(avatar("en"), List.<KnowledgeFile>of(), List.<WikiPage>of());
+        String zh = c.buildPrompt(avatar("zh"), List.<KnowledgeFile>of(), List.<WikiPage>of());
+
+        for (String prompt : List.of(en, zh)) {
+            assertThat(prompt)
+                    .as("the old worked example's concrete English sentences must be gone")
+                    .doesNotContain("Boiling is when water turns from")
+                    .doesNotContain("Water boils at")
+                    .doesNotContain("Boiling Point of Water");
+        }
+    }
 }
