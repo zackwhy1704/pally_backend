@@ -395,6 +395,44 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 - **Accepted risk:** cosmetic only — the module plays and completes correctly.
 - **Closes it:** hide the PROVE count until generated, or label it "adaptive" instead of "0".
 
+## Chat system-prompt assembly
+
+### 1. Block-4 assembly is overwrite-not-merge — two builders CAN silently collide again
+- **What:** `ClaudeContextAssembler.assembleSystemBlocks`/`buildCacheBlocks` builds blocks 1-4
+  and returns them as a list; `SendMessageUseCase.buildBlocksWithSocraticTail` then unconditionally
+  drops the LAST element of that list and replaces it with `SocraticPromptBuilder.buildBlock4(...)`'s
+  own output. This is the exact mechanism that let a real, working frustration detector
+  (`ClaudeContextAssembler.isFrustrationTriggered`, computing a "STUDENT SUPPORT NOTE" into what
+  became that last block) get silently discarded for an unknown period before it was found and
+  reconnected (`fix/reconnect-frustration-detector`, merged `307bd49`, 2026-08-04) —
+  `ClaudeContextAssembler` isn't wrong to build a dynamic tail, `SocraticPromptBuilder` isn't wrong
+  to need the last slot; the "last write wins" assembly model is what made two correct-in-isolation
+  builders incompatible. Confirmed via source: `AssembledContext.systemPrompt()`, the field that
+  would have carried the discarded content, is called from zero production code — only from tests
+  that exercise `ClaudeContextAssembler` in isolation and never caught that the live path drops it.
+- **Why deferred:** fixing the assembly model itself (merge blocks instead of overwrite, or give
+  each builder a named, non-colliding slot) is a redesign of how the whole system prompt is
+  constructed, not a rewire — out of scope for the frustration-detector fix, and the wrong size for
+  a single-issue session. This is the SECOND time in this file's history a structural risk in this
+  area has been named and deferred (see the frustration-detector fix itself, which named this same
+  risk in its own commit message rather than attempting to fix it) — recording it here as its own
+  entry so it has a real trigger instead of living only in commit prose and being rediscovered from
+  scratch.
+- **Accepted risk:** any future builder that computes its own version of "the last system-prompt
+  block" (by whatever name) and gets merged after `SocraticPromptBuilder`'s block4 will have its
+  output silently dropped, with no compile error and no test failure unless that specific test
+  asserts on the actual argument values passed to the final model-facing call (as
+  `SendMessageUseCaseOpenPathTest.frustratedMultiTurnHistory_escalatesEscapeFlagToBuildBlock4` now
+  does for this one signal) — a new signal computed elsewhere would NOT be caught by that test.
+- **Trigger — pick this up the next time, not on a calendar date:** anyone adds a new dynamic,
+  per-turn system-prompt block, OR touches `buildBlocksWithSocraticTail`/`buildCacheBlocks` for any
+  other reason. At that point: either (a) merge/concatenate the competing tail blocks instead of
+  overwriting, or (b) give each builder a distinct, explicitly-ordered slot in the blocks list so
+  "replace the last element" stops being the join mechanism.
+- **Closes it:** redesign block assembly from positional "replace last element" to either a named-
+  slot list or an explicit merge step, with a test that fails if any computed system-prompt content
+  is silently dropped during assembly (not just a test for one specific signal).
+
 ## Retention & UX polish (post-launch)
 
 ### Weak-concept re-teach nudge — CLOSED (was blocked; product owner unblocked both)
