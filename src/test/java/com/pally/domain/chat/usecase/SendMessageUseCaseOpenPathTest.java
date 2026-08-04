@@ -159,4 +159,60 @@ class SendMessageUseCaseOpenPathTest {
                 .expectNextMatches(e -> "done".equals(e.type()))
                 .verifyComplete();
     }
+
+    /**
+     * Pins the "Socratic unlock" reconnect: a real, working frustration
+     * detector (TopicClassifier.detectsFrustration) used to compute a
+     * signal that a DIFFERENT builder's system-prompt block silently
+     * overwrote before it ever reached the model. This asserts the signal
+     * actually flows into socraticPromptBuilder.buildBlock4's escape flag —
+     * the exact gap that let it ship broken: every other test in this file
+     * stubs buildBlock4 with anyBoolean() and never verifies the value.
+     */
+    @Test
+    void frustratedMultiTurnHistory_escalatesEscapeFlagToBuildBlock4() {
+        when(avatarRepository.findById("avatar-1")).thenReturn(Optional.of(personalAvatar));
+        when(chatRepository.save(any(ChatMessage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        List<ChatMessage> frustratedHistory = List.of(
+                userMsg("What is photosynthesis?"),
+                userMsg("How does it work?"),
+                userMsg("I still don't understand"),
+                userMsg("just give me the answer"));
+        when(chatRepository.findByAvatarId(anyString(), anyInt())).thenReturn(frustratedHistory);
+
+        when(contextAssembler.assemble(any(Avatar.class), anyString()))
+                .thenReturn(new AssembledContext(
+                        "system prompt", "trace",
+                        List.of(Map.of("type", "text", "text", "system prompt"))));
+        when(hintTreeRepository.findByAvatarId(anyString())).thenReturn(List.of());
+        when(topicClassifier.classify(anyString(), anyList())).thenReturn(Optional.empty());
+        when(topicClassifier.detectsDeflection(anyString())).thenReturn(false);
+        when(topicClassifier.detectsFrustration(anyList(), anyString())).thenReturn(true);
+        when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any()))
+                .thenReturn(Optional.of(ChatSession.createToday("avatar-1")));
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+                .thenReturn(Map.of("type", "text", "text", "block4"));
+        when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
+                .thenReturn(Flux.just(
+                        new ChatStreamEvent.Token("Here's the answer, worked through."),
+                        new ChatStreamEvent.Done(null)));
+
+        Flux<SendMessageUseCase.StreamEvent> stream =
+                useCase.executeStream("avatar-1", "user-1", "tell me the answer already");
+
+        StepVerifier.create(stream)
+                .expectNextMatches(e -> "delta".equals(e.type()))
+                .expectNextMatches(e -> "done".equals(e.type()))
+                .verifyComplete();
+
+        verify(topicClassifier).detectsFrustration(frustratedHistory, "tell me the answer already");
+        verify(socraticPromptBuilder).buildBlock4(any(), any(), anyInt(), eq(true));
+    }
+
+    private ChatMessage userMsg(String content) {
+        return ChatMessage.reconstitute(
+                "id-" + content.hashCode(), "avatar-1", "user-1",
+                ChatMessage.Role.USER, content, null, java.time.Instant.now());
+    }
 }

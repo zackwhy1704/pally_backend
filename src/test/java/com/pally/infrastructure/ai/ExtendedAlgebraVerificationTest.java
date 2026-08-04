@@ -1,21 +1,18 @@
 package com.pally.infrastructure.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pally.domain.chat.ChatMessage;
-import com.pally.domain.chat.ChatRepository;
 import com.pally.domain.chat.ChatSessionSummariser;
 import com.pally.domain.knowledge.WikiRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
-import java.util.List;
-
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests for FIX 2 (algebra + calculus detection) and FIX 3 (Socratic frustration unlock).
+ * Tests for FIX 2 (algebra + calculus detection). FIX 3 (Socratic frustration
+ * unlock) moved to TopicClassifierTest — the detector was relocated there so
+ * its result can actually reach the live chat path (see SendMessageUseCase).
  */
 class ExtendedAlgebraVerificationTest {
 
@@ -27,7 +24,6 @@ class ExtendedAlgebraVerificationTest {
                 mock(TopicRouter.class),
                 mock(WikiRepository.class),
                 org.mockito.Mockito.mock(com.pally.domain.weakness.WeaknessProfileService.class),
-                mock(ChatRepository.class),
                 new ObjectMapper(),
                 mock(ChatSessionSummariser.class),
                 new CalculatorTool(),
@@ -135,80 +131,5 @@ class ExtendedAlgebraVerificationTest {
     void noMaths_returnsEmpty() {
         String hint = assembler.injectArithmeticVerification("What is photosynthesis?");
         assertThat(hint).isEmpty();
-    }
-
-    // ── FIX 3 — Socratic frustration unlock ───────────────────────────────────
-
-    @Test
-    void isFrustrationTriggered_fewerThan4Messages_false() {
-        // Only 3 user turns — should NOT trigger
-        List<ChatMessage> history = List.of(
-                userMsg("What is photosynthesis?"),
-                userMsg("I still don't understand"),
-                userMsg("just give me the answer")
-        );
-        assertThat(assembler.isFrustrationTriggered(history, "tell me!")).isFalse();
-    }
-
-    @Test
-    void isFrustrationTriggered_4MessagesNoFrustrationSignal_false() {
-        List<ChatMessage> history = List.of(
-                userMsg("What is photosynthesis?"),
-                userMsg("How does it work?"),
-                userMsg("What is chlorophyll?"),
-                userMsg("And what about sunlight?")
-        );
-        assertThat(assembler.isFrustrationTriggered(history, "Ok thanks")).isFalse();
-    }
-
-    @Test
-    void isFrustrationTriggered_4PlusMessagesWithFrustration_true() {
-        List<ChatMessage> history = List.of(
-                userMsg("What is photosynthesis?"),
-                userMsg("How does it work?"),
-                userMsg("I still don't understand"),
-                userMsg("just give me the answer")
-        );
-        assertThat(assembler.isFrustrationTriggered(history, "I'm confused")).isTrue();
-    }
-
-    @Test
-    void isFrustrationTriggered_frustrationInCurrentMessage_true() {
-        List<ChatMessage> history = List.of(
-                userMsg("What is x?"),
-                userMsg("I don't get it"),
-                userMsg("Help me"),
-                userMsg("More context please")
-        );
-        // Current message contains frustration signal
-        assertThat(assembler.isFrustrationTriggered(history, "tell me the answer already")).isTrue();
-    }
-
-    @Test
-    void isFrustrationTriggered_emptyHistory_false() {
-        assertThat(assembler.isFrustrationTriggered(List.of(), "just give me the answer")).isFalse();
-    }
-
-    @Test
-    void isFrustrationTriggered_nullHistory_false() {
-        assertThat(assembler.isFrustrationTriggered(null, "still confused")).isFalse();
-    }
-
-    @Test
-    void isFrustrationTriggered_whatIsTheAnswer_keyword_triggers() {
-        List<ChatMessage> history = List.of(
-                userMsg("q1"), userMsg("q2"), userMsg("q3"), userMsg("q4")
-        );
-        assertThat(assembler.isFrustrationTriggered(history, "what is the answer")).isTrue();
-    }
-
-    // ── Helper ────────────────────────────────────────────────────────────────
-
-    private ChatMessage userMsg(String content) {
-        return ChatMessage.reconstitute(
-                "id-" + content.hashCode(),
-                "avatar-1", "user-1",
-                ChatMessage.Role.USER, content, null, Instant.now()
-        );
     }
 }
