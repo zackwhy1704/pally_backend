@@ -35,7 +35,13 @@ class WikiCompilerChunkingTest {
     // ── FIX 1 — Few-shot examples appear in the prompt ───────────────────────
 
     @Test
-    void buildPrompt_containsFewShotExamples() {
+    void buildPrompt_containsFewShotExampleStructure() {
+        // Root-cause fix (mirrors GeminiWikiCompiler, fix/zh-compile-mixed-language): the
+        // old example carried concrete English prose ("Boiling Point of Water", "Ohm's
+        // Law") strong enough to outweigh the trailing zh directive. The example is now
+        // structure/placeholder-only — this asserts the STRUCTURE survives (the section
+        // still exists, still precedes the extracted content, still ends with the "apply
+        // the same approach" instruction), not the specific old wording.
         Avatar avatar = mockAvatar("Zap", "SCIENCE");
         KnowledgeFile file = mockFile("test.txt", "Some content about photosynthesis.");
 
@@ -47,14 +53,19 @@ class WikiCompilerChunkingTest {
 
         String prompt = promptCaptor.getValue();
         assertThat(prompt)
-                .as("Prompt should contain few-shot boiling point example")
-                .contains("Boiling Point of Water");
+                .as("Prompt should still carry the EXAMPLE section header")
+                .contains("## EXAMPLE (follow this JSON structure exactly");
         assertThat(prompt)
-                .as("Prompt should contain few-shot Ohm's Law example")
-                .contains("Ohm's Law");
+                .as("Prompt should still carry an Example Output block")
+                .contains("### Example Output:");
         assertThat(prompt)
                 .as("Prompt should contain the 'Now apply the same approach' instruction")
                 .contains("Now apply the same approach to the actual content below");
+        assertThat(prompt)
+                .as("The old worked example's concrete English sentences must be gone")
+                .doesNotContain("Boiling Point of Water")
+                .doesNotContain("Ohm's Law")
+                .doesNotContain("Boiling is when water turns from");
     }
 
     @Test
@@ -68,12 +79,12 @@ class WikiCompilerChunkingTest {
         verify(mockApiClient).complete(anyString(), anyInt(), promptCaptor.capture());
 
         String prompt = promptCaptor.getValue();
-        int examplePos = prompt.indexOf("Ohm's Law");
+        int examplePos = prompt.indexOf("### Example Output:");
         int extractedPos = prompt.indexOf("## EXTRACTED CONTENT TO COMPILE");
         assertThat(examplePos).isGreaterThan(0);
         assertThat(extractedPos).isGreaterThan(0);
         assertThat(examplePos)
-                .as("Few-shot examples must appear BEFORE the extracted content section")
+                .as("Few-shot example must appear BEFORE the extracted content section")
                 .isLessThan(extractedPos);
     }
 
