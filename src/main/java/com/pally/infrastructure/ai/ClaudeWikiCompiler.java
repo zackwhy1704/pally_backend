@@ -221,7 +221,9 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
         return compile(avatar, readyFiles, existingPages);
     }
 
-    private String buildPrompt(Avatar avatar, List<KnowledgeFile> files,
+    // Package-private (not private) so PromptLanguage's byte-identical-en golden guard can call
+    // it directly — see ClaudeWikiCompilerLanguageTest.
+    String buildPrompt(Avatar avatar, List<KnowledgeFile> files,
                                List<WikiPage> existingPages,
                                ChunkContext chunkContext) {
         StringBuilder sb = new StringBuilder();
@@ -318,29 +320,18 @@ public class ClaudeWikiCompiler implements WikiCompilerPort {
                 6. If the content contains an experiment, include ALL steps.
                 7. Each page should be 200-500 words — comprehensive but not overwhelming.
 
-                ## EXAMPLE (follow this structure exactly)
+                ## EXAMPLE (follow this JSON structure exactly — angle brackets mark where
+                real content goes; do not copy any wording from this template, write the
+                actual title/content/context in whatever language this task requires)
 
                 ### Example Source Text:
-                Water boils at 100°C at sea level. The boiling point decreases as altitude increases.
-                Boiling is when water turns from liquid to gas (water vapour). The process requires
-                heat energy — specifically 2260 kJ/kg (latent heat of vaporisation).
+                <raw extracted text about one topic from the source material>
 
                 ### Example Output:
-                [{"slug": "boiling-point-of-water",
-                  "title": "Boiling Point of Water",
-                  "content": "## What is Boiling?\\nBoiling is when water turns from **liquid** to **gas** (water vapour).\\n\\n## Key Facts\\n- Water boils at **100°C** at sea level\\n- The boiling point **decreases** as altitude increases\\n- Boiling requires heat energy: **2260 kJ/kg** (latent heat of vaporisation)\\n\\n## Why Does Altitude Matter?\\nAt higher altitudes, there is less air pressure pushing down on the water, so water boils at a lower temperature.",
-                  "context": "Covers the boiling point of water, altitude effects and latent heat, within states of matter.",
-                  "prerequisites": []}]
-
-                ### Example Source Text 2:
-                Ohm's Law: V = IR, where V is voltage (volts), I is current (amperes), R is resistance (ohms).
-                A circuit with 12V battery and 4Ω resistor has current I = 12/4 = 3A.
-
-                ### Example Output 2:
-                [{"slug": "ohms-law",
-                  "title": "Ohm's Law",
-                  "content": "## Ohm's Law\\n**V = IR**\\n\\nWhere:\\n- **V** = Voltage (measured in Volts)\\n- **I** = Current (measured in Amperes)\\n- **R** = Resistance (measured in Ohms)\\n\\n## Example Calculation\\nA circuit with a **12V** battery and **4Ω** resistor:\\n- I = V ÷ R = 12 ÷ 4 = **3A**\\n\\n## Key Points\\n- Higher resistance → lower current (for same voltage)\\n- Higher voltage → higher current (for same resistance)",
-                  "context": "Explains Ohm's Law (V=IR) and a worked current calculation, within electricity/circuits.",
+                [{"slug": "lowercase-hyphenated-slug",
+                  "title": "<page title>",
+                  "content": "## <sub-heading>\\n<1-2 sentence explanation, **bold** for key terms>\\n\\n## Key Facts\\n- <fact 1>\\n- <fact 2>\\n\\n## <another sub-heading, if useful>\\n<further explanation>",
+                  "context": "<1-2 sentence summary: what this page covers, within its subject/topic>",
                   "prerequisites": []}]
 
                 Now apply the same approach to the actual content below:
