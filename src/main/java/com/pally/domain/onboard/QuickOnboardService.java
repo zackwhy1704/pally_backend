@@ -5,6 +5,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.consent.ConsentService;
 import com.pally.infrastructure.auth.AuthService;
 import com.pally.infrastructure.auth.DuplicateSignupNotifier;
 import com.pally.shared.exception.BusinessException;
@@ -27,6 +28,7 @@ public class QuickOnboardService {
     private final AuthService authService;
     private final AvatarRepository avatarRepository;
     private final DuplicateSignupNotifier duplicateSignupNotifier;
+    private final ConsentService consentService;
 
     /**
      * Quick onboard: register or login, then create a MOCHI avatar.
@@ -72,6 +74,13 @@ public class QuickOnboardService {
      *         ('en' | 'zh'). Optional; absent/blank defaults to 'en'. A present-but-
      *         unsupported value is rejected with 400 — same gate as
      *         {@code CreateAvatarUseCase}.
+     *
+     * <p>TEST-CONVENIENCE OVERLOAD ONLY — hardcodes {@code acceptedTerms=true}.
+     * Not reachable from production: {@link com.pally.api.onboard.OnboardController}
+     * always calls the 10-arg canonical overload below with the real value from
+     * {@code QuickOnboardRequest.acceptedTerms()}. This overload exists so the
+     * many existing avatarName/content_language tests (which aren't testing the
+     * terms gate) don't all need updating just to pass a fixed `true`.
      */
     @Transactional
     public QuickOnboardResult execute(
@@ -79,6 +88,33 @@ public class QuickOnboardService {
             Subject subject, String level, String role, Integer birthYear,
             String parentEmail, String contentLanguage
     ) {
+        return execute(email, password, displayName, subject, level, role,
+                birthYear, parentEmail, contentLanguage, true);
+    }
+
+    /**
+     * Canonical overload — the one production actually calls.
+     *
+     * @param acceptedTerms MANDATORY affirmative Terms-of-Use acceptance. There is
+     *         no default: {@code false} (or a caller that never got this far)
+     *         rejects with 400 BEFORE the duplicate-email check even runs, so a
+     *         request that will be refused anyway never leaks whether the email is
+     *         taken. Recorded to the {@code consent_records} audit log (same table
+     *         the PDPA self-consent/parent-consent flows use) only after the
+     *         account + avatar are both successfully created, so a mid-transaction
+     *         failure never leaves an orphaned consent row for a nonexistent user.
+     */
+    @Transactional
+    public QuickOnboardResult execute(
+            String email, String password, String displayName,
+            Subject subject, String level, String role, Integer birthYear,
+            String parentEmail, String contentLanguage, boolean acceptedTerms
+    ) {
+        if (!acceptedTerms) {
+            throw new BusinessException(
+                    "You must accept the Terms of Use to create an account", 400);
+        }
+
         // Step 1: Register or login.
         // Decide via a pre-check rather than catching register()'s 409. register()
         // is @Transactional and joins THIS transaction; a BusinessException thrown
@@ -121,6 +157,15 @@ public class QuickOnboardService {
                 authResponse.userId(), avatarName, subject, CharacterType.MOCHI, level, null);
         avatar.setContentLanguage(resolvedLanguage);
         Avatar saved = avatarRepository.save(avatar);
+
+        // Step 3: Record the Terms-of-Use acceptance to the audit log — same
+        // consent_records table + CHECKBOX method the PDPA self-consent flow uses,
+        // its own policy-version lineage (recordTermsAcceptance/TOS_POLICY_VERSION)
+        // since a ToS revision and a PDPA-purposes revision are independent events.
+        // Placed AFTER both saves succeed (still inside this method's transaction)
+        // so a rollback of account/avatar creation can never leave a consent row
+        // for a user that doesn't exist.
+        consentService.recordTermsAcceptance(authResponse.userId());
 
         log.info("[Onboard] Quick onboard complete userId={} avatarId={}",
                 authResponse.userId(), saved.getId());

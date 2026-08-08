@@ -7,6 +7,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
+import com.pally.domain.consent.ConsentService;
 import com.pally.infrastructure.auth.AuthService;
 import com.pally.infrastructure.auth.DuplicateSignupNotifier;
 import com.pally.shared.exception.BusinessException;
@@ -32,12 +33,14 @@ class QuickOnboardServiceTest {
     @Mock private AuthService authService;
     @Mock private AvatarRepository avatarRepository;
     @Mock private DuplicateSignupNotifier duplicateSignupNotifier;
+    @Mock private ConsentService consentService;
 
     private QuickOnboardService service;
 
     @BeforeEach
     void setUp() {
-        service = new QuickOnboardService(authService, avatarRepository, duplicateSignupNotifier);
+        service = new QuickOnboardService(
+                authService, avatarRepository, duplicateSignupNotifier, consentService);
     }
 
     @Test
@@ -195,5 +198,42 @@ class QuickOnboardServiceTest {
 
         // Rejected before persistence — no half-created avatar.
         verify(avatarRepository, never()).save(any(Avatar.class));
+    }
+
+    // ── EULA/Terms-of-Use acceptance gate ──────────────────────────────────────
+
+    /// THE PROVING TEST for the terms gate. acceptedTerms=false must reject with
+    /// 400 BEFORE any account/avatar work happens — no register(), no avatar
+    /// save(), no consent record. Fails without the fix (old code had no
+    /// acceptedTerms param at all / would have created the account regardless).
+    @Test
+    void execute_termsNotAccepted_rejects400_noAccountCreated() {
+        assertThatThrownBy(() -> service.execute(
+                "kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4",
+                null, null, null, null, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("You must accept the Terms of Use to create an account")
+                .extracting(e -> ((BusinessException) e).getHttpStatus()).isEqualTo(400);
+
+        verify(authService, never()).emailExists(anyString());
+        verify(authService, never()).register(anyString(), anyString(), any(), any(), any(), any());
+        verify(avatarRepository, never()).save(any(Avatar.class));
+        verify(consentService, never()).recordTermsAcceptance(anyString());
+    }
+
+    /// Acceptance is recorded to the audit log (consent_records) AFTER the
+    /// account and avatar are both created — proves the write actually happens,
+    /// not just that the gate doesn't block a true value.
+    @Test
+    void execute_termsAccepted_recordsConsentAfterAccountCreated() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.execute("kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4",
+                null, null, null, null, true);
+
+        verify(consentService).recordTermsAcceptance("user-1");
     }
 }
