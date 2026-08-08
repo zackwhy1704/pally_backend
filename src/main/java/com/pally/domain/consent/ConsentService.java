@@ -40,6 +40,14 @@ public class ConsentService {
     private static final String PURPOSES_JSON =
             "[\"tutoring\",\"quiz\",\"progress\",\"parent_visibility\"]";
 
+    /// Terms-of-Use has its OWN version lineage, independent of POLICY_VERSION
+    /// above (which tracks the PDPA purposes list). Conflating the two would mean
+    /// a ToS wording change and a PDPA-purposes change bump the same version
+    /// number for unrelated legal documents. Bump this when apalchi.com/terms
+    /// changes in a way that requires re-consent.
+    private static final String TOS_POLICY_VERSION = "2026-08-08";
+    private static final String TOS_PURPOSES_JSON = "[\"EULA_TOS\"]";
+
     private final ConsentRepository consentRepository;
     private final UserRepository    userRepository;
     private final PremiumService    premiumService;
@@ -304,6 +312,27 @@ public class ConsentService {
                 Instant.now(), null, null
         ));
         log.info("[Consent] Self-consent recorded user={}", userId);
+    }
+
+    // ── Terms-of-Use / EULA acceptance ────────────────────────────────────────
+
+    /**
+     * Records the signing user's affirmative acceptance of the Terms of Use
+     * (apalchi.com/terms — includes the zero-tolerance-for-objectionable-content
+     * clause) for audit purposes. Called ONLY after the caller has already
+     * verified the checkbox was actually checked (e.g.
+     * {@code QuickOnboardService}'s {@code acceptedTerms} gate) — this method
+     * itself does not re-validate, it only records.
+     */
+    @Transactional
+    public void recordTermsAcceptance(String userId) {
+        consentRepository.saveRecord(new ConsentRepository.ConsentRecord(
+                IdGenerator.newId(), userId,
+                "SELF", "CHECKBOX",
+                TOS_PURPOSES_JSON, TOS_POLICY_VERSION,
+                Instant.now(), null, null
+        ));
+        log.info("[Consent] Terms-of-Use acceptance recorded user={}", userId);
     }
 
     // ── Family visibility consent ─────────────────────────────────────────────

@@ -23,7 +23,8 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
         headers.setContentType(MediaType.APPLICATION_JSON);
         Map<String, Object> body = Map.of(
                 "email", email, "password", password,
-                "subject", "MATHS", "level", "primary 4");
+                "subject", "MATHS", "level", "primary 4",
+                "acceptedTerms", true);
         return restTemplate.postForEntity(
                 baseUrl() + "/api/v1/onboard/quick", new HttpEntity<>(body, headers), Map.class);
     }
@@ -112,5 +113,38 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
         ResponseEntity<Map> res = quickOnboard("MIXED@test.com", "password123", new HttpHeaders());
 
         assertThat(res.getStatusCode().value()).isEqualTo(409);
+    }
+
+    /// EULA/Terms-of-Use gate, exercised through the REAL Spring @Valid pipeline
+    /// (the unit test on QuickOnboardService proves the service-level defense-in-
+    /// depth check; this proves the DTO-level @AssertTrue actually wires up and
+    /// blocks BEFORE the controller method body runs). Omitting the field
+    /// entirely must reject exactly like sending false — never silently accepted.
+    @Test
+    void quickOnboard_termsNotAccepted_rejects400_noAccountCreated() {
+        String email = "noterms-" + System.nanoTime() + "@test.com";
+        HttpHeaders h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        // role:"adult" (age-exempt path — see webRegister_explicitAdultRole_noBirthYear_
+        // succeedsAsAdult above) so the ONLY thing blocking either request is the terms
+        // gate, not the unrelated fail-closed role/birthYear requirement.
+        Map<String, Object> body = Map.of(
+                "email", email, "password", "password123",
+                "subject", "MATHS", "level", "primary 4", "role", "adult");
+        // acceptedTerms field omitted entirely.
+        ResponseEntity<Map> res = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/onboard/quick", new HttpEntity<>(body, h), Map.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(400);
+
+        // No account created: signing up again with the SAME email and acceptedTerms:true
+        // now SUCCEEDS (201). Had the first request created the account, this would 409.
+        Map<String, Object> retryBody = Map.of(
+                "email", email, "password", "password123",
+                "subject", "MATHS", "level", "primary 4", "role", "adult",
+                "acceptedTerms", true);
+        ResponseEntity<Map> retry = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/onboard/quick", new HttpEntity<>(retryBody, h), Map.class);
+        assertThat(retry.getStatusCode().value()).isEqualTo(201);
     }
 }

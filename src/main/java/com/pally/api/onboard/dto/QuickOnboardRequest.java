@@ -1,6 +1,7 @@
 package com.pally.api.onboard.dto;
 
 import com.pally.domain.avatar.Subject;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -42,5 +43,13 @@ public record QuickOnboardRequest(
         /// Language the AI generates this avatar's content in ('en' | 'zh') — same
         /// gate as CreateAvatarRequest. Optional; absent/blank defaults to 'en'. A
         /// present-but-unsupported value is rejected with 400.
-        String contentLanguage
+        String contentLanguage,
+
+        /// Affirmative Terms-of-Use acceptance — MANDATORY, no default. @AssertTrue
+        /// on a primitive boolean rejects both an explicit `false` and a field
+        /// omitted from the JSON body (Jackson defaults a missing primitive to
+        /// false), so a client that forgets to send this is refused exactly like
+        /// one that sends false — never silently treated as accepted.
+        @AssertTrue(message = "You must accept the Terms of Use to create an account")
+        boolean acceptedTerms
 ) {}
