@@ -112,6 +112,43 @@ class ChatOrchestrationServiceTest {
         verify(chatRepository, never()).findByAvatarId(anyString(), anyInt());
     }
 
+    // ── getFullHistory ───────────────────────────────────────────────────
+    // IDOR pin: getFullHistory previously took only (avatarId, limit) — any
+    // authenticated caller could read another user's full raw chat history
+    // by supplying that user's avatarId, since ownership was never checked
+    // anywhere in the call chain. Mirrors the getChatHistory tests above.
+
+    @Test
+    void getFullHistory_avatarBelongsToUser_returnsHistory() {
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
+        when(chatHistoryService.getHistory(eq(ownerAvatar.getId()), anyInt())).thenReturn(List.of());
+
+        var result = service.getFullHistory("user-1", ownerAvatar.getId(), 50);
+
+        assertThat(result).isNotNull();
+        verify(chatHistoryService).getHistory(ownerAvatar.getId(), 50);
+    }
+
+    @Test
+    void getFullHistory_avatarDoesNotExist_throwsAvatarNotFoundException() {
+        when(avatarRepository.findById("no-such")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getFullHistory("user-1", "no-such", 50))
+                .isInstanceOf(AvatarNotFoundException.class);
+    }
+
+    @Test
+    void getFullHistory_avatarBelongsToOtherUser_throwsAvatarNotFoundException_neverReadsHistory() {
+        // ownerAvatar belongs to "user-1"; "user-2" requesting it must be rejected
+        // BEFORE any chat content is ever read off the repository.
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
+
+        assertThatThrownBy(() -> service.getFullHistory("user-2", ownerAvatar.getId(), 50))
+                .isInstanceOf(AvatarNotFoundException.class);
+
+        verify(chatHistoryService, never()).getHistory(anyString(), anyInt());
+    }
+
     // ── syncMessages ─────────────────────────────────────────────────────
 
     @Test

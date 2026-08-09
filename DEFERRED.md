@@ -740,6 +740,66 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   Not a TODO now — a precondition on that future work: *when Apple sign-in is added, forward the
   first-auth name payload* (else the name is lost forever after first auth).
 
+## EULA / Terms-of-Use signup gate (merged — sibling account-creation paths remain ungated)
+
+> `feat/eula-terms-acceptance` **MERGED to main** (`bf7a770`): `QuickOnboardRequest.acceptedTerms`
+> (`@AssertTrue`) gates `QuickOnboardService.execute` (the pally mobile primary signup path) and
+> records acceptance via `ConsentService.recordTermsAcceptance`. `CreateAvatarUseCase` was checked
+> and does NOT create accounts, so it was correctly excluded, not a missed sibling.
+
+- **`AuthController.register` (`api/auth/AuthController.java:98-117`, calling
+  `AuthService.register(...)` at `infrastructure/auth/AuthService.java:76-92`) — the memoly web
+  signup path — has no `acceptedTerms` field and creates accounts with zero terms gate.**
+  Deferred because gating it risked breaking memoly's existing signup UI (no checkbox/consent UI
+  built there yet) mid-task, and no user-facing memoly signup flow is live/reachable today.
+  **Closes it:** when memoly ships a real (non-marketing) signup flow, add `acceptedTerms` to its
+  request DTO the same way, add the UI checkbox, and record consent the same way
+  `QuickOnboardService` does.
+- **`AuthService.signInWithSocial` (`infrastructure/auth/AuthService.java:369`, called from
+  `AuthController.java:173` and `:203`) — Google/Apple social sign-in — creates accounts on
+  first sign-in with no terms gate at all.** Deferred because no client (pally or memoly) calls
+  this path today (per the backend CLAUDE.md deploy-verification note, social sign-in itself is
+  currently fail-closed with no client integration). **Closes it:** before pally or memoly wires
+  up an actual "Sign in with Google/Apple" button, add an explicit terms-acceptance step to that
+  flow (a social first-auth still needs an affirmative checkbox, since Apple/Google's own consent
+  screen doesn't cover Apalchi's own terms) and record it via `ConsentService`.
+
+## Chat history IDOR — fixed; sibling missing-ownership checks found during the sweep
+
+> `fix/chat-history-idor` fixes `GET /avatars/{avatarId}/chat/history/full`
+> (`ChatController.java:219-226` → `ChatOrchestrationService.getFullHistory` → `ChatHistoryService`):
+> previously took no `userId`, so any authenticated user could read another student's full raw chat
+> — including messages persisted through the closed-book-refusal path, which bypass
+> `ModerationService.screenInput` entirely. Fixed by mirroring the exact ownership filter already
+> used by the sibling `getChatHistory` (`avatarRepository.findById(avatarId).filter(a ->
+> a.getUserId().equals(userId)).orElseThrow(() -> new AvatarNotFoundException(avatarId))`). Pinned
+> by `ChatOrchestrationServiceTest` (3 tests), `ChatControllerTest` (1 test), and a real end-to-end
+> `ChatHistoryIdorIntegrationTest` — all three proven to fail on the pre-fix code, pass after.
+> Sweeping `ChatController`/`ChatOrchestrationService` for the same pattern found two more:
+
+- **`ChatSyncService.sync` (`domain/chat/usecase/ChatSyncService.java:21-62`), reached via
+  `POST /avatars/{avatarId}/chat/sync` — no ownership check at all.** Two distinct gaps in one
+  method: (1) the update branch (`chatRepo.existsById(dto.id())` → `updateFeedbackType`/
+  `markSavedToBrain`) never checks that `dto.id()` belongs to the caller, so any authenticated user
+  can mutate the feedback/saved-to-brain flag of ANY message row by ID; (2) the create branch
+  writes `ChatMessage.reconstitute(dto.id(), avatarId, userId, ...)` using the path's `avatarId`
+  with no check that it belongs to the caller — a user can plant fabricated messages into another
+  student's avatar's chat history. Not fixed here (out of the scope the fix was asked for — a read
+  exposure, not a write one) but the same missing-ownership family. **Closes it:** mirror the same
+  `avatarRepository.findById(avatarId).filter(...)` guard into `ChatOrchestrationService.syncMessages`
+  before delegating, plus (separately) an ownership check on the existing-message-id branch — a
+  `chatRepo.existsByIdAndUserId`-style check like the one `ChatFeedbackService.submitFeedback`
+  already uses.
+- **`sessionEnd` → `XpService.awardForChat` (`domain/progress/XpService.java:153-173`) — the
+  once-per-SGT-day chat-XP cap keys on `(userId, avatarId)`, not just `userId`.** No ownership
+  check on `avatarId` anywhere in the call chain means a user who knows other avatarIds (a
+  centre-mate, a sibling) can call `POST /avatars/{theirAvatarId}/chat/session-end` once per
+  distinct foreign avatarId per day, farming +5 XP each time — the "once per day" cap never
+  triggers because each foreign avatarId is a fresh key. Low severity (self-serving XP inflation,
+  no content exposure, no other user harmed) but same root cause. **Closes it:** key the daily-cap
+  check on `userId` alone (not `(userId, avatarId)`), or add the same avatar-ownership check before
+  calling `awardForChat`.
+
 ---
 
 # OFF-KEYBOARD (human / ops — not code)

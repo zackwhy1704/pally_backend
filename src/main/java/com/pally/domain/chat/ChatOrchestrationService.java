@@ -64,8 +64,15 @@ public class ChatOrchestrationService {
         return chatMapper.toResponseList(messages);
     }
 
-    /** Returns the full paginated chat history (caller is already scoped by JWT). */
-    public ChatHistoryResponse getFullHistory(String avatarId, int limit) {
+    /**
+     * Returns the full paginated chat history, asserting ownership first.
+     *
+     * @throws AvatarNotFoundException if the avatar does not exist or belongs to another user
+     */
+    public ChatHistoryResponse getFullHistory(String userId, String avatarId, int limit) {
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
         return new ChatHistoryResponse(chatHistoryService.getHistory(avatarId, limit));
     }
 

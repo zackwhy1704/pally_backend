@@ -222,7 +222,7 @@ public class ChatController {
             @PathVariable String avatarId,
             @RequestParam(defaultValue = "50") int limit
     ) {
-        return chatOrchestrationService.getFullHistory(avatarId, limit);
+        return chatOrchestrationService.getFullHistory(userId, avatarId, limit);
     }
 
     @PostMapping("/chat/{messageId}/feedback")
