@@ -794,15 +794,17 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   `ChatSyncWriteIdorIntegrationTest` (bundles both a mutate-existing and a plant-new attempt in one
   request, asserts rejection AND that the victim's chat is byte-for-byte unchanged) — all proven to
   fail on the pre-fix code, pass after.
-- **`sessionEnd` → `XpService.awardForChat` (`domain/progress/XpService.java:153-173`) — the
-  once-per-SGT-day chat-XP cap keys on `(userId, avatarId)`, not just `userId`.** No ownership
-  check on `avatarId` anywhere in the call chain means a user who knows other avatarIds (a
-  centre-mate, a sibling) can call `POST /avatars/{theirAvatarId}/chat/session-end` once per
-  distinct foreign avatarId per day, farming +5 XP each time — the "once per day" cap never
-  triggers because each foreign avatarId is a fresh key. Low severity (self-serving XP inflation,
-  no content exposure, no other user harmed) but same root cause. **Closes it:** key the daily-cap
-  check on `userId` alone (not `(userId, avatarId)`), or add the same avatar-ownership check before
-  calling `awardForChat`.
+- **`sessionEnd` → `XpService.awardForChat` — CLOSED (`fix/session-end-xp-farming-idor`).** The
+  once-per-SGT-day chat-XP cap keys on `(userId, avatarId)`, and with no ownership check anywhere
+  in the call chain a user who knew other avatarIds could call `POST /avatars/{theirAvatarId}
+  /chat/session-end` once per distinct foreign avatarId per day, farming +5 XP each time. Fixed by
+  adding the same `avatarRepository.findById(avatarId).filter(a -> a.getUserId().equals(userId))
+  .orElseThrow(...)` guard used by every sibling — chosen over re-keying the daily cap to `userId`
+  alone because that alternative would have silently capped legitimate users who chat with more
+  than one of their OWN avatars in a day at the same +5 total, a real product/reward-design change
+  this fix wasn't asked to make. Pinned by 2 new `ChatOrchestrationServiceTest` cases, proven to
+  fail on the pre-fix code (temporarily reverted), pass after. Full suite green: 1981 tests, 0
+  failures.
 
 ---
 
