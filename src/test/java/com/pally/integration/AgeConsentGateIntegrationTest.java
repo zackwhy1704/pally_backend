@@ -74,7 +74,8 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
         Map<String, Object> body = Map.of(
                 "email", "noparent-" + System.nanoTime() + "@test.com",
                 "password", "password123", "displayName", "Kid",
-                "birthYear", sgYear() - 10); // under-13, no parentEmail
+                "birthYear", sgYear() - 10, // under-13, no parentEmail
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> resp = restTemplate.postForEntity(
@@ -205,7 +206,8 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
                 "email", "future-" + System.nanoTime() + "@test.com",
                 "password", "password123",
                 "displayName", "Test",
-                "birthYear", sgYear() + 5);
+                "birthYear", sgYear() + 5,
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> resp = restTemplate.postForEntity(
@@ -220,7 +222,8 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
                 "email", "low-" + System.nanoTime() + "@test.com",
                 "password", "password123",
                 "displayName", "Test",
-                "birthYear", 1900);
+                "birthYear", 1900,
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> resp = restTemplate.postForEntity(

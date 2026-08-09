@@ -72,24 +72,48 @@ public class AuthService {
         }
     }
 
-    @Transactional
-    public AuthResponse register(String email, String password, String displayName) {
-        return register(email, password, displayName, null, null);
-    }
-
-    @Transactional
-    public AuthResponse register(String email, String password, String displayName, String role) {
-        return register(email, password, displayName, role, null);
-    }
-
-    @Transactional
-    public AuthResponse register(
-            String email, String password, String displayName, String role, Integer birthYear) {
-        return register(email, password, displayName, role, birthYear, null);
-    }
-
+    /**
+     * ONLY reachable from {@link com.pally.domain.onboard.QuickOnboardService}, which
+     * enforces {@code acceptedTerms} and records the consent AUDIT ROW itself, AFTER
+     * the avatar is also created (not just the account) — so terms enforcement lives at
+     * that call site, not here. {@link com.pally.api.auth.AuthController#register} —
+     * the only OTHER caller of account creation — uses the 7-arg overload below instead,
+     * which gates AND records on its own. No overload here skips terms enforcement
+     * silently: each caller either enforces it upstream or is required to pass it.
+     */
     @Transactional
     public AuthResponse register(
+            String email, String password, String displayName, String role,
+            Integer birthYear, String parentEmail) {
+        return createAccount(email, password, displayName, role, birthYear, parentEmail);
+    }
+
+    /**
+     * Canonical entry point for directly-reachable registration (memoly web's
+     * {@code /signup} form via {@link com.pally.api.auth.AuthController#register}).
+     *
+     * @param acceptedTerms MANDATORY affirmative Terms-of-Use acceptance. There is no
+     *         default: {@code false} rejects with 400 BEFORE the duplicate-email check
+     *         even runs, so a request that will be refused anyway never leaks whether
+     *         the email is taken. Recorded to the {@code consent_records} audit log
+     *         (same table + CHECKBOX method QuickOnboardService uses) only after the
+     *         account is successfully created, so a mid-transaction failure never
+     *         leaves an orphaned consent row for a nonexistent user.
+     */
+    @Transactional
+    public AuthResponse register(
+            String email, String password, String displayName, String role,
+            Integer birthYear, String parentEmail, boolean acceptedTerms) {
+        if (!acceptedTerms) {
+            throw new BusinessException(
+                    "You must accept the Terms of Use to create an account", 400);
+        }
+        AuthResponse result = createAccount(email, password, displayName, role, birthYear, parentEmail);
+        consentService.recordTermsAcceptance(result.userId());
+        return result;
+    }
+
+    private AuthResponse createAccount(
             String email, String password, String displayName, String role,
             Integer birthYear, String parentEmail) {
         // Canonical email is the uniqueness key for EVERY lookup/store (trim+lowercase).
@@ -365,9 +389,15 @@ public class AuthService {
         // Deliberately NO token returned — the user signs in fresh.
     }
 
+    /**
+     * @param acceptedTerms MANDATORY affirmative Terms-of-Use acceptance for a FIRST-time
+     *         social sign-in that creates a new account. Ignored for a returning user
+     *         (sub or verified-email match below) — they already have an account and a
+     *         login page has no reason to re-prompt for terms every sign-in.
+     */
     @Transactional
     public AuthResponse signInWithSocial(String email, boolean emailVerified, String displayName,
-                                         String provider, String providerSub) {
+                                         String provider, String providerSub, boolean acceptedTerms) {
         String canonical = EmailNormalizer.canonical(email);
         UserJpaEntity user = null;
 
@@ -410,6 +440,12 @@ public class AuthService {
         }
 
         if (user == null) {
+            // Gated HERE, not before the sub/email lookups above — a returning user
+            // must never be blocked by this, only a genuinely NEW account.
+            if (!acceptedTerms) {
+                throw new BusinessException(
+                        "You must accept the Terms of Use to create an account", 400);
+            }
             UserJpaEntity u = new UserJpaEntity();
             u.setId(IdGenerator.newId());
             u.setEmail(canonical);
@@ -427,6 +463,7 @@ public class AuthService {
             // (ConsentGuard.requireActive) until it completes the DOB step.
             u.setAccountStatus(ConsentGuard.STATUS_PENDING_PROFILE);
             user = userRepo.save(u);
+            consentService.recordTermsAcceptance(user.getId());
         }
 
         boolean isNew = user.getCreatedAt().isAfter(Instant.now().minusSeconds(5));

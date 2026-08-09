@@ -68,7 +68,8 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
                 "email", "admin-" + System.nanoTime() + "@test.com",
                 "password", "password123",
                 "displayName", "Centre Admin",
-                "role", "adult");
+                "role", "adult",
+                "acceptedTerms", true);
         ResponseEntity<Map> res = restTemplate.postForEntity(
                 baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, h), Map.class);
 
@@ -100,7 +101,8 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
                         "email", email,
                         "password", "password123",
                         "displayName", "No Shape",
-                        "role", "adult"), h),
+                        "role", "adult",
+                        "acceptedTerms", true), h),
                 Map.class);
         assertThat(retry.getStatusCode().value()).isEqualTo(201);
     }

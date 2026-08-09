@@ -215,7 +215,8 @@ public abstract class IntegrationTestBase {
                 "email", email,
                 "password", password,
                 "displayName", "Test User",
-                "birthYear", java.time.Year.now(java.time.ZoneId.of("Asia/Singapore")).getValue() - 20);
+                "birthYear", java.time.Year.now(java.time.ZoneId.of("Asia/Singapore")).getValue() - 20,
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
@@ -240,7 +241,8 @@ public abstract class IntegrationTestBase {
                 "email", email,
                 "password", password,
                 "displayName", "Test User",
-                "birthYear", birthYear);
+                "birthYear", birthYear,
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
@@ -262,7 +264,8 @@ public abstract class IntegrationTestBase {
     protected AuthResult registerUnder13(String email, String password, int birthYear, String parentEmail) {
         Map<String, Object> body = Map.of(
                 "email", email, "password", password, "displayName", "Kid",
-                "birthYear", birthYear, "parentEmail", parentEmail);
+                "birthYear", birthYear, "parentEmail", parentEmail,
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> response = restTemplate.postForEntity(

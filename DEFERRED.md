@@ -740,29 +740,45 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   Not a TODO now — a precondition on that future work: *when Apple sign-in is added, forward the
   first-auth name payload* (else the name is lost forever after first auth).
 
-## EULA / Terms-of-Use signup gate (merged — sibling account-creation paths remain ungated)
+## EULA / Terms-of-Use signup gate — CLOSED (`feat/eula-gate-register-and-social`)
 
 > `feat/eula-terms-acceptance` **MERGED to main** (`bf7a770`): `QuickOnboardRequest.acceptedTerms`
 > (`@AssertTrue`) gates `QuickOnboardService.execute` (the pally mobile primary signup path) and
 > records acceptance via `ConsentService.recordTermsAcceptance`. `CreateAvatarUseCase` was checked
 > and does NOT create accounts, so it was correctly excluded, not a missed sibling.
 
-- **`AuthController.register` (`api/auth/AuthController.java:98-117`, calling
-  `AuthService.register(...)` at `infrastructure/auth/AuthService.java:76-92`) — the memoly web
-  signup path — has no `acceptedTerms` field and creates accounts with zero terms gate.**
-  Deferred because gating it risked breaking memoly's existing signup UI (no checkbox/consent UI
-  built there yet) mid-task, and no user-facing memoly signup flow is live/reachable today.
-  **Closes it:** when memoly ships a real (non-marketing) signup flow, add `acceptedTerms` to its
-  request DTO the same way, add the UI checkbox, and record consent the same way
-  `QuickOnboardService` does.
-- **`AuthService.signInWithSocial` (`infrastructure/auth/AuthService.java:369`, called from
-  `AuthController.java:173` and `:203`) — Google/Apple social sign-in — creates accounts on
-  first sign-in with no terms gate at all.** Deferred because no client (pally or memoly) calls
-  this path today (per the backend CLAUDE.md deploy-verification note, social sign-in itself is
-  currently fail-closed with no client integration). **Closes it:** before pally or memoly wires
-  up an actual "Sign in with Google/Apple" button, add an explicit terms-acceptance step to that
-  flow (a social first-auth still needs an affirmative checkbox, since Apple/Google's own consent
-  screen doesn't cover Apalchi's own terms) and record it via `ConsentService`.
+**Correction to this entry's own earlier record:** it originally said memoly's signup flow was
+"not live/reachable today" and that no client called `signInWithSocial`. Both claims were WRONG —
+verified by reading source, not re-trusting the earlier note: `memoly/src/app/signup/page.tsx` is
+a real, nav-linked signup form calling `POST /auth/register`, and its Google button calls
+`POST /auth/google` → `signInWithSocial`. Both were live, ungated production paths. Fixed:
+
+- **`AuthController.register` — gated.** `RegisterRequest.acceptedTerms` (`@AssertTrue`) at the
+  DTO layer, PLUS a defense-in-depth check inside `AuthService`'s new 7-arg `register(...,
+  acceptedTerms)` overload (in case a future caller ever bypasses `@Valid`). Records via
+  `consentService.recordTermsAcceptance`. The old 6-arg overload — the one
+  `QuickOnboardService` calls — is UNCHANGED and does NOT gate/record; that caller already
+  enforces + records its own terms acceptance independently (after avatar creation, not just
+  account creation), so making the 6-arg overload also record would double-write a consent row.
+  Dead 3/4/5-arg `register` overloads (zero callers found) deleted rather than left as a future
+  footgun that skips the gate.
+- **`AuthService.signInWithSocial` — gated,** but ONLY on the branch that creates a NEW account
+  (the `user == null` branch) — a RETURNING user's sign-in is never blocked by this, since a login
+  page has no reason to show a terms checkbox. `SocialAuthRequest.acceptedTerms` is deliberately
+  NOT `@AssertTrue` (that would incorrectly reject returning users); the gate lives inside
+  `AuthService` where it's known whether this is account creation or not.
+
+Proven with `AuthServiceRegisterTest` (new, 2 tests) and `AuthServiceSocialTest` (+3 tests: reject
+on no-terms, accept-and-record, returning-user-never-gated), plus integration coverage in
+`AuthIntegrationTest`/`SignupSecurityIntegrationTest` through the real `@Valid` pipeline. Both new
+gates confirmed failing on the pre-fix code via temporary reverts (the DTO-level `@AssertTrue`
+alone would NOT have caught a removed service-layer check — that's why the dedicated unit tests
+exist, not just the HTTP-level ones). Full backend suite green: 1987 tests, 0 failures.
+
+**memoly frontend companion change required before this merges to main** — see the memoly-side
+change: `src/app/signup/page.tsx` must add the checkbox + send `acceptedTerms` BEFORE this
+backend gate deploys, or live signups break with a 400. Deploy order: memoly frontend first (extra
+field is harmless if backend doesn't require it yet), THEN this backend branch.
 
 ## Chat history IDOR — fixed; sibling missing-ownership checks found during the sweep
 
