@@ -102,15 +102,20 @@ public class ChatOrchestrationService {
     }
 
     /**
-     * Ends a chat session: stops keepalive and awards once-per-SGT-day XP.
+     * Ends a chat session: stops keepalive and awards once-per-SGT-day XP, asserting
+     * ownership of the avatar first.
      *
      * <p>XP/badge/activity-log side-effects are swallowed on failure so a
      * transient DB error never surfaces to the user as a session-end failure.
      *
+     * @throws AvatarNotFoundException if the avatar does not exist or belongs to another user
      * @return map with {@code levelledUp}, {@code newLevel}, {@code rewardLabel},
      *         {@code alreadyCreditedToday}
      */
     public Map<String, Object> sessionEnd(String userId, String avatarId) {
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
         chatSessionCachePort.stopKeepalive(avatarId);
 
         boolean levelledUp = false;

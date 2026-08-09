@@ -207,17 +207,23 @@ class ChatOrchestrationServiceTest {
     }
 
     // ── sessionEnd ────────────────────────────────────────────────────────
+    // IDOR/XP-farming pin: sessionEnd previously never checked avatar ownership —
+    // the once-per-SGT-day cap keys on (userId, avatarId), so a caller who knows
+    // OTHER users' avatarIds could call session-end once per foreign avatarId per
+    // day, farming +5 XP each time since the cap never triggers for a fresh
+    // avatarId key. Mirrors the getChatHistory/getFullHistory/syncMessages tests.
 
     @Test
     void sessionEnd_stopsKeepaliveAndAwardsXpAndBadges() {
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
         var creditResult = new UserRepository.XpResult(100, 1, 1, false);
         var award = new XpService.ChatAward(5, 0, false, creditResult);
-        when(xpService.awardForChat("user-1", "avatar-1")).thenReturn(award);
+        when(xpService.awardForChat("user-1", ownerAvatar.getId())).thenReturn(award);
 
-        Map<String, Object> result = service.sessionEnd("user-1", "avatar-1");
+        Map<String, Object> result = service.sessionEnd("user-1", ownerAvatar.getId());
 
-        verify(chatSessionCachePort).stopKeepalive("avatar-1");
-        verify(activityLogService).log(eq("user-1"), eq("avatar-1"),
+        verify(chatSessionCachePort).stopKeepalive(ownerAvatar.getId());
+        verify(activityLogService).log(eq("user-1"), eq(ownerAvatar.getId()),
                 eq(ActivityLogService.TYPE_CHAT), anyInt(), anyInt());
         verify(badgeService).grantFirstAction("user-1", BadgeService.BadgeType.FIRST_CHAT);
         verify(badgeService).checkAndGrantMilestones("user-1");
@@ -229,12 +235,13 @@ class ChatOrchestrationServiceTest {
 
     @Test
     void sessionEnd_levelCrossingWithReward_carriesRewardLabel() {
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
         var creditResult = new UserRepository.XpResult(
                 200, 1, 2, true, "New Mochi colour");
         var award = new XpService.ChatAward(5, 0, false, creditResult);
-        when(xpService.awardForChat("user-1", "avatar-1")).thenReturn(award);
+        when(xpService.awardForChat("user-1", ownerAvatar.getId())).thenReturn(award);
 
-        Map<String, Object> result = service.sessionEnd("user-1", "avatar-1");
+        Map<String, Object> result = service.sessionEnd("user-1", ownerAvatar.getId());
 
         assertThat(result.get("levelledUp")).isEqualTo(true);
         assertThat(result.get("newLevel")).isEqualTo(2);
@@ -243,11 +250,12 @@ class ChatOrchestrationServiceTest {
 
     @Test
     void sessionEnd_alreadyCreditedToday_skipsActivityLogAndBadges() {
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
         var creditResult = new UserRepository.XpResult(100, 1, 1, false);
         var award = new XpService.ChatAward(0, 0, true, creditResult);
-        when(xpService.awardForChat("user-1", "avatar-1")).thenReturn(award);
+        when(xpService.awardForChat("user-1", ownerAvatar.getId())).thenReturn(award);
 
-        Map<String, Object> result = service.sessionEnd("user-1", "avatar-1");
+        Map<String, Object> result = service.sessionEnd("user-1", ownerAvatar.getId());
 
         verify(activityLogService, never()).log(any(), any(), any(), anyInt(), anyInt());
         verify(badgeService, never()).grantFirstAction(any(), any());
@@ -256,15 +264,41 @@ class ChatOrchestrationServiceTest {
 
     @Test
     void sessionEnd_xpServiceThrows_doesNotSurfaceExceptionToCallerButStillStopsKeepalive() {
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
         when(xpService.awardForChat(any(), any())).thenThrow(new RuntimeException("DB down"));
 
         // Must not throw
-        Map<String, Object> result = service.sessionEnd("user-1", "avatar-1");
+        Map<String, Object> result = service.sessionEnd("user-1", ownerAvatar.getId());
 
-        verify(chatSessionCachePort).stopKeepalive("avatar-1");
+        verify(chatSessionCachePort).stopKeepalive(ownerAvatar.getId());
         // Graceful defaults
         assertThat(result.get("levelledUp")).isEqualTo(false);
         assertThat(result.get("newLevel")).isEqualTo(0);
+    }
+
+    @Test
+    void sessionEnd_avatarDoesNotExist_throwsAvatarNotFoundException_neverAwardsXp() {
+        when(avatarRepository.findById("no-such")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.sessionEnd("user-1", "no-such"))
+                .isInstanceOf(AvatarNotFoundException.class);
+
+        verify(xpService, never()).awardForChat(any(), any());
+        verify(chatSessionCachePort, never()).stopKeepalive(any());
+    }
+
+    @Test
+    void sessionEnd_avatarBelongsToOtherUser_throwsAvatarNotFoundException_blocksXpFarming() {
+        // ownerAvatar belongs to "user-1"; "user-2" calling session-end against it
+        // (the XP-farming vector: spray session-end across foreign avatarIds since
+        // the daily cap keys on (userId, avatarId)) must be rejected outright.
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
+
+        assertThatThrownBy(() -> service.sessionEnd("user-2", ownerAvatar.getId()))
+                .isInstanceOf(AvatarNotFoundException.class);
+
+        verify(xpService, never()).awardForChat(any(), any());
+        verify(chatSessionCachePort, never()).stopKeepalive(any());
     }
 
     // ── setTeachingMode ───────────────────────────────────────────────────
