@@ -61,12 +61,31 @@ class ChatSyncServiceTest {
                 "msg-existing", ChatMessage.Role.USER, "content", "text",
                 null, "HELPFUL", true, false, NOW);
         when(chatRepo.existsById("msg-existing")).thenReturn(true);
+        when(chatRepo.existsByIdAndUserId("msg-existing", USER_ID)).thenReturn(true);
 
         int result = service.sync(AVATAR_ID, USER_ID, List.of(dto));
 
         assertThat(result).isEqualTo(0);
         verify(chatRepo).updateFeedbackType("msg-existing", "HELPFUL");
         verify(chatRepo).markSavedToBrain("msg-existing");
+        verify(chatRepo, never()).save(any());
+    }
+
+    @Test
+    void sync_existingMessageBelongsToAnotherUser_rejectsUpdate_neverMutatesIt() {
+        // IDOR pin: existsById only proves the row exists SOMEWHERE — never proves the
+        // caller owns it. A message belonging to a different user must be left untouched.
+        SyncMessageDto dto = new SyncMessageDto(
+                "msg-victim", ChatMessage.Role.USER, "content", "text",
+                null, "HELPFUL", true, false, NOW);
+        when(chatRepo.existsById("msg-victim")).thenReturn(true);
+        when(chatRepo.existsByIdAndUserId("msg-victim", USER_ID)).thenReturn(false);
+
+        int result = service.sync(AVATAR_ID, USER_ID, List.of(dto));
+
+        assertThat(result).isEqualTo(0);
+        verify(chatRepo, never()).updateFeedbackType(any(), any());
+        verify(chatRepo, never()).markSavedToBrain(any());
         verify(chatRepo, never()).save(any());
     }
 
@@ -97,6 +116,7 @@ class ChatSyncServiceTest {
                 "msg-existing", ChatMessage.Role.USER, "content", "text",
                 null, null, false, false, NOW);
         when(chatRepo.existsById("msg-existing")).thenReturn(true);
+        when(chatRepo.existsByIdAndUserId("msg-existing", USER_ID)).thenReturn(true);
 
         service.sync(AVATAR_ID, USER_ID, List.of(dto));
 
