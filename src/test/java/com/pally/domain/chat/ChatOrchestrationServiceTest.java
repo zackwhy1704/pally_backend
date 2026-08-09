@@ -150,15 +150,42 @@ class ChatOrchestrationServiceTest {
     }
 
     // ── syncMessages ─────────────────────────────────────────────────────
+    // IDOR pin: syncMessages previously called chatSyncService.sync with no
+    // ownership check at all — an authenticated caller could plant fabricated
+    // messages into ANOTHER user's avatar's chat history by supplying that
+    // avatar's id in the path. Mirrors the getChatHistory/getFullHistory tests.
 
     @Test
-    void syncMessages_delegatesToChatSyncServiceAndWrapsCount() {
-        when(chatSyncService.sync(eq("avatar-1"), eq("user-1"), any())).thenReturn(5);
+    void syncMessages_ownAvatar_delegatesToChatSyncServiceAndWrapsCount() {
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
+        when(chatSyncService.sync(eq(ownerAvatar.getId()), eq("user-1"), any())).thenReturn(5);
 
-        Map<String, Integer> result = service.syncMessages("user-1", "avatar-1", List.of());
+        Map<String, Integer> result = service.syncMessages("user-1", ownerAvatar.getId(), List.of());
 
         assertThat(result.get("upserted")).isEqualTo(5);
-        verify(chatSyncService).sync("avatar-1", "user-1", List.of());
+        verify(chatSyncService).sync(ownerAvatar.getId(), "user-1", List.of());
+    }
+
+    @Test
+    void syncMessages_avatarDoesNotExist_throwsAvatarNotFoundException_neverSyncs() {
+        when(avatarRepository.findById("no-such")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.syncMessages("user-1", "no-such", List.of()))
+                .isInstanceOf(AvatarNotFoundException.class);
+
+        verify(chatSyncService, never()).sync(anyString(), anyString(), any());
+    }
+
+    @Test
+    void syncMessages_avatarBelongsToOtherUser_throwsAvatarNotFoundException_neverSyncs() {
+        // ownerAvatar belongs to "user-1"; "user-2" attempting to sync into it must be
+        // rejected BEFORE any message is planted or mutated.
+        when(avatarRepository.findById(ownerAvatar.getId())).thenReturn(Optional.of(ownerAvatar));
+
+        assertThatThrownBy(() -> service.syncMessages("user-2", ownerAvatar.getId(), List.of()))
+                .isInstanceOf(AvatarNotFoundException.class);
+
+        verify(chatSyncService, never()).sync(anyString(), anyString(), any());
     }
 
     // ── submitFeedback ────────────────────────────────────────────────────

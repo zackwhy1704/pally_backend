@@ -76,9 +76,17 @@ public class ChatOrchestrationService {
         return new ChatHistoryResponse(chatHistoryService.getHistory(avatarId, limit));
     }
 
-    /** Syncs offline messages to the server and returns the upserted count. */
+    /**
+     * Syncs offline messages to the server and returns the upserted count, asserting
+     * ownership of the target avatar first.
+     *
+     * @throws AvatarNotFoundException if the avatar does not exist or belongs to another user
+     */
     public Map<String, Integer> syncMessages(String userId, String avatarId,
                                              List<SyncMessageDto> messages) {
+        avatarRepository.findById(avatarId)
+                .filter(a -> a.getUserId().equals(userId))
+                .orElseThrow(() -> new AvatarNotFoundException(avatarId));
         int upserted = chatSyncService.sync(avatarId, userId, messages);
         return Map.of("upserted", upserted);
     }

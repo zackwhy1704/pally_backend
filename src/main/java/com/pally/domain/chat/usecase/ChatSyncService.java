@@ -22,6 +22,15 @@ public class ChatSyncService {
         int upserted = 0;
         for (SyncMessageDto dto : messages) {
             if (chatRepo.existsById(dto.id())) {
+                // IDOR guard: only the message's owner may mutate it — the caller
+                // owning the PATH avatarId (checked by ChatOrchestrationService before
+                // this is called) says nothing about who owns an arbitrary dto.id()
+                // referenced here. Same guard ChatFeedbackService.submitFeedback uses.
+                if (!chatRepo.existsByIdAndUserId(dto.id(), userId)) {
+                    log.warn("[ChatSync] Rejected cross-user update attempt: message={} user={}",
+                            dto.id(), userId);
+                    continue;
+                }
                 // Update mutable fields only (feedback, savedToBrain can change)
                 if (dto.feedbackType() != null) {
                     chatRepo.updateFeedbackType(dto.id(), dto.feedbackType());

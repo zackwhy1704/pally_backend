@@ -777,19 +777,23 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
 > `ChatHistoryIdorIntegrationTest` — all three proven to fail on the pre-fix code, pass after.
 > Sweeping `ChatController`/`ChatOrchestrationService` for the same pattern found two more:
 
-- **`ChatSyncService.sync` (`domain/chat/usecase/ChatSyncService.java:21-62`), reached via
-  `POST /avatars/{avatarId}/chat/sync` — no ownership check at all.** Two distinct gaps in one
-  method: (1) the update branch (`chatRepo.existsById(dto.id())` → `updateFeedbackType`/
-  `markSavedToBrain`) never checks that `dto.id()` belongs to the caller, so any authenticated user
-  can mutate the feedback/saved-to-brain flag of ANY message row by ID; (2) the create branch
-  writes `ChatMessage.reconstitute(dto.id(), avatarId, userId, ...)` using the path's `avatarId`
-  with no check that it belongs to the caller — a user can plant fabricated messages into another
-  student's avatar's chat history. Not fixed here (out of the scope the fix was asked for — a read
-  exposure, not a write one) but the same missing-ownership family. **Closes it:** mirror the same
-  `avatarRepository.findById(avatarId).filter(...)` guard into `ChatOrchestrationService.syncMessages`
-  before delegating, plus (separately) an ownership check on the existing-message-id branch — a
-  `chatRepo.existsByIdAndUserId`-style check like the one `ChatFeedbackService.submitFeedback`
-  already uses.
+- **`ChatSyncService.sync` — CLOSED (`fix/chat-sync-write-idor`).** Two distinct gaps in one
+  method, both fixed: (1) the update branch (`chatRepo.existsById(dto.id())` →
+  `updateFeedbackType`/`markSavedToBrain`) never checked that `dto.id()` belonged to the caller —
+  fixed with a `chatRepo.existsByIdAndUserId(dto.id(), userId)` guard (the same idiom
+  `ChatFeedbackService.submitFeedback` already used), rejecting (log + skip) rather than mutating;
+  (2) the create branch wrote `ChatMessage.reconstitute(dto.id(), avatarId, userId, ...)` with no
+  check that the path `avatarId` belonged to the caller — fixed by adding the standard
+  `avatarRepository.findById(avatarId).filter(a -> a.getUserId().equals(userId)).orElseThrow(...)`
+  guard to `ChatOrchestrationService.syncMessages` before delegating, same as `getFullHistory`/
+  `getChatHistory`. This was upgraded from "different bug class, not a blocker" to "fix before the
+  1.2 reply": a write-IDOR here means a victim's chat can be altered by another user (fabricated
+  content injected, feedback tampered) — content-safety exposure in the other direction from the
+  read-IDOR, not merely an economic/integrity nit. Pinned by `ChatOrchestrationServiceTest` (2 new
+  tests), `ChatSyncServiceTest` (1 new test), and a real end-to-end
+  `ChatSyncWriteIdorIntegrationTest` (bundles both a mutate-existing and a plant-new attempt in one
+  request, asserts rejection AND that the victim's chat is byte-for-byte unchanged) — all proven to
+  fail on the pre-fix code, pass after.
 - **`sessionEnd` → `XpService.awardForChat` (`domain/progress/XpService.java:153-173`) — the
   once-per-SGT-day chat-XP cap keys on `(userId, avatarId)`, not just `userId`.** No ownership
   check on `avatarId` anywhere in the call chain means a user who knows other avatarIds (a
