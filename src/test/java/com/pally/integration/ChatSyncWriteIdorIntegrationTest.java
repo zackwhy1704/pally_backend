@@ -67,6 +67,31 @@ class ChatSyncWriteIdorIntegrationTest extends IntegrationTestBase {
                 .as("a caller who does not own the avatar must be rejected outright")
                 .isEqualTo(HttpStatus.NOT_FOUND);
 
+        // Enumeration-safety: the rejection must not confirm the avatarId exists (a 403
+        // or an "owned by another user" message would leak that fact to the attacker).
+        // Prove it by comparing against a control call against an avatarId that was
+        // NEVER created — the two responses must be indistinguishable in every way
+        // except the id string itself, which the attacker already knows either way.
+        String neverCreatedAvatarId = UUID.randomUUID().toString();
+        ResponseEntity<Map> controlResponse = post(
+                "/api/v1/avatars/" + neverCreatedAvatarId + "/chat/sync", attacker.token(),
+                Map.of("messages", List.of(plantedMessage)));
+
+        assertThat(controlResponse.getStatusCode()).isEqualTo(response.getStatusCode());
+        String realBody = ((String) response.getBody().get("error"))
+                .replace(victimAvatarId, "{id}");
+        String controlBody = ((String) controlResponse.getBody().get("error"))
+                .replace(neverCreatedAvatarId, "{id}");
+        assertThat(realBody)
+                .as("rejecting a real-but-foreign avatar must read identically to rejecting "
+                        + "one that never existed, once the id itself is normalized out")
+                .isEqualTo(controlBody);
+        assertThat(response.getBody().get("data")).isNull();
+        assertThat(realBody.toLowerCase())
+                .as("the message must not hint at ownership/existence beyond a bare not-found")
+                .doesNotContain("belong", "owner", "forbidden", "exist", "another user");
+        assertThat(realBody).doesNotContain(victim.userId());
+
         // Verify via the VICTIM's own eyes that nothing changed: original feedback
         // untouched, no planted message appended.
         ResponseEntity<Map> victimView = get(
