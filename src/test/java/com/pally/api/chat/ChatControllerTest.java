@@ -86,13 +86,24 @@ class ChatControllerTest {
     @Test
     void getFullHistory_delegatesToOrchestrationService() {
         var historyResponse = new com.pally.domain.chat.dto.ChatHistoryResponse(List.of());
-        when(chatOrchestrationService.getFullHistory(eq(AVATAR_ID), anyInt()))
+        when(chatOrchestrationService.getFullHistory(eq(USER_ID), eq(AVATAR_ID), anyInt()))
                 .thenReturn(historyResponse);
 
         var result = chatController.getFullHistory(USER_ID, AVATAR_ID, 50);
 
         assertThat(result).isNotNull();
-        verify(chatOrchestrationService).getFullHistory(AVATAR_ID, 50);
+        verify(chatOrchestrationService).getFullHistory(USER_ID, AVATAR_ID, 50);
+    }
+
+    @Test
+    void getFullHistory_orchestrationThrowsAvatarNotFound_propagates() {
+        // IDOR pin: the controller must forward userId so cross-user requests are
+        // rejected at the orchestration layer, not silently served.
+        when(chatOrchestrationService.getFullHistory(anyString(), anyString(), anyInt()))
+                .thenThrow(new AvatarNotFoundException(AVATAR_ID));
+
+        assertThatThrownBy(() -> chatController.getFullHistory(USER_ID, AVATAR_ID, 50))
+                .isInstanceOf(AvatarNotFoundException.class);
     }
 
     // ── POST /chat/{messageId}/feedback ───────────────────────────────────
