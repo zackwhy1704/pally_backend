@@ -1,5 +1,6 @@
 package com.pally.api.auth.dto;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -31,5 +32,10 @@ public record RegisterRequest(
         /// signer under 13 (PDPC 2024). Ignored for 13+ signups.
         @Email(message = "Parent email must be a valid address")
         @Size(max = 255, message = "Parent email must be 255 characters or fewer")
-        String parentEmail
+        String parentEmail,
+
+        /// Affirmative Terms-of-Use acceptance, required to create an account —
+        /// same gate as the mobile app's QuickOnboardRequest.acceptedTerms.
+        @AssertTrue(message = "You must accept the Terms of Use to create an account")
+        boolean acceptedTerms
 ) {}

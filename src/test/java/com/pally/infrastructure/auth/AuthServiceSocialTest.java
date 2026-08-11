@@ -41,6 +41,7 @@ class AuthServiceSocialTest {
     @Mock com.pally.domain.shop.CharacterShopService characterShopService;
     @Mock com.pally.domain.progress.BadgeService badgeService;
     @Mock com.pally.domain.progress.StreakService streakService;
+    @Mock com.pally.domain.consent.ConsentService consentService;
     @InjectMocks AuthService authService;
 
     @BeforeEach
@@ -76,7 +77,7 @@ class AuthServiceSocialTest {
         when(userRepo.findByEmail("victim@x.com")).thenReturn(Optional.of(passwordAccount("victim@x.com")));
 
         assertThatThrownBy(() ->
-                authService.signInWithSocial("victim@x.com", true, "Attacker", "google", "goog-sub-1"))
+                authService.signInWithSocial("victim@x.com", true, "Attacker", "google", "goog-sub-1", true))
                 .isInstanceOf(LinkRequiredException.class)
                 .satisfies(e -> {
                     assertThat(((LinkRequiredException) e).getChallenge()).isEqualTo("PASSWORD");
@@ -94,7 +95,7 @@ class AuthServiceSocialTest {
                 .thenReturn(Optional.of(passwordAccount("victim@x.com")));
 
         // email_verified=false → must NOT match the victim; creates a standalone account.
-        authService.signInWithSocial("victim@x.com", false, "Someone", "google", "goog-sub-2");
+        authService.signInWithSocial("victim@x.com", false, "Someone", "google", "goog-sub-2", true);
 
         ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
         verify(userRepo).save(saved.capture());
@@ -107,7 +108,7 @@ class AuthServiceSocialTest {
         when(userRepo.findByProviderAndProviderSub("google", "goog-sub-3"))
                 .thenReturn(Optional.of(social));
 
-        var res = authService.signInWithSocial("changed@x.com", true, null, "google", "goog-sub-3");
+        var res = authService.signInWithSocial("changed@x.com", true, null, "google", "goog-sub-3", true);
 
         assertThat(res.userId()).isEqualTo("social-1");
         verify(userRepo, never()).findByEmail(anyString()); // sub is the key — email irrelevant
@@ -120,7 +121,7 @@ class AuthServiceSocialTest {
         when(userRepo.findByEmail("legacy@x.com")).thenReturn(Optional.of(legacy));
         when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        authService.signInWithSocial("legacy@x.com", true, null, "google", "goog-sub-4");
+        authService.signInWithSocial("legacy@x.com", true, null, "google", "goog-sub-4", true);
 
         ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
         verify(userRepo).save(saved.capture()); // stamped
@@ -133,11 +134,60 @@ class AuthServiceSocialTest {
         when(userRepo.findByEmail("fresh@x.com")).thenReturn(Optional.empty());
         when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        authService.signInWithSocial("fresh@x.com", true, "Fresh", "google", "goog-sub-5");
+        authService.signInWithSocial("fresh@x.com", true, "Fresh", "google", "goog-sub-5", true);
 
         ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
         verify(userRepo).save(saved.capture());
         assertThat(saved.getValue().getProvider()).isEqualTo("google");
         assertThat(saved.getValue().getProviderSub()).isEqualTo("goog-sub-5");
+    }
+
+    // ── acceptedTerms gate ───────────────────────────────────────────────
+    // Pins the DEFERRED.md-closed gap: signInWithSocial previously created accounts
+    // on first sign-in with NO terms gate at all. Only a genuinely NEW account is
+    // gated — a returning user (sub or verified-email match) must never be blocked
+    // by this, since a login-page social button has no reason to show a checkbox.
+
+    @Test
+    void newSocialUser_termsNotAccepted_rejects400_noAccountCreated() {
+        when(userRepo.findByEmail("fresh2@x.com")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                authService.signInWithSocial(
+                        "fresh2@x.com", true, "Fresh", "google", "goog-sub-6", false))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class)
+                .hasMessageContaining("Terms of Use");
+
+        verify(userRepo, never()).save(any());
+        verify(consentService, never()).recordTermsAcceptance(any());
+        verify(jwtService, never()).generateToken(anyString(), any(), anyInt());
+    }
+
+    @Test
+    void newSocialUser_termsAccepted_recordsConsentAfterAccountCreated() {
+        when(userRepo.findByEmail("fresh3@x.com")).thenReturn(Optional.empty());
+        when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        authService.signInWithSocial("fresh3@x.com", true, "Fresh", "google", "goog-sub-7", true);
+
+        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
+        verify(userRepo).save(saved.capture());
+        verify(consentService).recordTermsAcceptance(saved.getValue().getId());
+    }
+
+    @Test
+    void returningSocialUser_subKeyMatch_neverGatedOnTerms() {
+        // A returning user's login must succeed regardless of acceptedTerms — the
+        // gate only applies to account CREATION.
+        UserJpaEntity social = socialAccount("returning2@x.com");
+        when(userRepo.findByProviderAndProviderSub("google", "goog-sub-8"))
+                .thenReturn(Optional.of(social));
+
+        var res = authService.signInWithSocial(
+                "returning2@x.com", true, null, "google", "goog-sub-8", false);
+
+        assertThat(res.userId()).isEqualTo("social-1");
+        verify(userRepo, never()).save(any());
+        verify(consentService, never()).recordTermsAcceptance(any());
     }
 }

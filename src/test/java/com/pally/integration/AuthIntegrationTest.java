@@ -31,11 +31,12 @@ class AuthIntegrationTest extends IntegrationTestBase {
         registerUser(email, "password123");
         // Second registration with same email (role:"adult" so it passes the register
         // shape guard and reaches the duplicate-email check, not the 400 blank-shape guard).
-        Map<String, String> body = Map.of(
+        Map<String, Object> body = Map.of(
                 "email", email,
                 "password", "password456",
                 "displayName", "Dup User",
-                "role", "adult");
+                "role", "adult",
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> response = restTemplate.postForEntity(
@@ -114,10 +115,13 @@ class AuthIntegrationTest extends IntegrationTestBase {
 
     @Test
     void register_invalidEmail_returns400() {
-        Map<String, String> body = Map.of(
+        // acceptedTerms:true so this unambiguously proves the EMAIL validation is what
+        // rejects the request, not the (also-missing) terms field.
+        Map<String, Object> body = Map.of(
                 "email", "not-an-email",
                 "password", "password123",
-                "displayName", "Bad Email");
+                "displayName", "Bad Email",
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> response = restTemplate.postForEntity(
@@ -128,15 +132,50 @@ class AuthIntegrationTest extends IntegrationTestBase {
 
     @Test
     void register_shortPassword_returns400() {
-        Map<String, String> body = Map.of(
+        // acceptedTerms:true so this unambiguously proves the PASSWORD validation is what
+        // rejects the request, not the (also-missing) terms field.
+        Map<String, Object> body = Map.of(
                 "email", "auth-test-short@test.com",
                 "password", "short",
-                "displayName", "Short Pass");
+                "displayName", "Short Pass",
+                "acceptedTerms", true);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<Map> response = restTemplate.postForEntity(
                 baseUrl() + "/api/v1/auth/register",
                 new HttpEntity<>(body, headers), Map.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    /// EULA/Terms-of-Use gate on the memoly web signup path — exercised through the
+    /// REAL Spring @Valid pipeline. Omitting the field entirely must reject exactly
+    /// like sending false — never silently accepted. Mirrors
+    /// SignupSecurityIntegrationTest.quickOnboard_termsNotAccepted_rejects400_noAccountCreated
+    /// for the sibling entry point.
+    @Test
+    void register_termsNotAccepted_rejects400_noAccountCreated() {
+        String email = "noterms-web-" + System.nanoTime() + "@test.com";
+        Map<String, Object> body = Map.of(
+                "email", email, "password", "password123",
+                "displayName", "No Terms", "role", "adult");
+        // acceptedTerms field omitted entirely.
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<Map> response = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register",
+                new HttpEntity<>(body, headers), Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // No account created: registering again with the SAME email and
+        // acceptedTerms:true now SUCCEEDS (201). Had the first request created the
+        // account, this would 409.
+        Map<String, Object> retryBody = Map.of(
+                "email", email, "password", "password123",
+                "displayName", "No Terms", "role", "adult", "acceptedTerms", true);
+        ResponseEntity<Map> retry = restTemplate.postForEntity(
+                baseUrl() + "/api/v1/auth/register",
+                new HttpEntity<>(retryBody, headers), Map.class);
+        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.CREATED);
     }
 }
