@@ -57,7 +57,11 @@ class ModerationServicePersonalDataRubricTest {
 
     @Test
     void prompt_clarifiesPersonalDataIsAboutTheChildsOwnInfoNotStudyMaterial() throws Exception {
-        svc.screenInput("u", "av", "m", "他每天乘搭几号巴士上学？车程多久？", "zh");
+        // The EXACT verbatim string from the real prod incident (chat_safety_flags,
+        // 2026-07-29) — not a paraphrase. A pronoun-based paraphrase of this same
+        // question is an easier case for the classifier than the real one, which
+        // names the character explicitly ("小峰"); verbatim fidelity matters here.
+        svc.screenInput("u", "av", "m", "小峰每天乘搭几号巴士上学？", "zh");
 
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         org.mockito.Mockito.verify(claude)
