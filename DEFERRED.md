@@ -997,3 +997,5 @@ field is harmless if backend doesn't require it yet), THEN this backend branch.
   null birth year (was defaulting to age-exempt ADULT). Verified safe: memoly sends explicit
   `role:"adult"` (prod Vercel `ed6d5e0`); mobile uses `/onboard/quick` with a birth year. Pinned by
   `SignupSecurityIntegrationTest`. Closed 2026-07-09 (`95e2bf5`/`7439a15`).
+
+<!-- Trivial touch to verify the Railway deploy hook still fires after flipping this repo private. -->
