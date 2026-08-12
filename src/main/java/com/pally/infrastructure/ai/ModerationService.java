@@ -81,7 +81,15 @@ public class ModerationService {
                 - VIOLENCE: threats, descriptions of physical violence, weapons
                 - SEXUAL: sexual content, grooming language, inappropriate romantic content
                 - BULLYING: harassment, hate speech, cyberbullying
-                - PERSONAL_DATA: child sharing identifying info (address, phone, school name + grade)
+                - PERSONAL_DATA: the CHILD sharing THEIR OWN identifying info (their own address, phone,
+                  school name + grade). Do NOT classify as PERSONAL_DATA a question that merely mentions
+                  a named person, place, bus number, age, or address found in the student's OWN uploaded
+                  study material (e.g. a reading-comprehension question about a character in a passage).
+                  Study-material questions about a third party's details are SAFE, even if they ask
+                  "what bus does X take" or "how old is Y" — that is comprehension, not disclosure. Only
+                  flag PERSONAL_DATA when the CHILD is stating or offering THEIR OWN real-world
+                  identifying details, e.g. "I live at...", "my phone number is...", "my school is...
+                  my class is...".
                 - OFF_TOPIC: content clearly unrelated to studying that could be unsafe
 
                 Assign severity: HIGH | MEDIUM | LOW
