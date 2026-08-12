@@ -735,10 +735,16 @@ CLOSED. Nothing left. *(kept here briefly; belongs in CLOSED.)*
   `UNIQUE (lower(email))`; case-variant 409 pinned by `UniqueEmailLowerIndexIntegrationTest`.
   **Closes it:** run the dup-count query (off-keyboard); if zero, a V-next migration dropping
   the non-unique index and adding `UNIQUE (lower(email))` + a case-variant 409 test (Prompt C1).
-- **Keychain/secure-storage wipe on first launch/logout** — iOS Keychain survives uninstall, so
-  a reinstalled app can resurrect a stale identity. Server epoch invalidates the session, but
-  the client should wipe. **Closes it:** pally first-launch (SharedPreferences flag absent)
-  secure-storage wipe before reading any token (Prompt C2).
+- **Keychain/secure-storage wipe on first launch/logout — CLOSED (verified 2026-08-12, shipped
+  earlier, `863333c` 2026-07-10).** `pally/lib/core/services/install_hygiene.dart`'s
+  `wipeSecureStorageOnFirstLaunch` already existed and is already called in `main.dart:63`, BEFORE
+  `AuthNotifier.instance.load()` reads any token (line 66) — a fresh install (SharedPreferences
+  marker absent) wipes `flutter_secure_storage` once, then sets the marker so every later launch
+  is a no-op and a live session is never disturbed. 3 passing unit tests
+  (`test/unit/install_hygiene_test.dart`) cover first-launch-wipes-once,
+  normal-launch-leaves-session-intact, and wipe-failure-still-sets-marker (non-fatal, no loop-wipe).
+  This entry was just never marked closed — found already-shipped while working the pre-resubmission
+  ledger, not re-implemented.
 - **Breach-password screening (HIBP k-anonymity)** — reject known-breached passwords at
   register/reset. Deferred: net-new external call + UX; not a takeover fix.
 - **Refresh-token rotation** — auth is stateless JWT with a session-epoch kill switch; a true
