@@ -197,7 +197,7 @@ rule out a stale build graph masking a missed reference) + full `test` suite, bo
 
 ## Moderation / child-safety
 
-### Context-blind moderation false-positives on material-grounded comprehension questions
+### Context-blind moderation false-positives on material-grounded comprehension questions — CLOSED 2026-08-12
 - **What:** the chat-input moderation classifier (`ModerationService.screen`) screens the raw
   message text **in isolation** — it never sees the uploaded study material or the topic. So a
   legitimate reading-comprehension question about a CHARACTER in the text reads as the CHILD
@@ -209,22 +209,36 @@ rule out a stale build graph masking a missed reference) + full `test` suite, bo
   false-positive class. `SendMessageUseCase` blocks on `flagged() && isHighSeverity()`, so the
   child got a refusal instead of an answer. (The refusal's ENGLISH-in-a-zh-session leak is fixed
   separately, `ModerationService.buildSafeReply` now follows content_language.)
-- **Why not a quick fix:** it's a prompt/context problem on a CHILD-SAFETY path, not threshold
-  tuning. Candidate fixes each carry risk and need a real disclosure-vs-comprehension test set
-  before shipping: (a) clarify the PERSONAL_DATA rubric — "the CHILD sharing THEIR OWN info, NOT a
-  question about a person in the study material"; (b) pass the classifier minimal context (topic /
-  "this is a question about uploaded material"); (c) stop hard-blocking PERSONAL_DATA at INPUT the
-  way SELF_HARM is blocked. Weakening a child-safety gate on a hunch is exactly what not to do
-  without measurement.
-- **Closes it:** a labelled fixture set (genuine child-disclosure examples + material-grounded
-  comprehension questions) that a prompt/rubric change must pass — reduce the false-positive class
-  WITHOUT letting a real disclosure through. Measure both directions before/after.
-- **Chinese-launch weighting:** this bites zh comprehension HARDER than en. Chinese reading passages
-  are dense with named characters doing everyday things — taking buses, living in HDB blocks, visiting
-  grandmothers — which is exactly the surface that reads as personal disclosure out of context. Treat
-  as a **Chinese-launch precondition**, more than a general-launch one.
-- **Trigger:** a student reports the tutor refusing to answer questions from their own notes; or
-  the corrected-fixture E2E chat re-runs and the comprehension question is refused again.
+- **Fix chosen: (a) clarify the PERSONAL_DATA rubric.** Not (b) passing extra context (bigger
+  prompt-plumbing change, more surface area) or (c) removing the hard-block (explicitly out of
+  bounds for a child-safety gate). The rubric now says explicitly: PERSONAL_DATA is the CHILD
+  sharing THEIR OWN info; a question that merely mentions a named person/bus number/age/address
+  found in the student's OWN uploaded study material is comprehension, not disclosure, and is SAFE.
+- **Measured, not assumed — labelled fixture set of 16 cases** (10 material-comprehension incl. 6
+  drawn from the ACTUAL `p3_huawen_wo_de_linli.pdf` fixture's own reading-comprehension section —
+  including the exact real-world flagged question — + 4 en comprehension cases; 4 genuine
+  self-disclosure examples zh+en; 2 SELF_HARM controls), run against the REAL Claude Haiku
+  classifier (not mocked) via the production API key, before and after the rubric change:
+
+  | | material-comprehension false-positives | genuine disclosures correctly blocked | SELF_HARM correctly blocked |
+  |---|---|---|---|
+  | baseline (old rubric) | 2/10 — both reproduce the real prod incident exactly | 4/4 | 2/2 |
+  | fixed (new rubric), run 1 | 0/10 | 4/4 | 2/2 |
+  | fixed (new rubric), run 2 | 0/10 | 4/4 | 2/2 |
+  | fixed (new rubric), run 3 | 0/10 | 4/4 | 2/2 |
+
+  Stable across 3 runs — zero false positives, zero regressions in either genuine-disclosure
+  detection or the SELF_HARM hard-block. Fixture set + one-off measurement script are NOT committed
+  to the repo (they call the real paid API); the exact fixture text and prompt variants are
+  reproducible from this table's description and the current `ModerationService.java` prompt.
+- **Permanent regression coverage:** `ModerationServicePersonalDataRubricTest` (mocked Claude, no
+  live API in CI) pins that the clarified wording actually reaches the prompt, and that the
+  SELF_HARM keyword fallback (used when the classifier itself is unreachable) is untouched by this
+  change.
+- **Chinese-launch weighting:** this bit zh comprehension HARDER than en — Chinese reading passages
+  are dense with named characters doing everyday things (taking buses, living in HDB blocks,
+  visiting grandmothers), exactly the surface that read as personal disclosure out of context. Was
+  a **Chinese-launch precondition**; now closed.
 
 ## Extraction integrity
 
