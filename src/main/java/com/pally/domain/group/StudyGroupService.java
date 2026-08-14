@@ -5,6 +5,7 @@ import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.progress.XpService;
 import com.pally.domain.subscription.Entitlements;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupReportJpaEntity;
@@ -46,6 +47,10 @@ public class StudyGroupService {
     private static final double SHARE_BLOCK_BELOW = 0.20;
     private static final double SHARE_WARN_BELOW = 0.45;
     private static final int RELEVANCE_SAMPLE_CHARS = 1500;
+    /// Reasonable cap on a report's free-text details — was previously
+    /// unbounded. 500 matches the char budget ModerationService itself
+    /// truncates a message to before classifying it.
+    private static final int DETAILS_MAX_CHARS = 500;
 
     private final StudyGroupJpaRepository groupRepo;
     private final GroupMemberJpaRepository memberRepo;
@@ -57,6 +62,7 @@ public class StudyGroupService {
     private final UserJpaRepository userRepo;
     private final PremiumService premiumService;
     private final XpService xpService;
+    private final ModerationService moderationService;
 
     // ── List ────────────────────────────────────────────────────────────
 
@@ -75,6 +81,14 @@ public class StudyGroupService {
         String name = body.getOrDefault("name", "").trim();
         if (name.isBlank() || name.length() > 100) {
             throw new BusinessException("Group name is required (1-100 chars)", 400);
+        }
+        // Safety screening — free text, joinable-by-code audience, no other gate.
+        // Same fail-safe semantics as chat: HIGH severity blocks, everything else passes.
+        ModerationService.ModerationResult nameMod =
+                moderationService.screenInput(userId, null, null, name, "en");
+        if (nameMod.flagged() && nameMod.isHighSeverity()) {
+            throw new BusinessException(
+                    "That group name isn't allowed. Please choose another.", 422);
         }
         String subject = body.get("subject");
 
@@ -196,6 +210,18 @@ public class StudyGroupService {
         WikiPageJpaEntity page = wikiPageRepo.findById(wikiPageId)
                 .orElseThrow(() -> new BusinessException("Wiki page not found", 404));
 
+        // Safety and relevance are INDEPENDENT concerns — moderation runs
+        // regardless of whether the relevance check runs (it short-circuits
+        // to OK when the group has no subject set; that must never also skip
+        // the safety screen). Same content sample feeds both checks.
+        String contentSample = relevanceSample(page);
+        ModerationService.ModerationResult noteMod = moderationService.screenInput(
+                userId, page.getAvatarId(), null, contentSample, page.getContentLanguage());
+        if (noteMod.flagged() && noteMod.isHighSeverity()) {
+            throw new BusinessException(
+                    "That note can't be shared right now. Please choose different content.", 422);
+        }
+
         GroupSharedNoteJpaEntity n = new GroupSharedNoteJpaEntity();
         n.setId(IdGenerator.newId());
         n.setGroupId(groupId);
@@ -207,7 +233,7 @@ public class StudyGroupService {
 
         // Re-run relevance against the group's subject. Best-effort: a Claude
         // outage shouldn't block sharing — fall back to OK in that case.
-        applyShareRelevance(n, group, page);
+        applyShareRelevance(n, group, contentSample);
 
         if ("BLOCKED".equals(n.getRelevanceStatus())) {
             throw new BusinessException(
@@ -260,6 +286,19 @@ public class StudyGroupService {
         if (reason.length() > 50) {
             throw new BusinessException("reason must be 50 chars or less", 400);
         }
+        String details = body.get("details");
+        if (details != null && details.length() > DETAILS_MAX_CHARS) {
+            throw new BusinessException(
+                    "details must be " + DETAILS_MAX_CHARS + " chars or less", 400);
+        }
+        if (details != null && !details.isBlank()) {
+            ModerationService.ModerationResult detailsMod =
+                    moderationService.screenInput(userId, null, null, details, "en");
+            if (detailsMod.flagged() && detailsMod.isHighSeverity()) {
+                throw new BusinessException(
+                        "That report can't be submitted as written. Please rephrase.", 422);
+            }
+        }
         boolean hasUser = targetUserId != null && !targetUserId.isBlank();
         boolean hasNote = targetNoteId != null && !targetNoteId.isBlank();
         if (hasUser == hasNote) {
@@ -283,7 +322,7 @@ public class StudyGroupService {
         r.setTargetUserId(hasUser ? targetUserId : null);
         r.setTargetNoteId(hasNote ? targetNoteId : null);
         r.setReason(reason);
-        r.setDetails(body.get("details"));
+        r.setDetails(details);
         r.setStatus(GroupReportJpaEntity.STATUS_OPEN);
         r.setCreatedAt(Instant.now());
         reportRepo.save(r);
@@ -391,22 +430,27 @@ public class StudyGroupService {
                 .orElse(false);
     }
 
+    /** The content sample used for BOTH the relevance check and the safety
+     *  screen — one source of truth for "what text represents this share." */
+    private String relevanceSample(WikiPageJpaEntity page) {
+        String content = page.getContent() == null ? "" : page.getContent();
+        return content.length() > RELEVANCE_SAMPLE_CHARS
+                ? content.substring(0, RELEVANCE_SAMPLE_CHARS)
+                : content;
+    }
+
     private void applyShareRelevance(GroupSharedNoteJpaEntity note,
                                      StudyGroupJpaEntity group,
-                                     WikiPageJpaEntity page) {
+                                     String sample) {
         String subject = group.getSubject();
         if (subject == null || subject.isBlank()) {
             note.setRelevanceStatus("OK");
             return;
         }
-        String content = page.getContent() == null ? "" : page.getContent();
-        if (content.isBlank()) {
+        if (sample.isBlank()) {
             note.setRelevanceStatus("OK");
             return;
         }
-        String sample = content.length() > RELEVANCE_SAMPLE_CHARS
-                ? content.substring(0, RELEVANCE_SAMPLE_CHARS)
-                : content;
         try {
             RelevanceScore score = relevancePort.check(
                     subject, "Group: " + group.getName(), sample);
