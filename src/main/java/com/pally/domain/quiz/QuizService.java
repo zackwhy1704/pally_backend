@@ -77,7 +77,7 @@ public class QuizService {
     /// If key persistence fails for a centre quiz we keep exposing the key this
     /// once (logged) so the kid can still submit — availability over secrecy on
     /// a rare transient write failure, never a silently un-gradable quiz.
-    private List<QuizQuestionResponse> serveGradable(
+    public List<QuizQuestionResponse> serveGradable(
             String avatarId, List<QuizQuestion> questions) {
         if (questions.isEmpty()) return List.of();
 
