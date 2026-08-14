@@ -41,6 +41,7 @@ class ModuleProgressionServiceTest {
     @Mock private com.pally.domain.avatar.AvatarRepository avatarRepository;
     @Mock private com.pally.domain.centre.CentreAccessService centreAccessService;
     @Mock private com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
+    @Mock private com.pally.domain.learning.LearningEventRepository learningEventRepository;
 
     private ModuleProgressionService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -52,7 +53,7 @@ class ModuleProgressionServiceTest {
                 contentGenerator, proveEvaluator, wikiRepository, objectMapper,
                 milestoneNotifier, activityLogService, xpService,
                 avatarRepository, centreAccessService, weaknessProfileService,
-                new GradingWeights());
+                new GradingWeights(), learningEventRepository);
         // Default: caller owns the module's avatar, so the access guard passes.
         // Individual tests override this to exercise the IDOR rejection.
         lenient().when(avatarRepository.existsByIdAndUserId(anyString(), anyString()))
@@ -621,6 +622,45 @@ class ModuleProgressionServiceTest {
         verify(wikiRepository).adjustCertainty("avatar-1", List.of("photosynthesis"), 0.05);
     }
 
+    @Test
+    void selfReport_writesLearningEvent_prove_selfReportProvenance() {
+        LearningModule module = buildModule("mod-1", "PROVE");
+        module.setAvatarId("avatar-1");
+        when(moduleRepository.findById("mod-1")).thenReturn(Optional.of(module));
+
+        ModuleContentItem item = new ModuleContentItem();
+        item.setId("item-1");
+        item.setStage("PROVE");
+        item.setType("PROVE_QUESTION");
+        item.setAnswerJson("{\"targetConcept\":\"C\"}");
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+
+        ModuleProgress existing = new ModuleProgress();
+        existing.setModuleId("mod-1");
+        existing.setUserId("user-1");
+        existing.setItemId("item-1");
+        existing.setStage("PROVE");
+        existing.setTargetConcept("C");
+        existing.setSignalType(GradingSignal.UNGRADED);
+        when(progressRepository.findByModuleIdAndUserIdAndItemId("mod-1", "user-1", "item-1"))
+                .thenReturn(Optional.of(existing));
+        when(progressRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.submitSelfReport("mod-1", "user-1", "item-1", SelfReport.YES);
+
+        org.mockito.ArgumentCaptor<com.pally.domain.learning.LearningEvent> cap =
+                org.mockito.ArgumentCaptor.forClass(com.pally.domain.learning.LearningEvent.class);
+        verify(learningEventRepository).save(cap.capture());
+        com.pally.domain.learning.LearningEvent event = cap.getValue();
+        assertThat(event.source()).isEqualTo(com.pally.domain.learning.LearningEventSource.PROVE);
+        assertThat(event.provenance())
+                .isEqualTo(com.pally.domain.learning.LearningEventProvenance.SELF_REPORT);
+        assertThat(event.userId()).isEqualTo("user-1");
+        assertThat(event.avatarId()).isEqualTo("avatar-1");
+        assertThat(event.topicSlug()).isEqualTo("C");
+        assertThat(event.score()).isEqualByComparingTo(BigDecimal.ONE);
+    }
+
     // ── grading-harness hardening ───────────────────────────────────────
 
     @Test
@@ -767,6 +807,33 @@ class ModuleProgressionServiceTest {
         ModuleProgress saved = submitHotTake("AGREE");
         assertThat(saved.getSignalType()).isEqualTo(GradingSignal.DETERMINISTIC);
         assertThat(saved.getScore()).isEqualByComparingTo(BigDecimal.ONE);
+    }
+
+    @Test
+    void hotTake_correct_writesLearningEvent_moduleTest_verifiedServerGraded() {
+        stubHotTakeSubmit(hotTake("{\"isTrue\":true}"));
+        submitHotTake("AGREE");
+
+        org.mockito.ArgumentCaptor<com.pally.domain.learning.LearningEvent> cap =
+                org.mockito.ArgumentCaptor.forClass(com.pally.domain.learning.LearningEvent.class);
+        verify(learningEventRepository).save(cap.capture());
+        com.pally.domain.learning.LearningEvent event = cap.getValue();
+        assertThat(event.source()).isEqualTo(com.pally.domain.learning.LearningEventSource.MODULE_TEST);
+        assertThat(event.provenance())
+                .isEqualTo(com.pally.domain.learning.LearningEventProvenance.VERIFIED_SERVER_GRADED);
+        assertThat(event.userId()).isEqualTo("user-1");
+        assertThat(event.avatarId()).isEqualTo("avatar-1");
+        assertThat(event.score()).isEqualByComparingTo(BigDecimal.ONE);
+    }
+
+    @Test
+    void hotTake_oldClientScorePayload_ungraded_neverWritesLearningEvent() {
+        // Mirrors the UNGRADED invariant: a signal that never became trustworthy
+        // must produce no learning_event row (never a false 0 downstream either).
+        stubHotTakeSubmit(hotTake("{\"isTrue\":true}"));
+        submitHotTake("{\"score\":1.0}");
+
+        verify(learningEventRepository, never()).save(any());
     }
 
     @Test
