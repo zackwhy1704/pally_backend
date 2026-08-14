@@ -68,6 +68,7 @@ public class SubmitQuizAnswersUseCase {
     /// keep it inside the primary tx (the bug we are fixing).
     private final ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
     private final QuizIdempotencyRepository idempotencyRepository;
+    private final com.pally.domain.learning.LearningEventRepository learningEventRepository;
 
     /**
      * Submits quiz answers, applies SM-2 scheduling to matching flashcards,
@@ -395,6 +396,15 @@ public class SubmitQuizAnswersUseCase {
     public void persistQuestionResultsInNewTx(List<QuizQuestionResultJpaEntity> results) {
         if (results.isEmpty()) return;
         quizResultRepo.saveAll(results);
+        for (QuizQuestionResultJpaEntity r : results) {
+            learningEventRepository.save(com.pally.domain.learning.LearningEvent.of(
+                    r.getUserId(), r.getAvatarId(),
+                    com.pally.domain.learning.LearningEventSource.QUIZ,
+                    com.pally.domain.learning.LearningEventProvenance.VERIFIED_SERVER_GRADED,
+                    r.getTopicSlug(),
+                    r.isWasCorrect() ? java.math.BigDecimal.ONE : java.math.BigDecimal.ZERO,
+                    r.getId()));
+        }
     }
 
     /// SM-2 flashcard reschedule in its own tx. REQUIRES_NEW so a save failure
