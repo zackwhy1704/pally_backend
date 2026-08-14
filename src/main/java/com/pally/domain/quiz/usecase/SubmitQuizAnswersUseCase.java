@@ -407,6 +407,27 @@ public class SubmitQuizAnswersUseCase {
         }
     }
 
+    /// Records ONE graded question attempt outside a full quiz submission — e.g.
+    /// a single boss-battle hit — through the SAME quiz_question_results +
+    /// learning_event write path as {@link #persistQuestionResultsInNewTx}
+    /// (never a second write path for the same fact), without the batch-quiz
+    /// side effects (XP/badges/SRS reschedule/referral) that assume a whole
+    /// quiz was submitted. Routes through the self-proxy for the same reason
+    /// persistQuestionResultsInNewTx does: a plain `this.` call would bypass
+    /// the REQUIRES_NEW proxy.
+    public void recordSingleQuestionResult(String userId, String avatarId, String questionId,
+                                            String topicSlug, boolean wasCorrect) {
+        QuizQuestionResultJpaEntity r = new QuizQuestionResultJpaEntity();
+        r.setId(IdGenerator.newId());
+        r.setUserId(userId);
+        r.setAvatarId(avatarId);
+        r.setQuestionId(questionId);
+        r.setTopicSlug(topicSlug);
+        r.setWasCorrect(wasCorrect);
+        r.setCreatedAt(Instant.now());
+        selfProvider.getObject().persistQuestionResultsInNewTx(List.of(r));
+    }
+
     /// SM-2 flashcard reschedule in its own tx. REQUIRES_NEW so a save failure
     /// here (e.g. constraint on a card that was deleted mid-quiz) can never
     /// mark the primary score/XP tx rollback-only. Called via selfProvider.
