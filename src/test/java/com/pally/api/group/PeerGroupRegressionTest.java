@@ -5,6 +5,7 @@ import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.progress.XpService;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
+import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupReportJpaRepository;
@@ -52,10 +53,13 @@ class PeerGroupRegressionTest {
     @Mock UserJpaRepository userRepo;
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
+    @Mock ModerationService moderationService;
 
     @InjectMocks StudyGroupService service;
 
     private static final String USER = "user-1";
+    private static final ModerationService.ModerationResult SAFE =
+            new ModerationService.ModerationResult(false, "SAFE", "SAFE", null);
 
     private StudyGroupJpaEntity peerGroup() {
         StudyGroupJpaEntity g = new StudyGroupJpaEntity();
@@ -74,6 +78,7 @@ class PeerGroupRegressionTest {
         when(groupRepo.existsByInviteCode(anyString())).thenReturn(false);
         when(groupRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(memberRepo.findByGroupId(anyString())).thenReturn(List.of());
+        when(moderationService.screenInput(any(), any(), any(), any(), any())).thenReturn(SAFE);
 
         var resp = service.createGroup(USER, Map.of("name", "Bio Buddies"));
         @SuppressWarnings("unchecked")

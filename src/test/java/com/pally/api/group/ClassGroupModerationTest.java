@@ -4,6 +4,7 @@ import com.pally.domain.group.StudyGroupService;
 import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.progress.XpService;
 import com.pally.domain.subscription.PremiumService;
+import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupReportJpaRepository;
@@ -52,6 +53,7 @@ class ClassGroupModerationTest {
     @Mock UserJpaRepository userRepo;
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
+    @Mock ModerationService moderationService;
 
     @InjectMocks StudyGroupService service;
 

@@ -63,4 +63,32 @@ class ModerationServiceLocaleTest {
         var r = svc.screenInput("u", "av", "m", "off topic", null);
         assertThat(r.safeReply()).contains("grown-up");
     }
+
+    /**
+     * Companion to the reply-language tests above, but for the BLOCK DECISION
+     * itself (flagged + isHighSeverity), not the reply text — this is what
+     * every caller that discards safeReply (e.g. StudyGroupService's
+     * createGroup/report, which have no content-language signal and pass a
+     * hardcoded "en") actually depends on. Proves the classifier's decision
+     * on real zh content is unaffected by a WRONG declared contentLanguage —
+     * so a hardcoded "en" there is a harmless placeholder, not an accuracy
+     * gap, because contentLanguage never reaches the classification prompt
+     * (only buildSafeReply reads it — see source).
+     */
+    @Test
+    void highSeverityBlockDecisionOnZhContent_unaffectedByWrongDeclaredLanguage() throws Exception {
+        // A realistic classifier response for actual zh bullying content —
+        // Claude reads the raw text regardless of what contentLanguage claims.
+        when(claude.completeFast(any(), anyInt(), anyString(), anyString()))
+                .thenReturn("{\"category\":\"BULLYING\",\"severity\":\"HIGH\"}");
+
+        // Declare the WRONG language for zh text — mirrors the hardcoded "en"
+        // at StudyGroupService.createGroup()/report(), which have no wiki
+        // page (unlike shareNote()) to source a real content-language from.
+        var r = svc.screenInput("u", "av", "m", "你这个废物，去死吧", "en");
+
+        assertThat(r.flagged()).isTrue();
+        assertThat(r.isHighSeverity()).isTrue();
+        assertThat(r.category()).isEqualTo("BULLYING");
+    }
 }
