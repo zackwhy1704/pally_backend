@@ -14,6 +14,7 @@ public record ClassroomStateResponse(
         String sessionId,
         String status,
         String topicSlug,
+        String joinCode,
         int hpRemaining,
         int hpMax,
         boolean defeated,

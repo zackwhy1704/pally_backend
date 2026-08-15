@@ -271,14 +271,16 @@ public class ClassroomSessionService {
     private ClassroomStateResponse toStateResponse(ClassroomSession session, int participantCount) {
         if (session.defeated() || ClassroomSession.STATUS_ENDED.equals(session.status())) {
             return new ClassroomStateResponse(session.id(), session.status(), session.topicSlug(),
-                    session.hpRemaining(), session.hpMax(), session.defeated(), participantCount, null);
+                    session.joinCode(), session.hpRemaining(), session.hpMax(), session.defeated(),
+                    participantCount, null);
         }
         List<QuizQuestion> pool = fromJson(session.questionPoolJson());
         QuizQuestion current = pool.get(session.currentIndex() % pool.size());
         QuizQuestionResponse served =
                 quizService.serveGradable(session.avatarId(), List.of(current)).get(0);
         return new ClassroomStateResponse(session.id(), session.status(), session.topicSlug(),
-                session.hpRemaining(), session.hpMax(), false, participantCount, served);
+                session.joinCode(), session.hpRemaining(), session.hpMax(), false, participantCount,
+                served);
     }
 
     private String uniqueJoinCode() {
