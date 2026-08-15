@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -25,6 +26,13 @@ public class ClassroomSessionRepositoryAdapter implements ClassroomSessionReposi
     public Optional<ClassroomSession> findLiveByJoinCode(String joinCode) {
         return jpa.findFirstByJoinCodeAndStatusNot(joinCode, ClassroomSession.STATUS_ENDED)
                 .map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ClassroomSession> findLiveByClassId(String classId) {
+        return jpa.findByClassIdAndStatusNotOrderByCreatedAtDesc(classId, ClassroomSession.STATUS_ENDED)
+                .stream().map(this::toDomain).toList();
     }
 
     @Override
