@@ -46,9 +46,32 @@ public class ModuleProgressionService {
     private final CentreAccessService centreAccessService;
     private final com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
     private final GradingWeights gradingWeights;
+    private final com.pally.domain.learning.LearningEventRepository learningEventRepository;
 
     /// Flat XP awarded when a module is fully completed (reaches COMPLETE).
     private static final int MODULE_COMPLETE_XP = 25;
+
+    /// Additive mirror into the unified learning_event stream. Best-effort:
+    /// never lets a learning_event write failure affect the primary progress
+    /// save. No event for UNGRADED (null score / null signalType) — mirrors
+    /// module_progress's own "never a false 0" invariant.
+    private void recordLearningEvent(ModuleProgress progress, String userId, String avatarId,
+                                      com.pally.domain.learning.LearningEventSource source) {
+        if (progress.getSignalType() == null || progress.getSignalType() == GradingSignal.UNGRADED) {
+            return;
+        }
+        try {
+            com.pally.domain.learning.LearningEventProvenance provenance =
+                    progress.getSignalType() == GradingSignal.SELF_REPORT
+                            ? com.pally.domain.learning.LearningEventProvenance.SELF_REPORT
+                            : com.pally.domain.learning.LearningEventProvenance.VERIFIED_SERVER_GRADED;
+            learningEventRepository.save(com.pally.domain.learning.LearningEvent.of(
+                    userId, avatarId, source, provenance,
+                    progress.getTargetConcept(), progress.getScore(), progress.getId()));
+        } catch (Exception e) {
+            log.warn("[LearningEvent] write failed (non-fatal): {}", e.getMessage());
+        }
+    }
 
     /**
      * List all modules for an avatar with stage, mastery, and item counts.
@@ -376,6 +399,8 @@ public class ModuleProgressionService {
             }
 
             progressRepository.save(progress);
+            recordLearningEvent(progress, userId, module.getAvatarId(),
+                    com.pally.domain.learning.LearningEventSource.MODULE_TEST);
             results.add(itemResult);
         }
 
@@ -767,6 +792,8 @@ public class ModuleProgressionService {
         progress.setScore(BigDecimal.valueOf(selfReport.score()));
         progress.setSignalType(GradingSignal.SELF_REPORT);
         progressRepository.save(progress);
+        recordLearningEvent(progress, userId, module.getAvatarId(),
+                com.pally.domain.learning.LearningEventSource.PROVE);
 
         // The self-report weakly nudges wiki certainty (replaces the removed
         // system-asserted LLM nudge).
