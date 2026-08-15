@@ -5,6 +5,7 @@ import com.pally.domain.knowledge.port.RelevancePort;
 import com.pally.domain.progress.XpService;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
+import com.pally.infrastructure.ai.ModerationService;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaEntity;
 import com.pally.infrastructure.persistence.group.GroupMemberJpaRepository;
 import com.pally.infrastructure.persistence.group.GroupReportJpaRepository;
@@ -52,6 +53,7 @@ class GroupsEntitlementGateTest {
     @Mock UserJpaRepository userRepo;
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
+    @Mock ModerationService moderationService;
 
     @InjectMocks StudyGroupService service;
 
@@ -73,6 +75,8 @@ class GroupsEntitlementGateTest {
         when(groupRepo.existsByInviteCode(anyString())).thenReturn(false);
         when(memberRepo.save(any())).thenReturn(new GroupMemberJpaEntity());
         when(memberRepo.findByGroupId(anyString())).thenReturn(java.util.List.of());
+        when(moderationService.screenInput(any(), any(), any(), any(), any()))
+                .thenReturn(new ModerationService.ModerationResult(false, "SAFE", "SAFE", null));
     }
 
     // ── createGroup ───────────────────────────────────────────────────────────
