@@ -25,7 +25,6 @@ class RateFlashcardUseCaseTest {
 
     @Mock FlashcardRepository flashcardRepository;
     @Mock AvatarRepository avatarRepository;
-    @Mock com.pally.domain.learning.LearningEventRepository learningEventRepository;
 
     private static final String CARD_ID   = "card-1";
     private static final String AVATAR_ID = "avatar-1";
@@ -33,7 +32,7 @@ class RateFlashcardUseCaseTest {
     private static final String ATTACKER  = "user-2";
 
     private RateFlashcardUseCase useCase() {
-        return new RateFlashcardUseCase(flashcardRepository, avatarRepository, learningEventRepository);
+        return new RateFlashcardUseCase(flashcardRepository, avatarRepository);
     }
 
     private FlashCard card() {
@@ -51,27 +50,6 @@ class RateFlashcardUseCaseTest {
 
         assertThat(result).isNotNull();
         verify(flashcardRepository).save(any());
-    }
-
-    @Test
-    void execute_writesLearningEvent_spacedVerifiedRecall() {
-        when(flashcardRepository.findById(CARD_ID)).thenReturn(Optional.of(card()));
-        when(avatarRepository.existsByIdAndUserId(AVATAR_ID, OWNER)).thenReturn(true);
-        when(flashcardRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        useCase().execute(CARD_ID, CardRating.EASY, OWNER);
-
-        org.mockito.ArgumentCaptor<com.pally.domain.learning.LearningEvent> cap =
-                org.mockito.ArgumentCaptor.forClass(com.pally.domain.learning.LearningEvent.class);
-        verify(learningEventRepository).save(cap.capture());
-        com.pally.domain.learning.LearningEvent event = cap.getValue();
-        assertThat(event.source()).isEqualTo(com.pally.domain.learning.LearningEventSource.FLASHCARD);
-        assertThat(event.provenance())
-                .isEqualTo(com.pally.domain.learning.LearningEventProvenance.SPACED_VERIFIED_RECALL);
-        assertThat(event.userId()).isEqualTo(OWNER);
-        assertThat(event.avatarId()).isEqualTo(AVATAR_ID);
-        assertThat(event.sourceRowId()).isEqualTo(CARD_ID);
-        assertThat(event.score()).isEqualByComparingTo(java.math.BigDecimal.ONE); // EASY -> 1.0
     }
 
     @Test
