@@ -67,6 +67,25 @@ class QuickOnboardServiceTest {
         assertThat(avatar.getUserId()).isEqualTo("user-1");
     }
 
+    /// register() defaults setup_complete=false (the older two-step wizard's
+    /// second step, completeSetup(), is what used to flip it). Quick onboard
+    /// IS that completion, so it must flip the flag itself — without this the
+    /// server stays permanently false while the client's own local flag masks
+    /// it for exactly one session, then every later login wrongly redirects
+    /// back into onboarding ("already signed in, log out?" loop).
+    @Test
+    void execute_marksSetupCompleteServerSide_soASecondLoginDoesNotBounceBackToOnboarding() {
+        when(authService.emailExists("kid@test.com")).thenReturn(false);
+        when(authService.register("kid@test.com", "pass1234", "Kid", null, null, null))
+                .thenReturn(new AuthResponse("user-1", "tok-1", true, false, AccountType.SOLO));
+        when(avatarRepository.save(any(Avatar.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        service.execute("kid@test.com", "pass1234", "Kid", Subject.MATHS, "primary 4");
+
+        verify(authService).markSetupComplete("user-1");
+    }
+
     /// Under-13 plumbing: the parentEmail handed to execute(...) must be forwarded
     /// verbatim as the 6th arg of register(...), so register()'s consent path runs
     /// (PENDING_CONSENT + parent email) instead of the default-deny 400. No throw.

@@ -158,6 +158,16 @@ public class QuickOnboardService {
         avatar.setContentLanguage(resolvedLanguage);
         Avatar saved = avatarRepository.save(avatar);
 
+        // Step 2b: register() defaults setup_complete=false (a leftover from the
+        // older two-step wizard flow, where a separate completeSetup() call was
+        // the second step). Quick onboard IS that completion — account + avatar
+        // both exist after this line — so mark it here. Without this, the
+        // client's local "setupComplete: true" it forces right after THIS
+        // response is the only place that's ever true; the server stays false
+        // forever, and the user's SECOND login onward incorrectly redirects
+        // back into onboarding instead of home.
+        authService.markSetupComplete(authResponse.userId());
+
         // Step 3: Record the Terms-of-Use acceptance to the audit log — same
         // consent_records table + CHECKBOX method the PDPA self-consent flow uses,
         // its own policy-version lineage (recordTermsAcceptance/TOS_POLICY_VERSION)

@@ -542,6 +542,21 @@ public class AuthService {
     // GONE. Deletion goes exclusively through AccountDeletionService.requestDeletion
     // (re-auth + grace) and the two background reapers. There is one deletion path again.
 
+    /// Flips setup_complete without touching childName/yearLevel/curriculum or
+    /// issuing a new token — for a signup flow (quick onboard) that completes
+    /// account+avatar creation in one call and never goes through the older
+    /// separate completeSetup() wizard step. Without this, the client's own
+    /// forced-true local flag at signup masks a server truth that's stuck
+    /// false forever, so every login AFTER the first session incorrectly
+    /// redirects back into onboarding.
+    @Transactional
+    public void markSetupComplete(String userId) {
+        UserJpaEntity user = userRepo.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found", 404));
+        user.setSetupComplete(true);
+        userRepo.save(user);
+    }
+
     @Transactional
     public void updateChildName(String userId, String childName) {
         UserJpaEntity user = userRepo.findById(userId)
