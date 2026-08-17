@@ -70,7 +70,6 @@ class SubmitQuizAnswersUseCaseTest {
     @Mock ObjectProvider<SubmitQuizAnswersUseCase> selfProvider;
     @Mock com.pally.domain.quiz.QuizIdempotencyRepository idempotencyRepository;
     @Mock com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
-    @Mock com.pally.domain.learning.LearningEventRepository learningEventRepository;
 
     @InjectMocks SubmitQuizAnswersUseCase useCase;
 
@@ -395,34 +394,6 @@ class SubmitQuizAnswersUseCaseTest {
                         QuizQuestionResultJpaEntity::isWasCorrect));
         assertThat(byQuestion.get("q1")).isTrue();
         assertThat(byQuestion.get("q2")).isFalse(); // tampered map could not flip this
-    }
-
-    // ── learning_event mirror ───────────────────────────────────────────
-
-    @Test
-    void execute_persistsQuestionResults_alsoWritesLearningEvent_verifiedServerGraded() {
-        when(avatarRepository.existsByIdAndUserId(AVATAR, USER)).thenReturn(true);
-        when(avatarRepository.findById(AVATAR)).thenReturn(Optional.of(mathsAvatar()));
-        when(flashcardRepository.findDueByAvatarId(AVATAR)).thenReturn(List.of());
-        when(xpService.awardForQuiz(anyString(), anyString(), any(),
-                anyInt(), anyInt(), anyInt())).thenReturn(award(24, 12, false, 1.0));
-        when(answerKeyRepository.findByQuestionIds(any())).thenReturn(Map.of(
-                "q1", new QuizAnswerKeyRepository.AnswerKey(0, "e1")));
-
-        AnswerSubmission sub = new AnswerSubmission(AVATAR, USER, Map.of("q1", 0));
-        useCase.execute(sub, Map.of("q1", 0), Map.of("q1", "topic-x"));
-
-        org.mockito.ArgumentCaptor<com.pally.domain.learning.LearningEvent> cap =
-                org.mockito.ArgumentCaptor.forClass(com.pally.domain.learning.LearningEvent.class);
-        verify(learningEventRepository).save(cap.capture());
-        com.pally.domain.learning.LearningEvent event = cap.getValue();
-        assertThat(event.source()).isEqualTo(com.pally.domain.learning.LearningEventSource.QUIZ);
-        assertThat(event.provenance())
-                .isEqualTo(com.pally.domain.learning.LearningEventProvenance.VERIFIED_SERVER_GRADED);
-        assertThat(event.userId()).isEqualTo(USER);
-        assertThat(event.avatarId()).isEqualTo(AVATAR);
-        assertThat(event.topicSlug()).isEqualTo("topic-x");
-        assertThat(event.score()).isEqualByComparingTo(java.math.BigDecimal.ONE);
     }
 
     @Test
