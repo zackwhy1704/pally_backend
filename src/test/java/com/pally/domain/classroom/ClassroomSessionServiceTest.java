@@ -295,30 +295,4 @@ class ClassroomSessionServiceTest {
         assertThat(eventBus.nicknameFor("session-1", token)).isNull();
         assertThat(eventBus.hasParticipant("session-1", token)).isFalse();
     }
-
-    // ── listLive: teacher session-pointer recovery ──────────────────────
-
-    @Test
-    void listLive_returnsNonEndedSessionsForThisClass() {
-        when(classCrudService.getClass(ORG, CLASS_ID)).thenReturn(classEntity());
-        ClassroomSession live = liveSession();
-        when(sessionRepository.findLiveByClassId(CLASS_ID)).thenReturn(List.of(live));
-        when(quizService.serveGradable(eq(CORPUS_AVATAR), anyList()))
-                .thenAnswer(inv -> servedFrom(inv.getArgument(1)));
-
-        List<ClassroomStateResponse> resp = service.listLive(TEACHER, ORG, CLASS_ID);
-
-        assertThat(resp).hasSize(1);
-        assertThat(resp.get(0).sessionId()).isEqualTo("session-1");
-        assertThat(resp.get(0).status()).isEqualTo(ClassroomSession.STATUS_ACTIVE);
-        verify(centreAccessService).ensureStaff(TEACHER, ORG);
-    }
-
-    @Test
-    void listLive_noLiveSessions_returnsEmpty() {
-        when(classCrudService.getClass(ORG, CLASS_ID)).thenReturn(classEntity());
-        when(sessionRepository.findLiveByClassId(CLASS_ID)).thenReturn(List.of());
-
-        assertThat(service.listLive(TEACHER, ORG, CLASS_ID)).isEmpty();
-    }
 }

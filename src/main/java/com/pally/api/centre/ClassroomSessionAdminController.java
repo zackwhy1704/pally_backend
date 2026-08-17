@@ -9,12 +9,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 /**
  * Teacher (centre-gated) endpoints for classroom boss sessions: create from
- * class material, start, end, get live state, list live sessions. Thin
- * delegator to {@link ClassroomSessionService}, which owns all guards/logic.
+ * class material, start, end, get live state. Thin delegator to
+ * {@link ClassroomSessionService}, which owns all guards/logic.
  */
 @RestController
 @RequestMapping("/api/v1/centre/organizations/{orgId}/classes/{classId}/classroom-sessions")
@@ -22,17 +20,6 @@ import java.util.List;
 public class ClassroomSessionAdminController {
 
     private final ClassroomSessionService classroomSessionService;
-
-    /** Lets a teacher client recover a live session's pointer after a page
-     *  refresh — see {@link ClassroomSessionService#listLive}. */
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<ClassroomStateResponse>>> listLive(
-            @AuthenticationPrincipal String userId,
-            @PathVariable String orgId,
-            @PathVariable String classId) {
-        return ResponseEntity.ok(ApiResponse.success(
-                classroomSessionService.listLive(userId, orgId, classId)));
-    }
 
     @PostMapping
     public ResponseEntity<ApiResponse<ClassroomStateResponse>> create(

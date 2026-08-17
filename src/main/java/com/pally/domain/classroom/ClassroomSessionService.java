@@ -133,18 +133,6 @@ public class ClassroomSessionService {
         return toStateResponse(session, participantCount(sessionId));
     }
 
-    /** Every non-ENDED session for this class, newest first — lets a teacher
-     *  client recover its session pointer after a page refresh instead of
-     *  losing track of a still-running session (it keeps running
-     *  server-side either way; this just makes it reachable again). */
-    public List<ClassroomStateResponse> listLive(String userId, String orgId, String classId) {
-        centreAccessService.ensureStaff(userId, orgId);
-        classCrudService.getClass(orgId, classId); // confirms class belongs to this org
-        return sessionRepository.findLiveByClassId(classId).stream()
-                .map(s -> toStateResponse(s, participantCount(s.id())))
-                .toList();
-    }
-
     // ── Student: join / attack / stream ─────────────────────────────────
 
     /**
