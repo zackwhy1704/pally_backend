@@ -101,6 +101,53 @@ public class ModuleContentGenerator {
     }
 
     /**
+     * SYLLABUS-PACK generation: identical to {@link #generate} except every item is
+     * forced DRAFT before persist (mirrors {@link #regenerateAsDraft}'s override), never
+     * the personal-avatar auto-LIVE default. A syllabus_content_pack's items must pass an
+     * explicit platform-admin approval before they can ever be servable — reusing
+     * {@link #generate}'s implicit LIVE default here would publish AI-generated content
+     * with zero review, which is exactly what the pre-moderated requirement forbids.
+     *
+     * @param avatar the pack's hidden {@code AvatarKind.SYLLABUS_PACK} avatar
+     * @param page a synthetic, OER-grounded {@link WikiPage} — never an uploaded file
+     */
+    public LearningModule generateAsPack(Avatar avatar, WikiPage page) {
+        String tier = resolveContentTier(avatar);
+        String level = avatar.getGradeLevel() != null
+                ? "a " + avatar.getGradeLevel() + " student"
+                : "a student";
+        String subject = avatar.getSubject().label();
+
+        LearningModule module = new LearningModule();
+        module.setId(IdGenerator.newId());
+        module.setAvatarId(avatar.getId());
+        module.setClassId(avatar.getClassId());
+        module.setWikiPageSlug(page.getSlug());
+        module.setTitle(page.getTitle());
+        module.setStage(ModuleStage.LEARN.name());
+        module.setTier(tier);
+        module.setMasteryPct(BigDecimal.ZERO);
+        module.setCreatedAt(Instant.now());
+        module.setContentLanguage(page.getContentLanguage());
+
+        String content = truncate(page.getContent(), 3000);
+        List<ModuleContentItem> allItems = new ArrayList<>();
+
+        String lang = avatar.getContentLanguage();
+        allItems.addAll(generateMicroCards(module.getId(), content, level, subject, tier, "", avatar.getId(), lang));
+        allItems.addAll(generateHotTakes(module.getId(), content, level, subject, tier, "", avatar.getId(), lang));
+        allItems.addAll(generateSpotMistake(module.getId(), content, level, subject, "", avatar.getId(), lang));
+        allItems.addAll(generateChallenges(module.getId(), content, level, subject, tier, "", avatar.getId(), lang));
+        allItems.forEach(i -> i.setStatus("DRAFT"));
+        tagGroundedness(page, allItems);
+
+        LearningModule saved = moduleWriter.saveModuleWithItems(module, allItems);
+        log.info("[SyllabusPack] Generated pack module id={} slug={} items={} tier={} status=DRAFT",
+                saved.getId(), page.getSlug(), allItems.size(), tier);
+        return saved;
+    }
+
+    /**
      * Re-generates content items for an existing module with optional teacher guidance.
      * Deletes all existing items first, then generates fresh LEARN + TEST items as DRAFT
      * so the centre can review before they go live. PROVE items are omitted (adaptive,

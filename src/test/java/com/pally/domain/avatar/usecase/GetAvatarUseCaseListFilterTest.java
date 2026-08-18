@@ -38,6 +38,12 @@ class GetAvatarUseCaseListFilterTest {
         return a;
     }
 
+    private Avatar syllabusPack() {
+        Avatar a = Avatar.create("u1", "SG-G3-COMPUTING-7155 / Algorithms", Subject.CODING, CharacterType.MOCHI);
+        a.markSyllabusPack();
+        return a;
+    }
+
     @Test
     void getAllForUser_hidesMarkingCorpus_keepsPersonalAndCentreClass() {
         Avatar personal = personal();
@@ -49,5 +55,22 @@ class GetAvatarUseCaseListFilterTest {
 
         assertThat(result).containsExactly(personal, centre);
         assertThat(result).noneMatch(a -> a.getKind() == AvatarKind.MARKING_CORPUS);
+    }
+
+    @Test
+    void getAllForUser_hidesSyllabusPack_soUploadYourOwnAndStarterContentNeverCollideInAStudentsList() {
+        // Real-world path this pins: PLATFORM_SYSTEM_USER_ID never equals a real
+        // student's userId, so findByUserId would never actually return one of these in
+        // practice — but the family filter (mirroring MARKING_CORPUS/WEAKNESS_PROFILE)
+        // is defense-in-depth against a future owner-id bug leaking a hidden pack avatar
+        // into a real user's upload-your-own avatar list.
+        Avatar personal = personal();
+        when(avatarRepository.findByUserId("u1"))
+                .thenReturn(List.of(personal, syllabusPack()));
+
+        List<Avatar> result = useCase.getAllForUser("u1");
+
+        assertThat(result).containsExactly(personal);
+        assertThat(result).noneMatch(a -> a.getKind() == AvatarKind.SYLLABUS_PACK);
     }
 }
