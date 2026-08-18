@@ -325,6 +325,12 @@ public final class Avatar {
     /// (orgId, subject). Teacher-only, never student-visible; compiled through the
     /// same wiki harness as student notes.
     public void markMarkingCorpus()             { this.kind = AvatarKind.MARKING_CORPUS; this.centreAvatar = true; }
+    public boolean isSyllabusPack()             { return getKind() == AvatarKind.SYLLABUS_PACK; }
+    /// Marks this avatar as a hidden syllabus_content_pack brain, keyed by
+    /// (syllabusCode, topicTag). Platform-owned, never student-visible; its items
+    /// must land DRAFT (see ModuleContentGenerator#generateAsPack) — never the
+    /// personal-avatar auto-LIVE default.
+    public void markSyllabusPack()              { this.kind = AvatarKind.SYLLABUS_PACK; }
     public boolean isWeaknessProfile()          { return getKind() == AvatarKind.WEAKNESS_PROFILE; }
     /// Marks this avatar as a student's hidden weakness-profile brain, keyed by
     /// (userId, subject). Never student-visible; compiled from performance

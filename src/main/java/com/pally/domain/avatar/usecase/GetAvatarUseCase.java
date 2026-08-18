@@ -34,9 +34,13 @@ public class GetAvatarUseCase {
         // MARKING_CORPUS is a hidden teacher marking-standard brain, never a
         // listable/collectible avatar — exclude it from the user's avatar list.
         // (CENTRE_CLASS is intentionally left in; the mapper renders it.)
+        // SYLLABUS_PACK avatars are owned by the fixed platform system user, so a real
+        // user's findByUserId never returns one in practice — filtered here too, for the
+        // same defense-in-depth reason as its MARKING_CORPUS/WEAKNESS_PROFILE siblings.
         return avatarRepository.findByUserId(userId).stream()
                 .filter(a -> a.getKind() != AvatarKind.MARKING_CORPUS)
                 .filter(a -> a.getKind() != AvatarKind.WEAKNESS_PROFILE)
+                .filter(a -> a.getKind() != AvatarKind.SYLLABUS_PACK)
                 .toList();
     }
 }

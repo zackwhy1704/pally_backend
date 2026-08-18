@@ -37,5 +37,16 @@ public enum AvatarKind {
      * low mastery) rather than uploaded files, through the SAME wiki harness.
      * Never listed/collectible; owner is the student. Dormant behind a flag.
      */
-    WEAKNESS_PROFILE
+    WEAKNESS_PROFILE,
+    /**
+     * A hidden, platform-owned brain holding one pre-built {@code syllabus_content_pack}'s
+     * generated modules, keyed by (syllabusCode, topicTag). Owned by the fixed platform
+     * system user (V129), not a real teacher/student. Its knowledge pages are synthetic
+     * {@link com.pally.domain.knowledge.WikiPage}s built from OER-grounded text (never an
+     * uploaded file) and run through the SAME generation pipeline as any other avatar, so
+     * items land DRAFT and require an explicit platform-admin approval before they can ever
+     * be servable — never auto-LIVE like a personal avatar's items. Never student-visible,
+     * never in the economy, never in student {@code listAvatars}.
+     */
+    SYLLABUS_PACK
 }
