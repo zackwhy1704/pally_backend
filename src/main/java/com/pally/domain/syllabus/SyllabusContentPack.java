@@ -16,6 +16,7 @@ public record SyllabusContentPack(
         String avatarId,
         String packStatus,        // PackStatus enum name
         String sourceLicenseNote, // which OER source(s) + license this pack was grounded on
+        String displayLabel,      // client-safe title (V130) — never the raw syllabusCode/topicTag
         Instant createdAt
 ) {
 }

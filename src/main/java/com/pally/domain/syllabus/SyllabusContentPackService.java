@@ -55,6 +55,7 @@ public class SyllabusContentPackService {
     public static final String PLATFORM_SYSTEM_USER_ID = "platform-syllabus-content-system";
 
     private final SyllabusContentPackRepository packRepository;
+    private final SyllabusContentPackAliasRepository aliasRepository;
     private final AvatarRepository avatarRepository;
     private final ModuleContentGenerator moduleContentGenerator;
     private final LearningModuleRepository learningModuleRepository;
@@ -64,15 +65,23 @@ public class SyllabusContentPackService {
      * Resolves (creating on first use) the pack + its hidden avatar for
      * (syllabusCode, topicTag). Race-safe on the DB's unique (syllabus_code, topic_tag)
      * constraint — mirrors {@code MarkingCorpusService#resolveOrCreate}.
+     *
+     * @param displayLabel client-safe title (e.g. "Algorithms & Problem-Solving") — the
+     *                      ONLY text ever shown to a student for this pack (V130); never
+     *                      the internal syllabusCode/topicTag.
      */
     @Transactional
     public SyllabusContentPack resolveOrCreatePack(
-            String syllabusCode, String topicTag, Subject subject, String sourceLicenseNote) {
+            String syllabusCode, String topicTag, Subject subject, String sourceLicenseNote,
+            String displayLabel) {
         if (syllabusCode == null || syllabusCode.isBlank()) {
             throw new BusinessException("syllabusCode is required", 400);
         }
         if (topicTag == null || topicTag.isBlank()) {
             throw new BusinessException("topicTag is required", 400);
+        }
+        if (displayLabel == null || displayLabel.isBlank()) {
+            throw new BusinessException("displayLabel is required", 400);
         }
 
         Optional<SyllabusContentPack> existing =
@@ -89,7 +98,7 @@ public class SyllabusContentPackService {
 
         SyllabusContentPack pack = new SyllabusContentPack(
                 IdGenerator.newId(), syllabusCode, topicTag, savedAvatar.getId(),
-                PackStatus.DRAFT.name(), sourceLicenseNote, Instant.now());
+                PackStatus.DRAFT.name(), sourceLicenseNote, displayLabel, Instant.now());
         try {
             SyllabusContentPack saved = packRepository.save(pack);
             log.info("[SyllabusPack] created pack syllabus={} topic={} avatar={}",
@@ -158,25 +167,61 @@ public class SyllabusContentPackService {
                 .orElseThrow(() -> new BusinessException("Pack not found", 404));
         SyllabusContentPack published = new SyllabusContentPack(
                 pack.id(), pack.syllabusCode(), pack.topicTag(), pack.avatarId(),
-                PackStatus.PUBLISHED.name(), pack.sourceLicenseNote(), pack.createdAt());
+                PackStatus.PUBLISHED.name(), pack.sourceLicenseNote(), pack.displayLabel(), pack.createdAt());
         return packRepository.save(published);
     }
 
     /**
+     * Platform-admin only: makes an EXISTING pack additionally discoverable under a
+     * second (syllabusCode, topicTag) — e.g. tagging a G3 Computing "Algorithms" pack
+     * for Cambridge IGCSE's "Algorithm Design and Problem-Solving" too, WITHOUT
+     * generating a second copy of the content. Race-safe on the alias table's unique
+     * (syllabus_code, topic_tag) constraint (V130), same pattern as pack creation.
+     */
+    @Transactional
+    public SyllabusContentPackAlias addAlias(String packId, String syllabusCode, String topicTag) {
+        if (syllabusCode == null || syllabusCode.isBlank()) {
+            throw new BusinessException("syllabusCode is required", 400);
+        }
+        if (topicTag == null || topicTag.isBlank()) {
+            throw new BusinessException("topicTag is required", 400);
+        }
+        SyllabusContentPack pack = packRepository.findById(packId)
+                .orElseThrow(() -> new BusinessException("Pack not found", 404));
+
+        SyllabusContentPackAlias alias = new SyllabusContentPackAlias(
+                IdGenerator.newId(), pack.id(), syllabusCode, topicTag, Instant.now());
+        try {
+            SyllabusContentPackAlias saved = aliasRepository.save(alias);
+            log.info("[SyllabusPack] added alias pack={} syllabus={} topic={}",
+                    pack.id(), syllabusCode, topicTag);
+            return saved;
+        } catch (DataIntegrityViolationException race) {
+            throw new BusinessException(
+                    "An alias already exists for syllabus=" + syllabusCode + " topic=" + topicTag, 409);
+        }
+    }
+
+    /**
      * Student-facing browse: PUBLISHED packs that have at least one independently
-     * SERVABLE (LIVE/APPROVED) item. A DRAFT pack, or a PUBLISHED pack whose items are
+     * SERVABLE (LIVE/APPROVED) item, matched by their NATIVE syllabus_code or any
+     * ALIAS syllabus_code (V130). A DRAFT pack, or a PUBLISHED pack whose items are
      * still all DRAFT, never appears here — this dual gate (pack_status AND item
      * status) IS the pre-moderated proof, not a single reused flag.
      */
     @Transactional(readOnly = true)
     public List<PackBrowseView> browsePublished(String syllabusCodeFilter) {
         List<SyllabusContentPack> packs = packRepository.findByPackStatus(PackStatus.PUBLISHED.name());
+        boolean filtering = syllabusCodeFilter != null && !syllabusCodeFilter.isBlank();
+
         List<PackBrowseView> views = new ArrayList<>();
         for (SyllabusContentPack pack : packs) {
-            if (syllabusCodeFilter != null && !syllabusCodeFilter.isBlank()
-                    && !syllabusCodeFilter.equals(pack.syllabusCode())) {
-                continue;
-            }
+            boolean matchesNative = !filtering || syllabusCodeFilter.equals(pack.syllabusCode());
+            boolean matchesAlias = filtering && !matchesNative
+                    && aliasRepository.findByPackId(pack.id()).stream()
+                            .anyMatch(a -> syllabusCodeFilter.equals(a.syllabusCode()));
+            if (!matchesNative && !matchesAlias) continue;
+
             List<LearningModule> modules = learningModuleRepository.findByAvatarId(pack.avatarId());
             int servableCount = 0;
             for (LearningModule module : modules) {
@@ -184,8 +229,7 @@ public class SyllabusContentPackService {
                         .findServableByModuleIdOrderBySortOrder(module.getId()).size();
             }
             if (servableCount == 0) continue; // nothing servable yet — don't advertise an empty pack
-            views.add(new PackBrowseView(
-                    pack.id(), pack.syllabusCode(), pack.topicTag(), modules.size(), servableCount));
+            views.add(new PackBrowseView(pack.id(), pack.displayLabel(), modules.size(), servableCount));
         }
         return views;
     }
