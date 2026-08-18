@@ -1,6 +1,7 @@
 package com.pally.api.admin;
 
 import com.pally.domain.syllabus.SyllabusContentPack;
+import com.pally.domain.syllabus.SyllabusContentPackAlias;
 import com.pally.domain.syllabus.SyllabusContentPackService;
 import com.pally.shared.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -38,5 +39,20 @@ public class SyllabusPackAdminController {
     @PostMapping("/{packId}/publish")
     public ResponseEntity<ApiResponse<SyllabusContentPack>> publish(@PathVariable String packId) {
         return ResponseEntity.ok(ApiResponse.success(packService.publish(packId)));
+    }
+
+    /**
+     * Makes an existing pack additionally discoverable under a second syllabus's topic
+     * tag, without generating a second copy of its content (Phase 2 cross-syllabus reuse).
+     */
+    @PostMapping("/{packId}/alias")
+    public ResponseEntity<ApiResponse<SyllabusContentPackAlias>> addAlias(
+            @PathVariable String packId, @RequestBody AddAliasRequest request) {
+        SyllabusContentPackAlias alias =
+                packService.addAlias(packId, request.syllabusCode(), request.topicTag());
+        return ResponseEntity.ok(ApiResponse.success(alias));
+    }
+
+    public record AddAliasRequest(String syllabusCode, String topicTag) {
     }
 }

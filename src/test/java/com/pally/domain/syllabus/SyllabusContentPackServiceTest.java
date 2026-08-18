@@ -2,7 +2,6 @@ package com.pally.domain.syllabus;
 
 import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.AvatarRepository;
-import com.pally.domain.avatar.CharacterType;
 import com.pally.domain.avatar.Subject;
 import com.pally.domain.module.LearningModule;
 import com.pally.domain.module.LearningModuleRepository;
@@ -33,6 +32,7 @@ import static org.mockito.Mockito.*;
 class SyllabusContentPackServiceTest {
 
     @Mock private SyllabusContentPackRepository packRepository;
+    @Mock private SyllabusContentPackAliasRepository aliasRepository;
     @Mock private AvatarRepository avatarRepository;
     @Mock private ModuleContentGenerator moduleContentGenerator;
     @Mock private LearningModuleRepository learningModuleRepository;
@@ -43,13 +43,14 @@ class SyllabusContentPackServiceTest {
     @BeforeEach
     void setUp() {
         service = new SyllabusContentPackService(
-                packRepository, avatarRepository, moduleContentGenerator,
+                packRepository, aliasRepository, avatarRepository, moduleContentGenerator,
                 learningModuleRepository, itemRepository);
     }
 
     private SyllabusContentPack pack(String id, String avatarId, String status) {
         return new SyllabusContentPack(id, "SG-G3-COMPUTING-7155", "Algorithms",
-                avatarId, status, "Isaac CS + Teach Computing Curriculum (OGL v3.0)", Instant.now());
+                avatarId, status, "Isaac CS + Teach Computing Curriculum (OGL v3.0)",
+                "Algorithms & Problem-Solving", Instant.now());
     }
 
     private ModuleContentItem item(String id, String moduleId, String status) {
@@ -67,6 +68,11 @@ class SyllabusContentPackServiceTest {
         return m;
     }
 
+    private SyllabusContentPackAlias alias(String packId, String syllabusCode, String topicTag) {
+        return new SyllabusContentPackAlias(
+                "alias-" + syllabusCode, packId, syllabusCode, topicTag, Instant.now());
+    }
+
     // ── resolveOrCreatePack ──────────────────────────────────────────────────
 
     @Test
@@ -76,7 +82,7 @@ class SyllabusContentPackServiceTest {
                 .thenReturn(Optional.of(existing));
 
         SyllabusContentPack result = service.resolveOrCreatePack(
-                "SG-G3-COMPUTING-7155", "Algorithms", Subject.CODING, "note");
+                "SG-G3-COMPUTING-7155", "Algorithms", Subject.CODING, "note", "Algorithms & Problem-Solving");
 
         assertThat(result).isEqualTo(existing);
         verify(avatarRepository, never()).save(any());
@@ -84,9 +90,6 @@ class SyllabusContentPackServiceTest {
 
     @Test
     void resolveOrCreatePack_lostCreateRace_discardsOrphanAvatar_returnsWinner() {
-        // Two concurrent callers both attempt to create the same (syllabusCode, topicTag)
-        // pack. The DB's unique constraint (V129) lets exactly one win; the loser must
-        // discard its orphan avatar and return the winner's row, never throw or duplicate.
         when(packRepository.findBySyllabusCodeAndTopicTag("SG-G3-COMPUTING-7155", "Algorithms"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(pack("pack-winner", "av-winner", "DRAFT")));
@@ -94,7 +97,7 @@ class SyllabusContentPackServiceTest {
         when(packRepository.save(any())).thenThrow(new DataIntegrityViolationException("uq_syllabus_content_pack_code_topic"));
 
         SyllabusContentPack result = service.resolveOrCreatePack(
-                "SG-G3-COMPUTING-7155", "Algorithms", Subject.CODING, "note");
+                "SG-G3-COMPUTING-7155", "Algorithms", Subject.CODING, "note", "Algorithms & Problem-Solving");
 
         assertThat(result.id()).isEqualTo("pack-winner");
         verify(avatarRepository).deleteById(anyString());
@@ -102,7 +105,17 @@ class SyllabusContentPackServiceTest {
 
     @Test
     void resolveOrCreatePack_blankSyllabusCode_rejected() {
-        assertThatThrownBy(() -> service.resolveOrCreatePack("", "Algorithms", Subject.CODING, "note"))
+        assertThatThrownBy(() -> service.resolveOrCreatePack(
+                "", "Algorithms", Subject.CODING, "note", "Algorithms & Problem-Solving"))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void resolveOrCreatePack_blankDisplayLabel_rejected() {
+        // V130: displayLabel is the ONLY client-safe text for a pack — must be required,
+        // never silently defaulted, so a pack can never end up with no student-facing title.
+        assertThatThrownBy(() -> service.resolveOrCreatePack(
+                "SG-G3-COMPUTING-7155", "Algorithms", Subject.CODING, "note", "  "))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -144,17 +157,48 @@ class SyllabusContentPackServiceTest {
         verify(itemRepository, never()).save(any());
     }
 
-    // ── browsePublished: the dual-gate proof ────────────────────────────────
+    // ── addAlias (Phase 2: cross-syllabus reuse) ────────────────────────────
+
+    @Test
+    void addAlias_savesAlias_scopedToExistingPack() {
+        SyllabusContentPack pack = pack("pack-1", "av-1", "PUBLISHED");
+        when(packRepository.findById("pack-1")).thenReturn(Optional.of(pack));
+        when(aliasRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        SyllabusContentPackAlias result = service.addAlias(
+                "pack-1", "CAMBRIDGE-IGCSE-CS-0478", "Algorithm-Design-and-Problem-Solving");
+
+        assertThat(result.packId()).isEqualTo("pack-1");
+        assertThat(result.syllabusCode()).isEqualTo("CAMBRIDGE-IGCSE-CS-0478");
+    }
+
+    @Test
+    void addAlias_missingPack_rejected() {
+        when(packRepository.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addAlias("missing", "CAMBRIDGE-IGCSE-CS-0478", "Algorithms"))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void addAlias_duplicateSyllabusTopic_rejectedNotSilentlyDropped() {
+        SyllabusContentPack pack = pack("pack-1", "av-1", "PUBLISHED");
+        when(packRepository.findById("pack-1")).thenReturn(Optional.of(pack));
+        when(aliasRepository.save(any()))
+                .thenThrow(new DataIntegrityViolationException("uq_syllabus_content_pack_alias_code_topic"));
+
+        assertThatThrownBy(() -> service.addAlias("pack-1", "CAMBRIDGE-IGCSE-CS-0478", "Algorithms"))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    // ── browsePublished: the dual-gate proof + alias-based discovery ────────
 
     @Test
     void browsePublished_excludesPack_whenAllItemsStillDraft() {
-        // PUBLISHED pack_status alone must NOT be enough to appear in browse — its items
-        // must independently be servable (SERVABLE_STATUSES). This is the "pre-moderated"
-        // proof: publishing a pack before any item is approved must not leak DRAFT content.
         SyllabusContentPack published = pack("pack-1", "av-1", "PUBLISHED");
         when(packRepository.findByPackStatus("PUBLISHED")).thenReturn(List.of(published));
         when(learningModuleRepository.findByAvatarId("av-1")).thenReturn(List.of(module("mod-1", "av-1")));
-        when(itemRepository.findServableByModuleIdOrderBySortOrder("mod-1")).thenReturn(List.of()); // none servable yet
+        when(itemRepository.findServableByModuleIdOrderBySortOrder("mod-1")).thenReturn(List.of());
 
         List<PackBrowseView> views = service.browsePublished(null);
 
@@ -173,19 +217,62 @@ class SyllabusContentPackServiceTest {
 
         assertThat(views).hasSize(1);
         assertThat(views.get(0).packId()).isEqualTo("pack-1");
+        assertThat(views.get(0).displayLabel()).isEqualTo("Algorithms & Problem-Solving");
         assertThat(views.get(0).servableItemCount()).isEqualTo(1);
     }
 
     @Test
     void browsePublished_neverReturnsDraftPack_regardlessOfItemStatus() {
-        // A DRAFT-status pack is never even queried for by browsePublished (it only asks
-        // the repository for PUBLISHED rows) — proves the pack-level gate is enforced at
-        // the query, not by post-filtering that a future change could accidentally drop.
         when(packRepository.findByPackStatus("PUBLISHED")).thenReturn(List.of());
 
         List<PackBrowseView> views = service.browsePublished(null);
 
         assertThat(views).isEmpty();
         verify(packRepository, never()).findByPackStatus(eq("DRAFT"));
+    }
+
+    @Test
+    void browsePublished_filteredByNativeSyllabusCode_matches() {
+        SyllabusContentPack published = pack("pack-1", "av-1", "PUBLISHED");
+        when(packRepository.findByPackStatus("PUBLISHED")).thenReturn(List.of(published));
+        when(learningModuleRepository.findByAvatarId("av-1")).thenReturn(List.of(module("mod-1", "av-1")));
+        when(itemRepository.findServableByModuleIdOrderBySortOrder("mod-1"))
+                .thenReturn(List.of(item("item-1", "mod-1", "LIVE")));
+
+        List<PackBrowseView> views = service.browsePublished("SG-G3-COMPUTING-7155");
+
+        assertThat(views).hasSize(1);
+    }
+
+    @Test
+    void browsePublished_filteredByAliasSyllabusCode_matchesViaAlias_noSecondGeneration() {
+        // The Phase 2 point: a G3 Computing pack tagged with a Cambridge IGCSE alias is
+        // discoverable under BOTH syllabus codes, using the SAME underlying modules/items
+        // — no second pack, no second generation call.
+        SyllabusContentPack published = pack("pack-1", "av-1", "PUBLISHED");
+        when(packRepository.findByPackStatus("PUBLISHED")).thenReturn(List.of(published));
+        when(aliasRepository.findByPackId("pack-1"))
+                .thenReturn(List.of(alias("pack-1", "CAMBRIDGE-IGCSE-CS-0478", "Algorithm-Design")));
+        when(learningModuleRepository.findByAvatarId("av-1")).thenReturn(List.of(module("mod-1", "av-1")));
+        when(itemRepository.findServableByModuleIdOrderBySortOrder("mod-1"))
+                .thenReturn(List.of(item("item-1", "mod-1", "LIVE")));
+
+        List<PackBrowseView> views = service.browsePublished("CAMBRIDGE-IGCSE-CS-0478");
+
+        assertThat(views).hasSize(1);
+        assertThat(views.get(0).packId()).isEqualTo("pack-1");
+        verify(moduleContentGenerator, never()).generateAsPack(any(), any());
+    }
+
+    @Test
+    void browsePublished_filteredByUnmatchedSyllabusCode_excludesPack() {
+        SyllabusContentPack published = pack("pack-1", "av-1", "PUBLISHED");
+        when(packRepository.findByPackStatus("PUBLISHED")).thenReturn(List.of(published));
+        when(aliasRepository.findByPackId("pack-1")).thenReturn(List.of());
+
+        List<PackBrowseView> views = service.browsePublished("AP-CS-A");
+
+        assertThat(views).isEmpty();
+        verify(learningModuleRepository, never()).findByAvatarId(anyString());
     }
 }

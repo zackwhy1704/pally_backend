@@ -51,12 +51,14 @@ public class SyllabusContentPackRepositoryAdapter implements SyllabusContentPack
         e.setAvatarId(p.avatarId());
         e.setPackStatus(p.packStatus() != null ? p.packStatus() : "DRAFT");
         e.setSourceLicenseNote(p.sourceLicenseNote());
+        e.setDisplayLabel(p.displayLabel() != null ? p.displayLabel() : "");
         e.setCreatedAt(p.createdAt());
         return e;
     }
 
     private SyllabusContentPack toDomain(SyllabusContentPackJpaEntity e) {
         return new SyllabusContentPack(e.getId(), e.getSyllabusCode(), e.getTopicTag(),
-                e.getAvatarId(), e.getPackStatus(), e.getSourceLicenseNote(), e.getCreatedAt());
+                e.getAvatarId(), e.getPackStatus(), e.getSourceLicenseNote(),
+                e.getDisplayLabel(), e.getCreatedAt());
     }
 }

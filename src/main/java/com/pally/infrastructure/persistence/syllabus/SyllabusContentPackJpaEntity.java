@@ -52,6 +52,10 @@ public class SyllabusContentPackJpaEntity {
     @Column(name = "source_license_note", length = 500)
     private String sourceLicenseNote;
 
+    /** Client-safe title (V130) — the only text ever shown to a student for this pack. */
+    @Column(name = "display_label", nullable = false, length = 200)
+    private String displayLabel = "";
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 }
