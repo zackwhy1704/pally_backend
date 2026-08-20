@@ -40,12 +40,15 @@ class AvatarMapperTest {
     @Mock private OrgClassJpaRepository orgClassRepository;
 
     private AvatarMapper mapper;
+    private com.pally.domain.module.ModuleGenerationProgressStore moduleGenerationProgressStore;
 
     @BeforeEach
     void setUp() {
         // No knowledge files in these tests; fileCount is not the subject under test.
         lenient().when(knowledgeRepository.findByAvatarId(any())).thenReturn(List.of());
-        mapper = new AvatarMapper(knowledgeRepository, orgClassRepository, new ObjectMapper());
+        moduleGenerationProgressStore = new com.pally.domain.module.ModuleGenerationProgressStore();
+        mapper = new AvatarMapper(knowledgeRepository, orgClassRepository, new ObjectMapper(),
+                moduleGenerationProgressStore);
     }
 
     private Avatar classAvatar() {
@@ -85,6 +88,29 @@ class AvatarMapperTest {
         assertThat(resp.mochiConfig()).isNull();
         // PERSONAL avatars must never trigger an org_class query.
         verify(orgClassRepository, never()).findById(any());
+    }
+
+    @Test
+    void moduleProgress_isNull_whenNoGenerationBatchInFlight() {
+        // Absence must read as "no live signal", never as a fabricated "0 of 0" —
+        // a client that treats null-modulesTotal as 0 would wrongly show "done".
+        AvatarResponse resp = mapper.toResponse(personalAvatar());
+
+        assertThat(resp.modulesCompleted()).isNull();
+        assertThat(resp.modulesTotal()).isNull();
+    }
+
+    @Test
+    void moduleProgress_reflectsLiveStoreState_whileGenerationIsInFlight() {
+        Avatar avatar = personalAvatar();
+        moduleGenerationProgressStore.start(avatar.getId(), 6);
+        moduleGenerationProgressStore.increment(avatar.getId());
+        moduleGenerationProgressStore.increment(avatar.getId());
+
+        AvatarResponse resp = mapper.toResponse(avatar);
+
+        assertThat(resp.modulesCompleted()).isEqualTo(2);
+        assertThat(resp.modulesTotal()).isEqualTo(6);
     }
 
     @Test

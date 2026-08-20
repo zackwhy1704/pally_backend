@@ -45,6 +45,7 @@ class WikiFanOutGateTest {
         return new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo, moduleContentGenerator,
+                new com.pally.domain.module.ModuleGenerationProgressStore(),
                 learningModuleRepository, wikiQualityVerifier, selfProvider, wikiConflictService);
     }
 

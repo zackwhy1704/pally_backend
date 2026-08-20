@@ -8,6 +8,7 @@ import com.pally.domain.avatar.Avatar;
 import com.pally.domain.avatar.ClassAvatarAppearance;
 import com.pally.domain.knowledge.KnowledgeFile;
 import com.pally.domain.knowledge.KnowledgeRepository;
+import com.pally.domain.module.ModuleGenerationProgressStore;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaEntity;
 import com.pally.infrastructure.persistence.organization.OrgClassJpaRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class AvatarMapper {
     private final KnowledgeRepository knowledgeRepository;
     private final OrgClassJpaRepository orgClassRepository;
     private final ObjectMapper objectMapper;
+    private final ModuleGenerationProgressStore moduleGenerationProgressStore;
 
     /**
      * Maps a single {@link Avatar} to an {@link AvatarResponse}.
@@ -165,6 +167,9 @@ public class AvatarMapper {
                                 ? avatar.getCentreBrandName() : avatar.getName())
                 : null;
 
+        ModuleGenerationProgressStore.Progress moduleProgress =
+                moduleGenerationProgressStore.find(avatar.getId());
+
         return new AvatarResponse(
                 avatar.getId(),
                 avatar.getName(),
@@ -197,7 +202,9 @@ public class AvatarMapper {
                 pendingChapterCount,
                 compileFailureReason,
                 compileFailureKind,
-                avatar.getContentLanguage()
+                avatar.getContentLanguage(),
+                moduleProgress != null ? moduleProgress.completed() : null,
+                moduleProgress != null ? moduleProgress.total() : null
         );
     }
 

@@ -94,5 +94,19 @@ public record AvatarResponse(
         String compileFailureKind,
         /// Language the AI generates this avatar's content in ('en' | 'zh') — V124. Always present.
         /// Clients read it to render generated content appropriately and to prefill the picker.
-        String contentLanguage
+        String contentLanguage,
+        // ── Module-generation live progress ───────────────────────────────────
+        // The compile poll's blind spot: wiki-page extraction reports pagesCompiled/
+        // pagesTotal elsewhere, but once pages are extracted, brainState stays
+        // COMPILING and wikiPageCount is already final while LEARN/TEST modules are
+        // still being generated per page — a phase a polling client had ZERO signal
+        // for. Null/absent (NOT 0) whenever no module-generation batch is in flight
+        // for this avatar (in-memory, single-replica-scoped — see
+        // ModuleGenerationProgressStore — so absence does not mean "done", only
+        // "no live signal right now"; a client should treat null as "no new info",
+        // never as "0 of 0".
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Integer modulesCompleted,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Integer modulesTotal
 ) {}
