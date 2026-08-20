@@ -8,6 +8,7 @@ import com.pally.domain.knowledge.WikiQualityVerifier;
 import com.pally.domain.knowledge.WikiRepository;
 import com.pally.domain.knowledge.port.WikiCompilerPort;
 import com.pally.domain.module.ModuleContentGenerator;
+import com.pally.domain.module.ModuleGenerationProgressStore;
 import com.pally.infrastructure.ai.ClaudeApiClient;
 import com.pally.infrastructure.ai.ClaudeFlashcardGenerator;
 import com.pally.infrastructure.ai.ModelRouter;
@@ -66,6 +67,7 @@ public class WikiPagePersistenceService {
     private final ModelRouter modelRouter;
     private final WikiPageSourceJpaRepository wikiPageSourceRepo;
     private final ModuleContentGenerator moduleContentGenerator;
+    private final ModuleGenerationProgressStore moduleGenerationProgressStore;
     private final LearningModuleJpaRepository learningModuleRepository;
     private final WikiQualityVerifier wikiQualityVerifier;
     /// Self-reference (Spring proxy) so the per-page write runs in its OWN
@@ -658,17 +660,24 @@ public class WikiPagePersistenceService {
      * Failures are logged but never roll back the wiki persist transaction.
      */
     private void queueModuleGeneration(Avatar avatar, List<String> producedSlugs) {
+        // Live progress signal for the avatar-status poll (AvatarMapper) — the phase
+        // this feeds was previously invisible to the client: brainState stays
+        // COMPILING and wikiPageCount is already at its final value by the time
+        // this runs, so a polling client had zero signal that a module just landed.
+        moduleGenerationProgressStore.start(avatar.getId(), producedSlugs.size());
         for (String slug : producedSlugs) {
             try {
                 if (learningModuleRepository
                         .findByAvatarIdAndWikiPageSlug(avatar.getId(), slug)
                         .isPresent()) {
+                    moduleGenerationProgressStore.increment(avatar.getId());
                     continue; // already has a module
                 }
                 var page = wikiRepository.findByAvatarIdAndSlug(avatar.getId(), slug);
                 if (page.isPresent()) {
                     moduleContentGenerator.generate(avatar, page.get());
                 }
+                moduleGenerationProgressStore.increment(avatar.getId());
             } catch (Exception e) {
                 if (isUniqueViolation(e)) {
                     // A3: the findByAvatarIdAndWikiPageSlug check above is a read-then-

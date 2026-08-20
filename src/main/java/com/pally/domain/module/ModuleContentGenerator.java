@@ -95,8 +95,8 @@ public class ModuleContentGenerator {
 
         // ── Short transactional persist ─────────────────────────────────────
         LearningModule saved = moduleWriter.saveModuleWithItems(module, allItems);
-        log.info("[Module] Generated module id={} slug={} items={} tier={}",
-                saved.getId(), page.getSlug(), allItems.size(), tier);
+        log.info("[Module] Generated module id={} avatarId={} slug={} items={} tier={}",
+                saved.getId(), avatar.getId(), page.getSlug(), allItems.size(), tier);
         return saved;
     }
 

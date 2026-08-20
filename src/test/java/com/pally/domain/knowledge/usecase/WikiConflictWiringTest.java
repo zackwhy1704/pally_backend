@@ -61,7 +61,7 @@ class WikiConflictWiringTest {
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository, new WikiQualityVerifier(),
+                moduleContentGenerator, new com.pally.domain.module.ModuleGenerationProgressStore(), learningModuleRepository, new WikiQualityVerifier(),
                 selfProvider, wikiConflictService);
     }
 

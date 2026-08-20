@@ -63,7 +63,7 @@ class WikiPagePersistResilienceTest {
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository, new WikiQualityVerifier(),
+                moduleContentGenerator, new com.pally.domain.module.ModuleGenerationProgressStore(), learningModuleRepository, new WikiQualityVerifier(),
                 selfProvider,
                 org.mockito.Mockito.mock(com.pally.domain.knowledge.WikiConflictService.class));
         // lenient: the pure-static isUniqueViolation test doesn't drive the orchestrator.

@@ -60,7 +60,7 @@ class WikiPageDedupTest {
         service = new WikiPagePersistenceService(
                 wikiRepository, avatarRepository, hintTreeGenerator, flashcardGenerator,
                 claudeApiClient, modelRouter, wikiPageSourceRepo,
-                moduleContentGenerator, learningModuleRepository, wikiQualityVerifier,
+                moduleContentGenerator, new com.pally.domain.module.ModuleGenerationProgressStore(), learningModuleRepository, wikiQualityVerifier,
                 selfProvider,
                 org.mockito.Mockito.mock(com.pally.domain.knowledge.WikiConflictService.class));
         org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(service);
