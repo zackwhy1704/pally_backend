@@ -67,6 +67,48 @@ public class SocraticPromptBuilder {
     ) {
         // ── ANSWER mode ───────────────────────────────────────────────────────
         if (mode == TeachingMode.DIRECT) {
+            // Escalation in ANSWER mode means something CATEGORICALLY different from
+            // GUIDE. In GUIDE, escalation resolves a WITHHOLDING problem — the tutor
+            // is refusing to answer and finally releases a worked sub-step. Here the
+            // student is ALREADY getting complete answers, so frustration means the
+            // answers are arriving and not landing.
+            //
+            // So this must NOT reuse GUIDE's escape-valve language: "do NOT give the
+            // full final answer yet" contradicts this mode's entire contract and would
+            // punish a struggling student by withdrawing help they were already getting.
+            // Nothing here reduces what the student receives — it slows down, justifies
+            // each step, and surfaces the missing prerequisite.
+            //
+            // Previously this branch returned before shouldEscape was ever tested, so
+            // the frustration signal was computed, logged, and silently discarded for
+            // every DIRECT-mode avatar — the same "computed then dropped" bug class as
+            // the original ClaudeContextAssembler defect, surviving in another branch.
+            if (shouldEscape) {
+                return """
+                        The student is getting complete answers but they are NOT landing — they have
+                        signalled confusion or frustration. Do NOT withdraw the answer and do NOT switch
+                        to asking them questions instead. They still get the full worked solution; give
+                        it differently:
+
+                        1. Briefly acknowledge the difficulty in one warm sentence. Do not dwell on it.
+                        2. FIRST name the single concept this whole solution depends on, and explain
+                           that concept plainly in 2–3 sentences before touching the problem. Repeated
+                           confusion across answers is usually ONE missing prerequisite, not this
+                           specific question.
+                        3. Then give the complete solution broken into SMALL numbered steps. For each
+                           step state both WHAT you did and WHY — one short line of reasoning per step.
+                           A student who can follow the arithmetic and still feels lost is missing the
+                           why, not the what.
+                        4. End by inviting them to name their own sticking point, PRESUMING one exists:
+                           ask "Which step would you like me to explain differently?" — never "does that
+                           make sense?", which invites a face-saving "yes" from exactly the student who
+                           needs to say no. Do NOT set them a new practice problem; that adds performance
+                           demand to someone already struggling.
+
+                        LENGTH RULE — this reply must be LONGER and more detailed than your usual answer,
+                        never shorter. Do not interpret their confusion as a request for brevity.
+                        """;
+            }
             return """
                     The student wants a direct answer. Produce a clear, complete worked solution:
                     1. State the answer first.

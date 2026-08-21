@@ -123,7 +123,7 @@ class SendMessageUseCaseModuleGateTest {
         when(topicClassifier.detectsDeflection(anyString())).thenReturn(false);
         when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any()))
                 .thenReturn(Optional.of(ChatSession.createToday("av-1")));
-        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean(), any()))
                 .thenReturn(java.util.Map.of("type", "text", "text", ""));
         when(modelRouter.forChat(anyString(), any(), anyBoolean())).thenReturn("claude-sonnet-4-20250514");
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
@@ -191,7 +191,7 @@ class SendMessageUseCaseModuleGateTest {
         when(topicClassifier.detectsDeflection(anyString())).thenReturn(false);
         when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any()))
                 .thenReturn(Optional.of(ChatSession.createToday("av-1")));
-        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean(), any()))
                 .thenReturn(java.util.Map.of("type", "text", "text", ""));
         when(modelRouter.forChat(anyString(), any(), anyBoolean())).thenReturn("claude-sonnet-4-20250514");
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))

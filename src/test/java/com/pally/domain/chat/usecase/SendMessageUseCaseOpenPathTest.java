@@ -111,7 +111,7 @@ class SendMessageUseCaseOpenPathTest {
         when(topicClassifier.detectsDeflection(anyString())).thenReturn(false);
         when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any()))
                 .thenReturn(Optional.of(ChatSession.createToday("avatar-1")));
-        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean(), any()))
                 .thenReturn(Map.of("type", "text", "text", "block4"));
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
                 .thenReturn(Flux.just(
@@ -144,7 +144,7 @@ class SendMessageUseCaseOpenPathTest {
         when(topicClassifier.detectsDeflection(anyString())).thenReturn(false);
         when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any()))
                 .thenReturn(Optional.empty());
-        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean(), any()))
                 .thenReturn(Map.of("type", "text", "text", "block4"));
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
                 .thenReturn(Flux.just(
@@ -191,7 +191,7 @@ class SendMessageUseCaseOpenPathTest {
         when(topicClassifier.detectsFrustration(anyList(), anyString())).thenReturn(true);
         when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any()))
                 .thenReturn(Optional.of(ChatSession.createToday("avatar-1")));
-        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean(), any()))
                 .thenReturn(Map.of("type", "text", "text", "block4"));
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
                 .thenReturn(Flux.just(
@@ -207,7 +207,7 @@ class SendMessageUseCaseOpenPathTest {
                 .verifyComplete();
 
         verify(topicClassifier).detectsFrustration(frustratedHistory, "tell me the answer already");
-        verify(socraticPromptBuilder).buildBlock4(any(), any(), anyInt(), eq(true));
+        verify(socraticPromptBuilder).buildBlock4(any(), any(), anyInt(), eq(true), any());
     }
 
     private ChatMessage userMsg(String content) {

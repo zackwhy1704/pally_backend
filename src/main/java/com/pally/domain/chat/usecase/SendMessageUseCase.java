@@ -228,6 +228,11 @@ public class SendMessageUseCase {
             }
         }
 
+        // Pages fetched by the closed-book gate below are REUSED for the Block 4
+        // note-citation rather than re-queried — the centre path would otherwise hit
+        // findActiveByAvatarId twice per message for the same corpus.
+        List<WikiPage> citationPages = List.of();
+
         // ── Centre avatar: closed-book gate ──────────────────────────────
         // Deterministic refuse — NO LLM call for off-corpus turns.
         if (closedBookEnabled && avatar.isCentreAvatar()) {
@@ -236,6 +241,7 @@ public class SendMessageUseCase {
             String corpusId = avatar.getCorpusAvatarId() != null
                     ? avatar.getCorpusAvatarId() : avatarId;
             List<WikiPage> pages = wikiRepository.findActiveByAvatarId(corpusId);
+            citationPages = pages; // reused for the Block 4 citation — no second query
             double relevance = computeKeywordRelevance(userMessage, pages);
             if (pages.isEmpty() || relevance < closedBookThreshold) {
                 String brand = avatar.getName();
@@ -339,9 +345,31 @@ public class SendMessageUseCase {
             log.warn("[Chat] Session save failed for avatar={} (non-fatal): {}", avatarId, e.getMessage());
         }
 
-        // Build Block 4 (dynamic tail — no cache) based on Socratic state
+        // Build Block 4 (dynamic tail — no cache) based on Socratic state.
+        //
+        // The wiki pages are passed EXPLICITLY. This call previously used the 4-arg
+        // overload, which substitutes List.of() — so buildNoteCitation always returned
+        // empty and the "cite the student's own notes" line never appeared on the live
+        // chat path. The product claim that Mochi cites the student's own material was
+        // therefore false in the assembled prompt, not merely weak.
+        //
+        // AssembledContext carries only (systemPrompt, harnessTrace, systemBlocks) and
+        // no pages, so they are read here rather than threaded through it — deliberately
+        // NOT widening that shared record in the same change that touches Socratic
+        // prompt text. Best-effort: a lookup failure degrades to no citation (the prior
+        // behaviour), never a failed message.
+        if (citationPages.isEmpty()) {
+            try {
+                String citationAvatarId = avatar.getCorpusAvatarId() != null
+                        ? avatar.getCorpusAvatarId() : avatarId;
+                citationPages = wikiRepository.findActiveByAvatarId(citationAvatarId);
+            } catch (Exception e) {
+                log.warn("[Chat] Note-citation page lookup failed for avatar={} (non-fatal): {}",
+                        avatarId, e.getMessage());
+            }
+        }
         Map<String, Object> block4 = socraticPromptBuilder.buildBlock4(
-                mode, hintTree, session.getAttemptCount(), escalate);
+                mode, hintTree, session.getAttemptCount(), escalate, citationPages);
 
         // Replace Block 4 in the system blocks list
         List<Map<String, Object>> systemBlocks = buildBlocksWithSocraticTail(
