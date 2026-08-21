@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.pally.domain.module.dto.MasteryAuditResponse;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +39,7 @@ public class ModuleController {
     private final ModuleService moduleService;
     private final AssignmentService assignmentService;
     private final ConsentGuard consentGuard;
+    private final com.pally.domain.module.MasteryAuditService masteryAuditService;
 
     /**
      * Generate modules for all wiki pages. Idempotent — skips existing slugs.
@@ -167,6 +169,22 @@ public class ModuleController {
     ) {
         Map<String, Object> results = moduleService.getResults(moduleId, userId);
         return ResponseEntity.ok(ApiResponse.success(results));
+    }
+
+    /**
+     * Auditable mastery: the module's mastery number alongside the evidence behind
+     * it, broken down by trust tier. Read-only, self-scoped — {@code userId} comes
+     * from the authenticated principal, never a path/query parameter, so there is
+     * no caller-supplied student id to walk.
+     */
+    @GetMapping("/{moduleId}/mastery-audit")
+    public ResponseEntity<ApiResponse<MasteryAuditResponse>> masteryAudit(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String avatarId,
+            @PathVariable String moduleId
+    ) {
+        return ResponseEntity.ok(
+                ApiResponse.success(masteryAuditService.audit(moduleId, userId)));
     }
 
 }
