@@ -102,18 +102,17 @@ public class SocraticPromptBuilder {
                 // demonstrations means the arithmetic was never the problem. Reordering
                 // would make the model follow instructions while abandoning the pedagogy.
                 return """
-                        The student is getting complete answers but they are NOT landing — they have
-                        signalled confusion or frustration. Do NOT withdraw the answer and do NOT switch
-                        to asking them questions instead. They still get the full worked solution, but
-                        restructured.
+                        The student is getting complete answers but they are NOT landing. Do NOT withdraw
+                        the answer and do NOT switch to asking them questions. They still get the full
+                        worked solution, restructured.
 
-                        If their message names no new problem, work through the MOST RECENT problem they
-                        attempted, and say so in your opening line (e.g. "Let's go back to the last one")
-                        — never silently answer a different question than the one they asked, which reads
-                        as though you misheard them.
+                        Your reply MUST contain ALL THREE of these elements, in this order, each under
+                        its own short heading. A reply missing any one of them is incomplete:
 
-                        Your reply MUST contain BOTH of these sections, in this order, each under its own
-                        short heading. A reply missing either section is incomplete:
+                        **Where we're picking up** — one line naming which problem you are solving. If
+                        their message names no new problem, work through the MOST RECENT one they
+                        attempted and say so ("Let's go back to the last one"). Never silently answer a
+                        different question than the one they asked — it reads as though you misheard them.
 
                         **The idea underneath** — name the single concept this solution depends on and
                         explain it plainly in 2–3 sentences, before touching the problem. Repeated
@@ -124,12 +123,11 @@ public class SocraticPromptBuilder {
                         both WHAT you did and WHY, one short line of reasoning each. A student who can
                         follow the arithmetic and still feels lost is missing the why, not the what.
 
-                        Open with one warm sentence acknowledging the difficulty; do not dwell on it.
-                        Close by asking "Which step would you like me to explain differently?" — never
-                        "does that make sense?", which invites a face-saving "yes" from the student who
-                        most needs to say no. Set no new practice problem.
-
-                        This reply must be LONGER than your usual answer, never shorter.
+                        Open with one warm sentence before the first heading; do not dwell. Close by
+                        asking "Which step would you like me to explain differently?" — never "does that
+                        make sense?", which invites a face-saving "yes" from the student who most needs
+                        to say no. Set no new practice problem. This reply must be LONGER than your usual
+                        answer, never shorter.
                         """;
             }
             return """

@@ -66,7 +66,7 @@ class SocraticBlock4GapsTest {
 
         assertThat(escalated).doesNotContain("Do NOT give the full final answer yet");
         assertThat(escalated).doesNotContain("WORKED SUB-STEP");
-        assertThat(escalated).contains("Do NOT withdraw the answer");
+        assertThat(escalated.replaceAll("\\s+", " ")).contains("Do NOT withdraw the answer");
     }
 
     @Test
@@ -88,7 +88,7 @@ class SocraticBlock4GapsTest {
         // which is the opposite of what a lost student needs.
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
-        assertThat(escalated).contains("must be LONGER than your usual answer");
+        assertThat(escalated.replaceAll("\\s+", " ")).contains("must be LONGER than your usual answer");
     }
 
     @Test
@@ -153,9 +153,10 @@ class SocraticBlock4GapsTest {
         // instructions never were.
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
+        assertThat(escalated).contains("**Where we're picking up**");
         assertThat(escalated).contains("**The idea underneath**");
         assertThat(escalated).contains("**The steps**");
-        assertThat(escalated).contains("MUST contain BOTH of these sections");
+        assertThat(escalated).contains("MUST contain ALL THREE of these elements");
     }
 
     @Test
@@ -169,15 +170,40 @@ class SocraticBlock4GapsTest {
     }
 
     @Test
-    void directEscalated_statesItIsGoingBack_ratherThanSilentlyReSolving() {
-        // Observed deviation: with no new problem in the message, the model reached
-        // back and re-solved the PREVIOUS question with no signal. Re-solving is
-        // right; doing it silently reads as though the tutor misheard them.
+    void directEscalated_statesItIsGoingBack_asAREQUIRED_ELEMENT_notProse() {
+        // Field verification round 2 found this instruction DROPPED while it was
+        // prose, even though the two required SECTIONS both survived in the same
+        // reply. It is now the first required element, given the identical
+        // structural treatment that demonstrably worked for the steps section.
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
-        assertThat(escalated).contains("MOST RECENT problem");
+        assertThat(escalated).contains("**Where we're picking up**");
+        assertThat(escalated).contains("MOST RECENT one they");
         assertThat(escalated).contains("Let's go back to the last one");
-        assertThat(escalated).contains("never silently answer a different question");
+        assertThat(escalated.replaceAll("\\s+", " "))
+                .contains("Never silently answer a different question than the one they asked");
+    }
+
+    @Test
+    void directEscalated_requiredElementsAreOrdered_pickUpThenConceptThenSteps() {
+        String e = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(e.indexOf("**Where we're picking up**"))
+                .as("naming the problem must come first")
+                .isLessThan(e.indexOf("**The idea underneath**"));
+        assertThat(e.indexOf("**The idea underneath**"))
+                .isLessThan(e.indexOf("**The steps**"));
+    }
+
+    @Test
+    void directEscalated_blockDidNotGrowWhileGainingAnElement() {
+        // Length itself contributes to instruction-dropping, so the third required
+        // element was bought by compressing prose, not by adding to the block.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated.lines().count())
+                .as("block must not exceed the length it had with only two elements")
+                .isLessThanOrEqualTo(26L);
     }
 
     @Test
