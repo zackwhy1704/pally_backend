@@ -76,7 +76,10 @@ class SocraticBlock4GapsTest {
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
         assertThat(escalated).contains("Which step would you like me to explain differently?");
-        assertThat(escalated).contains("never \"does that");
+        // Whitespace-normalised: the block is line-wrapped, so this must not depend
+        // on where the wrap happens to fall.
+        assertThat(escalated.replaceAll("\\s+", " "))
+                .contains("never \"does that make sense?\"");
     }
 
     @Test
@@ -85,7 +88,7 @@ class SocraticBlock4GapsTest {
         // which is the opposite of what a lost student needs.
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
-        assertThat(escalated).contains("LONGER and more detailed");
+        assertThat(escalated).contains("must be LONGER than your usual answer");
     }
 
     @Test
@@ -137,6 +140,67 @@ class SocraticBlock4GapsTest {
                 .as("calm DIRECT — no citation").doesNotContain("Cite where this appears");
         assertThat(block(TeachingMode.DIRECT, true, pages()))
                 .as("escalated DIRECT — no citation").doesNotContain("Cite where this appears");
+    }
+
+    // ── OUTPUT-SHAPE SCAFFOLD (the falsifiability the section rewrite buys) ──
+
+    @Test
+    void directEscalated_requiresBOTHNamedSections_conceptAndSteps() {
+        // Field verification showed the prose version reliably DROPPED the step
+        // decomposition: the model read "explain the concept" and "give numbered
+        // steps" as competing options and kept only the first. Named sections make
+        // the omission visible in output shape — and assertable here, which prose
+        // instructions never were.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).contains("**The idea underneath**");
+        assertThat(escalated).contains("**The steps**");
+        assertThat(escalated).contains("MUST contain BOTH of these sections");
+    }
+
+    @Test
+    void directEscalated_sectionHeadersAreConversational_notFormFields() {
+        // A frustrated student should not be handed something that reads like a form.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).doesNotContain("SECTION 1");
+        assertThat(escalated).doesNotContain("Answer:");
+        assertThat(escalated).doesNotContain("Field");
+    }
+
+    @Test
+    void directEscalated_statesItIsGoingBack_ratherThanSilentlyReSolving() {
+        // Observed deviation: with no new problem in the message, the model reached
+        // back and re-solved the PREVIOUS question with no signal. Re-solving is
+        // right; doing it silently reads as though the tutor misheard them.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).contains("MOST RECENT problem");
+        assertThat(escalated).contains("Let's go back to the last one");
+        assertThat(escalated).contains("never silently answer a different question");
+    }
+
+    @Test
+    void directEscalated_keepsConceptBeforeSteps_notReordered() {
+        // Reordering would satisfy instruction-following while abandoning the
+        // pedagogy: the concept leads precisely BECAUSE repeated correct
+        // demonstrations already failed, so the arithmetic was never the problem.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated.indexOf("**The idea underneath**"))
+                .as("concept section must precede the steps section")
+                .isLessThan(escalated.indexOf("**The steps**"));
+    }
+
+    @Test
+    void directEscalated_addsNoEmphasisWordInflation() {
+        // The rejected weak fix. Emphasis words are unfalsifiable and lengthen the
+        // block, which is itself a contributor to instruction-dropping.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).doesNotContain("CRITICAL");
+        assertThat(escalated).doesNotContain("ALWAYS");
+        assertThat(escalated).doesNotContain("VERY IMPORTANT");
     }
 
     // ── REGRESSION GUARD on the Task-3-verified asset ────────────────────────
