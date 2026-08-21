@@ -120,7 +120,7 @@ class SendMessageUseCaseCorpusRedirectTest {
         when(topicClassifier.classify(anyString(), anyList())).thenReturn(Optional.empty());
         when(topicClassifier.detectsDeflection(anyString())).thenReturn(false);
         when(chatSessionRepository.findByAvatarIdAndDate(anyString(), any())).thenReturn(Optional.empty());
-        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean()))
+        when(socraticPromptBuilder.buildBlock4(any(), any(), anyInt(), anyBoolean(), any()))
                 .thenReturn(Map.of("type", "text", "text", "block4"));
         when(chatPort.streamChat(anyList(), anyList(), anyString(), any(), anyString()))
                 .thenReturn(Flux.just(
