@@ -51,7 +51,11 @@ class ModuleProgressionServiceTest {
                 moduleRepository, itemRepository, progressRepository,
                 contentGenerator, proveEvaluator, wikiRepository, objectMapper,
                 milestoneNotifier, activityLogService, xpService,
-                avatarRepository, centreAccessService, weaknessProfileService,
+                // Real guard over the same mocks — so the existing IDOR tests keep
+                // exercising the actual authorization logic after its extraction,
+                // not a mock that would rubber-stamp it.
+                new ModuleAccessGuard(avatarRepository, centreAccessService),
+                weaknessProfileService,
                 new GradingWeights());
         // Default: caller owns the module's avatar, so the access guard passes.
         // Individual tests override this to exercise the IDOR rejection.

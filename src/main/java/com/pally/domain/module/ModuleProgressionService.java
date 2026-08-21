@@ -42,8 +42,7 @@ public class ModuleProgressionService {
     private final com.pally.domain.notification.MilestoneNotifier milestoneNotifier;
     private final com.pally.domain.progress.ActivityLogService activityLogService;
     private final com.pally.domain.progress.XpService xpService;
-    private final AvatarRepository avatarRepository;
-    private final CentreAccessService centreAccessService;
+    private final ModuleAccessGuard moduleAccessGuard;
     private final com.pally.domain.weakness.WeaknessProfileService weaknessProfileService;
     private final GradingWeights gradingWeights;
 
@@ -678,13 +677,7 @@ public class ModuleProgressionService {
     /// class (centre students share class modules). Otherwise 404 — so a stranger
     /// can't read another user's module or mutate its progress by guessing an id.
     private void assertModuleAccess(LearningModule module, String userId) {
-        boolean ownsAvatar = module.getAvatarId() != null
-                && avatarRepository.existsByIdAndUserId(module.getAvatarId(), userId);
-        boolean enrolledInClass = centreAccessService.isActiveClassMember(
-                userId, module.getClassId());
-        if (!ownsAvatar && !enrolledInClass) {
-            throw new BusinessException("Module not found", 404);
-        }
+        moduleAccessGuard.assertModuleAccess(module, userId);
     }
 
     /// Maps a PROVE score to a certainty delta and applies it to the module's
@@ -828,6 +821,28 @@ public class ModuleProgressionService {
         return null;
     }
 
+    /**
+     * The SINGLE definition of "this progress row feeds mastery". Extracted so the
+     * mastery-audit read-model reports the same evidence set that actually produced
+     * masteryPct — an audit that counted a different set of rows than the mastery
+     * math would be exactly the kind of number-you-can't-trust this surface exists
+     * to rule out.
+     *
+     * <p>LEARN is excluded (a completion marker, not a grade). UNGRADED and
+     * score == null contribute nothing (never a false 0). Legacy null-signal TEST
+     * rows are the OLD client-authoritative scores → EXCLUDED (never resurrect the
+     * closed spoof hole); legacy null-signal PROVE rows are kept so existing
+     * students' mastery is preserved.
+     */
+    static boolean contributesToMastery(ModuleProgress p) {
+        boolean gradedStage = ModuleStage.PROVE.name().equals(p.getStage())
+                || ModuleStage.TEST.name().equals(p.getStage());
+        if (!gradedStage) return false;
+        if (p.getScore() == null) return false;
+        if (p.getSignalType() == GradingSignal.UNGRADED) return false;
+        return !(p.getSignalType() == null && ModuleStage.TEST.name().equals(p.getStage()));
+    }
+
     private void updateMastery(LearningModule module, String userId) {
         // Mastery blends the trustworthy graded signals across TEST + PROVE:
         // DETERMINISTIC hot-takes (weight 1.0) and PROVE SELF_REPORTs (0.30). LEARN
@@ -837,12 +852,7 @@ public class ModuleProgressionService {
         // existing students' mastery is preserved.
         List<ModuleProgress> graded = progressRepository
                 .findByModuleIdAndUserId(module.getId(), userId).stream()
-                .filter(p -> ModuleStage.PROVE.name().equals(p.getStage())
-                        || ModuleStage.TEST.name().equals(p.getStage()))
-                .filter(p -> p.getScore() != null)
-                .filter(p -> p.getSignalType() != GradingSignal.UNGRADED)
-                .filter(p -> !(p.getSignalType() == null
-                        && ModuleStage.TEST.name().equals(p.getStage())))
+                .filter(ModuleProgressionService::contributesToMastery)
                 .toList();
 
         // Trust-weighted mastery (Tier 3): UNGRADED contributes NOTHING (never a
