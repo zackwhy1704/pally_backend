@@ -4,6 +4,7 @@ import com.pally.domain.avatar.AvatarRepository;
 import com.pally.domain.quiz.CardRating;
 import com.pally.domain.quiz.FlashCard;
 import com.pally.domain.quiz.FlashcardRepository;
+import com.pally.domain.quiz.FlashcardReviewRepository;
 import com.pally.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,7 @@ class RateFlashcardUseCaseTest {
 
     @Mock FlashcardRepository flashcardRepository;
     @Mock AvatarRepository avatarRepository;
+    @Mock FlashcardReviewRepository flashcardReviewRepository;
 
     private static final String CARD_ID   = "card-1";
     private static final String AVATAR_ID = "avatar-1";
@@ -32,7 +34,8 @@ class RateFlashcardUseCaseTest {
     private static final String ATTACKER  = "user-2";
 
     private RateFlashcardUseCase useCase() {
-        return new RateFlashcardUseCase(flashcardRepository, avatarRepository);
+        return new RateFlashcardUseCase(flashcardRepository, avatarRepository,
+                flashcardReviewRepository);
     }
 
     private FlashCard card() {
