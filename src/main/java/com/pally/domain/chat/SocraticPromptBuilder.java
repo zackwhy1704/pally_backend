@@ -84,29 +84,50 @@ public class SocraticPromptBuilder {
             // every DIRECT-mode avatar — the same "computed then dropped" bug class as
             // the original ClaudeContextAssembler defect, surviving in another branch.
             if (shouldEscape) {
+                // Structured as REQUIRED OUTPUT SECTIONS, not prose instructions.
+                // Field verification against the live model showed the previous prose
+                // version reliably dropped the step-decomposition instruction: the model
+                // treated "explain the concept" and "give numbered steps" as competing
+                // descriptions of how to explain, picked the first, and produced a
+                // coherent reply missing the steps entirely. Named sections make an
+                // omission visible in the OUTPUT SHAPE rather than as a missing quality —
+                // which also makes it assertable in a test.
+                //
+                // Section headers are deliberately conversational ("The idea underneath",
+                // "The steps") rather than clinical — a frustrated student should not be
+                // handed something that reads like a filled-in form.
+                //
+                // Order is deliberate and must NOT be flipped to put steps first: the
+                // concept leads because repeated confusion across several correct
+                // demonstrations means the arithmetic was never the problem. Reordering
+                // would make the model follow instructions while abandoning the pedagogy.
                 return """
-                        The student is getting complete answers but they are NOT landing — they have
-                        signalled confusion or frustration. Do NOT withdraw the answer and do NOT switch
-                        to asking them questions instead. They still get the full worked solution; give
-                        it differently:
+                        The student is getting complete answers but they are NOT landing. Do NOT withdraw
+                        the answer and do NOT switch to asking them questions. They still get the full
+                        worked solution, restructured.
 
-                        1. Briefly acknowledge the difficulty in one warm sentence. Do not dwell on it.
-                        2. FIRST name the single concept this whole solution depends on, and explain
-                           that concept plainly in 2–3 sentences before touching the problem. Repeated
-                           confusion across answers is usually ONE missing prerequisite, not this
-                           specific question.
-                        3. Then give the complete solution broken into SMALL numbered steps. For each
-                           step state both WHAT you did and WHY — one short line of reasoning per step.
-                           A student who can follow the arithmetic and still feels lost is missing the
-                           why, not the what.
-                        4. End by inviting them to name their own sticking point, PRESUMING one exists:
-                           ask "Which step would you like me to explain differently?" — never "does that
-                           make sense?", which invites a face-saving "yes" from exactly the student who
-                           needs to say no. Do NOT set them a new practice problem; that adds performance
-                           demand to someone already struggling.
+                        Your reply MUST contain ALL THREE of these elements, in this order, each under
+                        its own short heading. A reply missing any one of them is incomplete:
 
-                        LENGTH RULE — this reply must be LONGER and more detailed than your usual answer,
-                        never shorter. Do not interpret their confusion as a request for brevity.
+                        **Where we're picking up** — one line naming which problem you are solving. If
+                        their message names no new problem, work through the MOST RECENT one they
+                        attempted and say so ("Let's go back to the last one"). Never silently answer a
+                        different question than the one they asked — it reads as though you misheard them.
+
+                        **The idea underneath** — name the single concept this solution depends on and
+                        explain it plainly in 2–3 sentences, before touching the problem. Repeated
+                        confusion across several answers is usually ONE missing prerequisite, not this
+                        specific question.
+
+                        **The steps** — the complete solution as SMALL numbered steps. Every step states
+                        both WHAT you did and WHY, one short line of reasoning each. A student who can
+                        follow the arithmetic and still feels lost is missing the why, not the what.
+
+                        Open with one warm sentence before the first heading; do not dwell. Close by
+                        asking "Which step would you like me to explain differently?" — never "does that
+                        make sense?", which invites a face-saving "yes" from the student who most needs
+                        to say no. Set no new practice problem. This reply must be LONGER than your usual
+                        answer, never shorter.
                         """;
             }
             return """

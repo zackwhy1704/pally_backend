@@ -66,7 +66,7 @@ class SocraticBlock4GapsTest {
 
         assertThat(escalated).doesNotContain("Do NOT give the full final answer yet");
         assertThat(escalated).doesNotContain("WORKED SUB-STEP");
-        assertThat(escalated).contains("Do NOT withdraw the answer");
+        assertThat(escalated.replaceAll("\\s+", " ")).contains("Do NOT withdraw the answer");
     }
 
     @Test
@@ -76,7 +76,10 @@ class SocraticBlock4GapsTest {
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
         assertThat(escalated).contains("Which step would you like me to explain differently?");
-        assertThat(escalated).contains("never \"does that");
+        // Whitespace-normalised: the block is line-wrapped, so this must not depend
+        // on where the wrap happens to fall.
+        assertThat(escalated.replaceAll("\\s+", " "))
+                .contains("never \"does that make sense?\"");
     }
 
     @Test
@@ -85,7 +88,7 @@ class SocraticBlock4GapsTest {
         // which is the opposite of what a lost student needs.
         String escalated = block(TeachingMode.DIRECT, true, List.of());
 
-        assertThat(escalated).contains("LONGER and more detailed");
+        assertThat(escalated.replaceAll("\\s+", " ")).contains("must be LONGER than your usual answer");
     }
 
     @Test
@@ -137,6 +140,93 @@ class SocraticBlock4GapsTest {
                 .as("calm DIRECT — no citation").doesNotContain("Cite where this appears");
         assertThat(block(TeachingMode.DIRECT, true, pages()))
                 .as("escalated DIRECT — no citation").doesNotContain("Cite where this appears");
+    }
+
+    // ── OUTPUT-SHAPE SCAFFOLD (the falsifiability the section rewrite buys) ──
+
+    @Test
+    void directEscalated_requiresBOTHNamedSections_conceptAndSteps() {
+        // Field verification showed the prose version reliably DROPPED the step
+        // decomposition: the model read "explain the concept" and "give numbered
+        // steps" as competing options and kept only the first. Named sections make
+        // the omission visible in output shape — and assertable here, which prose
+        // instructions never were.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).contains("**Where we're picking up**");
+        assertThat(escalated).contains("**The idea underneath**");
+        assertThat(escalated).contains("**The steps**");
+        assertThat(escalated).contains("MUST contain ALL THREE of these elements");
+    }
+
+    @Test
+    void directEscalated_sectionHeadersAreConversational_notFormFields() {
+        // A frustrated student should not be handed something that reads like a form.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).doesNotContain("SECTION 1");
+        assertThat(escalated).doesNotContain("Answer:");
+        assertThat(escalated).doesNotContain("Field");
+    }
+
+    @Test
+    void directEscalated_statesItIsGoingBack_asAREQUIRED_ELEMENT_notProse() {
+        // Field verification round 2 found this instruction DROPPED while it was
+        // prose, even though the two required SECTIONS both survived in the same
+        // reply. It is now the first required element, given the identical
+        // structural treatment that demonstrably worked for the steps section.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).contains("**Where we're picking up**");
+        assertThat(escalated).contains("MOST RECENT one they");
+        assertThat(escalated).contains("Let's go back to the last one");
+        assertThat(escalated.replaceAll("\\s+", " "))
+                .contains("Never silently answer a different question than the one they asked");
+    }
+
+    @Test
+    void directEscalated_requiredElementsAreOrdered_pickUpThenConceptThenSteps() {
+        String e = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(e.indexOf("**Where we're picking up**"))
+                .as("naming the problem must come first")
+                .isLessThan(e.indexOf("**The idea underneath**"));
+        assertThat(e.indexOf("**The idea underneath**"))
+                .isLessThan(e.indexOf("**The steps**"));
+    }
+
+    @Test
+    void directEscalated_blockDidNotGrowWhileGainingAnElement() {
+        // Length itself contributes to instruction-dropping, so the third required
+        // element was bought by compressing prose, not by adding to the block.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated.lines().count())
+                .as("block must not exceed the length it had with only two elements")
+                .isLessThanOrEqualTo(26L);
+    }
+
+    @Test
+    void directEscalated_keepsConceptBeforeSteps_notReordered() {
+        // Reordering would satisfy instruction-following while abandoning the
+        // pedagogy: the concept leads precisely BECAUSE repeated correct
+        // demonstrations already failed, so the arithmetic was never the problem.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated.indexOf("**The idea underneath**"))
+                .as("concept section must precede the steps section")
+                .isLessThan(escalated.indexOf("**The steps**"));
+    }
+
+    @Test
+    void directEscalated_addsNoEmphasisWordInflation() {
+        // The rejected weak fix. Emphasis words are unfalsifiable and lengthen the
+        // block, which is itself a contributor to instruction-dropping.
+        String escalated = block(TeachingMode.DIRECT, true, List.of());
+
+        assertThat(escalated).doesNotContain("CRITICAL");
+        assertThat(escalated).doesNotContain("ALWAYS");
+        assertThat(escalated).doesNotContain("VERY IMPORTANT");
     }
 
     // ── REGRESSION GUARD on the Task-3-verified asset ────────────────────────
