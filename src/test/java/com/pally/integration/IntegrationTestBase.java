@@ -133,6 +133,36 @@ public abstract class IntegrationTestBase {
     @PersistenceContext
     protected EntityManager entityManager;
 
+    @Autowired
+    protected org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    /**
+     * Inserts a minimal {@code users} row and returns its id.
+     *
+     * <p>Needed since V132 added {@code avatars.user_id -> users.id ON DELETE
+     * CASCADE}. Repository-level fixtures used to invent an owner id
+     * ({@code "u-" + System.nanoTime()}, {@code "teacher-1"}) and persist an
+     * avatar against it, which only worked because nothing enforced referential
+     * integrity — the same absence that let 140 avatars outlive their owners in
+     * production. Those fixtures now violate a real constraint, so they must
+     * create the owner they claim to have.
+     *
+     * <p>Only {@code id} and {@code created_at} are NOT NULL without a default,
+     * so this stays deliberately minimal: a test that needs a realistic user
+     * should register one through the auth helpers instead.
+     *
+     * <p>Uses {@link org.springframework.jdbc.core.JdbcTemplate} rather than the
+     * EntityManager deliberately: an {@code @Transactional} helper called from a
+     * subclass test method is self-invocation, so the proxy never applies it and
+     * {@code createNativeQuery(...).executeUpdate()} throws
+     * TransactionRequiredException. JdbcTemplate needs no ambient transaction.
+     */
+    protected String newUserRow() {
+        String id = java.util.UUID.randomUUID().toString(); // exactly 36 chars — the column is varchar(36)
+        jdbcTemplate.update("INSERT INTO users (id, created_at) VALUES (?, now())", id);
+        return id;
+    }
+
     // ── Test data cleanup ────────────────────────────────────────────────────
 
     /**
@@ -147,9 +177,11 @@ public abstract class IntegrationTestBase {
      * {@code RANDOM_PORT} HTTP tests whose writes happen on the server thread
      * in their own transactions, so a test-method rollback would not undo them.
      *
-     * <p>Deletion order matters because {@code avatars.user_id} has NO foreign
-     * key (so a user delete does NOT cascade to avatars), and a few tables
-     * ({@code star_award_log}) hold NOT-NULL non-cascading FKs to users:
+     * <p>As of V132 {@code avatars.user_id} DOES have an FK with ON DELETE
+     * CASCADE, so step 1 is no longer strictly required — deleting the user
+     * would now take its avatars with it. It is kept because the order remains
+     * correct and explicit, and because a few tables ({@code star_award_log})
+     * still hold NOT-NULL non-cascading FKs to users that must be cleared first:
      * <ol>
      *   <li>delete the test users' avatars — this CASCADES to wiki_pages,
      *       knowledge_files, chat, flashcards, etc. (all FK ON DELETE CASCADE

@@ -51,7 +51,7 @@ class ZombieRecompileReconcilerTest extends IntegrationTestBase {
     }
 
     private String newAvatar() {
-        Avatar a = Avatar.create("user-" + System.nanoTime(), "Mochi", Subject.MATHS, CharacterType.MOCHI);
+        Avatar a = Avatar.create(newUserRow(), "Mochi", Subject.MATHS, CharacterType.MOCHI);
         avatarRepo.save(AvatarJpaEntity.fromDomain(a));
         return a.getId();
     }
@@ -60,7 +60,7 @@ class ZombieRecompileReconcilerTest extends IntegrationTestBase {
         KnowledgeFileJpaEntity f = new KnowledgeFileJpaEntity();
         f.setId("f-" + System.nanoTime());
         f.setAvatarId(avatarId);
-        f.setUserId("user-x");
+        f.setUserId(newUserRow());
         f.setFileName("notes.pdf");
         f.setStorageKey("k/notes.pdf");
         f.setPageCount(3);
@@ -110,7 +110,7 @@ class ZombieRecompileReconcilerTest extends IntegrationTestBase {
         KnowledgeFileJpaEntity f = new KnowledgeFileJpaEntity();
         f.setId("f-" + System.nanoTime());
         f.setAvatarId(incremental);
-        f.setUserId("user-x");
+        f.setUserId(newUserRow());
         f.setFileName("new.pdf");
         f.setStorageKey("k/new.pdf");
         f.setPageCount(1);
