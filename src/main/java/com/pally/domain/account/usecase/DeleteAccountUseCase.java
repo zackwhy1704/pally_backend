@@ -91,6 +91,8 @@ public class DeleteAccountUseCase {
     private final com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo;
     private final com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo;
     private final StorageService storageService;
+    private final com.pally.domain.account.StorageDeletionFailureRecorder
+            storageDeletionFailureRecorder;
     private final StripeService stripeService;
     private final PremiumService premiumService;
     private final RevokedTokenJpaRepository revokedTokenRepo;
@@ -134,6 +136,7 @@ public class DeleteAccountUseCase {
             com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo,
             com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo,
             StorageService storageService,
+            com.pally.domain.account.StorageDeletionFailureRecorder storageDeletionFailureRecorder,
             StripeService stripeService,
             PremiumService premiumService,
             RevokedTokenJpaRepository revokedTokenRepo,
@@ -173,6 +176,7 @@ public class DeleteAccountUseCase {
         this.starAwardLogRepo          = starAwardLogRepo;
         this.assignmentRepo            = assignmentRepo;
         this.storageService            = storageService;
+        this.storageDeletionFailureRecorder = storageDeletionFailureRecorder;
         this.stripeService             = stripeService;
         this.premiumService            = premiumService;
         this.revokedTokenRepo          = revokedTokenRepo;
@@ -355,13 +359,28 @@ public class DeleteAccountUseCase {
                 wikiPageSourceRepo.deleteByWikiPageId(page.getId()));
         wikiPageRepo.deleteByAvatarId(avatarId);
 
-        // Knowledge files (storage + db row)
+        // Knowledge files (storage + db row).
+        //
+        // The DB row is still deleted even when the storage delete fails, so the
+        // user's erasure always COMPLETES — blocking it on a permanently dead key
+        // (already gone from R2, malformed, ACL change) would leave all of their
+        // database rows in place too, which is strictly worse under PDPA.
+        //
+        // What changed: the failure is now RECORDED first. Previously the row was
+        // dropped with nothing else written, so a surviving object lost the only
+        // reference to its own storage key and became permanently unfindable.
+        // storageDeletionFailureRecorder writes in its OWN transaction so the note
+        // survives even if this purge later rolls back — see its javadoc.
+        //
+        // A missing key is NOT a failure: both storage implementations already
+        // treat it as success (LocalStorageService uses Files.deleteIfExists, and
+        // an S3/R2 DeleteObject on an absent key returns normally), so nothing is
+        // queued for an object that was already gone.
         knowledgeFileRepo.findByAvatarId(avatarId).forEach(file -> {
             try {
                 storageService.delete(file.getStorageKey());
             } catch (Exception e) {
-                log.warn("[AccountDeletion] Storage delete failed key={}: {}",
-                        file.getStorageKey(), e.getMessage());
+                storageDeletionFailureRecorder.record(file.getStorageKey(), avatarId, e);
             }
             knowledgeFileRepo.deleteById(file.getId());
         });
