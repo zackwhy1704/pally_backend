@@ -28,8 +28,9 @@ class V122SchemaIntegrationTest extends IntegrationTestBase {
 
     @Test
     void chunkWithOver255CharTitle_persists() {
+        String ownerId = newUserRow();
         AvatarJpaEntity avatar = AvatarJpaEntity.fromDomain(
-                Avatar.create("teacher-1", "Corpus", Subject.MATHS, CharacterType.MOCHI));
+                Avatar.create(ownerId, "Corpus", Subject.MATHS, CharacterType.MOCHI));
         avatarRepo.save(avatar);
 
         String longTitle = "T".repeat(300); // > old VARCHAR(255)
@@ -37,7 +38,7 @@ class V122SchemaIntegrationTest extends IntegrationTestBase {
         KnowledgeFileJpaEntity e = new KnowledgeFileJpaEntity();
         e.setId(IdGenerator.newId());
         e.setAvatarId(avatar.getId());
-        e.setUserId("teacher-1");
+        e.setUserId(ownerId);
         e.setFileName(longTitle);      // chunks reuse file_name for the title
         e.setChunkTitle(longTitle);    // and chunk_title — both widened to TEXT
         e.setStorageKey("s3://k");

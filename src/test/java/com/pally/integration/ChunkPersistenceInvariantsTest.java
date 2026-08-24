@@ -47,7 +47,7 @@ class ChunkPersistenceInvariantsTest extends IntegrationTestBase {
 
     @Test
     void segmentedParentAndPendingChunks_areInvisibleToTheReconciler() {
-        String userId = "u-" + System.nanoTime();
+        String userId = newUserRow();
         String avatarId = newAvatar(userId);
         KnowledgeFile parent = segmentedParent(avatarId, userId);
         // two unpicked chunks
@@ -60,7 +60,7 @@ class ChunkPersistenceInvariantsTest extends IntegrationTestBase {
 
     @Test
     void pickedChunk_isReady_andThenVisibleAsRealWork() {
-        String userId = "u-" + System.nanoTime();
+        String userId = newUserRow();
         String avatarId = newAvatar(userId);
         KnowledgeFile parent = segmentedParent(avatarId, userId);
         KnowledgeFile chunk = knowledgeRepo.save(
@@ -77,7 +77,7 @@ class ChunkPersistenceInvariantsTest extends IntegrationTestBase {
 
     @Test
     void findByParentAndHasChunks_resolveChildren() {
-        String userId = "u-" + System.nanoTime();
+        String userId = newUserRow();
         String avatarId = newAvatar(userId);
         KnowledgeFile parent = segmentedParent(avatarId, userId);
         knowledgeRepo.save(KnowledgeFile.createChunk(parent, "Ch 1", 1, 25, 25, "a"));
@@ -90,7 +90,7 @@ class ChunkPersistenceInvariantsTest extends IntegrationTestBase {
 
     @Test
     void docCap_countsSegmentedParentOnce_neverTheChildChunks() {
-        String userId = "u-" + System.nanoTime();
+        String userId = newUserRow();
         String avatarId = newAvatar(userId);
         KnowledgeFile parent = segmentedParent(avatarId, userId);
         // three chunks, one of them picked (READY)
@@ -107,7 +107,7 @@ class ChunkPersistenceInvariantsTest extends IntegrationTestBase {
 
     @Test
     void chunkCompileCount_countsOnlySuccessfullyCompiledChildrenInWindow() {
-        String userId = "u-" + System.nanoTime();
+        String userId = newUserRow();
         String avatarId = newAvatar(userId);
         KnowledgeFile parent = segmentedParent(avatarId, userId);
 

@@ -92,7 +92,7 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
     @Test
     void wikiPage_withLongSlugAndTitle_persists() {
         AvatarJpaEntity avatar = AvatarJpaEntity.fromDomain(
-                Avatar.create("teacher-1", "Corpus", Subject.MATHS, CharacterType.MOCHI));
+                Avatar.create(newUserRow(), "Corpus", Subject.MATHS, CharacterType.MOCHI));
         avatarRepo.save(avatar);
 
         String longSlug = "a".repeat(150);       // > old VARCHAR(100)
@@ -121,7 +121,7 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
         // containing a surrogate-pair emoji near the old boundary, must round-trip —
         // the old raw substring(0,500) could have split the pair and failed the write.
         AvatarJpaEntity avatar = AvatarJpaEntity.fromDomain(
-                Avatar.create("teacher-1", "Corpus", Subject.SCIENCE, CharacterType.MOCHI));
+                Avatar.create(newUserRow(), "Corpus", Subject.SCIENCE, CharacterType.MOCHI));
         avatarRepo.save(avatar);
 
         String longNote = "n".repeat(499) + "😀" + "n".repeat(200);  // emoji straddles old 500 cap
@@ -148,7 +148,7 @@ class V92SchemaIntegrationTest extends IntegrationTestBase {
         // learning_module.title is now TEXT (V94) — it's copied from the (now TEXT)
         // wiki page title, so a long generated title must not fail module generation.
         AvatarJpaEntity avatar = AvatarJpaEntity.fromDomain(
-                Avatar.create("teacher-1", "Corpus", Subject.MATHS, CharacterType.MOCHI));
+                Avatar.create(newUserRow(), "Corpus", Subject.MATHS, CharacterType.MOCHI));
         avatarRepo.save(avatar);
 
         String longTitle = "T".repeat(800);   // > old VARCHAR(500)
