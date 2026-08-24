@@ -99,6 +99,9 @@ class DeleteAccountUseCaseTest {
     @Mock com.pally.infrastructure.persistence.star.StarAwardLogJpaRepository starAwardLogRepo;
     @Mock com.pally.infrastructure.persistence.assignment.AssignmentJpaRepository assignmentRepo;
     @Mock StorageService storageService;
+    /// Added with the PDPA storage-leak fix: a failed storage delete is now
+    /// RECORDED before the DB row is dropped, so the object stays findable.
+    @Mock com.pally.domain.account.StorageDeletionFailureRecorder storageDeletionFailureRecorder;
     @Mock StripeService stripeService;
     @Mock PremiumService premiumService;
     @Mock RevokedTokenJpaRepository revokedTokenRepo;
@@ -130,7 +133,8 @@ class DeleteAccountUseCaseTest {
                 biometricRegistrationRepo, biometricChallengeRepo,
                 emailVerificationTokenRepo, subscriptionRepo,
                 starAwardLogRepo, assignmentRepo,
-                storageService, stripeService, premiumService, revokedTokenRepo,
+                storageService, storageDeletionFailureRecorder,
+                stripeService, premiumService, revokedTokenRepo,
                 aiUsageRepo, contentGapSignalRepo, homeworkSubmissionRepo,
                 quizAnswerKeyRepo, quizSubmissionIdempotencyRepo,
                 authChallengeRepo, weaknessProfileStateRepo
@@ -220,6 +224,67 @@ class DeleteAccountUseCaseTest {
         useCase.execute(USER_ID, JTI, EXPIRY);
 
         // User row is still deleted despite Stripe failure
+        verify(userRepo).deleteById(USER_ID);
+    }
+
+    /**
+     * PDPA storage-leak fix. Previously the catch block only logged, and the DB
+     * row was deleted anyway — so a surviving object lost the only record of its
+     * own storage key and became PERMANENTLY UNFINDABLE, while the purge reported
+     * success to a user who had been told they were erased.
+     *
+     * <p>Both halves matter and are asserted together: the failure must be
+     * RECORDED, and the erasure must still COMPLETE. Blocking the purge on a dead
+     * key would leave all the user's database rows in place too — strictly worse.
+     */
+    @Test
+    void execute_whenStorageDeleteThrows_recordsTheLeak_andStillCompletesTheErasure() {
+        stubNoChildren();
+
+        AvatarJpaEntity avatar = new AvatarJpaEntity();
+        avatar.setId(AVATAR_ID);
+        avatar.setUserId(USER_ID);
+        when(avatarRepo.findByUserId(USER_ID)).thenReturn(List.of(avatar));
+
+        when(chatMessageRepo.findAll()).thenReturn(List.of());
+        when(chatSessionRepo.findAll()).thenReturn(List.of());
+        when(chatSessionSummaryRepo.findAll()).thenReturn(List.of());
+        when(chatSafetyFlagRepo.findAll()).thenReturn(List.of());
+        when(hintTreeRepo.findAll()).thenReturn(List.of());
+        when(flashcardRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+        when(quizAnswerRepo.findAll()).thenReturn(List.of());
+        when(quizQuestionResultRepo.findAll()).thenReturn(List.of());
+        when(wikiPageRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of());
+
+        KnowledgeFileJpaEntity kfEntity = new KnowledgeFileJpaEntity();
+        kfEntity.setId("file-1");
+        kfEntity.setAvatarId(AVATAR_ID);
+        kfEntity.setStorageKey("avatars/avatar-math/uploads/notes.pdf");
+        when(knowledgeFileRepo.findByAvatarId(AVATAR_ID)).thenReturn(List.of(kfEntity));
+
+        when(referralRepo.findAll()).thenReturn(List.of());
+        when(badgeRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(characterUnlockRepo.findAll()).thenReturn(List.of());
+        when(userMochiRepo.findById_UserId(USER_ID)).thenReturn(List.of());
+        when(userPowerupRepo.findById_UserId(USER_ID)).thenReturn(List.of());
+        when(biometricRegistrationRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(biometricChallengeRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(emailVerificationTokenRepo.findByUserId(USER_ID)).thenReturn(List.of());
+        when(subscriptionRepo.findById(USER_ID)).thenReturn(Optional.empty());
+
+        // THE TRIGGER: object storage rejects the delete.
+        RuntimeException boom = new RuntimeException("R2 unavailable");
+        doThrow(boom).when(storageService).delete("avatars/avatar-math/uploads/notes.pdf");
+
+        useCase.execute(USER_ID, JTI, EXPIRY);
+
+        // 1. The leak is RECORDED — without this the key is gone forever.
+        verify(storageDeletionFailureRecorder)
+                .record("avatars/avatar-math/uploads/notes.pdf", AVATAR_ID, boom);
+
+        // 2. The erasure still COMPLETES end to end.
+        verify(knowledgeFileRepo).deleteById("file-1");
+        verify(avatarRepo).deleteById(AVATAR_ID);
         verify(userRepo).deleteById(USER_ID);
     }
 
