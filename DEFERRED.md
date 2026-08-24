@@ -195,6 +195,54 @@ duplicated.
 Deleted all 12. Gates: `./gradlew clean compileJava compileTestJava` (clean, not incremental — to
 rule out a stale build graph masking a missed reference) + full `test` suite, both green.
 
+## Account deletion
+
+### `storageService.delete()` failure silently leaks the stored file — OPEN, PDPA (2026-08-24)
+
+`DeleteAccountUseCase.deleteAvatarData` (~line 359-368) deletes each knowledge file's stored
+object then its DB row:
+
+```java
+try { storageService.delete(file.getStorageKey()); }
+catch (Exception e) { log.warn("[AccountDeletion] Storage delete failed key={}: {}", ...); }
+knowledgeFileRepo.deleteById(file.getId());
+```
+
+The DB row is deleted **unconditionally**, including when the storage delete threw. The purge then
+completes and reports success, so the account looks fully erased while the user's uploaded file
+still exists in object storage — and the DB row that recorded its storage key is gone, so nothing
+remains that could find it again. It is unreachable by the app and invisible to any audit.
+
+**This is a distinct issue from the DB orphan gap and materially worse in one respect.** The orphan
+gap left rows that were *discoverable* and therefore purgeable; this leaves an undiscoverable
+artefact. It is a genuine PDPA erasure failure, not a tidiness item.
+
+Deliberately NOT fixed in the orphaned-avatar pass, which was scoped to the DB. A fix needs a
+decision on the right shape — fail the purge and retry (the reaper already handles retry via
+DELETION_PENDING), or record the orphaned key in a reconciliation table for a sweeper. The second
+is probably right, since one dead object should not block an erasure the user requested.
+
+### `chatMessageRepo.findAll()` loads the whole table once per avatar — OPEN, latent (2026-08-24)
+
+`DeleteAccountUseCase.deleteAvatarData` line ~327:
+
+```java
+chatMessageRepo.findAll().stream().filter(m -> avatarId.equals(m.getAvatarId()))
+```
+
+Every avatar deletion pulls **every chat message in the database** into memory and filters in Java.
+Cost is O(avatars × all messages).
+
+**Not urgent: `chat_messages` currently holds 141 rows**, so this is presently free. It becomes real
+at scale, where a large account's purge would slow and eventually time out. It fails SAFE — the
+whole purge is one transaction, so a timeout rolls back and the account stays `DELETION_PENDING`
+for the reaper to retry — but the observable effect is deletion that never completes, which is
+itself a PDPA problem.
+
+Fix is a one-liner (`findByAvatarId`, matching every sibling in the same method). Ledgered rather
+than fixed only because the orphan pass was deliberately scope-limited; there is no design question
+here.
+
 ## Moderation / child-safety
 
 ### Context-blind moderation false-positives on material-grounded comprehension questions — CLOSED 2026-08-12
