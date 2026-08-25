@@ -58,53 +58,39 @@ class SignupSecurityIntegrationTest extends IntegrationTestBase {
 
     @Test
     void webRegister_explicitAdultRole_noBirthYear_succeedsAsAdult() {
-        // The web (memoly) centre-admin signup sends an EXPLICIT role:"adult" and no birth
-        // year. It must NOT 400 on the student birth-year requirement — /auth/register with
-        // role:"adult" is the age-exempt adults-only path. (Was previously a blank-role
-        // signup relying on the removed blank->adult default; now sends the real shape.)
-        HttpHeaders h = new HttpHeaders();
-        h.setContentType(MediaType.APPLICATION_JSON);
-        Map<String, Object> body = Map.of(
-                "email", "admin-" + System.nanoTime() + "@test.com",
-                "password", "password123",
-                "displayName", "Centre Admin",
-                "role", "adult",
-                "acceptedTerms", true);
-        ResponseEntity<Map> res = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, h), Map.class);
+        // INVARIANT PRESERVED, ENTRY POINT MOVED. The web /auth/register door is
+        // closed (403), but the rule this pins — role:"adult" is AGE-EXEMPT, so a
+        // centre admin registers with no birth year and is NOT rejected by the
+        // student birth-year requirement — is exactly what invite-based account
+        // creation depends on, since it registers invitees as "adult".
+        var result = authServiceForFixtures.register(
+                "admin-" + System.nanoTime() + "@test.com", "password123",
+                "Centre Admin", "adult", null, null, true);
 
-        assertThat(res.getStatusCode().value()).isEqualTo(201);
-        Map<String, Object> data = (Map<String, Object>) res.getBody().get("data");
-        assertThat(data.get("token")).isNotNull(); // a real session, not a 400
+        assertThat(result.token()).isNotNull(); // a real session, not a rejection
+        assertThat(result.userId()).isNotNull();
     }
 
     @Test
     void webRegister_blankRole_noBirthYear_isRejected400_noAccountCreated() {
-        // FAIL-CLOSED: the removed blank->adult default. A registration with neither a role
-        // nor a birth year is REJECTED (never minted age-exempt), and creates no account.
+        // FAIL-CLOSED, still enforced. The controller-level blank-shape check went
+        // away with the endpoint, but the underlying rule did not: AuthService
+        // requires a birth year for any account that is not age-exempt, so a blank
+        // role with no birth year is refused and mints nothing. That is the
+        // "unknown shape -> age-exempt ADULT" landmine this codebase spent a branch
+        // killing, and it must not come back through the invite path.
         String email = "blankshape-" + System.nanoTime() + "@test.com";
-        HttpHeaders h = new HttpHeaders();
-        h.setContentType(MediaType.APPLICATION_JSON);
-        Map<String, Object> body = Map.of(
-                "email", email,
-                "password", "password123",
-                "displayName", "No Shape");
-        ResponseEntity<Map> res = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, h), Map.class);
 
-        assertThat(res.getStatusCode().value()).isEqualTo(400);
-        // No account row created: re-registering the SAME email with a valid shape now
-        // SUCCEEDS (201). Had the blank-shape register created the account, this would 409.
-        ResponseEntity<Map> retry = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register",
-                new HttpEntity<>(Map.of(
-                        "email", email,
-                        "password", "password123",
-                        "displayName", "No Shape",
-                        "role", "adult",
-                        "acceptedTerms", true), h),
-                Map.class);
-        assertThat(retry.getStatusCode().value()).isEqualTo(201);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                authServiceForFixtures.register(
+                        email, "password123", "No Shape", null, null, null, true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
+
+        // No account row created: the same email registers cleanly with a valid
+        // shape. Had the blank-shape call created it, this would be a duplicate.
+        var ok = authServiceForFixtures.register(
+                email, "password123", "No Shape", "adult", null, null, true);
+        assertThat(ok.userId()).isNotNull();
     }
 
     @Test

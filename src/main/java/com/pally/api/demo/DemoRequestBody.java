@@ -10,5 +10,9 @@ public record DemoRequestBody(
     @NotBlank String phone,
     String segment,        // optional: SOLO | CENTRE | SCHOOL
     Integer estClasses,    // optional: estimated number of classes
-    Integer estStudents    // optional: estimated number of students
+    Integer estStudents,   // optional: estimated number of students
+    /// Optional free-text from the demo form, stored in demo_leads.notes (which
+    /// already exists and is nullable, so no migration). Additive: omitting it is
+    /// valid, so existing callers are unaffected.
+    String message
 ) {}

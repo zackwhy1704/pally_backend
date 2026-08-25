@@ -40,6 +40,7 @@ public class CentreInviteService {
     private final OrganizationJpaRepository orgRepo;
     private final OrgStaffJpaRepository staffRepo;
     private final UserJpaRepository userRepo;
+    private final com.pally.infrastructure.auth.AuthService authService;
 
     // ── Admin: create invite ──────────────────────────────────────────────────
 
@@ -181,6 +182,71 @@ public class CentreInviteService {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * INVITE-ONLY ACCOUNT CREATION — the replacement for self-serve signup.
+     *
+     * <p>Creates an account for an invitee who does NOT have one yet, then accepts
+     * the invite as that new user. Before this existed, {@code /auth/accept-invite}
+     * required an authenticated caller, so the page bounced an unauthenticated
+     * invitee to {@code /login} — for an account they had no way to create once
+     * signup was closed. That gap is why closing signup without this would have
+     * locked out the very teachers being invited.
+     *
+     * <p><b>THE TOKEN IS THE AUTHORISATION.</b> It is validated by
+     * {@link #requireValid} first (exists, unexpired, unaccepted), before anything
+     * is created.
+     *
+     * <p><b>The email comes from the INVITE, never from the request body.</b> If the
+     * caller could supply it, a single leaked token would let anyone create an
+     * account under an arbitrary address — the token would authorise identity
+     * rather than access. Only {@code password} and {@code displayName} are
+     * caller-supplied.
+     *
+     * <p>An invitee who ALREADY has an account is told to sign in and use the
+     * authenticated {@link #acceptInvite} path; creating a second account for a
+     * known email is the duplicate-signup case the account-creation invariant
+     * already forbids.
+     */
+    @Transactional
+    public Map<String, Object> acceptInviteWithNewAccount(Map<String, Object> body) {
+        String token = body == null ? null : (String) body.get("token");
+        if (token == null || token.isBlank()) {
+            throw new BusinessException("token is required", 400);
+        }
+        String password = (String) body.get("password");
+        if (password == null || password.isBlank()) {
+            throw new BusinessException("password is required", 400);
+        }
+        boolean acceptedTerms = Boolean.TRUE.equals(body.get("acceptedTerms"));
+        String displayName = (String) body.get("displayName");
+
+        // Validate BEFORE creating anything — an invalid or spent token must not
+        // leave a half-made account behind.
+        CentreInviteTokenJpaEntity invite = requireValid(token);
+
+        String email = invite.getContactEmail();
+        if (userRepo.existsByEmail(email)) {
+            throw new BusinessException(
+                    "An account already exists for this invite. Please sign in, "
+                            + "then open the invite link again.", 409);
+        }
+
+        // role="adult": the web is centre staff only, so the account is age-exempt
+        // and never treated as a student. acceptedTerms is enforced inside this
+        // overload and recorded to the consent audit log.
+        var created = authService.register(
+                email, password, displayName, "adult", null, null, acceptedTerms);
+
+        // Same @Transactional unit: if acceptance fails, the account creation rolls
+        // back with it rather than leaving an account that owns nothing and holds a
+        // token it never consumed.
+        Map<String, Object> result = new HashMap<>(acceptInvite(created.userId(), body));
+        result.put("token", created.token());
+        result.put("userId", created.userId());
+        log.info("[Invite] token={} created account user={} from invite email", token, created.userId());
+        return result;
+    }
 
     private CentreInviteTokenJpaEntity requireValid(String token) {
         CentreInviteTokenJpaEntity invite = inviteRepo.findById(token)

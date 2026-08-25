@@ -95,32 +95,35 @@ public class AuthController {
         return (header != null && header.startsWith("Bearer ")) ? header.substring(7) : null;
     }
 
+    /**
+     * CLOSED 2026-08-25 — self-serve web signup is gone.
+     *
+     * <p>The web app is teacher/centre-facing and INVITE-ONLY. Removing the
+     * {@code /signup} page alone would not have removed signup: this endpoint is
+     * {@code permitAll}, so any script or stale client could still create an
+     * account by POSTing to it. Closing the page without closing the endpoint is
+     * not closing the door.
+     *
+     * <p>Returns 403 rather than being deleted so a stale client gets a stated
+     * reason instead of a 404 it will read as a routing bug.
+     *
+     * <p>Mobile is UNAFFECTED: pally never calls this endpoint (it uses
+     * {@code /onboard/quick} and {@code /auth/setup}), and direct consumer
+     * onboarding on mobile stays open by design — that is the phase-1 funnel.
+     *
+     * <p>The invited-teacher path is {@code POST /auth/accept-invite/register},
+     * where a valid centre-invite token is the authorisation to create an account.
+     */
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request,
             HttpServletResponse response
     ) {
-        // FAIL-CLOSED (tolerance window closed 2026-07-09). This used to default a blank
-        // role + null birth year to role="adult" (age-exempt) — a deploy-order tolerance
-        // from when the web client relied on it. But "unknown shape -> age-exempt ADULT"
-        // is exactly the unknown->adult pattern this codebase spent a branch killing: if
-        // any client ever sent this shape it would silently mint age-exempt accounts
-        // (age-exempt minors) behind a reassuring default. The real web client (memoly)
-        // sends an explicit role:"adult" — VERIFIED live on prod (deployment ed6d5e0);
-        // mobile students use /onboard/quick and always carry a birth year. So a blank
-        // role + no birth year is no longer a valid shape — REJECTED, not defaulted.
-        String role = request.role();
-        if ((role == null || role.isBlank()) && request.birthYear() == null) {
-            throw new BusinessException(
-                    "A birth year or an account role is required to register.", 400);
-        }
-        AuthResponse result = authService.register(
-                request.email(), request.password(), request.displayName(),
-                role, request.birthYear(), request.parentEmail(), request.acceptedTerms());
-        // Web cookie-auth (no-op unless AUTH_COOKIE_DOMAIN is set); body token unchanged for mobile.
-        authCookieService.setAuthCookie(response, result.token());
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(result));
+        throw new BusinessException(
+                "Self-serve signup is closed. Apalchi for centres is invite-only — "
+                        + "request a demo at https://apalchi.com/demo.", 403);
     }
+
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
@@ -405,6 +408,29 @@ public class AuthController {
             @PathVariable String token
     ) {
         return ResponseEntity.ok(ApiResponse.success(inviteService.getInvite(token)));
+    }
+
+    /**
+     * INVITE-ONLY ACCOUNT CREATION (public — the invite token is the authorisation).
+     *
+     * <p>Replaces self-serve signup for teachers/centres. An invitee with no account
+     * creates one here using a valid centre-invite token; the account's email is
+     * taken from the INVITE, never from the request body.
+     *
+     * <p>Public by necessity: the whole point is that the caller has no account yet
+     * and therefore no token to authenticate with.
+     */
+    @PostMapping("/accept-invite/register")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> acceptInviteWithNewAccount(
+            @RequestBody Map<String, Object> body,
+            HttpServletResponse response
+    ) {
+        Map<String, Object> result = inviteService.acceptInviteWithNewAccount(body);
+        Object token = result.get("token");
+        if (token instanceof String t) {
+            authCookieService.setAuthCookie(response, t);
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(result));
     }
 
     @PostMapping("/accept-invite")

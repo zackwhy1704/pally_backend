@@ -69,18 +69,21 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
         return (String) ((Map<String, Object>) resp.getBody().get("data")).get("id");
     }
 
+    /**
+     * INVARIANT PRESERVED, ENTRY POINT MOVED. This used to POST /auth/register,
+     * which now returns 403 for every shape (self-serve signup closed). The
+     * under-13-needs-a-parent-email rule is NOT a property of that endpoint — it
+     * lives in AuthService and still guards every surviving creation path
+     * (/onboard/quick and invite-based creation), so the assertion moves to the
+     * service rather than being deleted with the endpoint.
+     */
     @Test
     void under13_registerWithoutParentEmail_isRejected() {
-        Map<String, Object> body = Map.of(
-                "email", "noparent-" + System.nanoTime() + "@test.com",
-                "password", "password123", "displayName", "Kid",
-                "birthYear", sgYear() - 10, // under-13, no parentEmail
-                "acceptedTerms", true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> resp = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, headers), Map.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                authServiceForFixtures.register(
+                        "noparent-" + System.nanoTime() + "@test.com", "password123",
+                        "Kid", null, sgYear() - 10, null, true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
     }
 
     @Test
@@ -202,18 +205,13 @@ class AgeConsentGateIntegrationTest extends IntegrationTestBase {
 
     @Test
     void register_futureBirthYear_rejectedAsBadRequest() {
-        Map<String, Object> body = Map.of(
-                "email", "future-" + System.nanoTime() + "@test.com",
-                "password", "password123",
-                "displayName", "Test",
-                "birthYear", sgYear() + 5,
-                "acceptedTerms", true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> resp = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register",
-                new HttpEntity<>(body, headers), Map.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // Entry point moved off the now-closed /auth/register; the dynamic
+        // (Singapore wall-clock) future-year rule lives in AuthService.
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                authServiceForFixtures.register(
+                        "future-" + System.nanoTime() + "@test.com", "password123",
+                        "Test", null, sgYear() + 5, null, true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
     }
 
     @Test

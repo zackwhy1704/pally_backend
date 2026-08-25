@@ -137,6 +137,16 @@ public abstract class IntegrationTestBase {
     protected org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     /**
+     * Used by the register* fixtures below INSTEAD of POSTing to
+     * {@code /api/v1/auth/register}, which returns 403 since self-serve signup was
+     * closed (the web is invite-only). The fixtures exercise the same account-
+     * creation logic — this is the service the endpoint used to call — so they seed
+     * realistic accounts without depending on a door that is now shut.
+     */
+    @Autowired
+    protected com.pally.infrastructure.auth.AuthService authServiceForFixtures;
+
+    /**
      * Inserts a minimal {@code users} row and returns its id.
      *
      * <p>Needed since V132 added {@code avatars.user_id -> users.id ON DELETE
@@ -268,25 +278,10 @@ public abstract class IntegrationTestBase {
     protected AuthResult registerUser(String email, String password) {
         // birthYear is REQUIRED for a student account (age-gate fail-safe). Seed a 13+
         // year so the default fixture is an ordinary adult-consent account.
-        Map<String, Object> body = Map.of(
-                "email", email,
-                "password", password,
-                "displayName", "Test User",
-                "birthYear", java.time.Year.now(java.time.ZoneId.of("Asia/Singapore")).getValue() - 20,
-                "acceptedTerms", true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register", request, Map.class);
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
-            return new AuthResult((String) data.get("userId"), (String) data.get("token"));
-        }
-        // Try to get more detail from the error body
-        String errorDetail = response.getBody() != null ? response.getBody().toString() : "null";
-        throw new RuntimeException("Registration failed: " + response.getStatusCode()
-                + " body=" + errorDetail);
+        int birthYear = java.time.Year.now(java.time.ZoneId.of("Asia/Singapore")).getValue() - 20;
+        var r = authServiceForFixtures.register(
+                email, password, "Test User", null, birthYear, null, true);
+        return new AuthResult(r.userId(), r.token());
     }
 
     /**
@@ -294,24 +289,9 @@ public abstract class IntegrationTestBase {
      * A low birth year (e.g. current year - 10) makes the user under-13.
      */
     protected AuthResult registerUserWithBirthYear(String email, String password, int birthYear) {
-        Map<String, Object> body = Map.of(
-                "email", email,
-                "password", password,
-                "displayName", "Test User",
-                "birthYear", birthYear,
-                "acceptedTerms", true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register", request, Map.class);
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
-            return new AuthResult((String) data.get("userId"), (String) data.get("token"));
-        }
-        String errorDetail = response.getBody() != null ? response.getBody().toString() : "null";
-        throw new RuntimeException("Registration failed: " + response.getStatusCode()
-                + " body=" + errorDetail);
+        var r = authServiceForFixtures.register(
+                email, password, "Test User", null, birthYear, null, true);
+        return new AuthResult(r.userId(), r.token());
     }
 
     /**
@@ -319,20 +299,9 @@ public abstract class IntegrationTestBase {
      * created PENDING_PARENTAL_CONSENT (blocked from new-child-data until approved).
      */
     protected AuthResult registerUnder13(String email, String password, int birthYear, String parentEmail) {
-        Map<String, Object> body = Map.of(
-                "email", email, "password", password, "displayName", "Kid",
-                "birthYear", birthYear, "parentEmail", parentEmail,
-                "acceptedTerms", true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register", new HttpEntity<>(body, headers), Map.class);
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
-            return new AuthResult((String) data.get("userId"), (String) data.get("token"));
-        }
-        throw new RuntimeException("Under-13 registration failed: " + response.getStatusCode()
-                + " body=" + (response.getBody() != null ? response.getBody().toString() : "null"));
+        var r = authServiceForFixtures.register(
+                email, password, "Kid", null, birthYear, parentEmail, true);
+        return new AuthResult(r.userId(), r.token());
     }
 
     /**

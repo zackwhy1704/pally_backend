@@ -66,6 +66,12 @@ public class SecurityConfig {
                     "/api/v1/auth/link/verify-code",
                     "/api/v1/auth/biometric/verify",
                     "/api/v1/auth/verify-email",
+                    // Invite-only account creation. Public BY NECESSITY: the caller
+                    // has no account yet, so has no token to authenticate with. The
+                    // centre-invite token in the body IS the authorisation, validated
+                    // (exists / unexpired / unaccepted) before anything is created,
+                    // and the account email comes from the invite, not the request.
+                    "/api/v1/auth/accept-invite/register",
                     "/api/v1/account/restore",
                     "/api/v1/account/delete/request-by-email",
                     "/api/v1/account/delete/confirm",
