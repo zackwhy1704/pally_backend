@@ -1,6 +1,7 @@
 package com.pally.api.usage;
 
 import com.pally.domain.progress.LevelRewards;
+import com.pally.domain.subscription.ChatQuotaProperties;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionLimits;
 import com.pally.domain.subscription.SubscriptionTier;
@@ -30,6 +31,7 @@ import java.util.Map;
 public class UsageController {
 
     private final ChatRateLimiter chatRateLimiter;
+    private final ChatQuotaProperties quotas;
     private final PremiumService premiumService;
     private final UserJpaRepository userRepo;
 
@@ -89,11 +91,13 @@ public class UsageController {
         body.put("slotCooldownSecondsRemaining", slotCooldownSecondsRemaining);
 
         int chatUsed  = chatRateLimiter.dailyHitsToday(userId);
-        int chatLimit = switch (tier) {
-            case FREE                -> ChatRateLimiter.FREE_DAILY_LIMIT;
-            case PRO                 -> ChatRateLimiter.PRO_DAILY_LIMIT;
-            case MAX, FAMILY -> -1; // unlimited
-        };
+        // Reads the SAME injected properties the limiter enforces. Previously this
+        // referenced ChatRateLimiter's static finals, which the compiler inlines —
+        // so a config override would have moved the enforced cap while this endpoint
+        // kept reporting the old one. -1 is this endpoint's existing wire contract
+        // for "unlimited"; the internal sentinel stays Integer.MAX_VALUE.
+        int resolved = quotas.dailyLimitFor(tier);
+        int chatLimit = (resolved == ChatQuotaProperties.UNLIMITED) ? -1 : resolved;
         body.put("chatUsed", chatUsed);
         body.put("chatLimit", chatLimit);
         body.put("chatRemaining", chatLimit == -1 ? -1 : Math.max(0, chatLimit - chatUsed));

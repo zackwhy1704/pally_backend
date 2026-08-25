@@ -85,7 +85,7 @@ class AccountDeletionServiceTest {
     private SubscriptionRepository.Subscription sub(String status, String stripeSubId) {
         return new SubscriptionRepository.Subscription(
                 USER, "cus_1", stripeSubId, "monthly", status,
-                null, false, null, Instant.now(), Instant.now());
+                null, false, null, Instant.now(), Instant.now(), null);
     }
 
     // ── Re-auth is mandatory ────────────────────────────────────────────────────

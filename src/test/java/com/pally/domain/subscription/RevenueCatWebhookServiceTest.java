@@ -80,7 +80,7 @@ class RevenueCatWebhookServiceTest {
     void handle_expiration_downgradesToFree_evictsAndRefreshes() {
         var existing = new SubscriptionRepository.Subscription(
                 USER, null, null, "max", "active", Instant.now(),
-                false, null, Instant.now(), Instant.now());
+                false, null, Instant.now(), Instant.now(), null);
         when(subscriptionRepo.findById(USER)).thenReturn(Optional.of(existing));
         String body = """
             {"event":{"type":"EXPIRATION","app_user_id":"user-1","product_id":"apalchi_max_monthly"}}

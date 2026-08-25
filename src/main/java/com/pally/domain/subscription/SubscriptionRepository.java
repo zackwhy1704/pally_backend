@@ -31,6 +31,16 @@ public interface SubscriptionRepository {
             boolean cancelAtPeriodEnd,
             Instant canceledAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            /**
+             * When this row was last CONFIRMED against the payment provider
+             * (a RevenueCat webhook apply or REST re-check).
+             *
+             * <p>NULL means never verified — legacy rows and the admin comp. Read
+             * as stale-but-not-revoked: it triggers a re-check for RevenueCat-backed
+             * rows and is ignored for rows that were never RevenueCat's to begin with.
+             * A row is STALE when {@code now - lastVerifiedAt >= 24h} (inclusive).
+             */
+            Instant lastVerifiedAt
     ) {}
 }

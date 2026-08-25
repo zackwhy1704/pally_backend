@@ -36,6 +36,11 @@ public class SubscriptionRepositoryAdapter implements SubscriptionRepository {
         e.setCancelAtPeriodEnd(s.cancelAtPeriodEnd());
         e.setCanceledAt(s.canceledAt());
         if (s.updatedAt() != null) e.setUpdatedAt(s.updatedAt());
+        // Only ever ADVANCES. A caller passing null (the Stripe path, which verified
+        // nothing with RevenueCat) must not erase a real verification timestamp —
+        // wiping it would make a fresh row look stale and trigger a pointless
+        // re-check, or worse, read as never-verified.
+        if (s.lastVerifiedAt() != null) e.setLastVerifiedAt(s.lastVerifiedAt());
         jpa.save(e);
         return toDomain(e);
     }
@@ -54,7 +59,8 @@ public class SubscriptionRepositoryAdapter implements SubscriptionRepository {
                 e.getUserId(), e.getStripeCustomerId(), e.getStripeSubscriptionId(),
                 e.getPlan(), e.getStatus(), e.getCurrentPeriodEnd(),
                 e.isCancelAtPeriodEnd(), e.getCanceledAt(),
-                e.getCreatedAt(), e.getUpdatedAt()
+                e.getCreatedAt(), e.getUpdatedAt(),
+                e.getLastVerifiedAt()
         );
     }
 }

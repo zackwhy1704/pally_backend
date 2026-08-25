@@ -43,6 +43,19 @@ public class SubscriptionJpaEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
+    /**
+     * When this row was last CONFIRMED against the payment provider (a RevenueCat
+     * webhook apply or REST re-check). NULL = never verified — legacy rows and the
+     * admin comp, which is not a RevenueCat row at all. A row is STALE once
+     * {@code now - lastVerifiedAt >= 24h} (inclusive).
+     */
+    @Column(name = "last_verified_at")
+    private Instant lastVerifiedAt;
+
+    public Instant getLastVerifiedAt() { return lastVerifiedAt; }
+
+    public void setLastVerifiedAt(Instant lastVerifiedAt) { this.lastVerifiedAt = lastVerifiedAt; }
+
     /// Set to true when Stripe sends cancel_at_period_end=true on a
     /// subscription.updated event. The subscription stays ACTIVE until
     /// currentPeriodEnd, then Stripe fires subscription.deleted.

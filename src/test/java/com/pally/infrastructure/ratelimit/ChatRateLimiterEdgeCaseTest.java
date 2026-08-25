@@ -1,5 +1,6 @@
 package com.pally.infrastructure.ratelimit;
 
+import com.pally.domain.subscription.ChatQuotaProperties;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.BusinessException;
@@ -23,8 +24,12 @@ class ChatRateLimiterEdgeCaseTest {
 
     @Mock PremiumService premiumService;
 
+    /// Real properties rather than a mock: these tests are ABOUT the caps, so a
+    /// stubbed quota would let the limiter and the assertions drift apart.
+    private static final ChatQuotaProperties QUOTAS = new ChatQuotaProperties();
+
     private ChatRateLimiter newLimiter() {
-        return new ChatRateLimiter(premiumService);
+        return new ChatRateLimiter(premiumService, QUOTAS);
     }
 
     @Test
@@ -32,7 +37,7 @@ class ChatRateLimiterEdgeCaseTest {
         when(premiumService.resolveTier("u1")).thenReturn(SubscriptionTier.FREE);
         var limiter = newLimiter();
         // Seed one below the limit — next check should still pass
-        limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT - 1);
+        limiter.seedDailyCountForTest("u1", QUOTAS.getFree() - 1);
         assertThatCode(() -> limiter.check("u1")).doesNotThrowAnyException();
     }
 
@@ -40,7 +45,7 @@ class ChatRateLimiterEdgeCaseTest {
     void freeUser_oneOverDailyLimit_throws() {
         when(premiumService.resolveTier("u1")).thenReturn(SubscriptionTier.FREE);
         var limiter = newLimiter();
-        limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT);
+        limiter.seedDailyCountForTest("u1", QUOTAS.getFree());
         assertThatThrownBy(() -> limiter.check("u1"))
                 .isInstanceOf(UpgradeRequiredException.class);
     }
@@ -49,17 +54,21 @@ class ChatRateLimiterEdgeCaseTest {
     void proUser_exactlyAtProLimit_doesNotThrow() {
         when(premiumService.resolveTier("u_pro")).thenReturn(SubscriptionTier.PRO);
         var limiter = newLimiter();
-        limiter.seedDailyCountForTest("u_pro", ChatRateLimiter.PRO_DAILY_LIMIT - 1);
+        limiter.seedDailyCountForTest("u_pro", QUOTAS.getPro() - 1);
         assertThatCode(() -> limiter.check("u_pro")).doesNotThrowAnyException();
     }
 
     @Test
-    void proUser_oneOverProLimit_throws() {
+    void proUser_isNeverDailyBlocked_becauseProIsUnlimited() {
+        // REWRITTEN, NOT DELETED. This asserted PRO throws one over a 100/day cap.
+        // PRO is unlimited at launch, so the contract inverted: seeding a huge count
+        // must still not block. Implemented like MAX/FAMILY — the counter is skipped
+        // entirely rather than compared against a very large number.
         when(premiumService.resolveTier("u_pro")).thenReturn(SubscriptionTier.PRO);
-        var limiter = newLimiter();
-        limiter.seedDailyCountForTest("u_pro", ChatRateLimiter.PRO_DAILY_LIMIT);
-        assertThatThrownBy(() -> limiter.check("u_pro"))
-                .isInstanceOf(UpgradeRequiredException.class);
+        ChatRateLimiter limiter = newLimiter();
+        limiter.seedDailyCountForTest("u_pro", 100_000);
+
+        limiter.check("u_pro"); // must not throw
     }
 
     @Test
