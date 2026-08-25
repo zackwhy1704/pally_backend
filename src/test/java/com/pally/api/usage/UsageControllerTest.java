@@ -1,5 +1,6 @@
 package com.pally.api.usage;
 
+import com.pally.domain.subscription.ChatQuotaProperties;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.infrastructure.persistence.progress.UserJpaRepository;
@@ -8,6 +9,7 @@ import com.pally.shared.response.ApiResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Spy;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +27,15 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class UsageControllerTest {
 
+    /// The caps moved off ChatRateLimiter's static finals onto injected
+    /// ChatQuotaProperties so a Railway override moves the limiter and this
+    /// endpoint together. Reading the same object here is the point.
+
+    /// A @Spy (not @Mock) so @InjectMocks supplies the REAL caps: these tests are
+    /// about the numbers, and a stubbed quota would let the endpoint and the
+    /// assertions drift apart — the exact desync that moving off the inlined
+    /// static constants was meant to prevent.
+    @Spy ChatQuotaProperties QUOTAS = new ChatQuotaProperties();
     @Mock ChatRateLimiter rateLimiter;
     @Mock PremiumService premiumService;
     @Mock UserJpaRepository userRepo;
@@ -63,8 +74,8 @@ class UsageControllerTest {
         assertThat(body.get("isPremium")).isEqualTo(false);
         assertThat(body.get("subscriptionTier")).isEqualTo("FREE");
         assertThat(body.get("chatUsed")).isEqualTo(0);
-        assertThat(body.get("chatLimit")).isEqualTo(ChatRateLimiter.FREE_DAILY_LIMIT);
-        assertThat(body.get("chatRemaining")).isEqualTo(ChatRateLimiter.FREE_DAILY_LIMIT);
+        assertThat(body.get("chatLimit")).isEqualTo(QUOTAS.getFree());
+        assertThat(body.get("chatRemaining")).isEqualTo(QUOTAS.getFree());
         assertThat(body.get("mochiCap")).isEqualTo(1); // level 1
     }
 
@@ -79,7 +90,7 @@ class UsageControllerTest {
     }
 
     @Test
-    void pro_limitIs100() {
+    void pro_isUnlimited_signalledByMinusOne() {
         when(premiumService.resolve("u1")).thenReturn(
                 new PremiumService.Entitlement(true, "SELF", "pro_monthly", "active", null));
         when(premiumService.resolveTier("u1")).thenReturn(SubscriptionTier.PRO);
@@ -87,8 +98,12 @@ class UsageControllerTest {
 
         var body = controller.today("u1").getBody().data();
         assertThat(body.get("subscriptionTier")).isEqualTo("PRO");
-        assertThat(body.get("chatLimit")).isEqualTo(ChatRateLimiter.PRO_DAILY_LIMIT);
-        assertThat(body.get("chatRemaining")).isEqualTo(ChatRateLimiter.PRO_DAILY_LIMIT - 10);
+        // PRO is UNLIMITED at launch (was 100/day). Against a visible free cap,
+        // "unlimited" is legible in a way a numeric ceiling is not — a student
+        // cannot tell where 100 sits until they hit it. -1 is this endpoint's
+        // existing wire contract for no cap, the same as MAX/FAMILY.
+        assertThat(body.get("chatLimit")).isEqualTo(-1);
+        assertThat(body.get("chatRemaining")).isEqualTo(-1);
         assertThat(body.get("mochiCap")).isEqualTo(5);
     }
 

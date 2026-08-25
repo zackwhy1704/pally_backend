@@ -248,8 +248,11 @@ public class SubscriptionManagementService {
                 false,
                 null,
                 existing != null ? existing.createdAt() : Instant.now(),
-                Instant.now()
-        );
+                Instant.now(),
+                // Stripe path: carry any existing verification through. A Stripe
+                // write must never STAMP a RevenueCat verification (it verified
+                // nothing with RevenueCat), nor WIPE one that already exists.
+                existing != null ? existing.lastVerifiedAt() : null);
         subscriptionRepo.save(updated);
         premiumService.refreshFlag(userId);
 
@@ -329,7 +332,8 @@ public class SubscriptionManagementService {
                         null,
                         existing != null ? existing.createdAt() : Instant.now(),
                         Instant.now()
-                ));
+        ,
+                existing != null ? existing.lastVerifiedAt() : null));
                 premiumService.refreshFlag(userId);
                 premiumService.convertTrial(userId);
                 log.info("[Stripe] checkout.complete user={} sub={}",
@@ -353,7 +357,8 @@ public class SubscriptionManagementService {
                             "canceled", sub.currentPeriodEnd(),
                             false, Instant.now(),
                             sub.createdAt(), Instant.now()
-                    ));
+            ,
+                sub.lastVerifiedAt()));
                     premiumService.evictEntitlement(userId);
                     premiumService.refreshFlag(userId);
                     log.info("[Stripe] sub.deleted user={} — premium revoked", userId);
@@ -389,7 +394,8 @@ public class SubscriptionManagementService {
                 sub.plan(), s.getStatus(), periodEnd,
                 cancelAtEnd, sub.canceledAt(),
                 sub.createdAt(), Instant.now()
-        ));
+,
+                sub.lastVerifiedAt()));
         premiumService.refreshFlag(userId);
     }
 }

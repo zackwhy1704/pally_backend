@@ -1,5 +1,6 @@
 package com.pally.infrastructure.ratelimit;
 
+import com.pally.domain.subscription.ChatQuotaProperties;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.BusinessException;
@@ -22,8 +23,12 @@ class ChatRateLimiterTest {
 
     @Mock PremiumService premiumService;
 
+    /// Real properties rather than a mock: these tests are ABOUT the caps, so a
+    /// stubbed quota would let the limiter and the assertions drift apart.
+    private static final ChatQuotaProperties QUOTAS = new ChatQuotaProperties();
+
     private ChatRateLimiter newLimiter() {
-        return new ChatRateLimiter(premiumService);
+        return new ChatRateLimiter(premiumService, QUOTAS);
     }
 
     @Test
@@ -49,7 +54,7 @@ class ChatRateLimiterTest {
         // The burst limit (30/min) fires before the daily limit when calling
         // check() rapidly, so we seed the daily counter just below the cap,
         // then call check() once more to confirm the daily gate fires.
-        limiter.seedDailyCountForTest("u1", ChatRateLimiter.FREE_DAILY_LIMIT);
+        limiter.seedDailyCountForTest("u1", QUOTAS.getFree());
         assertThatThrownBy(() -> limiter.check("u1"))
                 .isInstanceOf(UpgradeRequiredException.class)
                 .satisfies(e ->
@@ -58,16 +63,15 @@ class ChatRateLimiterTest {
     }
 
     @Test
-    void proUser_hasHigherDailyCap_thenBlocks() {
+    void proUser_hasNoDailyCap_atLaunch() {
+        // REWRITTEN, NOT DELETED. Previously "higher cap, then blocks" against
+        // PRO=100. PRO is unlimited at launch, so it must never raise
+        // UpgradeRequiredException on the daily counter at any count.
         when(premiumService.resolveTier("u_pro")).thenReturn(SubscriptionTier.PRO);
-        var limiter = newLimiter();
-        // Seed at PRO limit — next call should throw
-        limiter.seedDailyCountForTest("u_pro", ChatRateLimiter.PRO_DAILY_LIMIT);
-        assertThatThrownBy(() -> limiter.check("u_pro"))
-                .isInstanceOf(UpgradeRequiredException.class)
-                .satisfies(e ->
-                        assertThat(((UpgradeRequiredException) e).getFeature())
-                                .isEqualTo("CHAT_DAILY"));
+        ChatRateLimiter limiter = newLimiter();
+        limiter.seedDailyCountForTest("u_pro", 100_000);
+
+        limiter.check("u_pro"); // must not throw
     }
 
     @Test

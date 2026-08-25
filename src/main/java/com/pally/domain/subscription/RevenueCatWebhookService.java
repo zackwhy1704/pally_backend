@@ -37,7 +37,22 @@ public class RevenueCatWebhookService {
 
     /// Events that mean access has ENDED. (CANCELLATION = auto-renew off but access
     /// continues until EXPIRATION; BILLING_ISSUE = grace period — neither downgrades.)
-    private static final Set<String> EXPIRE_TYPES = Set.of("EXPIRATION");
+    /// EXPIRATION = access period actually ended. REFUND = the purchase was
+    /// reversed, so access must end NOW rather than at period end — it was
+    /// previously unhandled, which meant a refunded purchase kept access forever.
+    private static final Set<String> EXPIRE_TYPES = Set.of("EXPIRATION", "REFUND");
+
+    /// A purchase moving between app_user_ids (RevenueCat merges/transfers
+    /// identities). We key entitlement on OUR userId, so a transfer landing on the
+    /// wrong account is a correctness bug: the payer silently loses access and a
+    /// stranger gains it. Handled explicitly rather than falling into the no-op
+    /// branch, where it was invisible.
+    private static final Set<String> TRANSFER_TYPES = Set.of("TRANSFER", "SUBSCRIBER_ALIAS");
+
+    /// Payment failed but the subscription is in RevenueCat's grace period —
+    /// access is NOT lost yet. Logged and stamped, never revoked; revoking here
+    /// would cut off a paying user over a card that is about to retry.
+    private static final Set<String> GRACE_TYPES = Set.of("BILLING_ISSUE");
 
     private final SubscriptionRepository subscriptionRepo;
     private final PremiumService premiumService;
@@ -137,6 +152,21 @@ public class RevenueCatWebhookService {
             premiumService.evictEntitlement(userId);
             premiumService.refreshFlag(userId);
             log.info("[RevenueCat] {} → downgrade user={}", type, userId);
+        } else if (TRANSFER_TYPES.contains(type)) {
+            applyTransfer(type, userId, event);
+        } else if (GRACE_TYPES.contains(type)) {
+            // Grace period: confirm we still know the state, do NOT change it.
+            stampVerified(userId);
+            premiumService.evictEntitlement(userId);
+            log.warn("[RevenueCat] {} → billing issue for user={}; access retained "
+                    + "during grace, entitlement re-stamped not revoked", type, userId);
+        } else if ("CANCELLATION".equals(type)) {
+            // DELIBERATELY IGNORED. In RevenueCat, CANCELLATION means auto-renew was
+            // turned off — NOT that access ended. Access ends at EXPIRATION. Revoking
+            // here would cut off someone who has paid through their period end.
+            stampVerified(userId);
+            log.info("[RevenueCat] CANCELLATION → auto-renew off for user={}; "
+                    + "access retained until EXPIRATION", userId);
         } else {
             log.info("[RevenueCat] {} → no-op user={}", type, userId);
         }
@@ -156,13 +186,63 @@ public class RevenueCatWebhookService {
         return "pro";
     }
 
+    /**
+     * Moves entitlement between app_user_ids. RevenueCat sends the origin and
+     * destination ids; we downgrade the origin and grant the destination so the
+     * entitlement follows the purchase rather than being duplicated across both.
+     *
+     * <p>If either id is missing we change NOTHING and log loudly: a half-applied
+     * transfer is worse than an unapplied one, because it silently revokes a
+     * paying user while granting nobody.
+     */
+    private void applyTransfer(String type, String fallbackUserId, JsonNode event) {
+        String from = firstId(event, "transferred_from");
+        String to   = firstId(event, "transferred_to");
+        if (from == null || to == null) {
+            log.error("[RevenueCat] {} for user={} missing transferred_from/to — "
+                    + "NOTHING changed (a half-applied transfer revokes a payer)",
+                    type, fallbackUserId);
+            return;
+        }
+        downgrade(from);
+        premiumService.evictEntitlement(from);
+        premiumService.refreshFlag(from);
+
+        SubscriptionRepository.Subscription origin = subscriptionRepo.findById(from).orElse(null);
+        String plan = origin != null ? origin.plan() : "pro";
+        Instant periodEnd = origin != null ? origin.currentPeriodEnd() : null;
+        grant(to, plan, periodEnd);
+        premiumService.evictEntitlement(to);
+        premiumService.refreshFlag(to);
+        log.warn("[RevenueCat] {} → entitlement moved {} → {} (plan={})", type, from, to, plan);
+    }
+
+    /** First element of an array claim (RevenueCat sends these as arrays). */
+    private static String firstId(JsonNode event, String field) {
+        JsonNode n = event.path(field);
+        if (n.isArray() && n.size() > 0) return n.get(0).asText(null);
+        String v = n.asText(null);
+        return (v == null || v.isBlank()) ? null : v;
+    }
+
+    /** Records that we re-confirmed this row against RevenueCat, without changing it. */
+    private void stampVerified(String userId) {
+        SubscriptionRepository.Subscription s = subscriptionRepo.findById(userId).orElse(null);
+        if (s == null) return;
+        subscriptionRepo.save(new SubscriptionRepository.Subscription(
+                s.userId(), s.stripeCustomerId(), s.stripeSubscriptionId(),
+                s.plan(), s.status(), s.currentPeriodEnd(),
+                s.cancelAtPeriodEnd(), s.canceledAt(), s.createdAt(), Instant.now(),
+                Instant.now()));
+    }
+
     private void grant(String userId, String plan, Instant periodEnd) {
         SubscriptionRepository.Subscription existing = subscriptionRepo.findById(userId).orElse(null);
         Instant createdAt = existing != null ? existing.createdAt() : Instant.now();
         String customerId = existing != null ? existing.stripeCustomerId() : null;
         subscriptionRepo.save(new SubscriptionRepository.Subscription(
                 userId, customerId, null, plan, "active", periodEnd,
-                false, null, createdAt, Instant.now()));
+                false, null, createdAt, Instant.now(), Instant.now()));
     }
 
     private void downgrade(String userId) {
@@ -171,7 +251,8 @@ public class RevenueCatWebhookService {
         subscriptionRepo.save(new SubscriptionRepository.Subscription(
                 s.userId(), s.stripeCustomerId(), s.stripeSubscriptionId(),
                 s.plan(), "free", s.currentPeriodEnd(),
-                s.cancelAtPeriodEnd(), Instant.now(), s.createdAt(), Instant.now()));
+                s.cancelAtPeriodEnd(), Instant.now(), s.createdAt(), Instant.now(),
+                Instant.now()));
     }
 
     private Map<String, Object> result(boolean handled, String type, String detail) {

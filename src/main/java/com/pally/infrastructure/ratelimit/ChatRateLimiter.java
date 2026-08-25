@@ -1,10 +1,12 @@
 package com.pally.infrastructure.ratelimit;
 
+import com.pally.domain.subscription.ChatQuotaProperties;
 import com.pally.domain.subscription.PremiumService;
 import com.pally.domain.subscription.SubscriptionTier;
 import com.pally.shared.exception.BusinessException;
 import com.pally.shared.exception.UpgradeRequiredException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import com.pally.shared.util.PallyTime;
@@ -30,35 +32,23 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class ChatRateLimiter {
 
     private static final int PER_USER_LIMIT = 30;
     private static final long WINDOW_MS = 60_000;
-    /// Free-tier daily chat cap: 20 messages/day.
-    /// Enough to experience the product meaningfully every day;
-    /// creates a natural upgrade trigger once students want deeper sessions.
-    /// Premium users are unlimited. Mochi count also gated via LevelRewards.freeTutorCap.
-    public static final int FREE_DAILY_LIMIT = 20;
 
-    /// Pro-tier daily chat cap: 100 messages/day.
-    public static final int PRO_DAILY_LIMIT = 100;
-
-    /**
-     * Returns the daily chat limit for the given tier.
-     * {@link Integer#MAX_VALUE} signals "unlimited" — callers should treat it as no cap.
-     */
-    public static int dailyLimitForTier(SubscriptionTier tier) {
-        return switch (tier) {
-            case FREE                    -> FREE_DAILY_LIMIT;
-            case PRO                     -> PRO_DAILY_LIMIT;
-            case MAX, FAMILY             -> Integer.MAX_VALUE;
-        };
-    }
+    /// Daily caps moved to ChatQuotaProperties (chat.quota.free / chat.quota.pro)
+    /// so they are tunable from a Railway variable without an app update. They were
+    /// `public static final int`, which a compiler INLINES into every calling class —
+    /// so a config override would have moved the limiter while /usage kept reporting
+    /// the old number, and the two surfaces would disagree about the same user.
 
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
     private final Map<String, DailyCount> dailyHits = new ConcurrentHashMap<>();
 
     private final PremiumService premiumService;
+    private final ChatQuotaProperties quotas;
 
     private record DailyCount(LocalDate day, int count) {}
 
@@ -86,15 +76,24 @@ public class ChatRateLimiter {
         // Daily cap is tier-based. Resolve tier once per call; MAX/FAMILY
         // skip the counter entirely (unlimited). FREE and PRO increment and
         // compare against their respective daily cap.
+        // BOUNDED FAIL-OPEN. This used to `return` on any resolveTier failure,
+        // which skipped the counter entirely — so a blip granted UNLIMITED chat,
+        // bypassing even the FREE cap. That is the opposite of degrading safely:
+        // the cheapest way to get unlimited access was to make the premium lookup
+        // fail. A blip now degrades to the FREE tier and STILL increments the
+        // counter, so a persistent outage cannot be farmed for free usage.
         SubscriptionTier tier;
         try {
             tier = premiumService.resolveTier(userId);
-        } catch (Exception ignored) {
-            // Never deny chat because a premium check blipped.
-            return;
+        } catch (Exception e) {
+            // Logged, not swallowed: a silent fallback hides a broken entitlement
+            // path, and this one was invisible for exactly that reason.
+            log.warn("[ChatRateLimiter] tier lookup failed for user={} — applying FREE cap: {}",
+                    userId, e.toString());
+            tier = SubscriptionTier.FREE;
         }
-        int dailyLimit = dailyLimitForTier(tier);
-        if (dailyLimit == Integer.MAX_VALUE) return; // unlimited — skip counter
+        int dailyLimit = quotas.dailyLimitFor(tier);
+        if (dailyLimit == ChatQuotaProperties.UNLIMITED) return; // no cap — skip counting
 
         LocalDate today = Instant.ofEpochMilli(now)
                 .atZone(PallyTime.SGT).toLocalDate();
