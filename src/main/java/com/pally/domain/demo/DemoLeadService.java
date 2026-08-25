@@ -40,6 +40,17 @@ public class DemoLeadService {
      */
     public String submitLead(String orgName, String contactName, String email, String phone,
                              String segment, Integer estClasses, Integer estStudents) {
+        return submitLead(orgName, contactName, email, phone, segment, estClasses, estStudents, null);
+    }
+
+    /**
+     * @param message optional free text from the demo form, stored in
+     *         {@code demo_leads.notes}. The column already existed (nullable) and was
+     *         admin-only until now, so this needs no migration.
+     */
+    public String submitLead(String orgName, String contactName, String email, String phone,
+                             String segment, Integer estClasses, Integer estStudents,
+                             String message) {
         if (orgName == null || orgName.isBlank())
             throw new BusinessException("Organisation name is required", 400);
         if (contactName == null || contactName.isBlank())
@@ -65,6 +76,9 @@ public class DemoLeadService {
         lead.setSegment(seg);
         lead.setEstClasses(estClasses);
         lead.setEstStudents(estStudents);
+        if (message != null && !message.isBlank()) {
+            lead.setNotes(message.trim());
+        }
         lead.setStatus(DemoLeadJpaEntity.STATUS_NEW);
         lead.setCreatedAt(Instant.now());
         lead.setUpdatedAt(Instant.now());

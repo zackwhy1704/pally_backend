@@ -43,7 +43,7 @@ public class DemoRequestController {
 
         String leadId = demoLeadService.submitLead(
                 body.orgName(), body.contactName(), body.email(), body.phone(),
-                body.segment(), body.estClasses(), body.estStudents());
+                body.segment(), body.estClasses(), body.estStudents(), body.message());
         return ResponseEntity.ok(ApiResponse.success(Map.of("ok", true, "leadId", leadId)));
     }
 

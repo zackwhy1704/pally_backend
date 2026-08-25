@@ -27,22 +27,17 @@ class AuthIntegrationTest extends IntegrationTestBase {
 
     @Test
     void register_duplicateEmail_returns409() {
-        String email = "auth-dup-" + System.nanoTime() + "@test.com";
-        registerUser(email, "password123");
-        // Second registration with same email (role:"adult" so it passes the register
-        // shape guard and reaches the duplicate-email check, not the 400 blank-shape guard).
-        Map<String, Object> body = Map.of(
-                "email", email,
-                "password", "password456",
-                "displayName", "Dup User",
-                "role", "adult",
-                "acceptedTerms", true);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register",
-                new HttpEntity<>(body, headers), Map.class);
-        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        // Entry point moved off the now-closed /auth/register. The
+        // never-issue-a-token-for-an-existing-account invariant lives in
+        // AuthService.createAccount and still guards invite-based creation.
+        String email = "dupe-" + System.nanoTime() + "@test.com";
+        authServiceForFixtures.register(email, "password123", "First", "adult", null, null, true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                authServiceForFixtures.register(
+                        email, "password123", "Second", "adult", null, null, true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class)
+                .hasMessageContaining("already registered");
     }
 
     @Test
@@ -154,28 +149,20 @@ class AuthIntegrationTest extends IntegrationTestBase {
     /// for the sibling entry point.
     @Test
     void register_termsNotAccepted_rejects400_noAccountCreated() {
+        // INVARIANT PRESERVED, ENTRY POINT MOVED: /auth/register now 403s for every
+        // shape, so the terms gate is asserted where it actually lives — AuthService,
+        // which still guards invite-based creation.
         String email = "noterms-web-" + System.nanoTime() + "@test.com";
-        Map<String, Object> body = Map.of(
-                "email", email, "password", "password123",
-                "displayName", "No Terms", "role", "adult");
-        // acceptedTerms field omitted entirely.
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register",
-                new HttpEntity<>(body, headers), Map.class);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                authServiceForFixtures.register(
+                        email, "password123", "No Terms", "adult", null, null, false))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
 
-        // No account created: registering again with the SAME email and
-        // acceptedTerms:true now SUCCEEDS (201). Had the first request created the
-        // account, this would 409.
-        Map<String, Object> retryBody = Map.of(
-                "email", email, "password", "password123",
-                "displayName", "No Terms", "role", "adult", "acceptedTerms", true);
-        ResponseEntity<Map> retry = restTemplate.postForEntity(
-                baseUrl() + "/api/v1/auth/register",
-                new HttpEntity<>(retryBody, headers), Map.class);
-        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        // No account created: the same email registers cleanly afterwards. Had the
+        // refused call created the account, this would throw "Email already registered".
+        var ok = authServiceForFixtures.register(
+                email, "password123", "No Terms", "adult", null, null, true);
+        assertThat(ok.userId()).isNotNull();
     }
 }

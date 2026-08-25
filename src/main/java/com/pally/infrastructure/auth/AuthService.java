@@ -440,31 +440,29 @@ public class AuthService {
         }
 
         if (user == null) {
-            // Gated HERE, not before the sub/email lookups above — a returning user
-            // must never be blocked by this, only a genuinely NEW account.
-            if (!acceptedTerms) {
-                throw new BusinessException(
-                        "You must accept the Terms of Use to create an account", 400);
-            }
-            UserJpaEntity u = new UserJpaEntity();
-            u.setId(IdGenerator.newId());
-            u.setEmail(canonical);
-            u.setProvider(provider);
-            u.setProviderSub(providerSub);
-            u.setDisplayName(displayName != null ? displayName : "Player");
-            u.setStars(0);
-            u.setXp(0);
-            u.setLevel(1);
-            u.setStreakDays(0);
-            u.setCreatedAt(Instant.now());
-            u.setSetupComplete(false);
-            // Social sign-in never collects age → the new account is PENDING_PROFILE:
-            // it can sign in, but every consent-gated action is server-blocked
-            // (ConsentGuard.requireActive) until it completes the DOB step.
-            u.setAccountStatus(ConsentGuard.STATUS_PENDING_PROFILE);
-            user = userRepo.save(u);
-            consentService.recordTermsAcceptance(user.getId());
+            // SELF-SERVE SOCIAL SIGNUP CLOSED 2026-08-25.
+            //
+            // Reached ONLY when no existing account matched by provider-sub (step 1)
+            // or verified email (step 2) — i.e. this is a genuinely NEW account. Every
+            // returning-user branch above has already returned or thrown, so closing
+            // this branch does not touch sign-in for anyone who already has an account.
+            //
+            // This branch mattered more than the /signup page did: the memoly LOGIN
+            // page also calls /auth/google, so an unknown Google account could create
+            // an account from a page that never mentions signing up. Deleting the
+            // signup page alone would have left that path wide open.
+            //
+            // The invited-teacher route is POST /auth/accept-invite/register, where a
+            // valid centre-invite token authorises account creation.
+            //
+            // Mobile is unaffected — pally does not use social sign-in at all (it calls
+            // /auth/login, /auth/setup, /onboard/quick and friends, never /auth/google
+            // or /auth/apple).
+            throw new BusinessException(
+                    "Self-serve signup is closed. Apalchi for centres is invite-only — "
+                            + "request a demo at https://apalchi.com/demo.", 403);
         }
+
 
         boolean isNew = user.getCreatedAt().isAfter(Instant.now().minusSeconds(5));
         if (isNew) {

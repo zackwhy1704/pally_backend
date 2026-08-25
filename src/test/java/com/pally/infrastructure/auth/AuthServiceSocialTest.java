@@ -90,16 +90,20 @@ class AuthServiceSocialTest {
 
     @Test
     void unverifiedEmail_neverMatches_doesNotLinkToPasswordAccount() {
-        when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(userRepo.findByEmail(anyString()))
                 .thenReturn(Optional.of(passwordAccount("victim@x.com")));
 
-        // email_verified=false → must NOT match the victim; creates a standalone account.
-        authService.signInWithSocial("victim@x.com", false, "Someone", "google", "goog-sub-2", true);
+        // email_verified=false → must NOT match the victim. It used to fall through
+        // and create a standalone account; since self-serve social signup closed it
+        // is refused instead. The SECURITY property under test is unchanged and is
+        // what matters: an attacker-controllable unverified email never reaches the
+        // victim's row, and now cannot mint an account either.
+        assertThatThrownBy(() ->
+                authService.signInWithSocial(
+                        "victim@x.com", false, "Someone", "google", "goog-sub-2", true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
 
-        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
-        verify(userRepo).save(saved.capture());
-        assertThat(saved.getValue().getId()).isNotEqualTo("owner-1"); // NOT the victim
+        verify(userRepo, never()).save(any()); // the victim row is never touched
     }
 
     @Test
@@ -129,17 +133,27 @@ class AuthServiceSocialTest {
         assertThat(saved.getValue().getProviderSub()).isEqualTo("goog-sub-4");
     }
 
+    /**
+     * REWRITTEN, NOT DELETED — this used to assert a NEW social account is created
+     * sub-keyed. Self-serve social signup is closed (the web is invite-only), so the
+     * contract inverted: an unknown Google account must be REFUSED. Kept under the
+     * same name because it guards the same branch, now from the other side.
+     *
+     * <p>This branch mattered more than the /signup page: the memoly LOGIN page also
+     * calls /auth/google, so an unknown account could sign up from a page that never
+     * mentions signing up.
+     */
     @Test
-    void newSocialUser_isCreatedSubKeyed() {
+    void newSocialUser_isRefused_signupIsClosed() {
         when(userRepo.findByEmail("fresh@x.com")).thenReturn(Optional.empty());
-        when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        authService.signInWithSocial("fresh@x.com", true, "Fresh", "google", "goog-sub-5", true);
+        assertThatThrownBy(() ->
+                authService.signInWithSocial(
+                        "fresh@x.com", true, "Fresh", "google", "goog-sub-5", true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class)
+                .hasMessageContaining("invite-only");
 
-        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
-        verify(userRepo).save(saved.capture());
-        assertThat(saved.getValue().getProvider()).isEqualTo("google");
-        assertThat(saved.getValue().getProviderSub()).isEqualTo("goog-sub-5");
+        verify(userRepo, never()).save(any());
     }
 
     // ── acceptedTerms gate ───────────────────────────────────────────────
@@ -152,27 +166,39 @@ class AuthServiceSocialTest {
     void newSocialUser_termsNotAccepted_rejects400_noAccountCreated() {
         when(userRepo.findByEmail("fresh2@x.com")).thenReturn(Optional.empty());
 
+        // Still refused, and still creates nothing / mints no token — the invariant
+        // this test exists for. The REASON changed: signup closure is now checked
+        // before the terms gate, so the message is the invite-only one. Asserting the
+        // old "Terms of Use" text would pin a reason that no longer applies while the
+        // property it protects (no account, no token) is what actually matters.
         assertThatThrownBy(() ->
                 authService.signInWithSocial(
                         "fresh2@x.com", true, "Fresh", "google", "goog-sub-6", false))
-                .isInstanceOf(com.pally.shared.exception.BusinessException.class)
-                .hasMessageContaining("Terms of Use");
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
 
         verify(userRepo, never()).save(any());
         verify(consentService, never()).recordTermsAcceptance(any());
         verify(jwtService, never()).generateToken(anyString(), any(), anyInt());
     }
 
+    /**
+     * REWRITTEN, NOT DELETED. Previously: accepting terms creates the account and
+     * records consent. Now that self-serve social signup is closed, accepting terms
+     * must NOT buy an account — and no consent row may be written for an account
+     * that was never created (an orphaned consent row for a nonexistent user is the
+     * exact defect the original consent-ordering work fixed).
+     */
     @Test
-    void newSocialUser_termsAccepted_recordsConsentAfterAccountCreated() {
+    void newSocialUser_termsAccepted_stillCreatesNothing_andRecordsNoConsent() {
         when(userRepo.findByEmail("fresh3@x.com")).thenReturn(Optional.empty());
-        when(userRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        authService.signInWithSocial("fresh3@x.com", true, "Fresh", "google", "goog-sub-7", true);
+        assertThatThrownBy(() ->
+                authService.signInWithSocial(
+                        "fresh3@x.com", true, "Fresh", "google", "goog-sub-7", true))
+                .isInstanceOf(com.pally.shared.exception.BusinessException.class);
 
-        ArgumentCaptor<UserJpaEntity> saved = ArgumentCaptor.forClass(UserJpaEntity.class);
-        verify(userRepo).save(saved.capture());
-        verify(consentService).recordTermsAcceptance(saved.getValue().getId());
+        verify(userRepo, never()).save(any());
+        verify(consentService, never()).recordTermsAcceptance(any());
     }
 
     @Test
