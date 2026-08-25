@@ -97,15 +97,45 @@ public class SecurityConfig {
                     "/api/v1/subscription/revenuecat-webhook"
                 ).permitAll()
                 // Admin endpoints — must be checked BEFORE the catch-all
-                // authenticated() so /admin/** with a USER token returns 403,
-                // not "any authenticated principal". This closes the IDOR
-                // the audit flagged on /admin/chat-debug/{id} et al.
+                // authenticated() so /admin/** with a USER token is REJECTED
+                // rather than treated as "any authenticated principal". This
+                // closes the IDOR the audit flagged on /admin/chat-debug/{id}
+                // et al.
+                //
+                // (Corrected 2026-08-25: this comment previously said the
+                // rejection is a 403. Measured against a running server, a USER
+                // token on /admin/leads returns 401 "Authentication required" —
+                // the entry point answers before the access-denied handler. The
+                // authorization outcome is right; only the documented status was
+                // wrong, and CentreOnboardPrivilegeGateTest now pins the real one.)
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 // Same gate on the centre-admin bootstrap endpoint that
                 // creates organizations + promotes CENTRE_ADMIN — currently
                 // env-secret-guarded but ADMIN role is the canonical check.
                 .requestMatchers(org.springframework.http.HttpMethod.POST,
                         "/api/v1/centre/admin/**").hasRole("ADMIN")
+                // PRIVILEGE GAP (closed 2026-08-25): /centre/onboard creates an
+                // organization and makes the CALLER its owner, but it previously
+                // fell through to .anyRequest().authenticated() — so ANY
+                // authenticated principal could mint a centre and own it,
+                // including a mobile student account. Self-serve centre creation
+                // is exactly what the move to invite-only web access removes.
+                //
+                // ADMIN is an INTERIM gate. The intended long-term authorisation
+                // is the centre-invite token (an invited owner creates their org
+                // by accepting the invite), which does not exist yet — gating on
+                // it today would reference a mechanism that isn't built. ADMIN is
+                // also the gate already used for /admin/** and /centre/admin/**
+                // directly above, so this follows the established pattern rather
+                // than inventing a third one. Relax to the invite path when it
+                // lands; do NOT relax it back to authenticated().
+                //
+                // Blast radius verified before shipping: pally (mobile) calls
+                // only /centre/leave-class and /centre/redeem-class-code, never
+                // this endpoint; and all 17 production orgs already have owners,
+                // who never reach this path (onboard returns alreadyOwned).
+                .requestMatchers(org.springframework.http.HttpMethod.POST,
+                        "/api/v1/centre/onboard").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

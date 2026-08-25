@@ -57,10 +57,11 @@ class CentreStaffConsentBypassIntegrationTest extends IntegrationTestBase {
         AuthResult owner = registerUser(
                 "owner-" + System.nanoTime() + "@test.com", "password123");
 
-        // Onboard: sets org.ownerUserId, does NOT write an OrgStaff row.
-        ResponseEntity<Map> onboard = post("/api/v1/centre/onboard", owner.token(),
-                Map.of("centreName", "Bypass Test Centre"));
-        assertThat(onboard.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // Sets org.ownerUserId, does NOT write an OrgStaff row — the exact shape
+        // this test needs. Was POST /centre/onboard with the owner's USER token;
+        // that endpoint is now ADMIN-gated (self-serve centre creation was a
+        // privilege gap) and centre creation is not what this test asserts.
+        newOrgOwnedBy(owner.userId(), "Bypass Test Centre");
 
         String avatarId = createAvatar(owner.token());
 
@@ -75,10 +76,8 @@ class CentreStaffConsentBypassIntegrationTest extends IntegrationTestBase {
     void invitedStaff_noBirthYear_canUpload_notBlockedByConsentGate() {
         AuthResult owner = registerUser(
                 "staff-owner-" + System.nanoTime() + "@test.com", "password123");
-        ResponseEntity<Map> onboard = post("/api/v1/centre/onboard", owner.token(),
-                Map.of("centreName", "Staff Centre"));
-        assertThat(onboard.getStatusCode()).isEqualTo(HttpStatus.OK);
-        String orgId = (String) ((Map<?, ?>) onboard.getBody().get("data")).get("orgId");
+        // See the note above: /centre/onboard is ADMIN-gated now.
+        String orgId = newOrgOwnedBy(owner.userId(), "Staff Centre");
 
         AuthResult staff = registerUser(
                 "staff-" + System.nanoTime() + "@test.com", "password123");

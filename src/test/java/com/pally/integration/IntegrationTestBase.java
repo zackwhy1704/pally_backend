@@ -163,6 +163,31 @@ public abstract class IntegrationTestBase {
         return id;
     }
 
+    /**
+     * Creates an organization owned by {@code ownerUserId} and returns its id.
+     *
+     * <p>Replaces fixtures that called {@code POST /api/v1/centre/onboard} with a
+     * plain USER token to make themselves an owner. That endpoint is now
+     * ADMIN-gated: self-serve centre creation was a privilege gap (any
+     * authenticated principal, including a mobile student, could mint a centre and
+     * own it). Those tests were never ABOUT centre creation — they use an owned
+     * org as setup for consent-bypass and marking-IDOR assertions — so the fixture
+     * moves off the endpoint rather than the gate being weakened to suit it.
+     *
+     * <p>Faithful to {@code CentreService.onboard}: its only persistent effect is
+     * one organizations row (owner recorded on the org; deliberately no
+     * account_type change, and the owner's centreId stays null so they are not
+     * counted as a student seat). Every other column has a database default.
+     */
+    protected String newOrgOwnedBy(String ownerUserId, String centreName) {
+        String orgId = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update(
+                "INSERT INTO organizations (id, name, owner_user_id, seat_limit, created_at) "
+                        + "VALUES (?, ?, ?, 30, now())",
+                orgId, centreName, ownerUserId);
+        return orgId;
+    }
+
     // ── Test data cleanup ────────────────────────────────────────────────────
 
     /**

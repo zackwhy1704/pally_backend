@@ -36,10 +36,10 @@ class MarkingReferenceIntegrationTest extends IntegrationTestBase {
     void seedCentreAndClass() {
         owner = registerUser("marking-owner-" + System.nanoTime() + "@test.com", "password123");
 
-        ResponseEntity<Map> onboard = post("/api/v1/centre/onboard", owner.token(),
-                Map.of("centreName", "Marking Centre"));
-        assertThat(onboard.getStatusCode()).isEqualTo(HttpStatus.OK);
-        orgId = (String) ((Map<?, ?>) onboard.getBody().get("data")).get("orgId");
+        // Was POST /centre/onboard with the owner's own USER token. That endpoint
+        // is now ADMIN-gated (self-serve centre creation was a privilege gap), and
+        // this test is about marking references, not centre creation.
+        orgId = newOrgOwnedBy(owner.userId(), "Marking Centre");
 
         classId = createClass("P5 Math", "MATHS");
     }
