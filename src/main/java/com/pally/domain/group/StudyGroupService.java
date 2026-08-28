@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -60,6 +61,7 @@ public class StudyGroupService {
     private final WikiPageJpaRepository wikiPageRepo;
     private final RelevancePort relevancePort;
     private final UserJpaRepository userRepo;
+    private final com.pally.domain.block.BlockedUserRepository blockedUserRepo;
     private final PremiumService premiumService;
     private final XpService xpService;
     private final ModerationService moderationService;
@@ -139,8 +141,18 @@ public class StudyGroupService {
         var group = groupRepo.findById(groupId)
                 .orElseThrow(() -> new BusinessException("Group not found", 404));
 
+        // GUIDELINE 1.2 — blocked users are filtered OUT OF THE RESPONSE, not hidden
+        // in the widget tree. A client-side filter would still ship the blocked
+        // student's notes and name to the device, which defeats the point of a block.
+        // Read once per request: the group-detail load is the hot path.
+        Set<String> blocked = blockedUserRepo.blockedBy(userId);
+
         List<Map<String, Object>> members = new ArrayList<>();
         for (var m : memberRepo.findByGroupId(groupId)) {
+            // Membership is UNCHANGED by a block — the blocked student is still in
+            // the group and still enrolled in the class. They are simply not shown
+            // to this viewer. Blocking must never kick or unenrol anyone.
+            if (blocked.contains(m.getUserId())) continue;
             var u = userRepo.findById(m.getUserId()).orElse(null);
             members.add(Map.of(
                     "userId", m.getUserId(),
@@ -155,6 +167,10 @@ public class StudyGroupService {
                 // BLOCKED notes stay invisible to everyone except the sharer.
                 .filter(n -> !"BLOCKED".equals(n.getRelevanceStatus())
                         || n.getSharedBy().equals(userId))
+                // GUIDELINE 1.2: a blocked user's notes never reach the response.
+                // sharedBy is a USER ID here (proven by the equals(userId) check
+                // above), so this compares like with like.
+                .filter(n -> !blocked.contains(n.getSharedBy()))
                 .map(n -> {
                     Map<String, Object> m = new HashMap<>();
                     m.put("id", n.getId());
