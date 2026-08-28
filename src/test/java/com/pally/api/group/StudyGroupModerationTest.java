@@ -40,6 +40,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -62,6 +63,7 @@ class StudyGroupModerationTest {
     @Mock PremiumService premiumService;
     @Mock XpService xpService;
     @Mock ModerationService moderationService;
+    @Mock com.pally.domain.block.BlockedUserRepository blockedUserRepo;
 
     StudyGroupService service;
 
@@ -77,8 +79,11 @@ class StudyGroupModerationTest {
     @BeforeEach
     void setUp() {
         service = new StudyGroupService(groupRepo, memberRepo, sharedNoteRepo, reportRepo,
-                systemPostRepo, wikiPageRepo, relevancePort, userRepo, premiumService, xpService,
-                moderationService);
+                systemPostRepo, wikiPageRepo, relevancePort, userRepo, blockedUserRepo,
+                premiumService, xpService, moderationService);
+        // No blocks in these moderation tests — they predate blocking and assert the
+        // relevance/moderation path, so an empty block set keeps them unchanged.
+        lenient().when(blockedUserRepo.blockedBy(anyString())).thenReturn(java.util.Set.of());
         when(premiumService.resolveTier(USER)).thenReturn(SubscriptionTier.PRO);
         when(groupRepo.existsByInviteCode(anyString())).thenReturn(false);
         when(groupRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
